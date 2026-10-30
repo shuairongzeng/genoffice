@@ -56,3 +56,25 @@ export function placeFolderMenu(
   const top = clamp(preferredTop, margin, viewport.height - menu.height - margin)
   return { left, top }
 }
+
+/** the room a row's flyout submenu needs on its opening side (min-width + slack) */
+export const SUBMENU_CLEARANCE = 190
+
+/**
+ * Whether a row's flyout must mirror to the far side: the flyout opens
+ * toward the reading flow's end — the right of the row in ltr, the left in
+ * rtl — so ltr runs out of room at the viewport's right edge and rtl at its
+ * left. Pure geometry, so the desktop's direction flip is testable without
+ * a rendered menu.
+ */
+export function submenuFlipsOutOfView(
+  menuLeft: number,
+  menuWidth: number,
+  viewportWidth: number,
+  dir: 'ltr' | 'rtl',
+  margin: number = FOLDER_MENU_MARGIN,
+): boolean {
+  return dir === 'rtl'
+    ? menuLeft < SUBMENU_CLEARANCE + margin
+    : menuLeft + menuWidth + SUBMENU_CLEARANCE > viewportWidth
+}

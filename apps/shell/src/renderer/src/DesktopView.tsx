@@ -7,7 +7,7 @@ import type {
   ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
-import type { Lang } from '@genoffice/i18n'
+import { htmlDir, type Lang } from '@genoffice/i18n'
 import { useDismissablePopover } from '@genoffice/ui'
 import type {
   DesktopPinInfo,
@@ -20,7 +20,8 @@ import { DesktopPropsDialog, IconPropsDialog } from './DesktopProperties'
 import type { DesktopPropsTarget } from './DesktopProperties'
 import { ANIMATED_WALLPAPERS, DesktopWallpaperCenter } from './DesktopWallpaperCenter'
 import { FileBadge } from './file-badge'
-import { placeFolderMenu } from './folder-menu-position'
+import { placeFolderMenu, submenuFlipsOutOfView } from './folder-menu-position'
+import { handleMenuKeyDown } from './menu-keyboard'
 import type { SettingsTarget } from './SettingsModal'
 import {
   defaultDesktopProviders,
@@ -334,7 +335,10 @@ const EMPTY_POSITIONS: Readonly<Record<string, IconPos>> = {}
  * Everything the icons do goes through `window.aiOffice` or one of the
  * parent's callbacks (ask view, template gallery, settings modal, folder
  * view) — the desktop owns only its own layout. The look lives in
- * desktop.css; the context menu reuses Home's `.folder-menu` conventions.
+ * desktop.css; the context menu reuses Home's `.folder-menu` conventions,
+ * carries the menu-keyboard.ts arrow/Home/End model, and its flyout geometry
+ * follows the reading direction (`htmlDir(lang)`) so the rtl locales get
+ * mirrored menus, not clipped ones.
  */
 export function DesktopView({
   lang,
@@ -402,6 +406,13 @@ export function DesktopView({
   const surfaceRef = useRef<HTMLDivElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const surfaceMenuRef = useRef<HTMLDivElement | null>(null)
+  /** the element that had focus when a menu opened: what focus returns to
+   *  when the menu closes, instead of stranding on <body> when the focused
+   *  menu item unmounts */
+  const menuInvokerRef = useRef<HTMLElement | null>(null)
+  /** the menu was closed by Tab — focus is moving on by itself, so the
+   *  restore must not fight it */
+  const menuTabDismissRef = useRef(false)
   const starfieldRef = useRef<HTMLCanvasElement | null>(null)
   /** the backdrop layer's own root (portaled or in place): what the starfield
    * canvas sizes itself against — the whole Home window in desktop mode */
@@ -1095,13 +1106,62 @@ export function DesktopView({
     )
     el.style.left = `${left}px`
     el.style.top = `${top}px`
-    // flyouts open to the right of their row; near the viewport's right edge
-    // they mirror to the left so nothing is cut off
+    // flyouts open toward the reading flow's end (right in ltr, left in rtl);
+    // when that side has no room they mirror, so nothing is cut off
     el.classList.toggle(
       'flip-sub',
-      left + el.offsetWidth + 190 > document.documentElement.clientWidth,
+      submenuFlipsOutOfView(
+        left,
+        el.offsetWidth,
+        document.documentElement.clientWidth,
+        htmlDir(lang),
+      ),
     )
+  }, [surfaceMenu, lang])
+
+  // a menu that opens is keyboard-reachable at once: focus lands on its first
+  // item, so the arrows own the keyboard from the first press. The element
+  // that had focus is remembered — focus returns to it when the menu closes
+  // (the unmount of the focused item would otherwise leave it on <body>)
+  useLayoutEffect(() => {
+    if (menu === null) return
+    const active = document.activeElement
+    if (active instanceof HTMLElement && !menuRef.current?.contains(active)) {
+      menuInvokerRef.current = active
+    }
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+  }, [menu])
+
+  useLayoutEffect(() => {
+    if (surfaceMenu === null) return
+    const active = document.activeElement
+    if (active instanceof HTMLElement && !surfaceMenuRef.current?.contains(active)) {
+      menuInvokerRef.current = active
+    }
+    surfaceMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
   }, [surfaceMenu])
+
+  // the submenu that opens — by click or the inline-end arrow — takes focus
+  // on its first item, keeping the arrow walk inside it
+  useLayoutEffect(() => {
+    if (surfaceSub === null) return
+    surfaceMenuRef.current
+      ?.querySelector<HTMLElement>('.desktop-submenu [role="menuitem"]')
+      ?.focus()
+  }, [surfaceSub])
+
+  // every close path funnels here: restore the invoker unless focus is
+  // already somewhere (Tab carried it on, another surface took it) or the
+  // invoker is gone from the document
+  useLayoutEffect(() => {
+    if (menu !== null || surfaceMenu !== null) return
+    const invoker = menuInvokerRef.current
+    menuInvokerRef.current = null
+    const viaTab = menuTabDismissRef.current
+    menuTabDismissRef.current = false
+    if (viaTab || invoker === null || !invoker.isConnected) return
+    if (document.activeElement === document.body) invoker.focus()
+  }, [menu, surfaceMenu])
 
   const menuIcon = menu ? icons.find((icon) => icon.id === menu.id) : undefined
   // reveal applies to file icons and to aliases of either kind — a real file
@@ -1325,6 +1385,22 @@ export function DesktopView({
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return
       if (dialogOpen) return
+      // an open menu owns the keyboard: its own handler takes the arrows, and
+      // nothing that slips past it may move the icon grid behind the menu.
+      // Tab is the one exception — the menu's own handler dismisses on Tab,
+      // and this branch repairs the state where focus already left the menu
+      // (a Tab from before the menu handled it, or a press that blurred it):
+      // the menu closes and Tab's default action carries focus on, so no open
+      // menu ever strands the keyboard behind it
+      if (menu !== null || surfaceMenu !== null) {
+        if (event.key === 'Tab') {
+          menuTabDismissRef.current = true
+          setMenu(null)
+          setSurfaceMenu(null)
+          setSurfaceSub(null)
+        }
+        return
+      }
       // only when the desktop owns the keyboard: an icon, the surface, or nothing focused
       const target = event.target
       const owns =
@@ -1557,6 +1633,18 @@ export function DesktopView({
             ref={(el) => {
               menuRef.current = el
             }}
+            onKeyDown={(event) => {
+              handleMenuKeyDown(event, event.currentTarget, {
+                openSub: null,
+                onOpenSubmenu: () => {},
+                onCloseSubmenu: () => {},
+                onDismiss: () => {
+                  menuTabDismissRef.current = true
+                  setMenu(null)
+                },
+                dir: htmlDir(lang),
+              })
+            }}
           >
             <button
               role="menuitem"
@@ -1604,12 +1692,26 @@ export function DesktopView({
             ref={(el) => {
               surfaceMenuRef.current = el
             }}
+            onKeyDown={(event) => {
+              handleMenuKeyDown(event, event.currentTarget, {
+                openSub: surfaceSub,
+                onOpenSubmenu: (sub) => setSurfaceSub(sub),
+                onCloseSubmenu: () => setSurfaceSub(null),
+                onDismiss: () => {
+                  menuTabDismissRef.current = true
+                  setSurfaceMenu(null)
+                  setSurfaceSub(null)
+                },
+                dir: htmlDir(lang),
+              })
+            }}
           >
             <div className="desktop-menu-row">
               <button
                 role="menuitem"
                 aria-haspopup="menu"
                 aria-expanded={surfaceSub === 'new'}
+                data-submenu="new"
                 onClick={() => setSurfaceSub(surfaceSub === 'new' ? null : 'new')}
               >
                 {s.menuNew}
@@ -1629,6 +1731,7 @@ export function DesktopView({
                 role="menuitem"
                 aria-haspopup="menu"
                 aria-expanded={surfaceSub === 'sort'}
+                data-submenu="sort"
                 onClick={() => setSurfaceSub(surfaceSub === 'sort' ? null : 'sort')}
               >
                 {s.menuSort}
@@ -1657,6 +1760,7 @@ export function DesktopView({
                 role="menuitem"
                 aria-haspopup="menu"
                 aria-expanded={surfaceSub === 'view'}
+                data-submenu="view"
                 onClick={() => setSurfaceSub(surfaceSub === 'view' ? null : 'view')}
               >
                 {s.menuView}

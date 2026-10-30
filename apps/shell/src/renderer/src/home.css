@@ -1405,7 +1405,7 @@ body.vib .home {
   background: none;
   font: inherit;
   font-size: 14px;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   white-space: nowrap;
   color: var(--text);
