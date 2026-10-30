@@ -373,11 +373,12 @@ export interface DesktopPrefs {
 /**
  * A genoffice:// deep link. `ask` opens Home's Ask AI view (optionally
  * carrying the query text the link embedded), `palette` summons the command
- * palette, and `open` opens a document by absolute path. Only `ask` is
- * forwarded to the renderer; the main process handles the other two itself.
+ * palette, `open` opens a document by absolute path, and `desktop` shows the
+ * desktop surface. `ask` and `desktop` are forwarded to the renderer (they
+ * are Home view state); the main process handles the other two itself.
  */
 export interface DeepLinkPayload {
-  view: 'ask' | 'palette' | 'open'
+  view: 'ask' | 'palette' | 'open' | 'desktop'
   /** ask: the query text the link embedded */
   query?: string
   /** open: absolute path of the document to open */

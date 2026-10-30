@@ -131,10 +131,16 @@ ipcRenderer.on(HOME_CHANNELS.openSettings, (_event, target: { section: string })
   if (ipcRenderer.listenerCount(HOME_CHANNELS.openSettings) === 1) pendingOpenSettings.push(target)
 })
 
-/** a deep-link payload, validated; null when the link addresses another view */
-function asAskDeepLink(payload: unknown): DeepLinkPayload | null {
+/**
+ * A deep-link payload, validated and data-stripped to the shape the renderer
+ * branches on; null when the link addresses a view the renderer does not
+ * handle (palette and open are main-side). The desktop view carries no
+ * parameters, so a forged extra field never survives the gate.
+ */
+function asRendererDeepLink(payload: unknown): DeepLinkPayload | null {
   if (!payload || typeof payload !== 'object') return null
   const p = payload as Partial<DeepLinkPayload>
+  if (p.view === 'desktop') return { view: 'desktop' }
   if (p.view !== 'ask') return null
   return { view: 'ask', ...(typeof p.query === 'string' ? { query: p.query } : {}) }
 }
@@ -150,7 +156,7 @@ function asAskDeepLink(payload: unknown): DeepLinkPayload | null {
 const pendingDeepLinks: DeepLinkPayload[] = []
 ipcRenderer.on(HOME_CHANNELS.deepLink, (_event, payload: unknown) => {
   if (ipcRenderer.listenerCount(HOME_CHANNELS.deepLink) > 1) return
-  const link = asAskDeepLink(payload)
+  const link = asRendererDeepLink(payload)
   if (link) pendingDeepLinks.push(link)
 })
 
@@ -474,7 +480,7 @@ const homeApi: HomeApi = {
   },
   onDeepLink(handler) {
     const listener = (_event: IpcRendererEvent, payload: unknown) => {
-      const link = asAskDeepLink(payload)
+      const link = asRendererDeepLink(payload)
       if (link) handler(link)
     }
     ipcRenderer.on(HOME_CHANNELS.deepLink, listener)

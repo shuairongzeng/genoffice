@@ -249,11 +249,12 @@ const tPresence = createI18n({
 export const DEEP_LINK_SCHEME = 'genoffice'
 
 /**
- * Parse one deep-link URL. Three verbs exist:
+ * Parse one deep-link URL. Four verbs exist:
  * genoffice://ask?q=hello → { view: 'ask', query: 'hello' },
  * genoffice://palette → { view: 'palette' },
- * genoffice://open?path=%2F… → { view: 'open', path: '…' }. Anything else is
- * not a deep link (null) rather than an error.
+ * genoffice://open?path=%2F… → { view: 'open', path: '…' },
+ * genoffice://desktop → { view: 'desktop' }. Anything else is not a deep
+ * link (null) rather than an error.
  */
 export function parseDeepLink(raw: string): DeepLinkPayload | null {
   let url: URL
@@ -269,6 +270,7 @@ export function parseDeepLink(raw: string): DeepLinkPayload | null {
     return { view: 'ask', ...(query ? { query } : {}) }
   }
   if (host === 'palette') return { view: 'palette' }
+  if (host === 'desktop') return { view: 'desktop' }
   if (host === 'open') {
     // a link without a path has nothing to open; refusing it beats guessing
     const path = url.searchParams.get('path')
