@@ -15,7 +15,7 @@ export const id: Dict = {
   askTitle: 'Tanya basis pengetahuan anda',
   askEmptyCorpusHint:
     'Belum ada file berbintang — tandai beberapa file dahulu agar AI bisa membacanya.',
-  askCorpusCount: 'Basis pengetahuan: {n} file berbintang',
+  askCorpusCount: 'Basis pengetahuan: {n} file',
   askIntro:
     'Bertanyalah tentang file berbintang anda. Jawaban menyebut sumbernya — klik untuk membuka.',
   askToolSearch: 'Mencari basis pengetahuan',
@@ -30,6 +30,15 @@ export const id: Dict = {
   askSavedAs: 'Tersimpan: {name}',
   askSaveFailed: 'Gagal menyimpan: {error}',
   askEmptyCorpus: 'Basis pengetahuan kosong: tandai beberapa file dahulu, lalu bertanya.',
+  askEmptyCorpusFolders:
+    'Basis pengetahuan belum memiliki folder terpilih: pilih dulu di Pengaturan, lalu bertanya.',
+  askIntroFolders:
+    'Pertanyaan hanya mencari di folder pilihan Anda; jawaban menyebutkan sumbernya — klik untuk membuka.',
+  askHeroFoldersTagline:
+    'Ask AI hanya mencari di folder yang Anda pilih di Pengaturan dan mengutip berkas sumbernya — klik kutipan untuk membuka.',
+  askFoldersStep1Title: 'Pilih folder',
+  askFoldersStep1Desc: 'Tambahkan folder basis pengetahuan di Pengaturan › Umum',
+  askCtaScopeSettings: 'Pilih folder di Pengaturan',
   askNeedsLogin: 'Masuk ke Genspark untuk memakai obrolan AI.',
   askPlaceholder: 'Tanya tentang file berbintang anda…',
   askHintIdle: 'Enter untuk mengirim',
@@ -260,9 +269,15 @@ export const id: Dict = {
   setGlobalHotkeyRetry: 'Coba daftarkan ulang',
   setKbScope: 'Cakupan korpus Ask AI',
   setKbScopeDesc:
-    'Berkas mana yang dapat dicari dan dikutip Ask AI: semua yang tercakup indeks lokal, atau hanya berkas berbintang.',
+    'Berkas mana yang dapat dicari dan dikutip Ask AI: semua yang tercakup indeks lokal, hanya berkas berbintang, atau folder yang dipilih di bawah.',
   setKbScopeIndexed: 'Semua berkas terindeks',
   setKbScopeStarred: 'Hanya berbintang',
+  setKbScopeFolders: 'Folder terpilih',
+  setKbScopeFolderList: 'Daftar folder',
+  setKbScopeFoldersEmpty:
+    'Belum ada folder terpilih — tambahkan satu dan Ask AI hanya mencari di dalamnya.',
+  setKbScopeFoldersAdd: 'Tambah folder…',
+  setKbScopeFolderRemove: 'Hapus',
   setSearchRerank: 'Peringkat ulang Jev',
   setSearchRerankDesc:
     'Mengirim kutipan 20 hasil lokal teratas ke model Jev dari TypeSafe dan mengurutkannya ulang berdasarkan relevansi. Nonaktif secara bawaan; saat aktif, kutipan keluar dari perangkat ini.',

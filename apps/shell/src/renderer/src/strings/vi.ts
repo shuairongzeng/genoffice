@@ -14,7 +14,7 @@ export const vi: Dict = {
   askTitle: 'Hỏi cơ sở tri thức của bạn',
   askEmptyCorpusHint:
     'Chưa có tệp nào được đánh dấu — hãy đánh dấu tệp trước để AI có thể đọc chúng.',
-  askCorpusCount: 'Cơ sở tri thức: {n} tệp đã đánh dấu',
+  askCorpusCount: 'Cơ sở tri thức: {n} tệp',
   askIntro: 'Hỏi về các tệp bạn đã đánh dấu. Câu trả lời dẫn nguồn — nhấp để mở.',
   askToolSearch: 'Đang tìm cơ sở tri thức',
   askToolRead: 'Đang đọc tệp',
@@ -28,6 +28,14 @@ export const vi: Dict = {
   askSavedAs: 'Đã lưu: {name}',
   askSaveFailed: 'Không thể lưu: {error}',
   askEmptyCorpus: 'Cơ sở tri thức trống: hãy đánh dấu tệp trước rồi hỏi.',
+  askEmptyCorpusFolders:
+    'Chưa chọn thư mục nào cho cơ sở tri thức: chọn trong Cài đặt trước rồi hãy hỏi.',
+  askIntroFolders: 'Câu hỏi chỉ tìm trong các thư mục đã chọn; câu trả lời dẫn nguồn — nhấp để mở.',
+  askHeroFoldersTagline:
+    'Ask AI chỉ tìm trong các thư mục đã chọn trong Cài đặt và dẫn file nguồn — nhấp vào trích dẫn để mở.',
+  askFoldersStep1Title: 'Chọn thư mục',
+  askFoldersStep1Desc: 'Thêm thư mục cơ sở tri thức trong Cài đặt › Chung',
+  askCtaScopeSettings: 'Chọn thư mục trong Cài đặt',
   askNeedsLogin: 'Đăng nhập Genspark để dùng trò chuyện AI.',
   askPlaceholder: 'Hỏi về các tệp đã đánh dấu…',
   askHintIdle: 'Enter để gửi',
@@ -248,9 +256,14 @@ export const vi: Dict = {
   setGlobalHotkeyRetry: 'Thử đăng ký lại',
   setKbScope: 'Phạm vi kho ngữ liệu Ask AI',
   setKbScopeDesc:
-    'Những tệp Ask AI có thể tìm kiếm và trích dẫn: tất cả những gì chỉ mục cục bộ bao phủ, hoặc chỉ các tệp đã gắn sao.',
+    'Những file Ask AI có thể tìm và trích dẫn: tất cả những gì chỉ mục cục bộ bao phủ, chỉ file đã gắn sao, hoặc các thư mục đã chọn bên dưới.',
   setKbScopeIndexed: 'Mọi tệp đã lập chỉ mục',
   setKbScopeStarred: 'Chỉ tệp gắn sao',
+  setKbScopeFolders: 'Thư mục đã chọn',
+  setKbScopeFolderList: 'Danh sách thư mục',
+  setKbScopeFoldersEmpty: 'Chưa chọn thư mục nào — thêm một thư mục và Ask AI chỉ tìm bên trong.',
+  setKbScopeFoldersAdd: 'Thêm thư mục…',
+  setKbScopeFolderRemove: 'Xóa',
   setSearchRerank: 'Sắp xếp lại kết quả tìm kiếm Jev',
   setSearchRerankDesc:
     'Gửi đoạn trích của 20 kết quả hàng đầu cục bộ tới mô hình Jev của TypeSafe và sắp xếp lại theo mức độ liên quan. Tắt theo mặc định; khi bật, các đoạn trích sẽ được gửi ra ngoài thiết bị này.',

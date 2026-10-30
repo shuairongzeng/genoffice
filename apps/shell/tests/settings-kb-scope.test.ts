@@ -11,9 +11,12 @@ import { SettingsModal } from '../src/renderer/src/SettingsModal'
 
 /**
  * The settings center's Ask AI corpus-scope group (General section): the
- * two-option radio reads the stored kbScope through the bridge and writes a
- * pick through setKbScope, taking the returned value as the truth. A bridge
- * without the pair (an older preload) hides the group rather than showing a
+ * three-option radio reads the stored kbScope through the bridge and writes
+ * a pick through setKbScope, taking the returned value as the truth. The
+ * 'folders' option grows a folder list — added through the OS picker,
+ * written straight to app-settings — that reads through
+ * getKbScopeFolders and follows each add/remove answer. A bridge without
+ * the scope pair (an older preload) hides the group rather than showing a
  * toggle that cannot work.
  */
 
@@ -88,7 +91,7 @@ async function openGeneral(api: HomeApi): Promise<void> {
   })
 }
 
-/** the two radio buttons of the scope group, in display order */
+/** the three radio buttons of the scope group, in display order */
 const scopeButtons = () =>
   Array.from(
     host.querySelectorAll<HTMLButtonElement>(
@@ -96,10 +99,19 @@ const scopeButtons = () =>
     ),
   )
 
+/** the folder rows of the 'folders' scope's list: [path, removeButton] */
+const folderRows = () =>
+  Array.from(host.querySelectorAll<HTMLLIElement>('ul.set-kb-folders > li')).map((li) => [
+    li.querySelector<HTMLSpanElement>('.set-kb-folder-path')!,
+    li.querySelector<HTMLButtonElement>('button')!,
+  ]) as [HTMLSpanElement, HTMLButtonElement][]
+
 describe('Settings — Ask AI corpus scope', () => {
-  it('renders the two options from the stored scope and writes a pick', async () => {
+  it('renders the three options from the stored scope and writes a pick', async () => {
     const setKbScope = vi
-      .fn<(scope: 'indexed' | 'starred') => Promise<'indexed' | 'starred'>>()
+      .fn<
+        (scope: 'indexed' | 'starred' | 'folders') => Promise<'indexed' | 'starred' | 'folders'>
+      >()
       .mockResolvedValue('starred')
     await openGeneral({
       ...stubApi(),
@@ -107,7 +119,11 @@ describe('Settings — Ask AI corpus scope', () => {
       setKbScope,
     } as unknown as HomeApi)
     const buttons = scopeButtons()
-    expect(buttons.map((b) => b.textContent)).toEqual(['All indexed files', 'Starred only'])
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      'All indexed files',
+      'Starred only',
+      'Chosen folders',
+    ])
     expect(buttons[0]!.getAttribute('aria-checked')).toBe('true')
     expect(buttons[1]!.getAttribute('aria-checked')).toBe('false')
 
@@ -120,9 +136,85 @@ describe('Settings — Ask AI corpus scope', () => {
     expect(scopeButtons()[1]!.getAttribute('aria-checked')).toBe('true')
   })
 
+  it('picking the folders scope writes it and grows the folder list', async () => {
+    const setKbScope = vi
+      .fn<
+        (scope: 'indexed' | 'starred' | 'folders') => Promise<'indexed' | 'starred' | 'folders'>
+      >()
+      .mockResolvedValue('folders')
+    await openGeneral({
+      ...stubApi(),
+      getKbScope: async () => 'starred',
+      getKbScopeFolders: async () => [],
+      setKbScope,
+    } as unknown as HomeApi)
+    // the list block is exclusive to the folders scope
+    expect(host.querySelector('ul.set-kb-folders')).toBeNull()
+    expect(folderRows()).toHaveLength(0)
+
+    await act(async () => {
+      scopeButtons()[2]!.click()
+      await Promise.resolve()
+    })
+    expect(setKbScope).toHaveBeenCalledWith('folders')
+    // empty list state: the explainer, not a blank box
+    expect(scopeButtons()[2]!.getAttribute('aria-checked')).toBe('true')
+    expect(host.textContent).toContain('No folders chosen yet')
+  })
+
+  it('lists the stored folders and follows remove/add answers', async () => {
+    const removeKbScopeFolder = vi.fn<(path: string) => Promise<string[]>>().mockResolvedValue([])
+    const addKbScopeFolder = vi
+      .fn<() => Promise<string | null>>()
+      .mockResolvedValueOnce('/Users/me/contracts')
+      .mockResolvedValueOnce(null)
+    await openGeneral({
+      ...stubApi(),
+      getKbScope: async () => 'folders',
+      setKbScope: async () => 'folders',
+      getKbScopeFolders: async () => ['/Users/me/proj'],
+      removeKbScopeFolder,
+      addKbScopeFolder,
+    } as unknown as HomeApi)
+
+    let rows = folderRows()
+    expect(rows.map(([path]) => path.textContent)).toEqual(['/Users/me/proj'])
+    expect(rows[0]![0]!.getAttribute('title')).toBe('/Users/me/proj')
+
+    // remove: the bridge's returned list is the truth, not a local splice
+    await act(async () => {
+      rows[0]![1]!.click()
+      await Promise.resolve()
+    })
+    expect(removeKbScopeFolder).toHaveBeenCalledWith('/Users/me/proj')
+    expect(folderRows()).toHaveLength(0)
+
+    // add: the returned real path joins the list
+    const add = Array.from(host.querySelectorAll<HTMLButtonElement>('.btn')).find(
+      (button) => button.textContent === 'Add folder…',
+    )
+    expect(add).toBeDefined()
+    await act(async () => {
+      add!.click()
+      await Promise.resolve()
+    })
+    expect(addKbScopeFolder).toHaveBeenCalledTimes(1)
+    expect(folderRows().map(([path]) => path.textContent)).toEqual(['/Users/me/contracts'])
+
+    // a cancelled picker (null) leaves the list alone
+    await act(async () => {
+      add!.click()
+      await Promise.resolve()
+    })
+    expect(addKbScopeFolder).toHaveBeenCalledTimes(2)
+    expect(folderRows().map(([path]) => path.textContent)).toEqual(['/Users/me/contracts'])
+  })
+
   it('a refused write keeps the persisted scope', async () => {
     const setKbScope = vi
-      .fn<(scope: 'indexed' | 'starred') => Promise<'indexed' | 'starred'>>()
+      .fn<
+        (scope: 'indexed' | 'starred' | 'folders') => Promise<'indexed' | 'starred' | 'folders'>
+      >()
       .mockRejectedValue(new Error('settings file unwritable'))
     await openGeneral({
       ...stubApi(),

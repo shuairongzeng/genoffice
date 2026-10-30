@@ -15,7 +15,7 @@ export const ja: Dict = {
   askTitle: 'ナレッジベースに質問',
   askEmptyCorpusHint:
     'スター付きファイルがまだありません。先にファイルをスターすると、AI が読めます。',
-  askCorpusCount: 'ナレッジベース:スター付き {n} 件',
+  askCorpusCount: 'ナレッジベース:{n} 件',
   askIntro: 'スター付きファイルについて質問できます。回答には出典が付き、クリックで開けます。',
   askToolSearch: 'ナレッジベースを検索中',
   askToolRead: 'ファイルを読み込み中',
@@ -29,6 +29,15 @@ export const ja: Dict = {
   askSavedAs: '保存済み: {name}',
   askSaveFailed: '保存できませんでした: {error}',
   askEmptyCorpus: 'ナレッジベースは空です:先にファイルをスターしてから質問してください。',
+  askEmptyCorpusFolders:
+    'ナレッジベースにフォルダーが未選択です:先に設定でフォルダーを選んでから質問してください。',
+  askIntroFolders:
+    '質問は選択したフォルダー内のみを検索します。回答は出典を示します—クリックで開けます。',
+  askHeroFoldersTagline:
+    'Ask AI は設定で選択したフォルダー内のみを検索し、出典ファイルを引用します—引用をクリックして開けます。',
+  askFoldersStep1Title: 'フォルダーを選択',
+  askFoldersStep1Desc: '設定 › 一般でナレッジベースのフォルダーを追加',
+  askCtaScopeSettings: '設定でフォルダーを選択',
   askNeedsLogin: 'AI チャットには Genspark へのログインが必要です。',
   askPlaceholder: 'スター付きファイルについて質問…',
   askHintIdle: 'Enter で送信',
@@ -259,9 +268,15 @@ export const ja: Dict = {
   setGlobalHotkeyRetry: '登録を再試行',
   setKbScope: 'Ask AI のコーパス範囲',
   setKbScopeDesc:
-    'Ask AI が検索・引用できるファイルの範囲です。ローカル索引のすべて、またはスター付きファイルのみ。',
+    'Ask AI が検索・引用できるファイルの範囲です。ローカル索引のすべて、スター付きファイルのみ、または下で選択したフォルダー。',
   setKbScopeIndexed: '索引付きファイルすべて',
   setKbScopeStarred: 'スター付きのみ',
+  setKbScopeFolders: '選択したフォルダー',
+  setKbScopeFolderList: 'フォルダー一覧',
+  setKbScopeFoldersEmpty:
+    'まだフォルダーが未選択です — 追加すると Ask AI はその中だけを検索します。',
+  setKbScopeFoldersAdd: 'フォルダーを追加…',
+  setKbScopeFolderRemove: '削除',
   setSearchRerank: 'Jev 検索リランク',
   setSearchRerankDesc:
     'ローカル検索の上位 20 件の抜粋を TypeSafe の Jev モデルに送り、関連度で並べ替えます。既定ではオフ。オンにすると抜粋が端末外に送信されます。',

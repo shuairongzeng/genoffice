@@ -1961,6 +1961,7 @@ export function Home() {
           onOpenPath={(path) => void window.aiOffice.openPath(path)}
           onGoToRecents={() => changeView('recent')}
           onOpenModelSettings={() => setSettingsRequest({ section: 'aiModel' })}
+          onOpenScopeSettings={() => setSettingsRequest({ section: 'general' })}
           pendingQuery={pendingAskQuery}
           onPendingQueryConsumed={() => setPendingAskQuery(null)}
         />

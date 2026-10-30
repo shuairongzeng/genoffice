@@ -14,7 +14,7 @@ export const it: Dict = {
   askTitle: 'Interroga la tua base di conoscenza',
   askEmptyCorpusHint:
     'Ancora nessun file preferito — contrassegnane prima alcuni perché l’IA possa leggerli.',
-  askCorpusCount: 'Base di conoscenza: {n} file preferiti',
+  askCorpusCount: 'Base di conoscenza: {n} file',
   askIntro:
     'Chiedi informazioni sui tuoi file preferiti. Le risposte citano la fonte — clicca per aprire.',
   askToolSearch: 'Ricerca nella base',
@@ -29,6 +29,15 @@ export const it: Dict = {
   askSavedAs: 'Salvato: {name}',
   askSaveFailed: 'Salvataggio non riuscito: {error}',
   askEmptyCorpus: 'La base di conoscenza è vuota: contrassegna prima alcuni file, poi chiedi.',
+  askEmptyCorpusFolders:
+    'Nessuna cartella scelta per la base di conoscenza: selezionala prima nelle Impostazioni, poi chiedi.',
+  askIntroFolders:
+    'Le domande cercano solo nelle cartelle scelte; le risposte citano le fonti — clicca per aprire.',
+  askHeroFoldersTagline:
+    'Ask AI cerca solo nelle cartelle scelte nelle Impostazioni e cita il file sorgente — clicca la citazione per aprirlo.',
+  askFoldersStep1Title: 'Scegli cartelle',
+  askFoldersStep1Desc: 'Aggiungi cartelle della base di conoscenza in Impostazioni › Generale',
+  askCtaScopeSettings: 'Scegli cartelle nelle Impostazioni',
   askNeedsLogin: 'Accedi a Genspark per usare la chat IA.',
   askPlaceholder: 'Chiedi qualcosa sui tuoi file preferiti…',
   askHintIdle: 'Invio per inviare',
@@ -254,9 +263,15 @@ export const it: Dict = {
   setGlobalHotkeyRetry: 'Riprova registrazione',
   setKbScope: 'Ambito del corpus Ask AI',
   setKbScopeDesc:
-    'Quali file Ask AI può cercare e citare: tutto ciò che copre l’indice locale, o solo i preferiti.',
+    'Quali file Ask AI può cercare e citare: tutto ciò che copre l’indice locale, solo i preferiti, o le cartelle scelte sotto.',
   setKbScopeIndexed: 'Tutti i file indicizzati',
   setKbScopeStarred: 'Solo i preferiti',
+  setKbScopeFolders: 'Cartelle scelte',
+  setKbScopeFolderList: 'Elenco cartelle',
+  setKbScopeFoldersEmpty:
+    'Nessuna cartella scelta per ora — aggiungine una e Ask AI cercherà solo al loro interno.',
+  setKbScopeFoldersAdd: 'Aggiungi cartella…',
+  setKbScopeFolderRemove: 'Rimuovi',
   setSearchRerank: 'Riordino con Jev',
   setSearchRerankDesc:
     'Invia gli estratti dei 20 migliori risultati locali al modello Jev di TypeSafe e li riordina per pertinenza. Disattivato per impostazione predefinita; se attivo, gli estratti lasciano questo dispositivo.',

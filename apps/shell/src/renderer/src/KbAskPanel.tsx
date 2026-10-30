@@ -82,8 +82,8 @@ import sendStop from './assets/send-stop.png'
 /** The one transcript the panel keeps. Stable across launches by design. */
 const CHAT_ID = 'kb-ask'
 
-/** the two corpus scopes app-settings `kbScope` may hold (mirrors home-api's KbScope) */
-type KbScopeValue = 'indexed' | 'starred'
+/** the corpus scopes app-settings `kbScope` may hold (mirrors home-api's KbScope) */
+type KbScopeValue = 'indexed' | 'starred' | 'folders'
 
 const TOOL_NOTE_LABEL = {
   search: 'askToolSearch',
@@ -435,6 +435,7 @@ export function KbAskPanel({
   onOpenPath,
   onGoToRecents,
   onOpenModelSettings,
+  onOpenScopeSettings,
   pendingQuery,
   onPendingQueryConsumed,
 }: {
@@ -442,6 +443,8 @@ export function KbAskPanel({
   onGoToRecents: () => void
   /** Settings › AI Model, the model chip's last row */
   onOpenModelSettings: () => void
+  /** Settings › General, where the corpus scope and its folder list live */
+  onOpenScopeSettings: () => void
   /** a question routed in from the palette fallback or a deep link; a palette
    *  one is submitted as a new message, a deep-link one parks in the composer */
   pendingQuery?: PendingAskQuery | null
@@ -555,6 +558,33 @@ export function KbAskPanel({
    * next Ask view entry.
    */
   const [kbScope, setKbScope] = useState<KbScopeValue>('indexed')
+
+  /**
+   * The scope-keyed copy: every guidance/hero surface names the corpus the
+   * scope actually means, in the scope's own words.
+   */
+  const scopeKey = <K extends string>(starred: K, folders: K, indexed: K): K =>
+    kbScope === 'starred' ? starred : kbScope === 'folders' ? folders : indexed
+
+  /**
+   * One corpus snapshot; sends and scope changes refresh it (see ask() and
+   * the scope subscription). A bridge without the kb channel (defensive: the
+   * shell always exposes it) leaves the corpus empty, which keeps the panel
+   * on its guidance.
+   */
+  const refreshCorpus = useCallback(() => {
+    if (typeof window.aiOffice?.kbList !== 'function') {
+      setCorpusCount(0)
+      return
+    }
+    void window.aiOffice
+      .kbList()
+      .then((files) => {
+        corpusRef.current = files
+        setCorpusCount(files.length)
+      })
+      .catch(() => setCorpusCount(0))
+  }, [])
   const chatIdsRef = useRef<{ projectId: string; chatId: string } | null>(null)
   /** the thread id the CLI tools key their work directory on */
   const activeChatRef = useRef<string>(CHAT_ID)
@@ -806,26 +836,24 @@ export function KbAskPanel({
   // the corpus scope behind the guidance: read only when the bridge carries
   // the channel, so a preload that predates it keeps the default guidance
   useEffect(() => {
-    const bridge = window.aiOffice as unknown as { getKbScope?: () => Promise<KbScopeValue> }
+    const bridge = window.aiOffice as unknown as {
+      getKbScope?: () => Promise<KbScopeValue>
+      onKbScopeChanged?: (handler: () => void) => () => void
+    }
     if (typeof bridge.getKbScope !== 'function') return
     void bridge.getKbScope().then(setKbScope, () => undefined)
-  }, [])
+    // the settings page can switch the scope (or its folder list) while the
+    // panel is open: follow the push instead of showing the mounted scope
+    const offScopeChanged = bridge.onKbScopeChanged?.(() => {
+      void bridge.getKbScope?.().then(setKbScope, () => undefined)
+      refreshCorpus()
+    })
+    return () => offScopeChanged?.()
+  }, [refreshCorpus])
 
   useEffect(() => {
-    // one corpus snapshot per mount; sends refresh it again (see ask()).
-    // A bridge without the kb channel (defensive: the shell always exposes
-    // it) leaves the corpus empty, which keeps the panel on its guidance.
-    if (typeof window.aiOffice?.kbList !== 'function') {
-      setCorpusCount(0)
-      return
-    }
-    void window.aiOffice
-      .kbList()
-      .then((files) => {
-        corpusRef.current = files
-        setCorpusCount(files.length)
-      })
-      .catch(() => setCorpusCount(0))
+    // one corpus snapshot per mount; sends and scope changes refresh it again
+    refreshCorpus()
     // the desktop loop's first manifest snapshot; tab changes re-pull so the
     // read tools follow what is actually open (sends refresh it again too)
     refreshAppManifest()
@@ -1123,9 +1151,9 @@ export function KbAskPanel({
     if (askSeqRef.current !== seq) return
     // a question about an attached file needs no starred corpus
     if (corpusRef.current.length === 0 && availableAttachments().length === 0) {
-      // the scope says which empty this is: nothing starred yet, or an index
-      // that has not scanned anything yet
-      const guidance = t(kbScope === 'starred' ? 'askEmptyCorpus' : 'askEmptyCorpusHint')
+      // the scope says which empty this is: nothing starred yet, no folders
+      // chosen yet, or an index that has not scanned anything yet
+      const guidance = t(scopeKey('askEmptyCorpus', 'askEmptyCorpusFolders', 'askEmptyCorpusHint'))
       mutateMessages((prev) => [
         ...prev,
         { role: 'user', text: instruction, toolNotes: [], artifacts: [] },
@@ -1375,13 +1403,17 @@ export function KbAskPanel({
               <IconBookOpen />
             </div>
             <h3>{t('askTitle')}</h3>
-            <p>{t(kbScope === 'starred' ? 'askHeroTagline' : 'askHeroIndexedTagline')}</p>
+            <p>{t(scopeKey('askHeroTagline', 'askHeroFoldersTagline', 'askHeroIndexedTagline'))}</p>
             <div className="kb-ask-steps">
               <div className="kb-ask-step">
                 <span className="kb-ask-step-num">1</span>
                 <div>
-                  <b>{t(kbScope === 'starred' ? 'askStep1Title' : 'askIndexedStep1Title')}</b>
-                  <span>{t(kbScope === 'starred' ? 'askStep1Desc' : 'askIndexedStep1Desc')}</span>
+                  <b>
+                    {t(scopeKey('askStep1Title', 'askFoldersStep1Title', 'askIndexedStep1Title'))}
+                  </b>
+                  <span>
+                    {t(scopeKey('askStep1Desc', 'askFoldersStep1Desc', 'askIndexedStep1Desc'))}
+                  </span>
                 </div>
               </div>
               <div className="kb-ask-step">
@@ -1399,14 +1431,20 @@ export function KbAskPanel({
                 </div>
               </div>
             </div>
-            <button className="kb-ask-cta" type="button" onClick={onGoToRecents}>
+            <button
+              className="kb-ask-cta"
+              type="button"
+              onClick={kbScope === 'folders' ? onOpenScopeSettings : onGoToRecents}
+            >
               {kbScope === 'starred' ? <IconStar /> : <IconFolder />}
-              {t(kbScope === 'starred' ? 'askCtaRecents' : 'askCtaBrowseRecents')}
+              {t(scopeKey('askCtaRecents', 'askCtaScopeSettings', 'askCtaBrowseRecents'))}
             </button>
           </div>
         )}
         {messages.length === 0 && corpusCount !== null && corpusCount > 0 && (
-          <p className="kb-ask-hint">{t(kbScope === 'starred' ? 'askIntro' : 'askIntroIndexed')}</p>
+          <p className="kb-ask-hint">
+            {t(scopeKey('askIntro', 'askIntroFolders', 'askIntroIndexed'))}
+          </p>
         )}
         {messages.map((m, i) => (
           <AskMessageRow

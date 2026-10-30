@@ -14,7 +14,7 @@ export const pt: Dict = {
   askTitle: 'Consulte sua base de conhecimento',
   askEmptyCorpusHint:
     'Ainda não há arquivos favoritos — marque alguns primeiro para a IA poder lê-los.',
-  askCorpusCount: 'Base de conhecimento: {n} arquivos favoritos',
+  askCorpusCount: 'Base de conhecimento: {n} arquivos',
   askIntro:
     'Pergunte sobre seus arquivos favoritos. As respostas citam as fontes — clique para abrir.',
   askToolSearch: 'Pesquisando na base',
@@ -29,6 +29,15 @@ export const pt: Dict = {
   askSavedAs: 'Salvo: {name}',
   askSaveFailed: 'Não foi possível salvar: {error}',
   askEmptyCorpus: 'A base de conhecimento está vazia: marque arquivos primeiro e depois pergunte.',
+  askEmptyCorpusFolders:
+    'Ainda não há pastas escolhidas para a base de conhecimento: escolha primeiro nas Definições e depois pergunte.',
+  askIntroFolders:
+    'As perguntas pesquisam apenas nas pastas escolhidas; as respostas citam as fontes — clique para abrir.',
+  askHeroFoldersTagline:
+    'O Ask AI pesquisa apenas nas pastas escolhidas nas Definições e cita o ficheiro de origem — clique na citação para abrir.',
+  askFoldersStep1Title: 'Escolher pastas',
+  askFoldersStep1Desc: 'Adicione pastas da base de conhecimento em Definições › Geral',
+  askCtaScopeSettings: 'Escolher pastas nas Definições',
   askNeedsLogin: 'Entre no Genspark para usar o chat de IA.',
   askPlaceholder: 'Pergunte sobre seus arquivos favoritos…',
   askHintIdle: 'Enter para enviar',
@@ -254,9 +263,15 @@ export const pt: Dict = {
   setGlobalHotkeyRetry: 'Tentar registar de novo',
   setKbScope: 'Âmbito do corpus do Ask AI',
   setKbScopeDesc:
-    'Que ficheiros o Ask AI pode pesquisar e citar: tudo o que o índice local cobre, ou só os favoritos.',
+    'Que ficheiros o Ask AI pode pesquisar e citar: tudo o que o índice local cobre, só os favoritos, ou as pastas escolhidas abaixo.',
   setKbScopeIndexed: 'Todos os ficheiros indexados',
   setKbScopeStarred: 'Só favoritos',
+  setKbScopeFolders: 'Pastas escolhidas',
+  setKbScopeFolderList: 'Lista de pastas',
+  setKbScopeFoldersEmpty:
+    'Ainda sem pastas escolhidas — adicione uma e o Ask AI pesquisa só dentro delas.',
+  setKbScopeFoldersAdd: 'Adicionar pasta…',
+  setKbScopeFolderRemove: 'Remover',
   setSearchRerank: 'Reordenação com Jev',
   setSearchRerankDesc:
     'Envia os trechos dos 20 melhores resultados locais ao modelo Jev da TypeSafe e os reordena por relevância. Desativado por padrão; quando ativo, os trechos saem deste dispositivo.',

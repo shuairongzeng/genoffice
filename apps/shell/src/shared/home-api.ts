@@ -311,8 +311,11 @@ export interface DesktopLayout {
   readonly aliases: readonly string[]
 }
 
-/** the Ask AI corpus scope (app-settings.json `kbScope`); default: the whole index */
-export type KbScope = 'indexed' | 'starred'
+/**
+ * The Ask AI corpus scope (app-settings.json `kbScope`); default: the whole
+ * index. `'folders'` narrows the corpus to the roots in `kbScopeFolders`.
+ */
+export type KbScope = 'indexed' | 'starred' | 'folders'
 
 /**
  * What `desktopLayoutSave` accepts: positions only. The alias list is the
@@ -514,6 +517,14 @@ export interface HomeApi {
   getKbScope(): Promise<KbScope>
   /** switch the Ask AI corpus scope; resolves to the effective scope */
   setKbScope(scope: KbScope): Promise<KbScope>
+  /** the 'folders' scope's roots (app-settings.json `kbScopeFolders`) */
+  getKbScopeFolders(): Promise<string[]>
+  /** open the OS folder picker and add the picked folder to the scope's list; resolves to the added realpath, or null when cancelled or unusable */
+  addKbScopeFolder(): Promise<string | null>
+  /** take one folder out of the scope's list; resolves to the remaining list */
+  removeKbScopeFolder(path: string): Promise<string[]>
+  /** the corpus scope changed in the main process — the panel re-reads its scope and corpus */
+  onKbScopeChanged(handler: () => void): () => void
   /** toggle the global hotkey and/or change its accelerator; resolves to the effective settings */
   setGlobalHotkey(patch: {
     enabled?: boolean
@@ -521,7 +532,7 @@ export interface HomeApi {
   }): Promise<SystemPresenceSettings>
   /** open Settings › Integrations (the skills list) */
   openSkillsSettings(): Promise<void>
-  /** full-text search over the corpus (scope `kbScope` in app-settings: index-wide by default, or starred-only) */
+  /** full-text search over the corpus (scope `kbScope` in app-settings: index-wide by default, starred-only, or the folders list) */
   kbSearch(query: { q: string; limit?: number }): Promise<KbSearchHit[]>
   /** one page of a corpus file's parsed text (path must be in the corpus scope) */
   kbRead(path: string, offset: number): Promise<KbReadPage>
@@ -951,6 +962,10 @@ export const HOME_CHANNELS = {
   systemPresenceSetHotkey: 'home:system-presence-set-hotkey',
   kbGetScope: 'kb:get-scope',
   kbSetScope: 'kb:set-scope',
+  kbGetScopeFolders: 'kb:get-scope-folders',
+  kbAddScopeFolder: 'kb:add-scope-folder',
+  kbRemoveScopeFolder: 'kb:remove-scope-folder',
+  kbScopeChanged: 'kb:scope-changed',
   removeRecent: 'home:remove-recent',
   revealPath: 'home:reveal-path',
   renameFile: 'home:rename-file',

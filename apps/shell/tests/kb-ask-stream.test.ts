@@ -215,6 +215,7 @@ function render(): void {
             onOpenPath: () => {},
             onGoToRecents: () => {},
             onOpenModelSettings: () => {},
+            onOpenScopeSettings: () => {},
           }),
         ),
       ),

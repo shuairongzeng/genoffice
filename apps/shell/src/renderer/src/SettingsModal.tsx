@@ -61,15 +61,19 @@ import './settings.css'
  * The Ask AI corpus-scope bridge (the kb:get-scope / kb:set-scope channels the
  * shell main registers in desktop-ipc.ts). Optional here the way every other
  * bridge method is — a preload that predates the pair simply leaves the scope
- * group hidden instead of showing a toggle that cannot work.
+ * group hidden instead of showing a toggle that cannot work. The 'folders'
+ * scope's list rides on the same bridge (kb:get-scope-folders and friends).
  */
 interface KbScopeBridge {
   getKbScope?: () => Promise<KbScopeValue>
   setKbScope?: (scope: KbScopeValue) => Promise<KbScopeValue>
+  getKbScopeFolders?: () => Promise<string[]>
+  addKbScopeFolder?: () => Promise<string | null>
+  removeKbScopeFolder?: (path: string) => Promise<string[]>
 }
 
-/** the two corpus scopes app-settings.json `kbScope` may hold */
-type KbScopeValue = 'indexed' | 'starred'
+/** the corpus scopes app-settings.json `kbScope` may hold */
+type KbScopeValue = 'indexed' | 'starred' | 'folders'
 
 // sorted by ISO 639 language code — native-script labels have no natural
 // shared alphabet, so the code is the ordering key
@@ -1936,6 +1940,8 @@ export function SettingsModal({
   const [hotkeyDraft, setHotkeyDraft] = useState<string | null>(null)
   /** the Ask AI corpus scope; null until the bridge served the stored value */
   const [kbScope, setKbScope] = useState<KbScopeValue | null>(null)
+  /** the 'folders' scope's root list; null until the bridge answers */
+  const [kbFolders, setKbFolders] = useState<string[] | null>(null)
   const [channel, setChannel] = useState<'stable' | 'beta'>('stable')
   const [appVersion, setAppVersion] = useState('')
   const [githubStars, setGithubStars] = useState<number | null>(null)
@@ -1974,6 +1980,12 @@ export function SettingsModal({
       void kbBridge.getKbScope().then(
         (scope) => {
           if (alive) setKbScope(scope)
+        },
+        () => undefined,
+      )
+      void kbBridge.getKbScopeFolders?.().then(
+        (folders) => {
+          if (alive) setKbFolders(folders ?? [])
         },
         () => undefined,
       )
@@ -2585,48 +2597,108 @@ export function SettingsModal({
                   </>
                 )}
                 {kbScope !== null && (
-                  <div className="set-field">
-                    <div className="set-field-text">
-                      <div className="set-field-stack">
-                        <div className="set-field-label">{t('setKbScope')}</div>
-                        <div className="set-field-desc">{t('setKbScopeDesc')}</div>
+                  <>
+                    <div className="set-field">
+                      <div className="set-field-text">
+                        <div className="set-field-stack">
+                          <div className="set-field-label">{t('setKbScope')}</div>
+                          <div className="set-field-desc">{t('setKbScopeDesc')}</div>
+                        </div>
+                      </div>
+                      {/* one radio group: plain buttons without the group role
+                          read as unrelated toggles to a screen reader */}
+                      <div
+                        className="set-ai-profile-tri"
+                        role="radiogroup"
+                        aria-label={t('setKbScope')}
+                      >
+                        {(
+                          [
+                            { option: 'indexed' as const, key: 'setKbScopeIndexed' as const },
+                            { option: 'starred' as const, key: 'setKbScopeStarred' as const },
+                            { option: 'folders' as const, key: 'setKbScopeFolders' as const },
+                          ] as const
+                        ).map(({ option, key }) => (
+                          <button
+                            key={option}
+                            type="button"
+                            className={
+                              'set-ai-profile-tri-btn' + (kbScope === option ? ' is-active' : '')
+                            }
+                            role="radio"
+                            aria-checked={kbScope === option}
+                            onClick={() => {
+                              const next = option
+                              // a refused write leaves the persisted scope in place;
+                              // the answer is the truth, not the optimistic pick
+                              ;(window.aiOffice as unknown as KbScopeBridge)
+                                .setKbScope?.(next)
+                                .then(setKbScope, () => undefined)
+                            }}
+                          >
+                            {t(key)}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                    {/* one radio group: two buttons without the group role read as
-                        two unrelated toggles to a screen reader */}
-                    <div
-                      className="set-ai-profile-tri"
-                      role="radiogroup"
-                      aria-label={t('setKbScope')}
-                    >
-                      {(
-                        [
-                          { option: 'indexed' as const, key: 'setKbScopeIndexed' as const },
-                          { option: 'starred' as const, key: 'setKbScopeStarred' as const },
-                        ] as const
-                      ).map(({ option, key }) => (
+                    {/* the 'folders' scope's root list: added through the OS
+                        picker, written straight to app-settings, every change
+                        broadcast to the open Ask AI panel */}
+                    {kbScope === 'folders' && (
+                      <div className="set-field set-field-top">
+                        <div className="set-field-text">
+                          <div className="set-field-stack">
+                            <div className="set-field-label">{t('setKbScopeFolderList')}</div>
+                            {kbFolders !== null && kbFolders.length === 0 && (
+                              <div className="set-field-desc">{t('setKbScopeFoldersEmpty')}</div>
+                            )}
+                            {kbFolders !== null && kbFolders.length > 0 && (
+                              <ul className="set-kb-folders">
+                                {kbFolders.map((path) => (
+                                  <li key={path}>
+                                    <span className="set-kb-folder-path" title={path}>
+                                      {path}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="btn btn-secondary"
+                                      onClick={() => {
+                                        void (window.aiOffice as unknown as KbScopeBridge)
+                                          .removeKbScopeFolder?.(path)
+                                          .then((next) => setKbFolders(next ?? []))
+                                      }}
+                                    >
+                                      {t('setKbScopeFolderRemove')}
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
                         <button
-                          key={option}
                           type="button"
-                          className={
-                            'set-ai-profile-tri-btn' + (kbScope === option ? ' is-active' : '')
-                          }
-                          role="radio"
-                          aria-checked={kbScope === option}
+                          className="btn"
                           onClick={() => {
-                            const next = option
-                            // a refused write leaves the persisted scope in place;
-                            // the answer is the truth, not the optimistic pick
-                            ;(window.aiOffice as unknown as KbScopeBridge)
-                              .setKbScope?.(next)
-                              .then(setKbScope, () => undefined)
+                            void (window.aiOffice as unknown as KbScopeBridge)
+                              .addKbScopeFolder?.()
+                              .then((added) => {
+                                // null = cancelled or refused; the list is
+                                // already the truth without it. Re-picking an
+                                // already-listed folder must not grow a twin
+                                // row — dedupe like the main process does.
+                                if (added)
+                                  setKbFolders((prev) =>
+                                    [...new Set([...(prev ?? []), added])].sort(),
+                                  )
+                              })
                           }}
                         >
-                          {t(key)}
+                          {t('setKbScopeFoldersAdd')}
                         </button>
-                      ))}
-                    </div>
-                  </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}

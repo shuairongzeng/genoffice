@@ -16,7 +16,7 @@ export const fr: Dict = {
   askTitle: 'Interroger votre base de connaissances',
   askEmptyCorpusHint:
     'Aucun fichier favori pour l’instant — ajoutez-en d’abord pour que l’IA puisse les lire.',
-  askCorpusCount: 'Base de connaissances : {n} fichiers favoris',
+  askCorpusCount: 'Base de connaissances : {n} fichiers',
   askIntro:
     'Posez des questions sur vos fichiers favoris. Les réponses citent leurs sources — cliquez pour ouvrir.',
   askToolSearch: 'Recherche dans la base',
@@ -31,6 +31,15 @@ export const fr: Dict = {
   askSavedAs: 'Enregistré : {name}',
   askSaveFailed: 'Enregistrement impossible : {error}',
   askEmptyCorpus: 'La base de connaissances est vide : ajoutez d’abord des fichiers favoris.',
+  askEmptyCorpusFolders:
+    'Aucun dossier n’est choisi pour la base de connaissances : choisissez-les dans les réglages, puis posez votre question.',
+  askIntroFolders:
+    'Les questions cherchent uniquement dans vos dossiers choisis ; les réponses citent leurs sources — cliquez pour ouvrir.',
+  askHeroFoldersTagline:
+    'Ask AI ne cherche que dans les dossiers choisis dans les réglages et cite le fichier source — cliquez sur la citation pour l’ouvrir.',
+  askFoldersStep1Title: 'Choisir des dossiers',
+  askFoldersStep1Desc: 'Ajoutez des dossiers à la base de connaissances dans Réglages › Général',
+  askCtaScopeSettings: 'Choisir des dossiers dans les réglages',
   askNeedsLogin: 'Connectez-vous à Genspark pour utiliser le chat IA.',
   askPlaceholder: 'Posez une question sur vos fichiers…',
   askHintIdle: 'Entrée pour envoyer',
@@ -264,9 +273,15 @@ export const fr: Dict = {
   setGlobalHotkeyRetry: 'Réessayer l’enregistrement',
   setKbScope: 'Portée du corpus Ask AI',
   setKbScopeDesc:
-    'Les fichiers qu’Ask AI peut rechercher et citer : tout ce que l’index local couvre, ou les fichiers favoris seulement.',
+    'Les fichiers qu’Ask AI peut rechercher et citer : tout ce que l’index local couvre, les fichiers favoris seulement, ou les dossiers choisis ci-dessous.',
   setKbScopeIndexed: 'Tous les fichiers indexés',
   setKbScopeStarred: 'Favoris seulement',
+  setKbScopeFolders: 'Dossiers choisis',
+  setKbScopeFolderList: 'Liste des dossiers',
+  setKbScopeFoldersEmpty:
+    'Aucun dossier choisi pour l’instant — ajoutez-en un et Ask AI ne cherchera qu’à l’intérieur.',
+  setKbScopeFoldersAdd: 'Ajouter un dossier…',
+  setKbScopeFolderRemove: 'Retirer',
   setSearchRerank: 'Reclassement Jev',
   setSearchRerankDesc:
     'Envoie les extraits des 20 premiers résultats locaux au modèle Jev de TypeSafe et les réordonne par pertinence. Désactivé par défaut ; une fois activé, les extraits quittent cet appareil.',

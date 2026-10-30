@@ -15,7 +15,7 @@ export const ko: Dict = {
   askTitle: '지식 베이스에 질문',
   askEmptyCorpusHint:
     '즐겨찾기한 파일이 아직 없습니다. 먼저 파일을 즐겨찾기하면 AI가 읽을 수 있습니다.',
-  askCorpusCount: '지식 베이스: 즐겨찾기 {n}개',
+  askCorpusCount: '지식 베이스: {n}개',
   askIntro: '즐겨찾기한 파일에 대해 질문하세요. 답변에는 출처가 표시되며 클릭하면 열립니다.',
   askToolSearch: '지식 베이스 검색 중',
   askToolRead: '파일 읽는 중',
@@ -29,6 +29,15 @@ export const ko: Dict = {
   askSavedAs: '저장됨: {name}',
   askSaveFailed: '저장하지 못했습니다: {error}',
   askEmptyCorpus: '지식 베이스가 비어 있습니다. 먼저 파일을 즐겨찾기한 후 질문해 주세요.',
+  askEmptyCorpusFolders:
+    '지식 베이스에 선택된 폴더가 없습니다. 먼저 설정에서 폴더를 선택한 후 질문해 주세요.',
+  askIntroFolders:
+    '질문은 선택한 폴더 안에서만 검색합니다. 답변은 출처를 인용합니다 — 클릭하여 엽니다.',
+  askHeroFoldersTagline:
+    'Ask AI는 설정에서 선택한 폴더 안에서만 검색하고 원본 파일을 인용합니다 — 인용을 클릭하여 엽니다.',
+  askFoldersStep1Title: '폴더 선택',
+  askFoldersStep1Desc: '설정 › 일반에서 지식 베이스 폴더 추가',
+  askCtaScopeSettings: '설정에서 폴더 선택',
   askNeedsLogin: 'AI 채팅을 사용하려면 Genspark에 로그인하세요.',
   askPlaceholder: '즐겨찾기한 파일에 대해 질문…',
   askHintIdle: 'Enter로 보내기',
@@ -254,9 +263,15 @@ export const ko: Dict = {
   setGlobalHotkeyRetry: '등록 다시 시도',
   setKbScope: 'Ask AI 말뭉치 범위',
   setKbScopeDesc:
-    'Ask AI가 검색하고 인용할 수 있는 파일의 범위입니다. 로컬 색인 전체 또는 별표 파일만.',
+    'Ask AI가 검색하고 인용할 수 있는 파일의 범위입니다. 로컬 색인 전체, 별표 파일만, 또는 아래에서 선택한 폴더.',
   setKbScopeIndexed: '색인된 파일 전체',
   setKbScopeStarred: '별표 파일만',
+  setKbScopeFolders: '선택한 폴더',
+  setKbScopeFolderList: '폴더 목록',
+  setKbScopeFoldersEmpty:
+    '아직 선택한 폴더가 없습니다 — 하나 추가하면 Ask AI는 그 안에서만 검색합니다.',
+  setKbScopeFoldersAdd: '폴더 추가…',
+  setKbScopeFolderRemove: '제거',
   setSearchRerank: 'Jev 검색 재정렬',
   setSearchRerankDesc:
     '로컬 검색 상위 20개 결과의 발췌문을 TypeSafe의 Jev 모델로 보내 관련도 순으로 재정렬합니다. 기본은 꺼짐이며, 켜면 발췌문이 기기 밖으로 전송됩니다.',

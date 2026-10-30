@@ -3,6 +3,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -38,6 +39,22 @@ let userData = ''
 
 const openExternalPath = vi.fn(async () => '')
 
+/** every kb:scope-changed broadcast, with one live and one dead webContent */
+let scopeBroadcasts: string[] = []
+const scopeContents = [
+  {
+    send: (channel: string) => scopeBroadcasts.push(channel),
+    isDestroyed: () => false,
+  },
+  {
+    // the dead one must be skipped, not crash the broadcast
+    send: (channel: string) => scopeBroadcasts.push(channel),
+    isDestroyed: () => true,
+  },
+]
+/** the folder picker's answer; defaults to a cancelled dialog */
+const showOpenDialogPath = vi.fn(async () => ({ canceled: true, filePaths: [] as string[] }))
+
 vi.mock('electron', () => ({
   app: { getPath: () => userData },
   shell: { openPath: (...args: unknown[]) => openExternalPath(...(args as never[])) },
@@ -45,6 +62,9 @@ vi.mock('electron', () => ({
     handle: (channel: string, handler: (...args: never[]) => unknown) =>
       handles.set(channel, handler),
   },
+  webContents: { getAllWebContents: () => scopeContents },
+  dialog: { showOpenDialog: (...args: unknown[]) => showOpenDialogPath(...(args as never[])) },
+  BrowserWindow: { fromWebContents: () => null },
 }))
 
 import { HOME_CHANNELS } from '../src/shared/home-api'
@@ -97,6 +117,8 @@ const leftovers = (): string[] =>
 
 beforeEach(() => {
   userData = mkdtempSync(join(tmpdir(), 'genoffice-desktop-'))
+  scopeBroadcasts = []
+  showOpenDialogPath.mockReset().mockImplementation(async () => ({ canceled: true, filePaths: [] }))
   // the write is the real scratch-then-rename unless a test overrides it
   mockedRename
     .mockReset()
@@ -1012,11 +1034,13 @@ describe('the pinned widgets store', () => {
   })
 })
 
-// ── kb:get-scope / kb:set-scope: the Ask AI corpus scope ──
+// ── kb:get-scope / kb:set-scope / kb:*-scope-folder: the Ask AI corpus scope ──
 
 describe('the corpus scope pair', () => {
-  const getScope = () => invoke('kb:get-scope') as Promise<'indexed' | 'starred'>
-  const setScope = (raw: unknown) => invoke('kb:set-scope', raw) as Promise<'indexed' | 'starred'>
+  type Scope = 'indexed' | 'starred' | 'folders'
+  const getScope = () => invoke('kb:get-scope') as Promise<Scope>
+  const setScope = (raw: unknown) => invoke('kb:set-scope', raw) as Promise<Scope>
+  const getFolders = () => invoke('kb:get-scope-folders') as Promise<string[]>
   /** the settings file the pair reads and writes */
   const settings = (): Record<string, unknown> => {
     try {
@@ -1026,13 +1050,16 @@ describe('the corpus scope pair', () => {
     }
   }
 
-  it('answers indexed when no setting exists, and roundtrips both scopes', async () => {
+  it('answers indexed when no setting exists, and roundtrips all three scopes', async () => {
     await expect(getScope()).resolves.toBe('indexed')
     await expect(setScope('starred')).resolves.toBe('starred')
     await expect(getScope()).resolves.toBe('starred')
     expect(settings().kbScope).toBe('starred')
     await expect(setScope('indexed')).resolves.toBe('indexed')
     expect(settings().kbScope).toBe('indexed')
+    await expect(setScope('folders')).resolves.toBe('folders')
+    await expect(getScope()).resolves.toBe('folders')
+    expect(settings().kbScope).toBe('folders')
     // an unrelated key already in the file survives the scope write
     writeFileSync(
       join(userData, 'app-settings.json'),
@@ -1052,13 +1079,82 @@ describe('the corpus scope pair', () => {
       'utf8',
     )
     await expect(getScope()).resolves.toBe('starred')
+    writeFileSync(
+      join(userData, 'app-settings.json'),
+      JSON.stringify({ kbScope: 'folders' }),
+      'utf8',
+    )
+    await expect(getScope()).resolves.toBe('folders')
   })
 
   it('refuses a junk scope instead of writing it', async () => {
     for (const junk of ['everything', '', 42, null, true]) {
-      await expect(setScope(junk)).rejects.toThrow(/must be 'indexed' or 'starred'/)
+      await expect(setScope(junk)).rejects.toThrow(/must be 'indexed', 'starred' or 'folders'/)
     }
     await expect(getScope()).resolves.toBe('indexed')
     expect(settings()).toEqual({})
+  })
+
+  it('every scope write tells the renderers, skipping destroyed ones', async () => {
+    await setScope('folders')
+    expect(scopeBroadcasts).toEqual(['kb:scope-changed'])
+  })
+
+  it('the folder list normalizes on read, and add follows the picker', async () => {
+    // a hand-edited file: junk entries drop, survivors sort and de-duplicate
+    writeFileSync(
+      join(userData, 'app-settings.json'),
+      JSON.stringify({ kbScopeFolders: ['/b', '/a', '/b', '', 42, null] }),
+      'utf8',
+    )
+    await expect(getFolders()).resolves.toEqual(['/a', '/b'])
+
+    const picked = mkdtempSync(join(tmpdir(), 'genoffice-kb-pick-'))
+    showOpenDialogPath.mockImplementationOnce(async () => ({
+      canceled: false,
+      filePaths: [picked],
+    }))
+    // the stored root is the realpath (on macOS /var resolves to /private/var)
+    const real = realpathSync(picked)
+    await expect(invoke('kb:add-scope-folder')).resolves.toBe(real)
+    // realpath'd, sorted, de-duplicated — the stored shape is one canonical list
+    await expect(getFolders()).resolves.toEqual(['/a', '/b', real].sort())
+    expect(settings().kbScopeFolders).toEqual([real, '/a', '/b'].sort())
+    expect(scopeBroadcasts).toEqual(['kb:scope-changed'])
+    rmSync(picked, { recursive: true, force: true })
+  })
+
+  it('a cancelled picker or a non-directory pick writes nothing', async () => {
+    await expect(invoke('kb:add-scope-folder')).resolves.toBeNull()
+    expect(settings()).toEqual({})
+    const plainFile = join(userData, 'not-a-dir.txt')
+    writeFileSync(plainFile, 'x')
+    showOpenDialogPath.mockImplementationOnce(async () => ({
+      canceled: false,
+      filePaths: [plainFile],
+    }))
+    await expect(invoke('kb:add-scope-folder')).resolves.toBeNull()
+    expect(settings()).toEqual({})
+    expect(scopeBroadcasts).toEqual([])
+  })
+
+  it('remove takes one folder out; an unknown path leaves the file alone', async () => {
+    writeFileSync(
+      join(userData, 'app-settings.json'),
+      JSON.stringify({ kbScopeFolders: ['/a', '/b'] }),
+      'utf8',
+    )
+    await expect(invoke('kb:remove-scope-folder', '/a')).resolves.toEqual(['/b'])
+    expect(settings().kbScopeFolders).toEqual(['/b'])
+    expect(scopeBroadcasts).toEqual(['kb:scope-changed'])
+
+    scopeBroadcasts = []
+    await expect(invoke('kb:remove-scope-folder', '/gone')).resolves.toEqual(['/b'])
+    // nothing changed, so nothing was written or broadcast
+    expect(settings().kbScopeFolders).toEqual(['/b'])
+    expect(scopeBroadcasts).toEqual([])
+    // a non-string payload cannot slice the list either
+    await expect(invoke('kb:remove-scope-folder', 42)).resolves.toEqual(['/b'])
+    expect(settings()).toEqual({ kbScopeFolders: ['/b'] })
   })
 })

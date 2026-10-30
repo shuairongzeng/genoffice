@@ -43,10 +43,12 @@ import {
 import { createDefaultAppService, execFileRunner } from './default-app'
 import {
   createKnowledgeDocument,
+  isUnderAnyRoot,
   KB_LIST_CAP,
   listIndexedKnowledgeFiles,
   listKnowledgeFiles,
   normalizeKbScope,
+  normalizeKbScopeFolders,
   parseKbCreateRequest,
   readKnowledgeFilePage,
   searchKnowledgeBase,
@@ -234,20 +236,35 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
   // Knowledge-base channel: the AI-side read access to the user's local corpus
   // (docs wires these into its panel; see knowledge-base.ts). The corpus is the
   // app-settings `kbScope`: 'indexed' (default) is every file the local index
-  // covers, 'starred' the original hand-picked set. Path arguments are
-  // validated against the scope — a corpus file is the only thing a knowledge
-  // tool may read.
+  // covers, 'starred' the original hand-picked set, 'folders' the files under
+  // the roots in `kbScopeFolders`. Path arguments are validated against the
+  // scope — a corpus file is the only thing a knowledge tool may read.
   const kbScope = () => normalizeKbScope(readAppSettings(host.appSettingsPath()).kbScope)
+  const kbFolders = () =>
+    normalizeKbScopeFolders(readAppSettings(host.appSettingsPath()).kbScopeFolders)
 
   ipcMain.handle('kb:list', async (): Promise<unknown> => {
     const starred = readStarredFiles()
     const store = host.indexStore()
-    if (kbScope() === 'starred' || !store) return listKnowledgeFiles(starred)
+    const scope = kbScope()
+    // no store yet (cold start) or the starred scope: the starred half alone —
+    // but still narrowed by the folders scope's roots, so the listing agrees
+    // with what kb:read will let the model open (an empty root list is an
+    // empty corpus here too, not "all starred files")
+    if (scope === 'starred' || !store) {
+      const roots = scope === 'folders' ? kbFolders() : undefined
+      return listKnowledgeFiles(roots ? starred.filter((p) => isUnderAnyRoot(p, roots)) : starred)
+    }
     // the recent-files listing is one bounded query in the store worker
     const recent = await store
       .recentFiles(KB_LIST_CAP)
       .catch(() => [] as Awaited<ReturnType<IndexStore['recentFiles']>>)
-    return listIndexedKnowledgeFiles(starred, recent)
+    return listIndexedKnowledgeFiles(
+      starred,
+      recent,
+      KB_LIST_CAP,
+      scope === 'folders' ? kbFolders() : undefined,
+    )
   })
 
   ipcMain.handle('kb:search', async (_event, raw: unknown): Promise<unknown> => {
@@ -262,6 +279,7 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     // extractions land so a question about a just-saved file cites it
     await host.ensureFileIndexer()?.settle(2_000)
     const starred = readStarredFiles()
+    const scope = kbScope()
     return searchKnowledgeBase(
       async (qq, pool) =>
         store
@@ -276,7 +294,11 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
           )
           .catch(() => []),
       q,
-      kbScope() === 'starred' ? starred : null,
+      scope === 'starred'
+        ? { paths: starred }
+        : scope === 'folders'
+          ? { roots: kbFolders() }
+          : null,
       Math.min(limit, 20),
     )
   })
@@ -290,17 +312,27 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     const offsetRaw = Number(req.offset)
     const offset = Number.isFinite(offsetRaw) ? Math.floor(offsetRaw) : 0
     // a starred file stays readable in every scope (even with the index
-    // momentarily unavailable); the indexed scope adds "in the index"
+    // momentarily unavailable); the indexed scope adds "in the index", and the
+    // folders scope narrows both to the chosen roots
     const starred = readStarredFiles().includes(path)
+    const scope = kbScope()
     const inScope =
-      kbScope() === 'starred'
+      scope === 'starred'
         ? starred
-        : starred ||
-          ((await host
-            .indexStore()
-            ?.has(path)
-            .catch(() => false)) ??
-            false)
+        : scope === 'folders'
+          ? isUnderAnyRoot(path, kbFolders()) &&
+            (starred ||
+              ((await host
+                .indexStore()
+                ?.has(path)
+                .catch(() => false)) ??
+                false))
+          : starred ||
+            ((await host
+              .indexStore()
+              ?.has(path)
+              .catch(() => false)) ??
+              false)
     if (!path || !inScope) {
       throw new Error('path is not in the knowledge base')
     }
