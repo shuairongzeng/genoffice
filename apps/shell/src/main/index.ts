@@ -76,7 +76,7 @@ import { installCliLinkBestEffort } from './cli-link'
 import { registerIntegrationsIpc } from './integrations-ipc'
 import { registerPluginsIpc } from './plugins-ipc'
 import { registerTemplatesIpc } from './templates-ipc'
-import { registerTodosIpc } from './todos-ipc'
+import { broadcastTodosChanged, registerTodosIpc } from './todos-ipc'
 import {
   registerDesktopIpc,
   defaultWallpapersDir,
@@ -5878,8 +5878,9 @@ setPinsChangedListener((pins) => sendToShellRenderer(HOME_CHANNELS.desktopPinsCh
 /**
  * The CLI/MCP `desktop` domain's live stores: the same files registerDesktopIpc
  * and registerTodosIpc serve, plus the running window/tab enumeration. Reads
- * are always fresh from disk; the prefs write broadcasts so a mounted Home
- * view can re-pull (the renderer subscribes via onDesktopPrefsChanged).
+ * are always fresh from disk; the prefs and todo writes broadcast so a
+ * mounted Home view can re-pull or merge (the renderer subscribes via
+ * onDesktopPrefsChanged / onTodosChanged).
  */
 const desktopControlDeps: DesktopControlDeps = {
   userDataDir: () => app.getPath('userData'),
@@ -5891,6 +5892,7 @@ const desktopControlDeps: DesktopControlDeps = {
       win.webContents.send(HOME_CHANNELS.desktopPrefsChanged, prefs)
     }
   },
+  notifyTodosChanged: broadcastTodosChanged,
 }
 
 async function listDesktopWindows(): Promise<DesktopWindowInfo[]> {

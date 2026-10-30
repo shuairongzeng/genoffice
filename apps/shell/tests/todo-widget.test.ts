@@ -12,8 +12,10 @@ import { TODO_STRINGS } from '../src/renderer/src/todo-strings'
 
 /**
  * The Home sidebar's todo widget against a mocked bridge: what the card shows,
- * and that every change is written through — debounced, and with the newest
- * list winning when two writes race.
+ * that every change is written through — debounced, and with the newest list
+ * winning when two writes race — and that a todos-changed broadcast from
+ * outside (the CLI, another window) is adopted or merged rather than clobbered
+ * by this widget's next whole-list save.
  */
 
 const DEBOUNCE_MS = 300
@@ -27,6 +29,8 @@ let root: Root
 let stored: TodoItem[]
 /** every save, in order, with the exact list it carried */
 let saves: TodoItem[][]
+/** the widget's live todos-changed subscriptions */
+let changedListeners: Set<(items: TodoItem[]) => void>
 
 const item = (id: string, text: string, done = false): TodoItem => ({ id, text, done })
 
@@ -34,6 +38,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   stored = []
   saves = []
+  changedListeners = new Set()
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -42,6 +47,10 @@ beforeEach(() => {
     todosSave: vi.fn(async (items: TodoItem[]) => {
       saves.push(items)
       return undefined
+    }),
+    onTodosChanged: vi.fn((handler: (items: TodoItem[]) => void) => {
+      changedListeners.add(handler)
+      return () => changedListeners.delete(handler)
     }),
   } as unknown as HomeApi
 })
@@ -113,6 +122,15 @@ async function pressEnter(): Promise<void> {
 async function add(text: string): Promise<void> {
   await type(text)
   await pressEnter()
+}
+
+/** deliver a main-process todos-changed broadcast to the mounted widget */
+async function broadcast(items: TodoItem[]): Promise<void> {
+  await act(async () => {
+    for (const listener of [...changedListeners]) listener(items)
+    await Promise.resolve()
+    await Promise.resolve()
+  })
 }
 
 const rows = () => [...host.querySelectorAll('.todo-row')]
@@ -339,6 +357,201 @@ describe('TodoWidget — write-through', () => {
     })
     await tick()
     expect(saves).toHaveLength(2) // the newest state is on disk; no more writes
+  })
+})
+
+describe('TodoWidget — a write from outside (todos-changed)', () => {
+  it('adopts the broadcast at once: the CLI entry is on the card with no debounce', async () => {
+    stored = [item('a', 'buy milk')]
+    await render()
+    await broadcast([item('cli', 'from the CLI'), item('a', 'buy milk')])
+    expect(rowTexts()).toEqual(['from the CLI', 'buy milk'])
+    expect(count()).toBe('2')
+    // nothing was pending here, so adoption writes nothing back
+    await tick()
+    expect(saves).toEqual([])
+  })
+
+  it('the acceptance gate: a later UI edit persists the CLI entry instead of writing it off the disk', async () => {
+    stored = [item('a', 'buy milk')]
+    await render()
+    await broadcast([item('cli', 'from the CLI'), item('a', 'buy milk')])
+    await click(rows()[1]) // the user toggles their own task
+    await tick()
+    expect(saves).toHaveLength(1)
+    expect(saves[0]!.map((i) => [i.id, i.done])).toEqual([
+      ['cli', false],
+      ['a', true],
+    ])
+  })
+
+  it('merges when local edits are in flight: the next write-through carries both writers', async () => {
+    stored = [item('a', 'on disk')]
+    await render()
+    await add('typed here') // pending: the debounce has not run
+    await broadcast([item('cli', 'from the CLI'), item('a', 'on disk')])
+    // the unknown entry is spliced in on top; the local edit keeps its place
+    expect(rowTexts()).toEqual(['from the CLI', 'typed here', 'on disk'])
+    await tick()
+    expect(textsOf(saves[0]!)).toEqual(['from the CLI', 'typed here', 'on disk'])
+  })
+
+  it('keeps a locally removed row removed when the broadcast still carries it', async () => {
+    stored = [item('a', 'keep'), item('b', 'drop')]
+    await render()
+    await click(rows()[1]!.querySelector('.todo-remove')) // pending removal
+    await broadcast([item('cli', 'from the CLI'), item('a', 'keep'), item('b', 'drop')])
+    expect(rowTexts()).toEqual(['from the CLI', 'keep'])
+    await tick()
+    expect(textsOf(saves[0]!)).toEqual(['from the CLI', 'keep'])
+  })
+
+  it('adopts a cross-window toggle with nothing pending, without re-saving', async () => {
+    stored = [item('a', 'buy milk')]
+    await render()
+    await broadcast([item('a', 'buy milk', true)])
+    expect(rows()[0]!.querySelector('.todo-text')!.className).toContain('done')
+    await tick()
+    expect(saves).toEqual([]) // disk already holds this; no echo write
+  })
+
+  it("ignores its own save's echo: a broadcast of what it just wrote writes nothing", async () => {
+    await render()
+    await add('only one')
+    await tick()
+    expect(saves).toHaveLength(1)
+    // the main process broadcasts every write, including this widget's own
+    await broadcast([item('id-1', 'only one')])
+    await tick()
+    expect(saves).toHaveLength(1)
+    expect(rowTexts()).toEqual(['only one'])
+  })
+
+  it('a malformed broadcast changes nothing and costs nothing', async () => {
+    stored = [item('a', 'buy milk')]
+    await render()
+    await broadcast(null as unknown as TodoItem[])
+    await broadcast('nope' as unknown as TodoItem[])
+    expect(rowTexts()).toEqual(['buy milk'])
+    await tick()
+    expect(saves).toEqual([])
+  })
+
+  it('a CLI write that raced the load lands via the post-subscribe pull', async () => {
+    // the load's disk read predated the CLI write, and the write's broadcast
+    // predated the subscription — only the pull that follows subscribing
+    // can still see it, or the next save would write it off the disk
+    let reads = 0
+    ;(window.aiOffice as HomeApi).todosList = async () => {
+      reads += 1
+      return reads === 1 ? [] : [item('cli', 'from the CLI')]
+    }
+    await render()
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(rowTexts()).toEqual(['from the CLI'])
+    await tick()
+    expect(saves).toEqual([]) // adoption of disk truth writes nothing back
+  })
+
+  it('a CLI broadcast landing mid-save converges: the retry write carries the union, and the echo writes nothing', async () => {
+    stored = [item('a', 'one')]
+    // each save resolves only when the test releases it
+    const releases: Array<() => void> = []
+    ;(window.aiOffice as HomeApi).todosSave = (items: TodoItem[]) => {
+      saves.push(items)
+      return new Promise<void>((resolve) => releases.push(resolve))
+    }
+    await render()
+    await add('two')
+    await tick() // save 1 in flight: [two, one]
+    expect(saves).toHaveLength(1)
+    // the CLI writes while that save is still open
+    await broadcast([item('cli', 'from the CLI'), item('a', 'one')])
+    expect(rowTexts()).toEqual(['from the CLI', 'two', 'one'])
+    await act(async () => {
+      releases[0]!()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await tick(1) // the mid-flight change writes right away
+    expect(saves).toHaveLength(2)
+    expect(textsOf(saves[1]!)).toEqual(['from the CLI', 'two', 'one'])
+    await act(async () => {
+      releases[1]!()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    // the main process echoes save 2 back: nothing pending, so nothing writes
+    await broadcast(saves[1]!)
+    await tick()
+    expect(saves).toHaveLength(2)
+  })
+
+  it('a removal made while a save was in flight stays removed across the next broadcast', async () => {
+    stored = [item('a', 'keep'), item('b', 'doomed')]
+    const releases: Array<() => void> = []
+    ;(window.aiOffice as HomeApi).todosSave = (items: TodoItem[]) => {
+      saves.push(items)
+      return new Promise<void>((resolve) => releases.push(resolve))
+    }
+    await render()
+    await add('mine')
+    await tick() // save 1 in flight: [mine, keep, doomed]
+    expect(saves).toHaveLength(1)
+    // 'doomed' leaves while save 1 is still open: that snapshot still
+    // carries it, so its removal is NOT durable when the save lands
+    await click(rows()[2]!.querySelector('.todo-remove'))
+    expect(rowTexts()).toEqual(['mine', 'keep'])
+    await act(async () => {
+      releases[0]!()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    // a broadcast lands between the save's reply and the retry write, still
+    // carrying the removed row (say the CLI's echo of the just-written file)
+    await broadcast([
+      item('cli', 'from the CLI'),
+      saves[0]![0]!, // the local 'mine', with its own id
+      item('a', 'keep'),
+      item('b', 'doomed'),
+    ])
+    expect(rowTexts()).toEqual(['from the CLI', 'mine', 'keep'])
+    await tick(1) // the retry write carries the union, minus the removal
+    expect(saves).toHaveLength(2)
+    expect(textsOf(saves[1]!)).toEqual(['from the CLI', 'mine', 'keep'])
+    await act(async () => {
+      releases[1]!()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await tick()
+    expect(saves).toHaveLength(2)
+  })
+
+  it('subscribes once the list has loaded and unsubscribes on unmount', async () => {
+    await render()
+    expect(changedListeners.size).toBe(1)
+    act(() => root.unmount())
+    expect(changedListeners.size).toBe(0)
+  })
+
+  it('survives a preload that predates the broadcast', async () => {
+    // list and save still work; only onTodosChanged is missing
+    window.aiOffice = {
+      todosList: async () => stored,
+      todosSave: async (items: TodoItem[]) => {
+        saves.push(items)
+      },
+    } as unknown as HomeApi
+    await render()
+    expect(rowTexts()).toEqual([])
+    await add('still works')
+    await tick()
+    expect(textsOf(saves[0]!)).toEqual(['still works'])
   })
 })
 

@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 /**
  * The desktop control domain against real temp stores: reads come straight
  * from the desktop-ipc/todos-ipc files, writes land through their atomic
- * paths, and a live Home view hears about a new wallpaper through the
- * notifyDesktopPrefsChanged hook.
+ * paths, and a live Home view hears about a new wallpaper or a CLI-added
+ * todo through the notifyDesktopPrefsChanged / notifyTodosChanged hooks.
  */
 
 vi.mock('electron', () => ({
@@ -29,6 +29,8 @@ let userData: string
 let wallpapers: string
 let custom: string
 let notified: unknown[]
+/** the todo lists the notifyTodosChanged hook carried, in call order */
+let todosNotified: Array<Array<{ id: string; text: string; done: boolean }>>
 
 const WINDOWS = [
   { id: 'home', kind: 'home', title: 'GenOffice', active: true },
@@ -41,6 +43,7 @@ const deps = (): DesktopControlDeps => ({
   customWallpapersDir: () => custom,
   listWindows: () => WINDOWS,
   notifyDesktopPrefsChanged: (prefs) => notified.push(prefs),
+  notifyTodosChanged: (todos) => todosNotified.push(todos),
 })
 
 beforeEach(() => {
@@ -56,6 +59,7 @@ beforeEach(() => {
     ]),
   )
   notified = []
+  todosNotified = []
 })
 
 afterEach(() => {
@@ -266,6 +270,30 @@ describe('todo add / list', () => {
     await expect(
       runDesktopAction(deps(), { cmd: 'desktop', action: 'todo-add', text: '   ' }),
     ).rejects.toThrow(DesktopControlError)
+    expect(todosNotified).toEqual([])
+  })
+
+  it('notifies a mounted widget through the hook, with the list as written', async () => {
+    writeFileSync(
+      join(userData, 'todos.json'),
+      JSON.stringify([{ id: 'old', text: 'existing', done: true }]),
+    )
+    const added = (await runDesktopAction(deps(), {
+      cmd: 'desktop',
+      action: 'todo-add',
+      text: 'buy milk',
+    })) as { todos: Array<{ id: string; text: string; done: boolean }> }
+    expect(todosNotified).toEqual([added.todos])
+  })
+
+  it('notifies only after the write landed: the hook already reads the new entry from disk', async () => {
+    const seenOnDisk: unknown[] = []
+    const wired = deps()
+    wired.notifyTodosChanged = () => {
+      seenOnDisk.push(JSON.parse(readFileSync(join(userData, 'todos.json'), 'utf8')))
+    }
+    await runDesktopAction(wired, { cmd: 'desktop', action: 'todo-add', text: 'from the CLI' })
+    expect(seenOnDisk).toEqual([[expect.objectContaining({ text: 'from the CLI' })]])
   })
 })
 

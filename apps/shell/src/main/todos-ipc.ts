@@ -1,8 +1,21 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import { app, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import { createJsonStore } from './json-store'
 import { HOME_CHANNELS, type TodoItem } from '../shared/home-api'
+
+/**
+ * Tell every live renderer the list on disk just changed, carrying the list
+ * as written. A write from anywhere — the CLI's `desktop todo add`, another
+ * window's widget — reaches every reader, so a mounted widget can adopt or
+ * merge the new list instead of blind-writing its stale copy back over it
+ * (the same contract the desktop prefs' broadcast carries).
+ */
+export function broadcastTodosChanged(items: TodoItem[]): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(HOME_CHANNELS.todosChanged, items)
+  }
+}
 
 /** where the todo list lives: one file the whole widget reads and writes through */
 export function todosFilePath(userDataDir: string): string {
@@ -90,6 +103,8 @@ export function registerTodosIpc(): void {
     if (!Array.isArray(raw) || !raw.every(isTodoItem)) {
       throw new Error('the todo list must be an array of { id, text, done } entries')
     }
-    await writeTodos(app.getPath('userData'), normalizeTodos(raw))
+    const normalized = normalizeTodos(raw)
+    await writeTodos(app.getPath('userData'), normalized)
+    broadcastTodosChanged(normalized)
   })
 }
