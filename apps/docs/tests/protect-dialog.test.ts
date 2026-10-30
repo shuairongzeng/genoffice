@@ -7,6 +7,21 @@ import { createRoot, type Root } from 'react-dom/client'
 import { hashProtectionPassword, verifyProtectionPassword } from '@genoffice/docx-engine'
 import { ProtectDialog, type ProtectDialogResult } from '../src/renderer/components/ProtectDialog'
 
+// The dialog's submit hashes at the production spin count (100k awaited
+// digests), whose runtime on the 2-core Windows runners under the suite's
+// worker parallelism varies from seconds to past 180s — a timeout no number
+// pins (run 41073286250 pushed it past 180s). The count-agnostic loop is
+// covered by docx-engine's protection tests, so here the default call drops
+// to a reduced spin and explicit counts pass through untouched.
+vi.mock('@genoffice/docx-engine', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@genoffice/docx-engine')>()
+  return {
+    ...actual,
+    hashProtectionPassword: (password: string, spinCount?: number) =>
+      actual.hashProtectionPassword(password, spinCount ?? 1000),
+  }
+})
+
 type Props = Parameters<typeof ProtectDialog>[0]
 
 const DEFAULTS: Omit<Props, 'onApply' | 'onCancel'> = {
@@ -105,24 +120,18 @@ describe('ProtectDialog', () => {
     await d.cleanup()
   })
 
-  // hashing runs the full-strength KDF; give it headroom under suite-parallel
-  // load — the windows runners alone have pushed this past 60s in CI
-  it(
-    'setting a modify password produces verifiable writeProtection credentials',
-    { timeout: 180_000 },
-    async () => {
-      const d = await mount({})
-      const [, , modify, modifyConfirm] = d.passwordInputs()
-      await d.setValue(modify, 'to-modify')
-      await d.setValue(modifyConfirm, 'to-modify')
-      await d.submit(d.applied)
-      const result = d.onApply.mock.calls[0][0]
-      expect(result.openPassword).toBeUndefined()
-      expect(result.writeProtection?.hash).toBeTruthy()
-      expect(await verifyProtectionPassword('to-modify', result.writeProtection!)).toBe(true)
-      await d.cleanup()
-    },
-  )
+  it('setting a modify password produces verifiable writeProtection credentials', async () => {
+    const d = await mount({})
+    const [, , modify, modifyConfirm] = d.passwordInputs()
+    await d.setValue(modify, 'to-modify')
+    await d.setValue(modifyConfirm, 'to-modify')
+    await d.submit(d.applied)
+    const result = d.onApply.mock.calls[0][0]
+    expect(result.openPassword).toBeUndefined()
+    expect(result.writeProtection?.hash).toBeTruthy()
+    expect(await verifyProtectionPassword('to-modify', result.writeProtection!)).toBe(true)
+    await d.cleanup()
+  })
 
   it('enabling a comments restriction without password enforces mode only', async () => {
     const d = await mount({})
