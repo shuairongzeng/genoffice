@@ -1,5 +1,9 @@
 import { controlEndpoint, controlRequest } from '../control'
-import type { ControlRequest } from '../control-protocol'
+import {
+  DESKTOP_ARRANGE_MODES,
+  type ControlRequest,
+  type DesktopArrangeMode,
+} from '../control-protocol'
 import type { CommandDef } from '../registry'
 import { CliError, EXIT } from '../result'
 
@@ -15,7 +19,14 @@ interface ParsedDesktop {
   usageError?: never
 }
 
-const ACTIONS = ['get-state', 'set-wallpaper', 'todo add <text>', 'todo list', 'windows list']
+const ACTIONS = [
+  'get-state',
+  'set-wallpaper',
+  'arrange <custom|name|kind|mtime>',
+  'todo add <text>',
+  'todo list',
+  'windows list',
+]
 
 function parseDesktopArgs(positionals: string[]): ParsedDesktop {
   const [action, ...rest] = positionals
@@ -37,6 +48,22 @@ function parseDesktopArgs(positionals: string[]): ParsedDesktop {
         )
       }
       return { request: { cmd: 'desktop', action: 'set-wallpaper', wallpaper } }
+    }
+    case 'arrange': {
+      const mode = (rest[0] ?? '').trim().toLowerCase()
+      if (!mode) {
+        throw new CliError(EXIT.usage, 'arrange needs an arrangement mode', undefined, {
+          reason: 'missing_argument',
+          suggestion: `use one of: ${DESKTOP_ARRANGE_MODES.join(', ')}`,
+        })
+      }
+      if (!(DESKTOP_ARRANGE_MODES as readonly string[]).includes(mode)) {
+        throw new CliError(EXIT.usage, `unknown arrangement: ${mode}`, undefined, {
+          reason: 'invalid_argument',
+          suggestion: `use one of: ${DESKTOP_ARRANGE_MODES.join(', ')}`,
+        })
+      }
+      return { request: { cmd: 'desktop', action: 'arrange', mode: mode as DesktopArrangeMode } }
     }
     case 'todo': {
       const verb = (rest[0] ?? '').toLowerCase()
@@ -90,9 +117,9 @@ function unknownAction(action: string): CliError {
 export const desktopCommand: CommandDef = {
   name: 'desktop',
   summary:
-    "The running GenOffice app's Home desktop: wallpaper, icon layout summary, todo widget and open windows — read them, or change the wallpaper and add todos.",
+    "The running GenOffice app's Home desktop: wallpaper, icon layout summary, todo widget and open windows — read them, or change the wallpaper, arrange the icons and add todos.",
   usage:
-    'desktop <get-state | set-wallpaper <name|path> | todo add <text> | todo list | windows list> [--json]',
+    'desktop <get-state | set-wallpaper <name|path> | arrange <custom|name|kind|mtime> | todo add <text> | todo list | windows list> [--json]',
   async run(args, ctx) {
     const { request } = parseDesktopArgs(args.positionals)
     const endpoint = controlEndpoint(ctx.env)
@@ -128,6 +155,8 @@ function summarize(
     }
     case 'set-wallpaper':
       return `wallpaper set to ${String(result.wallpaper ?? '')}`
+    case 'arrange':
+      return `icons arranged by ${String(result.sortMode ?? request.mode)}`
     case 'todo-add': {
       const count = Array.isArray(result.todos) ? result.todos.length : 0
       return `added todo "${request.text}" (${count} on the list)`
@@ -143,13 +172,19 @@ function summarize(
     }
     case 'windows-list': {
       const windows = Array.isArray(result.windows)
-        ? (result.windows as Array<{ kind?: unknown; title?: unknown; filePath?: unknown }>)
+        ? (result.windows as Array<{
+            kind?: unknown
+            title?: unknown
+            filePath?: unknown
+            dirty?: unknown
+          }>)
         : []
       if (windows.length === 0) return 'no open windows'
       return windows
         .map(
           (w) =>
             `${String(w.kind ?? '?')}\t${String(w.title ?? '')}` +
+            (w.dirty === true ? ' (unsaved)' : '') +
             (typeof w.filePath === 'string' ? `\t${w.filePath}` : ''),
         )
         .join('\n')

@@ -35,9 +35,16 @@ export type ControlTarget =
 export type DesktopControlRequest =
   | { cmd: 'desktop'; action: 'get-state' }
   | { cmd: 'desktop'; action: 'set-wallpaper'; wallpaper: string }
+  | { cmd: 'desktop'; action: 'arrange'; mode: DesktopArrangeMode }
   | { cmd: 'desktop'; action: 'todo-add'; text: string }
   | { cmd: 'desktop'; action: 'todo-list' }
   | { cmd: 'desktop'; action: 'windows-list' }
+
+/** the icon arrangement modes the desktop itself offers in its sort menu —
+ *  the single runtime source every desktop-arrange surface derives from */
+export const DESKTOP_ARRANGE_MODES = ['custom', 'name', 'kind', 'mtime'] as const
+
+export type DesktopArrangeMode = (typeof DESKTOP_ARRANGE_MODES)[number]
 
 export type ControlRequest =
   | { cmd: 'open'; path: string; target?: ControlTarget }

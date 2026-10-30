@@ -49,6 +49,7 @@ describe('the desktop MCP tool', () => {
     const action = tool!.inputSchema!.action
     expect(JSON.stringify(action)).toContain('get-state')
     expect(JSON.stringify(action)).toContain('set-wallpaper')
+    expect(JSON.stringify(action)).toContain('arrange')
     expect(JSON.stringify(action)).toContain('todo-add')
     expect(JSON.stringify(action)).toContain('windows-list')
   })
@@ -81,5 +82,19 @@ describe('the desktop MCP tool', () => {
       todos: unknown[]
     }
     expect(added.todos).toHaveLength(1)
+  })
+
+  it('maps arrange onto the same prefs store the surface menu writes', async () => {
+    const [tool] = createDesktopTools(deps())
+    const result = (await tool!.handler({ action: 'arrange', mode: 'name' })) as {
+      sortMode: string
+    }
+    expect(result.sortMode).toBe('name')
+    // the schema's enum plus the handler's argument check, then the store's
+    // own vocabulary check on the far side
+    await expect(tool!.handler({ action: 'arrange' })).rejects.toThrow(/mode/)
+    await expect(tool!.handler({ action: 'arrange', mode: 'color' })).rejects.toThrow(
+      /unknown arrangement/,
+    )
   })
 })

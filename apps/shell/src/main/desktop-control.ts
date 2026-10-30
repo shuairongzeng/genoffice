@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { basename, extname, isAbsolute, join } from 'node:path'
 import type { ControlReply, DesktopControlRequest } from '@genoffice/cli/control-protocol'
 import type { DesktopPrefs } from '../shared/home-api'
+import type { OpenDocumentTab, TabSummary } from '../shared/tabs-api'
 import { atomicCopyFile } from './atomic-write'
 import {
   customWallpaperName,
@@ -11,6 +12,7 @@ import {
   readDesktopPins,
   readDesktopPrefs,
   readWallpaperManifest,
+  SORT_MODES,
   writeDesktopPrefs,
 } from './desktop-ipc'
 import { addTodo, readTodos } from './todos-ipc'
@@ -70,6 +72,37 @@ export class DesktopControlError extends Error {
   }
 }
 
+/**
+ * A shell tab as the agent's window list sees it — the unsaved-changes state
+ * rides along (an absent answer counts as clean, matching the sync list face
+ * that never carries it), so pending work is visible wherever the tab lives.
+ */
+export function tabToWindowInfo(tab: TabSummary): DesktopWindowInfo {
+  return {
+    id: tab.id,
+    kind: tab.kind,
+    title: tab.title,
+    active: tab.active,
+    dirty: tab.dirty ?? false,
+    ...(tab.filePath ? { filePath: tab.filePath } : {}),
+    ...(tab.dormant ? { dormant: true } : {}),
+    ...(tab.pinned ? { pinned: true } : {}),
+  }
+}
+
+/** a detached editor window as the same list sees it, flagged as its own OS window */
+export function detachedToWindowInfo(doc: OpenDocumentTab): DesktopWindowInfo {
+  return {
+    id: doc.id,
+    kind: doc.kind,
+    title: doc.title,
+    active: doc.active,
+    dirty: doc.dirty,
+    detached: true,
+    ...(doc.filePath ? { filePath: doc.filePath } : {}),
+  }
+}
+
 /** one desktop control request against live state; throws DesktopControlError */
 export async function runDesktopAction(
   deps: DesktopControlDeps,
@@ -105,6 +138,8 @@ export async function runDesktopAction(
       return { windows: await deps.listWindows() }
     case 'set-wallpaper':
       return setWallpaper(deps, request.wallpaper)
+    case 'arrange':
+      return arrangeIcons(deps, request.mode)
   }
 }
 
@@ -121,6 +156,29 @@ async function setWallpaper(
   await writeDesktopPrefs(deps.userDataDir(), prefs)
   deps.notifyDesktopPrefsChanged?.(prefs)
   return { wallpaper: prefs.wallpaper }
+}
+
+/**
+ * Set how the desktop's icons are arranged — the same `sortMode` the surface
+ * menu's sort-by rows write: 'name'/'kind'/'mtime' reflow the icons in that
+ * order, 'custom' hands them back to the person's saved drag layout. The
+ * write is a desktop-prefs save, so a live Home view re-pulls and reflows on
+ * the notify — a CLI arrange is indistinguishable from picking the menu row.
+ */
+async function arrangeIcons(
+  deps: DesktopControlDeps,
+  mode: string,
+): Promise<Record<string, unknown>> {
+  const value = mode.trim().toLowerCase()
+  if (!SORT_MODES.has(value)) {
+    throw new DesktopControlError('invalid_argument', `unknown arrangement: ${mode || '(empty)'}`, {
+      available: [...SORT_MODES],
+    })
+  }
+  const prefs = normalizePrefs({ ...readDesktopPrefs(deps.userDataDir()), sortMode: value })
+  await writeDesktopPrefs(deps.userDataDir(), prefs)
+  deps.notifyDesktopPrefsChanged?.(prefs)
+  return { sortMode: prefs.sortMode }
 }
 
 /**

@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import type { DesktopControlRequest } from '@genoffice/cli/control-protocol'
+import {
+  DESKTOP_ARRANGE_MODES,
+  type DesktopArrangeMode,
+  type DesktopControlRequest,
+} from '@genoffice/cli/control-protocol'
 import type { McpToolDefinition } from '../mcp-server'
 import { runDesktopAction, type DesktopControlDeps } from '../../desktop-control'
 
@@ -19,16 +23,23 @@ export function createDesktopTools(control: DesktopControlDeps): McpToolDefiniti
         'wallpaper, the icon layout summary, the todo list and the open windows/tabs in one ' +
         'snapshot; "set-wallpaper" (wallpaper: "default", a builtin name like "teal-deep", or an ' +
         'absolute path to a png/jpg/webp image, which is imported first) changes the desktop ' +
-        'wallpaper; "todo-add" (text) adds one item to the Home todo widget; "todo-list" returns ' +
-        'the widget\'s items; "windows-list" enumerates the open editor tabs and detached windows.',
+        'wallpaper; "arrange" (mode: "name", "kind", "mtime" to reflow the icons in that order, ' +
+        'or "custom" to hand them back to the saved drag layout) sets the icon arrangement; ' +
+        '"todo-add" (text) adds one item to the Home todo widget; "todo-list" returns ' +
+        'the widget\'s items; "windows-list" enumerates the open editor tabs and detached ' +
+        "windows, with each one's unsaved-changes state.",
       inputSchema: {
         action: z
-          .enum(['get-state', 'set-wallpaper', 'todo-add', 'todo-list', 'windows-list'])
+          .enum(['get-state', 'set-wallpaper', 'arrange', 'todo-add', 'todo-list', 'windows-list'])
           .describe('what to do'),
         wallpaper: z
           .string()
           .optional()
           .describe('"set-wallpaper" only: "default", a builtin wallpaper name, or an image path'),
+        mode: z
+          .enum(DESKTOP_ARRANGE_MODES)
+          .optional()
+          .describe('"arrange" only: how the desktop icons are laid out'),
         text: z.string().optional().describe('"todo-add" only: the todo item\'s text'),
       },
       handler: async (args) => {
@@ -46,6 +57,15 @@ export function createDesktopTools(control: DesktopControlDeps): McpToolDefiniti
             request = { cmd: 'desktop', action, wallpaper }
             break
           }
+          case 'arrange': {
+            const mode = typeof args.mode === 'string' ? args.mode.trim() : ''
+            if (!mode) throw new Error('"arrange" needs a mode argument')
+            // the zod enum already filtered the schema-valid values; the cast
+            // only satisfies the protocol's union, and runDesktopAction
+            // re-validates anything a raw socket caller could send
+            request = { cmd: 'desktop', action, mode: mode as DesktopArrangeMode }
+            break
+          }
           case 'todo-add': {
             const text = typeof args.text === 'string' ? args.text.trim() : ''
             if (!text) throw new Error('"todo-add" needs a text argument')
@@ -54,7 +74,7 @@ export function createDesktopTools(control: DesktopControlDeps): McpToolDefiniti
           }
           default:
             throw new Error(
-              `unknown action "${action}" — use "get-state", "set-wallpaper", "todo-add", "todo-list" or "windows-list"`,
+              `unknown action "${action}" — use "get-state", "set-wallpaper", "arrange", "todo-add", "todo-list" or "windows-list"`,
             )
         }
         return runDesktopAction(control, request)
