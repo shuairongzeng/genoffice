@@ -116,7 +116,7 @@ import {
   type DesktopWindowInfo,
 } from './desktop-control'
 import {
-  deepLinkFromArgv,
+  deepLinksFromArgv,
   installDeepLinkListener,
   installSystemPresence,
   parseDeepLink,
@@ -354,8 +354,10 @@ import {
   withoutExtraRoot,
 } from './folder-roots'
 import extractWorkerPath from './file-index/extract-worker?modulePath'
+import storeWorkerPath from './file-index/store-worker?modulePath'
+import type { IndexStore } from './file-index/index-store'
 import { FileIndexer } from './file-index/indexer'
-import { FileIndexStore } from './file-index/store'
+import { StoreClient } from './file-index/store-client'
 import { normalizeFileSearchSettings, probeDecision, SearchReranker } from './file-index/rerank'
 import {
   createKnowledgeDocument,
@@ -3624,20 +3626,34 @@ function summonPalette(): void {
   sendToShellRenderer(HOME_CHANNELS.paletteOpen)
 }
 
-/** genoffice://ask?q=… → Home's Ask AI view, carrying the query when present */
+/** genoffice://ask?q=… → Home's Ask AI view, carrying the query when present;
+ *  genoffice://palette → the command palette; genoffice://open?path=… → the
+ *  document in its owning app (the same router a file drop takes) */
 function deliverDeepLink(payload: DeepLinkPayload): void {
   if (!app.isReady()) {
     // open-url can beat ready on a cold macOS protocol launch; the window and
-    // renderer do not exist yet — deliver once whenReady has built them
-    pendingDeepLink = payload
+    // renderer do not exist yet — links queue in arrival order and deliver
+    // once whenReady has built them (a single slot made the second link
+    // silently overwrite the first)
+    pendingDeepLinks.push(payload)
+    return
+  }
+  if (payload.view === 'palette') {
+    summonPalette()
+    return
+  }
+  if (payload.view === 'open') {
+    // focus the shell first so a background launch still surfaces the document
+    revealShellWindow()
+    if (payload.path) routeDocumentPath(payload.path)
     return
   }
   summonHome()
   sendToShellRenderer(HOME_CHANNELS.deepLink, payload)
 }
 
-/** a deep link that arrived before the shell window existed */
-let pendingDeepLink: DeepLinkPayload | null = null
+/** deep links that arrived before the shell window existed, in arrival order */
+const pendingDeepLinks: DeepLinkPayload[] = []
 
 /**
  * New file from a folder view: the click remembers the folder per kind, the
@@ -3798,19 +3814,35 @@ function afterFolderMoved(oldDir: string, newDir: string, filesBefore: readonly 
 
 const folderWatchers = new Map<string, FolderWatcher>()
 
-let fileIndexStore: FileIndexStore | null = null
+let fileIndexStore: IndexStore | null = null
 let fileIndexer: FileIndexer | null = null
 let searchReranker: SearchReranker | null = null
+
+/** the rerank handler's lazy singleton; null while no index store is up */
+function ensureSearchReranker(): SearchReranker | null {
+  if (searchReranker) return searchReranker
+  if (!fileIndexStore) return null
+  searchReranker = new SearchReranker(fileIndexStore)
+  return searchReranker
+}
 
 function readFileSearchSettings(): FileSearchSettings {
   return normalizeFileSearchSettings(readAppSettings(APP_SETTINGS_PATH()).fileSearch)
 }
 
-/** the search index lives in userData and follows the save folder plus recents/starred */
+/**
+ * The search index lives in userData and follows the save folder plus
+ * recents/starred. The store itself is a worker thread (StoreClient): search
+ * and writes never block the main process — the process serving every
+ * window's IPC.
+ */
 function ensureFileIndexer(): FileIndexer | null {
   if (fileIndexer) return fileIndexer
   try {
-    fileIndexStore = new FileIndexStore(join(app.getPath('userData'), 'file-index.db'))
+    fileIndexStore = new StoreClient(
+      storeWorkerPath,
+      join(app.getPath('userData'), 'file-index.db'),
+    )
   } catch (e) {
     console.warn('[file-index] unavailable:', e instanceof Error ? e.message : e)
     return null
@@ -4712,27 +4744,37 @@ function registerHomeIpc(): void {
     pageRecentPaths(readRecentFiles(), query, new Set(readStarredFiles())),
   )
 
-  ipcMain.handle(HOME_CHANNELS.searchFiles, (_event, raw: unknown): FileSearchPage => {
-    const query = (raw && typeof raw === 'object' ? raw : {}) as Partial<FileSearchQuery>
-    const indexer = ensureFileIndexer()
-    if (!indexer || !fileIndexStore) {
-      return { hits: [], total: 0, index: { indexed: 0, pending: 0, scanning: false } }
-    }
-    // an open search box is the moment a stale index shows; rescan at most once a minute
-    indexer.refreshIfStale(60_000)
-    const q = typeof query.q === 'string' ? query.q.trim().slice(0, 200) : ''
-    const filter = typeof query.ext === 'string' ? query.ext : ''
-    const exts = filter && filter !== 'all' ? (SEARCH_EXT_FAMILY[filter] ?? [filter]) : undefined
-    const offset = Number.isFinite(query.offset) ? Math.max(0, Math.floor(query.offset!)) : 0
-    const limit = Number.isFinite(query.limit) ? Math.max(0, Math.floor(query.limit!)) : 50
-    const starred = new Set(readStarredFiles())
-    const result = q ? fileIndexStore.search(q, { exts, offset, limit }) : { hits: [], total: 0 }
-    return {
-      hits: result.hits.map((h) => ({ ...h, starred: starred.has(h.path) })),
-      total: result.total,
-      index: indexer.progress(),
-    }
-  })
+  ipcMain.handle(
+    HOME_CHANNELS.searchFiles,
+    async (_event, raw: unknown): Promise<FileSearchPage> => {
+      const query = (raw && typeof raw === 'object' ? raw : {}) as Partial<FileSearchQuery>
+      const indexer = ensureFileIndexer()
+      if (!indexer || !fileIndexStore) {
+        return { hits: [], total: 0, index: { indexed: 0, pending: 0, scanning: false } }
+      }
+      // an open search box is the moment a stale index shows; rescan at most once a minute
+      indexer.refreshIfStale(60_000)
+      const q = typeof query.q === 'string' ? query.q.trim().slice(0, 200) : ''
+      const filter = typeof query.ext === 'string' ? query.ext : ''
+      const exts = filter && filter !== 'all' ? (SEARCH_EXT_FAMILY[filter] ?? [filter]) : undefined
+      const offset = Number.isFinite(query.offset) ? Math.max(0, Math.floor(query.offset!)) : 0
+      const limit = Number.isFinite(query.limit) ? Math.max(0, Math.floor(query.limit!)) : 50
+      const starred = new Set(readStarredFiles())
+      // the search runs in the store worker; a failure answers the page the
+      // caller can already render (an unanswerable store, an empty result)
+      const result = q
+        ? await fileIndexStore.search(q, { exts, offset, limit }).catch(() => ({
+            hits: [],
+            total: 0,
+          }))
+        : { hits: [], total: 0 }
+      return {
+        hits: result.hits.map((h) => ({ ...h, starred: starred.has(h.path) })),
+        total: result.total,
+        index: await indexer.progress(),
+      }
+    },
+  )
 
   // Knowledge-base channel: the AI-side read access to the user's local corpus
   // (docs wires these into its panel; see knowledge-base.ts). The corpus is the
@@ -4742,13 +4784,18 @@ function registerHomeIpc(): void {
   // tool may read.
   const kbScope = () => normalizeKbScope(readAppSettings(APP_SETTINGS_PATH()).kbScope)
 
-  ipcMain.handle('kb:list', (): unknown => {
+  ipcMain.handle('kb:list', async (): Promise<unknown> => {
     const starred = readStarredFiles()
-    if (kbScope() === 'starred' || !fileIndexStore) return listKnowledgeFiles(starred)
-    return listIndexedKnowledgeFiles(starred, fileIndexStore.recentFiles(KB_LIST_CAP))
+    const store = fileIndexStore
+    if (kbScope() === 'starred' || !store) return listKnowledgeFiles(starred)
+    // the recent-files listing is one bounded query in the store worker
+    const recent = await store
+      .recentFiles(KB_LIST_CAP)
+      .catch(() => [] as Awaited<ReturnType<IndexStore['recentFiles']>>)
+    return listIndexedKnowledgeFiles(starred, recent)
   })
 
-  ipcMain.handle('kb:search', (_event, raw: unknown): unknown => {
+  ipcMain.handle('kb:search', async (_event, raw: unknown): Promise<unknown> => {
     const query = (raw && typeof raw === 'object' ? raw : {}) as { q?: unknown; limit?: unknown }
     const q = typeof query.q === 'string' ? query.q : ''
     const limitRaw = Number(query.limit)
@@ -4757,19 +4804,23 @@ function registerHomeIpc(): void {
     if (!q.trim() || !store) return []
     ensureFileIndexer()?.refreshIfStale(60_000)
     const starred = readStarredFiles()
-    const hits = searchKnowledgeBase(
-      (qq, pool) =>
-        store.search(qq, { limit: pool }).hits.map((h) => ({
-          path: h.path,
-          name: h.name,
-          ext: h.ext,
-          snippetText: (h.snippet ?? []).map((part) => part.text).join(''),
-        })),
+    return searchKnowledgeBase(
+      async (qq, pool) =>
+        store
+          .search(qq, { limit: pool })
+          .then((r) =>
+            r.hits.map((h) => ({
+              path: h.path,
+              name: h.name,
+              ext: h.ext,
+              snippetText: (h.snippet ?? []).map((part) => part.text).join(''),
+            })),
+          )
+          .catch(() => []),
       q,
       kbScope() === 'starred' ? starred : null,
       Math.min(limit, 20),
     )
-    return hits
   })
 
   ipcMain.handle('kb:read', async (_event, raw: unknown): Promise<unknown> => {
@@ -4784,7 +4835,9 @@ function registerHomeIpc(): void {
     // momentarily unavailable); the indexed scope adds "in the index"
     const starred = readStarredFiles().includes(path)
     const inScope =
-      kbScope() === 'starred' ? starred : starred || (fileIndexStore?.has(path) ?? false)
+      kbScope() === 'starred'
+        ? starred
+        : starred || ((await fileIndexStore?.has(path).catch(() => false)) ?? false)
     if (!path || !inScope) {
       throw new Error('path is not in the knowledge base')
     }
@@ -4848,9 +4901,10 @@ function registerHomeIpc(): void {
       const paths = Array.isArray(query.paths)
         ? query.paths.filter((p): p is string => typeof p === 'string').slice(0, 20)
         : []
-      if (!q || paths.length < 2 || !ensureFileIndexer() || !fileIndexStore) return null
-      searchReranker ??= new SearchReranker(fileIndexStore)
-      return searchReranker.rerank(q, paths, settings)
+      if (!q || paths.length < 2 || !ensureFileIndexer()) return null
+      const reranker = ensureSearchReranker()
+      if (!reranker) return null
+      return reranker.rerank(q, paths, settings)
     },
   )
 
@@ -6880,14 +6934,14 @@ app.on('open-file', (event, filePath) => {
 })
 
 app.on('second-instance', (_event, argv, _cwd, additionalData) => {
-  // a genoffice:// launch on Windows/Linux arrives as a plain argv entry
-  const link = deepLinkFromArgv(argv)
-  if (link) {
-    const payload = parseDeepLink(link)
-    if (payload) {
-      deliverDeepLink(payload)
-      return
-    }
+  // a genoffice:// launch on Windows/Linux arrives as a plain argv entry;
+  // several protocol launches can queue up in one argv, all in order
+  const links = deepLinksFromArgv(argv)
+    .map(parseDeepLink)
+    .filter((payload): payload is DeepLinkPayload => payload !== null)
+  if (links.length > 0) {
+    for (const payload of links) deliverDeepLink(payload)
+    return
   }
   const paths = collectLaunchPaths(argv, additionalData)
   revealShellWindow()
@@ -7307,16 +7361,13 @@ app.whenReady().then(async () => {
     (err: unknown) => console.warn('[control] not listening:', err),
   )
 
-  // a cold win/linux protocol launch carries the link in this process's argv
-  const coldLink = deepLinkFromArgv(process.argv)
-  if (coldLink) {
-    const payload = parseDeepLink(coldLink)
+  // a cold win/linux protocol launch carries its links in this process's argv
+  for (const link of deepLinksFromArgv(process.argv)) {
+    const payload = parseDeepLink(link)
     if (payload) deliverDeepLink(payload)
   }
-  if (pendingDeepLink) {
-    const payload = pendingDeepLink
-    pendingDeepLink = null
-    deliverDeepLink(payload)
+  if (pendingDeepLinks.length > 0) {
+    for (const payload of pendingDeepLinks.splice(0)) deliverDeepLink(payload)
   }
 
   systemPresence = installSystemPresence({
@@ -7335,6 +7386,13 @@ app.whenReady().then(async () => {
     openAsk: (query) => deliverDeepLink(query ? { view: 'ask', query } : { view: 'ask' }),
   })
   registerDeepLinkClient()
+
+  // a failed hotkey registration is not permanent: whatever held the
+  // accelerator may have quit since, so each time one of our windows gains
+  // focus is a free moment to try again (retryHotkey no-ops while active)
+  app.on('browser-window-focus', () => {
+    systemPresence?.retryHotkey()
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createShellWindow()
