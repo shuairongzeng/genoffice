@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import {
-  DESKTOP_ARRANGE_MODES,
-  type DesktopArrangeMode,
+  DESKTOP_ACTIONS,
+  DESKTOP_ACTION_NAMES,
   type DesktopControlRequest,
 } from '@genoffice/cli/control-protocol'
 import type { McpToolDefinition } from '../mcp-server'
@@ -11,73 +11,57 @@ import { runDesktopAction, type DesktopControlDeps } from '../../desktop-control
  * The desktop domain as an in-app MCP tool: the same actions the genoffice
  * CLI reaches over the control socket (`genoffice desktop …`), backed by the
  * same live stores, so the shell agent and an external script never disagree
- * about the desktop's state.
+ * about the desktop's state. The action enum, the parameters and the
+ * description all derive from the protocol's DESKTOP_ACTIONS table — the
+ * same table the standalone `genoffice mcp` server's `desktop_*` tools
+ * derive from, so the two MCP surfaces speak one vocabulary by construction.
  */
-
 export function createDesktopTools(control: DesktopControlDeps): McpToolDefinition[] {
+  // one schema parameter per distinct argument key, described by the action
+  // that takes it (each key belongs to exactly one action today)
+  const argEntries = DESKTOP_ACTIONS.flatMap((a) => {
+    if (!a.arg) return []
+    const base = a.arg.choices
+      ? // the choices tuple is a const literal list (the arrange modes); the
+        // descriptor's wider readonly type needs the tuple shape back for zod
+        z.enum(a.arg.choices as [string, ...string[]])
+      : z.string()
+    const param = base.optional().describe(`"${a.action}" only: ${a.arg.description}`)
+    return [[a.arg.key, param] as const]
+  })
   return [
     {
       name: 'desktop',
       description:
-        'Read and drive the GenOffice Home desktop. Actions: "get-state" returns the current ' +
-        'wallpaper, the icon layout summary, the todo list and the open windows/tabs in one ' +
-        'snapshot; "set-wallpaper" (wallpaper: "default", a builtin name like "teal-deep", or an ' +
-        'absolute path to a png/jpg/webp image, which is imported first) changes the desktop ' +
-        'wallpaper; "arrange" (mode: "name", "kind", "mtime" to reflow the icons in that order, ' +
-        'or "custom" to hand them back to the saved drag layout) sets the icon arrangement; ' +
-        '"todo-add" (text) adds one item to the Home todo widget; "todo-list" returns ' +
-        'the widget\'s items; "windows-list" enumerates the open editor tabs and detached ' +
-        "windows, with each one's unsaved-changes state.",
+        'Read and drive the GenOffice Home desktop. Actions: ' +
+        DESKTOP_ACTIONS.map((a) =>
+          a.arg
+            ? `"${a.action}" (${a.arg.key}: ${a.arg.description}) ${a.description}`
+            : `"${a.action}" ${a.description}`,
+        ).join('; ') +
+        '.',
       inputSchema: {
-        action: z
-          .enum(['get-state', 'set-wallpaper', 'arrange', 'todo-add', 'todo-list', 'windows-list'])
-          .describe('what to do'),
-        wallpaper: z
-          .string()
-          .optional()
-          .describe('"set-wallpaper" only: "default", a builtin wallpaper name, or an image path'),
-        mode: z
-          .enum(DESKTOP_ARRANGE_MODES)
-          .optional()
-          .describe('"arrange" only: how the desktop icons are laid out'),
-        text: z.string().optional().describe('"todo-add" only: the todo item\'s text'),
+        action: z.enum(DESKTOP_ACTION_NAMES).describe('what to do'),
+        ...Object.fromEntries(argEntries),
       },
-      handler: async (args) => {
-        const action = String(args.action ?? '')
-        let request: DesktopControlRequest
-        switch (action) {
-          case 'get-state':
-          case 'todo-list':
-          case 'windows-list':
-            request = { cmd: 'desktop', action }
-            break
-          case 'set-wallpaper': {
-            const wallpaper = typeof args.wallpaper === 'string' ? args.wallpaper.trim() : ''
-            if (!wallpaper) throw new Error('"set-wallpaper" needs a wallpaper argument')
-            request = { cmd: 'desktop', action, wallpaper }
-            break
-          }
-          case 'arrange': {
-            const mode = typeof args.mode === 'string' ? args.mode.trim() : ''
-            if (!mode) throw new Error('"arrange" needs a mode argument')
-            // the zod enum already filtered the schema-valid values; the cast
-            // only satisfies the protocol's union, and runDesktopAction
-            // re-validates anything a raw socket caller could send
-            request = { cmd: 'desktop', action, mode: mode as DesktopArrangeMode }
-            break
-          }
-          case 'todo-add': {
-            const text = typeof args.text === 'string' ? args.text.trim() : ''
-            if (!text) throw new Error('"todo-add" needs a text argument')
-            request = { cmd: 'desktop', action, text }
-            break
-          }
-          default:
-            throw new Error(
-              `unknown action "${action}" — use "get-state", "set-wallpaper", "arrange", "todo-add", "todo-list" or "windows-list"`,
-            )
+      handler: async (rawArgs) => {
+        const action = String(rawArgs.action ?? '')
+        const spec = DESKTOP_ACTIONS.find((a) => a.action === action)
+        if (!spec) {
+          const known = DESKTOP_ACTION_NAMES.map((name) => `"${name}"`).join(', ')
+          throw new Error(`unknown action "${action}" — use ${known}`)
         }
-        return runDesktopAction(control, request)
+        const payload: Record<string, unknown> = { cmd: 'desktop', action: spec.action }
+        if (spec.arg) {
+          const raw = rawArgs[spec.arg.key]
+          const value = typeof raw === 'string' ? raw.trim() : ''
+          if (!value) throw new Error(`"${spec.action}" needs a ${spec.arg.key} argument`)
+          payload[spec.arg.key] = value
+        }
+        // the table's arg key is the protocol variant's own field name (the
+        // tuple and the request union are locked together in control-protocol)
+        // — and the store re-validates the value whatever a raw caller sends
+        return runDesktopAction(control, payload as DesktopControlRequest)
       },
     },
   ]
