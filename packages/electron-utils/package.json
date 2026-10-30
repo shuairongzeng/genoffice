@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./atomic-write": "./src/atomic-write.ts",
+    "./cached-json": "./src/cached-json.ts",
     "./disk-watch": "./src/disk-watch.ts",
     "./drop-open": "./src/drop-open.ts",
     "./font-catalog": "./src/font-catalog.ts",

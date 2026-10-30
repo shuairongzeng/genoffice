@@ -117,6 +117,7 @@ export {
 } from './renderer-scheme'
 export { installRendererProtocol, registerRendererScheme } from './renderer-protocol'
 export { atomicWriteFile, writeJsonAtomic } from './atomic-write'
+export { primeJsonCache, readJsonCached, type CachedJson } from './cached-json'
 export {
   PRINT_READY_SCRIPT,
   printHtmlDocument,
