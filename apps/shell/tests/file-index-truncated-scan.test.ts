@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FileIndexer } from '../src/main/file-index/indexer'
 import { FileIndexStore } from '../src/main/file-index/store'
-import { inProcessIndexStore, type IndexStore } from '../src/main/file-index/index-store'
+import { inProcessIndexStore } from '../src/main/file-index/index-store'
 
 const WORKER = join(__dirname, 'file-index-truncated-worker.mjs')
 
