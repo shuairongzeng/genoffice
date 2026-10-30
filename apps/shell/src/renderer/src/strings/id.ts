@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const id: Dict = {
+  ok: 'OK',
   addFolderRoot: 'Tambah folder…',
   removeFolderRoot: 'Hapus dari daftar',
   rootUnavailable: 'Tidak tersedia',

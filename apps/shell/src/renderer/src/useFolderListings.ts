@@ -51,11 +51,39 @@ export function useFolderListings() {
 
   const reset = useCallback(() => setListings(new Map()), [])
 
+  /**
+   * Dirty-check path for refreshes that do not know what changed (window
+   * focus): each cached folder is re-asked with the mtime it was read at. An
+   * unchanged directory keeps the cached entry (no readdir on the main
+   * process); a changed one is replaced with the fresh listing in place.
+   */
+  const revalidate = useCallback(() => {
+    for (const [dir, listing] of listings) {
+      if (listing.missing) continue
+      void window.aiOffice
+        .listFolder(dir, listing.mtimeMs)
+        .then((reply) => {
+          if (reply.unchanged) return
+          setListings((prev) => {
+            // an invalidate may have dropped the entry meanwhile; the forced
+            // reload owns it now
+            if (!prev.has(dir)) return prev
+            const next = new Map(prev)
+            next.set(dir, reply)
+            return next
+          })
+        })
+        .catch(() => {
+          /* a failed probe keeps the cached listing; the watch or the next refresh retries */
+        })
+    }
+  }, [listings])
+
   /** shown or currently loading: the folders a watch event should refresh */
   const tracked = useCallback(
     (dir: string) => listings.has(dir) || inflight.current.has(dir),
     [listings],
   )
 
-  return { listings, load, invalidate, reset, tracked }
+  return { listings, load, invalidate, revalidate, reset, tracked }
 }

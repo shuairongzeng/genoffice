@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const cs: Dict = {
+  ok: 'OK',
   addFolderRoot: 'Přidat složku…',
   removeFolderRoot: 'Odebrat ze seznamu',
   rootUnavailable: 'Nedostupné',

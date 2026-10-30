@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const th: Dict = {
+  ok: 'ตกลง',
   addFolderRoot: 'เพิ่มโฟลเดอร์…',
   removeFolderRoot: 'นำออกจากรายการ',
   rootUnavailable: 'ไม่พร้อมใช้งาน',

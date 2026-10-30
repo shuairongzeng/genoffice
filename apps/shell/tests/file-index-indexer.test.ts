@@ -146,3 +146,59 @@ describe('FileIndexer wedged-worker recovery', () => {
     expect(store.listAll().get(notesPath())?.status).toBe('ok')
   })
 })
+
+describe('FileIndexer onUpdated', () => {
+  // the renderers' index-updated push hangs off this callback: a scan diff or
+  // an extraction landing must fire it, or Home reverts to blind polling
+  it('fires onUpdated after a scan diff and again after each extraction lands', async () => {
+    const calls: number[] = []
+    // short request timeout: the poison file's wedged parse must fail fast so
+    // its error row lands within the test's lifetime
+    indexer = new FileIndexer(
+      indexStore,
+      WORKER,
+      { roots: () => [dir], extraPaths: () => [], onUpdated: () => calls.push(Date.now()) },
+      400,
+    )
+    await indexer.scan()
+    // the walk diffed the corpus (two files queued): at least the post-diff call
+    expect(calls.length).toBeGreaterThanOrEqual(1)
+    await vi.waitFor(
+      () => {
+        expect(store.listAll().get(notesPath())?.status).toBe('ok')
+        expect(store.listAll().get(poisonPath())?.status).toBe('error')
+      },
+      { timeout: 10_000, interval: 25 },
+    )
+    // every extraction landing emitted (ok and error rows alike)
+    expect(calls.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('fires onUpdated when a scan drops a file that vanished between scans', async () => {
+    const fleeting = join(dir, 'good', 'fleeting.md')
+    writeFileSync(fleeting, 'here and gone')
+    let calls = 0
+    indexer = new FileIndexer(
+      indexStore,
+      WORKER,
+      { roots: () => [dir], extraPaths: () => [], onUpdated: () => (calls += 1) },
+      400,
+    )
+    await indexer.scan()
+    await vi.waitFor(
+      () => {
+        expect(store.listAll().get(fleeting)?.status).toBe('ok')
+      },
+      { timeout: 10_000, interval: 25 },
+    )
+    // the second scan sees the file gone: the store-side diff drops the row
+    // and the post-diff emission reports the corpus changed
+    rmSync(fleeting)
+    const before = calls
+    await indexer.scan()
+    await vi.waitFor(() => {
+      expect(calls).toBeGreaterThan(before)
+    })
+    expect(store.listAll().has(fleeting)).toBe(false)
+  })
+})

@@ -4,14 +4,16 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  readdirSync,
   realpathSync,
   renameSync,
   rmSync,
   statSync,
   watch,
+  type Dirent,
   type FSWatcher,
+  type Stats,
 } from 'node:fs'
+import { readdir, stat } from 'node:fs/promises'
 import { basename, dirname, extname, join, resolve, sep } from 'node:path'
 import type {
   FolderEntry,
@@ -23,7 +25,7 @@ import type {
   RenameResult,
 } from '../shared/home-api'
 import { isValidRenameName } from './rename-validation'
-import { statPathEntries } from './recent-files'
+import { statPathEntriesAsync } from './recent-files'
 import { mkdirDirs } from '@genoffice/electron-utils'
 
 /** files the home tree shows; mirrors the shell's open-dialog filter */
@@ -118,45 +120,73 @@ export function describeRoot(root: string): FolderRoot {
   return { path: root, name: basename(root) || root, usable, readable: usable, removable: false }
 }
 
-function hasVisibleSubfolder(dir: string): boolean {
-  try {
-    return readdirSync(dir, { withFileTypes: true }).some(
-      (d) => d.isDirectory() && !isHiddenEntry(dir, d.name, true),
-    )
-  } catch {
-    return false
-  }
+function hasVisibleSubfolder(dir: string): Promise<boolean> {
+  // async twin of the old sync probe: the nested readdir per sub-folder is the
+  // "one readdir per sub-directory" cost the focus refresh used to pay
+  // synchronously on the main process
+  return readdir(dir, { withFileTypes: true })
+    .then((dirents) => dirents.some((d) => d.isDirectory() && !isHiddenEntry(dir, d.name, true)))
+    .catch(() => false)
 }
 
-export function listFolder(dir: string, starredPaths: ReadonlySet<string>): FolderListing {
+/**
+ * One level of the folder tree. Runs entirely off the main event loop (async
+ * readdir + chunked stats) — the old sync read held the IPC thread hostage for
+ * every expanded folder on every window focus. `knownMtimeMs` is the mtime the
+ * caller saw last: an unchanged directory answers `{ unchanged: true }` with
+ * empty `folders`/`files`, so a focus refresh probes instead of re-listing.
+ */
+export async function listFolder(
+  dir: string,
+  starredPaths: ReadonlySet<string>,
+  knownMtimeMs?: number,
+): Promise<FolderListing> {
+  let dirMtimeMs: number
+  try {
+    dirMtimeMs = (await stat(dir)).mtimeMs
+  } catch {
+    return { dir, mtimeMs: 0, folders: [], files: [], missing: true }
+  }
+  if (knownMtimeMs !== undefined && knownMtimeMs === dirMtimeMs) {
+    return { dir, mtimeMs: dirMtimeMs, folders: [], files: [], unchanged: true }
+  }
   const folders: FolderEntry[] = []
   const filePaths: string[] = []
-  let dirents: import('node:fs').Dirent[]
+  let dirents: Dirent[]
   try {
-    dirents = readdirSync(dir, { withFileTypes: true })
+    dirents = await readdir(dir, { withFileTypes: true })
   } catch {
-    return { dir, folders: [], files: [], missing: true }
+    return { dir, mtimeMs: 0, folders: [], files: [], missing: true }
   }
+  const subDirs: { path: string; name: string }[] = []
   for (const d of dirents) {
     const path = join(dir, d.name)
     if (d.isDirectory()) {
-      if (isHiddenEntry(dir, d.name, true)) continue
-      let mtimeMs: number
-      try {
-        mtimeMs = statSync(path).mtimeMs
-      } catch {
-        continue
-      }
-      folders.push({ path, name: d.name, mtimeMs, hasSubfolders: hasVisibleSubfolder(path) })
+      if (!isHiddenEntry(dir, d.name, true)) subDirs.push({ path, name: d.name })
     } else if (d.isFile() && !isHiddenEntry(dir, d.name, false) && isSupportedTreeFile(d.name)) {
       filePaths.push(path)
     }
   }
+  // stats for sub-folder mtimes and their hasSubfolders probes, chunked: a
+  // folder with hundreds of sub-folders stays off the event loop
+  const CHUNK = 64
+  const subStats: (Stats | null)[] = []
+  const subVisible: boolean[] = []
+  for (let i = 0; i < subDirs.length; i += CHUNK) {
+    const chunk = subDirs.slice(i, i + CHUNK)
+    subStats.push(...(await Promise.all(chunk.map(({ path }) => stat(path).catch(() => null)))))
+    subVisible.push(...(await Promise.all(chunk.map(({ path }) => hasVisibleSubfolder(path)))))
+  }
+  subDirs.forEach(({ path, name }, i) => {
+    const st = subStats[i]
+    if (!st) return
+    folders.push({ path, name, mtimeMs: st.mtimeMs, hasSubfolders: subVisible[i] })
+  })
   folders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-  const files: RecentEntry[] = statPathEntries(filePaths, starredPaths)
+  const files: RecentEntry[] = (await statPathEntriesAsync(filePaths, starredPaths))
     .filter((e) => !e.missing)
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
-  return { dir, folders, files }
+  return { dir, mtimeMs: dirMtimeMs, folders, files }
 }
 
 /** the candidates below `dir` at any depth; bookkeeping filters tracked paths instead of walking the disk */

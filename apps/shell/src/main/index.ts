@@ -3714,6 +3714,25 @@ function readFileSearchSettings(): FileSearchSettings {
 }
 
 /**
+ * Coalesced broadcast behind HOME_CHANNELS.indexUpdated: the indexer reports
+ * extraction landings at per-file rate, so pushes fold into one send every
+ * INDEX_UPDATED_COALESCE_MS — the renderers re-query a live search on each
+ * push instead of the old blind 1.5 s poll while the index is busy.
+ */
+const INDEX_UPDATED_COALESCE_MS = 300
+let indexUpdatedTimer: NodeJS.Timeout | null = null
+function broadcastIndexUpdated(): void {
+  if (indexUpdatedTimer) return
+  indexUpdatedTimer = setTimeout(() => {
+    indexUpdatedTimer = null
+    for (const wc of webContents.getAllWebContents()) {
+      if (!wc.isDestroyed()) wc.send(HOME_CHANNELS.indexUpdated)
+    }
+  }, INDEX_UPDATED_COALESCE_MS)
+  indexUpdatedTimer.unref?.()
+}
+
+/**
  * The search index lives in userData and follows the save folder plus
  * recents/starred. The store itself is a worker thread (StoreClient): search
  * and writes never block the main process — the process serving every
@@ -3733,6 +3752,7 @@ function ensureFileIndexer(): FileIndexer | null {
   fileIndexer = new FileIndexer(fileIndexStore, extractWorkerPath, {
     roots: () => folderRootPaths().filter((root) => existsSync(root)),
     extraPaths: () => [...readRecentFiles(), ...readStarredFiles()],
+    onUpdated: broadcastIndexUpdated,
   })
   return fileIndexer
 }

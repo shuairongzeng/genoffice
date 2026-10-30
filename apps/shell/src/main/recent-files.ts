@@ -1,4 +1,5 @@
-import { statSync } from 'node:fs'
+import { statSync, type Stats } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
 import type { RecentEntry, RecentPage, RecentQuery } from '../shared/home-api'
 
@@ -7,30 +8,53 @@ const RECENT_PAGE_MAX = 200
 
 function toRecentEntry(path: string, starredPaths: ReadonlySet<string>): RecentEntry {
   try {
-    const stat = statSync(path)
-    return {
-      path,
-      name: basename(path),
-      ext: extname(path).slice(1).toLowerCase(),
-      mtimeMs: stat.mtimeMs,
-      sizeBytes: stat.size,
-      starred: starredPaths.has(path),
-      ...(stat.isDirectory() ? { directory: true } : {}),
-    }
+    return shapeRecentEntry(path, starredPaths, statSync(path))
   } catch {
-    // A failed stat is often transient (disconnected drive, pending mount,
-    // cloud placeholder) — dropping the entry made the recents list silently
-    // lose files until a later reload (r158). Word keeps unavailable recents
-    // listed; the row is flagged so the UI can dim it and offer removal.
+    return shapeRecentEntry(path, starredPaths, null)
+  }
+}
+
+async function toRecentEntryAsync(
+  path: string,
+  starredPaths: ReadonlySet<string>,
+): Promise<RecentEntry> {
+  // the async twin for paths the main process must not stat synchronously (a
+  // folder listing walks every file inside); shape logic stays shared
+  try {
+    return shapeRecentEntry(path, starredPaths, await stat(path))
+  } catch {
+    return shapeRecentEntry(path, starredPaths, null)
+  }
+}
+
+function shapeRecentEntry(
+  path: string,
+  starredPaths: ReadonlySet<string>,
+  st: Stats | null,
+): RecentEntry {
+  if (st) {
     return {
       path,
       name: basename(path),
       ext: extname(path).slice(1).toLowerCase(),
-      mtimeMs: 0,
-      sizeBytes: 0,
+      mtimeMs: st.mtimeMs,
+      sizeBytes: st.size,
       starred: starredPaths.has(path),
-      missing: true,
+      ...(st.isDirectory() ? { directory: true } : {}),
     }
+  }
+  // A failed stat is often transient (disconnected drive, pending mount,
+  // cloud placeholder) — dropping the entry made the recents list silently
+  // lose files until a later reload (r158). Word keeps unavailable recents
+  // listed; the row is flagged so the UI can dim it and offer removal.
+  return {
+    path,
+    name: basename(path),
+    ext: extname(path).slice(1).toLowerCase(),
+    mtimeMs: 0,
+    sizeBytes: 0,
+    starred: starredPaths.has(path),
+    missing: true,
   }
 }
 
@@ -39,6 +63,24 @@ export function statPathEntries(
   starredPaths: ReadonlySet<string>,
 ): RecentEntry[] {
   return paths.map((path) => toRecentEntry(path, starredPaths))
+}
+
+/** async statPathEntries for the folder listing path; chunks keep the promise
+ *  count bounded on folders with thousands of files */
+export async function statPathEntriesAsync(
+  paths: readonly string[],
+  starredPaths: ReadonlySet<string>,
+): Promise<RecentEntry[]> {
+  const entries: RecentEntry[] = []
+  const CHUNK = 64
+  for (let i = 0; i < paths.length; i += CHUNK) {
+    entries.push(
+      ...(await Promise.all(
+        paths.slice(i, i + CHUNK).map((path) => toRecentEntryAsync(path, starredPaths)),
+      )),
+    )
+  }
+  return entries
 }
 
 export const STAT_PATHS_MAX = RECENT_PAGE_MAX

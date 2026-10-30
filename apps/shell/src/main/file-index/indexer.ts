@@ -18,6 +18,11 @@ export interface IndexerSources {
   roots: () => readonly string[]
   /** files outside the roots that should still be searchable (recents, starred) */
   extraPaths: () => readonly string[]
+  /** called whenever the searchable corpus may have changed (a scan diff
+   *  landed, an extraction was applied, a vanished file was removed) so the
+   *  host can push index-updated to the renderers; called at extraction rate,
+   *  so the host is expected to coalesce */
+  onUpdated?: () => void
 }
 
 const RESCAN_DEBOUNCE_MS = 1500
@@ -193,7 +198,12 @@ export class FileIndexer {
           if (res.truncated) complete = false
         } else walked = false
       }
-      if (walked) await this.diff(seen, complete)
+      if (walked) {
+        await this.diff(seen, complete)
+        // the diff itself drops vanished paths store-side, so even a scan with
+        // no extractions can have changed what a search sees
+        this.sources.onUpdated?.()
+      }
     } catch (e) {
       // a failed diff keeps the previous index: search stays answerable, and
       // the next refresh (or the next stale-triggered scan) retries it
@@ -202,8 +212,7 @@ export class FileIndexer {
       this.scanning = false
       this.scheduleIdleRecycle()
       this.notifySettlers()
-    }
-    // a refresh that arrived mid-scan runs now, whether or not the walk succeeded
+    } // a refresh that arrived mid-scan runs now, whether or not the walk succeeded
     if (this.scanRequested) {
       this.scanRequested = false
       void this.scan()
@@ -242,11 +251,13 @@ export class FileIndexer {
         const st = statOrNull(f.path)
         if (!st) {
           await this.store.remove([f.path])
+          this.sources.onUpdated?.()
           continue
         }
         const res = await this.ask({ id: 0, type: 'extract', path: st.path })
         if (res.type !== 'extract') continue
         await this.apply(st, res.result)
+        this.sources.onUpdated?.()
       }
     } finally {
       this.draining = false

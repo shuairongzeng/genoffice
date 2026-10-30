@@ -45,6 +45,7 @@ import type { Lang } from '@genoffice/i18n'
 import { activeProvider } from '@genoffice/ai-provider/browser'
 import type { ChatMessage, ChatMeta, ProjectApi, RunSummary } from '@genoffice/project-store'
 import { useI18n } from './locale'
+import { useConfirm } from './ConfirmDialog'
 import { aiSetupNeeded } from './ai-setup-state'
 import type { AttachmentAddResult } from '../../shared/home-api'
 import { AskAttachments } from './AskAttachments'
@@ -448,6 +449,9 @@ export function KbAskPanel({
   onPendingQueryConsumed?: () => void
 }): React.JSX.Element {
   const { t, lang } = useI18n()
+  // the in-app replacement for the native confirm on thread delete (and any
+  // future ask-side confirmation); rendered at the panel root
+  const { confirm: confirmBox, dialog: confirmDialog } = useConfirm(t('ok'))
   const aiPrefs = useAiPanelPrefs()
   const [messages, setMessages] = useState<AskMessage[]>([])
   const [draft, setDraft] = useState('')
@@ -718,9 +722,15 @@ export function KbAskPanel({
   }
 
   const removeThread = async (chatId: string, label: string): Promise<void> => {
-    // A transcript gone is gone; the ×  on a chip should not be a hair-trigger.
+    // A transcript gone is gone; the × on a chip should not be a hair-trigger.
     const thread = threads.find((entry) => entry.chatId === chatId)
-    if (!window.confirm(t('askThreadDeleteConfirm', { label: thread?.label ?? label }))) {
+    const confirmed = await confirmBox({
+      body: <p>{t('askThreadDeleteConfirm', { label: thread?.label ?? label })}</p>,
+      confirmLabel: t('delete'),
+      cancelLabel: t('cancel'),
+      danger: true,
+    })
+    if (!confirmed) {
       return
     }
     const api = window.projectApi
@@ -1502,6 +1512,7 @@ export function KbAskPanel({
           finishLast()
         }}
       />
+      {confirmDialog}
     </div>
   )
 }

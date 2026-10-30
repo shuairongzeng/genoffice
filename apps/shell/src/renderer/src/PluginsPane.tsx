@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { TFunc } from './locale'
+import { useConfirm } from './ConfirmDialog'
 import type { InstalledPlugin } from '../../shared/found-skill'
 
 /**
@@ -16,6 +17,7 @@ const api = () => window.aiOffice
 type Notice = { kind: 'done' | 'removed'; name: string } | { kind: 'failed'; reason: string }
 
 export function PluginsPane({ t }: { t: TFunc }) {
+  const { confirm: confirmBox, dialog: confirmDialog } = useConfirm(t('ok'))
   const [plugins, setPlugins] = useState<InstalledPlugin[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
@@ -62,7 +64,14 @@ export function PluginsPane({ t }: { t: TFunc }) {
   }
 
   const doRemove = async (plugin: InstalledPlugin) => {
-    if (busy || !window.confirm(t('intgPluginsRemoveConfirm', { name: plugin.name }))) return
+    if (busy) return
+    const confirmed = await confirmBox({
+      body: <p>{t('intgPluginsRemoveConfirm', { name: plugin.name })}</p>,
+      confirmLabel: t('delete'),
+      cancelLabel: t('cancel'),
+      danger: true,
+    })
+    if (!confirmed) return
     setBusy(true)
     try {
       await api()?.pluginsRemove?.(plugin.name)
@@ -141,6 +150,7 @@ export function PluginsPane({ t }: { t: TFunc }) {
           ))}
         </div>
       )}
+      {confirmDialog}
     </>
   )
 }

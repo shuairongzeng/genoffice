@@ -4,6 +4,7 @@ import type { TabsApi, TabSummary } from '../../shared/tabs-api'
 import { TEAR_OFF_SLACK, insertionIndexForX, isBeyondBand } from '../../shared/tab-drag-geometry'
 import { notifyFilesChanged } from './file-events'
 import { useI18n } from './locale'
+import { useConfirm } from './ConfirmDialog'
 
 declare global {
   interface Window {
@@ -176,6 +177,7 @@ export function renamedFileName(currentPath: string, typedName: string): string 
 
 export function TabBar() {
   const { t } = useI18n()
+  const { alert: alertBox, dialog: confirmDialog } = useConfirm(t('ok'))
   const [tabs, setTabs] = useState<TabSummary[]>([])
   const stripRef = useRef<HTMLDivElement>(null)
 
@@ -215,7 +217,7 @@ export function TabBar() {
     const newName = renamedFileName(tab.filePath, value)
     if (newName === tab.title) return
     void window.aiOffice.renameFile(tab.filePath, newName).then((result) => {
-      if (!result.ok) window.alert(result.error ?? t('renameFailed'))
+      if (!result.ok) void alertBox(result.error ?? t('renameFailed'))
       // Home shares this renderer and only re-pulls on window focus, which the
       // rename input already holds: tell it the recents / folder rows moved.
       else notifyFilesChanged()
@@ -666,6 +668,7 @@ export function TabBar() {
         </svg>
       </button>
       <div className="tab-bar-caption-spacer" />
+      {confirmDialog}
     </div>
   )
 }

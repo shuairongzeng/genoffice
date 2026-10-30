@@ -149,6 +149,20 @@ async function click(el: Element | null | undefined): Promise<void> {
 const buttonWithText = (text: string): HTMLButtonElement | undefined =>
   [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === text)
 
+/** the in-app confirm the remove flow opens */
+const dialogButtons = (): HTMLButtonElement[] => [
+  ...host.querySelectorAll<HTMLButtonElement>('.modal-buttons button'),
+]
+
+/** the confirm's promise resolves on click; the remove and relist follow it */
+async function flush(times = 8): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+}
+
 /** the row that names this plugin, and its enabled switch */
 const row = (name: string): Element | undefined =>
   [...host.querySelectorAll('.set-plug-row')].find((r) =>
@@ -238,16 +252,22 @@ describe('PluginsPane', () => {
 
   it('asks before removing, then removes and relists', async () => {
     mountApi([plugin({})])
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     await render()
     await click(buttonWithText('Remove'))
-    expect(confirm).toHaveBeenCalledWith(
+    // the in-app confirm names the plugin and what removing does to it
+    expect(host.textContent).toContain(
       'Remove the plugin "pdf-toolkit"? Its folder is deleted from GenOffice.',
     )
-    // declined: nothing left the folder
+    expect(dialogButtons().map((b) => b.textContent?.trim())).toEqual(['Cancel', 'Delete'])
+    // declined: the dialog closes and nothing left the folder
+    await click(dialogButtons()[0])
+    expect(host.querySelector('.modal')).toBeNull()
     expect(removes).toEqual([])
-    confirm.mockReturnValue(true)
+
     await click(buttonWithText('Remove'))
+    await click(dialogButtons()[1])
+    // the confirm resolves asynchronously; let the remove and relist land
+    await flush()
     expect(removes).toEqual(['pdf-toolkit'])
     expect(host.textContent).toContain('Removed pdf-toolkit')
     // the relist is empty now: the row is gone and the empty state is back

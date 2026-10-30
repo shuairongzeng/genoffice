@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const nl: Dict = {
+  ok: 'OK',
   addFolderRoot: 'Map toevoegen…',
   removeFolderRoot: 'Uit lijst verwijderen',
   rootUnavailable: 'Niet beschikbaar',

@@ -36,6 +36,7 @@ import { ConflictPrompt, GroupPicker } from './home-dialogs'
 import { FileRow, SubfolderRow, type FileRowActions } from './HomeFileRows'
 import { FileSearchBox, FileSearchHeading, FileSearchResults } from './HomeSearchPanel'
 import { useFolderListings } from './useFolderListings'
+import { ConfirmDialog, useConfirm } from './ConfirmDialog'
 import {
   Chevron,
   DRAG_EXPAND_DELAY_MS,
@@ -88,6 +89,9 @@ const GREET_ASK_KEYS = [
 export function Home() {
   const i18n = useI18n()
   const { t, lang } = i18n
+  // the in-app confirm/alert pair that replaces the native window.confirm /
+  // window.alert calls below; `dialog` renders at the component root
+  const { alert: alertBox, dialog: confirmDialog } = useConfirm(t('ok'))
   // ── Paged list state (rows loaded for the current view + filter) ──
   const [entries, setEntries] = useState<RecentEntry[]>([])
   /** total count under the current view + filter (not just the loaded rows) */
@@ -239,6 +243,7 @@ export function Home() {
     listings,
     load: loadFolder,
     invalidate: invalidateFolders,
+    revalidate: revalidateFolders,
     reset: resetFolders,
     tracked: trackedFolder,
   } = useFolderListings()
@@ -387,7 +392,9 @@ export function Home() {
   const refresh = () => {
     reloadRef.current(true)
     loadRoot()
-    invalidateFolders([...listings.keys()])
+    // the folder listings dirty-check via their mtimes instead of re-listing
+    // every expanded folder; the cheap JSON-backed reads above stay direct
+    revalidateFolders()
   }
   const refreshRef = useRef(refresh)
   refreshRef.current = refresh
@@ -414,12 +421,21 @@ export function Home() {
       void window.aiOffice.searchFiles({ q, ext, limit: 100 }).then((page) => {
         if (seq !== searchSeq.current) return
         setSearchPage(page)
-        // results grow while the background index catches up
-        if (page.index.pending > 0 || page.index.scanning) timer = window.setTimeout(run, 1500)
       })
     }
     timer = window.setTimeout(run, 150)
-    return () => window.clearTimeout(timer)
+    // No blind re-poll while the index catches up: the main process pushes
+    // index-updated when a scan diff or an extraction lands (coalesced), and
+    // each push re-queries — results grow the moment they exist, not on the
+    // next 1.5 s tick. Optional-chained: component tests stub a partial aiOffice.
+    const off = window.aiOffice.onIndexUpdated?.(() => {
+      window.clearTimeout(timer)
+      run()
+    })
+    return () => {
+      window.clearTimeout(timer)
+      off?.()
+    }
   }, [q, filter])
 
   // Jev judges the top local hits once they settle; the main process answers null when reranking is off.
@@ -795,7 +811,7 @@ export function Home() {
     if (!value || value === baseName(entry)) return
     const newName = entry.ext ? `${value}.${entry.ext}` : value
     void window.aiOffice.renameFile(entry.path, newName).then((result) => {
-      if (!result.ok) window.alert(result.error ?? t('renameFailed'))
+      if (!result.ok) void alertBox(result.error ?? t('renameFailed'))
       refresh()
     })
   }
@@ -826,7 +842,7 @@ export function Home() {
     if (!pending || !name) return
     const result = await window.aiOffice.createFolder(pending.parent, name)
     if (!result.ok) {
-      window.alert(result.error ?? t('renameFailed'))
+      void alertBox(result.error ?? t('renameFailed'))
       return
     }
     invalidateFolders([pending.parent])
@@ -847,7 +863,7 @@ export function Home() {
     if (!value || value === fileName(pending.path)) return
     const result = await window.aiOffice.renameFolder(pending.path, value)
     if (!result.ok) {
-      window.alert(result.error ?? t('renameFailed'))
+      void alertBox(result.error ?? t('renameFailed'))
       return
     }
     if (result.path) {
@@ -892,7 +908,7 @@ export function Home() {
       }
     }
     refresh()
-    if (result.failed.length > 0) window.alert(result.failed[0].error)
+    if (result.failed.length > 0) void alertBox(result.failed[0].error)
     if (result.conflicts.length > 0) setConflict({ paths: result.conflicts, targetDir })
   }
 
@@ -1969,106 +1985,63 @@ export function Home() {
       ) : (
         renderGlobalContent()
       )}
+      {confirmDialog}
       {confirmDelete && (
-        <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('deleteModalTitle')}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3>{t('deleteModalTitle')}</h3>
-            <p>
-              {confirmDelete.length === 1
-                ? t('deleteConfirmOne', { name: fileName(confirmDelete[0]) })
-                : t('deleteConfirmMany', { n: confirmDelete.length })}
-            </p>
-            {confirmDelete.length > 1 && (
-              <ul className="modal-file-list">
-                {confirmDelete.slice(0, 6).map((p) => (
-                  <li key={p}>{fileName(p)}</li>
-                ))}
-                {confirmDelete.length > 6 && (
-                  <li>{t('deleteMoreCount', { n: confirmDelete.length })}</li>
-                )}
-              </ul>
-            )}
-            <div className="modal-buttons">
-              <button
-                className="btn btn-secondary"
-                autoFocus
-                onClick={() => setConfirmDelete(null)}
-              >
-                {t('cancel')}
-              </button>
-              <button className="btn btn-danger" onClick={confirmDeleteNow}>
-                {t('delete')}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={t('deleteModalTitle')}
+          body={
+            <>
+              <p>
+                {confirmDelete.length === 1
+                  ? t('deleteConfirmOne', { name: fileName(confirmDelete[0]) })
+                  : t('deleteConfirmMany', { n: confirmDelete.length })}
+              </p>
+              {confirmDelete.length > 1 && (
+                <ul className="modal-file-list">
+                  {confirmDelete.slice(0, 6).map((p) => (
+                    <li key={p}>{fileName(p)}</li>
+                  ))}
+                  {confirmDelete.length > 6 && (
+                    <li>{t('deleteMoreCount', { n: confirmDelete.length })}</li>
+                  )}
+                </ul>
+              )}
+            </>
+          }
+          confirmLabel={t('delete')}
+          cancelLabel={t('cancel')}
+          danger
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={confirmDeleteNow}
+        />
       )}
 
       {confirmDeleteFolder && (
-        <div className="modal-overlay" onClick={() => setConfirmDeleteFolder(null)}>
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('deleteFolderTitle')}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3>{t('deleteFolderTitle')}</h3>
-            <p>{t('deleteFolderConfirm', { name: fileName(confirmDeleteFolder) })}</p>
-            <div className="modal-buttons">
-              <button
-                className="btn btn-secondary"
-                autoFocus
-                onClick={() => setConfirmDeleteFolder(null)}
-              >
-                {t('cancel')}
-              </button>
-              <button className="btn btn-danger" onClick={() => void confirmDeleteFolderNow()}>
-                {t('delete')}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={t('deleteFolderTitle')}
+          body={<p>{t('deleteFolderConfirm', { name: fileName(confirmDeleteFolder) })}</p>}
+          confirmLabel={t('delete')}
+          cancelLabel={t('cancel')}
+          danger
+          onCancel={() => setConfirmDeleteFolder(null)}
+          onConfirm={() => void confirmDeleteFolderNow()}
+        />
       )}
 
       {confirmMissing && (
-        <div className="modal-overlay" onClick={() => setConfirmMissing(null)}>
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('missingFileTitle')}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3>{t('missingFileTitle')}</h3>
-            <p>{t('missingFileBody', { name: confirmMissing.name })}</p>
-            <div className="modal-buttons">
-              <button
-                className="btn btn-secondary"
-                autoFocus
-                onClick={() => setConfirmMissing(null)}
-              >
-                {t('cancel')}
-              </button>
-              <button
-                className="btn btn-danger"
-                onClick={() => {
-                  // main drops the star of an unavailable entry with the row
-                  removeRecent([confirmMissing.path])
-                  setConfirmMissing(null)
-                }}
-              >
-                {t('removeFromList')}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={t('missingFileTitle')}
+          body={<p>{t('missingFileBody', { name: confirmMissing.name })}</p>}
+          confirmLabel={t('removeFromList')}
+          cancelLabel={t('cancel')}
+          danger
+          onCancel={() => setConfirmMissing(null)}
+          onConfirm={() => {
+            // main drops the star of an unavailable entry with the row
+            removeRecent([confirmMissing.path])
+            setConfirmMissing(null)
+          }}
+        />
       )}
 
       {movePicker && canMove && (

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { FolderRoot } from '../../shared/home-api'
 import { useI18n } from './locale'
+import { useConfirm } from './ConfirmDialog'
 import { useFolderListings } from './useFolderListings'
 import { Chevron, FolderIcon, isUnder, locationLabel, rootOf } from './home-shared'
 
@@ -27,6 +28,7 @@ export function FolderPicker({
   onPick,
 }: FolderPickerProps): ReactElement {
   const { t } = useI18n()
+  const { alert: alertBox, dialog: confirmDialog } = useConfirm(t('ok'))
   const { listings, load } = useFolderListings()
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
     () => new Set(roots.map((r) => r.path)),
@@ -67,7 +69,7 @@ export function FolderPicker({
     if (!parent || !name) return
     const result = await window.aiOffice.createFolder(parent, name)
     if (!result.ok) {
-      window.alert(result.error ?? t('renameFailed'))
+      void alertBox(result.error ?? t('renameFailed'))
       return
     }
     load(parent, true)
@@ -247,6 +249,7 @@ export function FolderPicker({
           </button>
         </div>
       </div>
+      {confirmDialog}
     </div>
   )
 }

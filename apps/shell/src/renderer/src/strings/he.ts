@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const he: Dict = {
+  ok: 'אישור',
   addFolderRoot: 'הוספת תיקייה…',
   removeFolderRoot: 'הסרה מהרשימה',
   rootUnavailable: 'לא זמין',

@@ -392,8 +392,8 @@ const homeApi: HomeApi = {
   pathForFile(file) {
     return webUtils.getPathForFile(file)
   },
-  async listFolder(dir) {
-    return (await ipcRenderer.invoke(HOME_CHANNELS.listFolder, dir)) as FolderListing
+  async listFolder(dir, knownMtimeMs) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.listFolder, dir, knownMtimeMs)) as FolderListing
   },
   async createFolder(parent, name) {
     return (await ipcRenderer.invoke(HOME_CHANNELS.createFolder, parent, name)) as RenameResult
@@ -423,6 +423,11 @@ const homeApi: HomeApi = {
     const listener = () => handler()
     ipcRenderer.on(HOME_CHANNELS.recentsChanged, listener)
     return () => ipcRenderer.removeListener(HOME_CHANNELS.recentsChanged, listener)
+  },
+  onIndexUpdated(handler) {
+    const listener = () => handler()
+    ipcRenderer.on(HOME_CHANNELS.indexUpdated, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.indexUpdated, listener)
   },
   async openTrash() {
     await ipcRenderer.invoke(HOME_CHANNELS.openTrash)
