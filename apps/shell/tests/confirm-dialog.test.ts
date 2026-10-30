@@ -199,4 +199,17 @@ describe('useConfirm', () => {
     await act(async () => buttons()[1]!.click())
     await expect(promise).resolves.toBe(true)
   })
+
+  it('an open request settles as cancelled when its host unmounts', async () => {
+    // the IPC continuation that opened an alert can land after the host
+    // unmounted (a picker closed while its create was in flight); the
+    // promise must settle, not hang with the message swallowed
+    await mount()
+    let promise!: Promise<boolean>
+    await act(async () => {
+      promise = api!.confirm({ body: 'in flight', confirmLabel: 'Go' })
+    })
+    root.unmount()
+    await expect(promise).resolves.toBe(false)
+  })
 })

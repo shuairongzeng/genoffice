@@ -74,6 +74,23 @@ declare global {
 /** page size of the home list; scrolling to the bottom auto-loads the next page */
 const PAGE_SIZE = 50
 
+/**
+ * Field-wise root-list equality, so loadRoot can keep the previous array's
+ * identity when nothing changed: the expanded-listings effect keys on the
+ * roots array, and a fresh identity on every focus refresh would re-list
+ * every expanded folder — the exact cost the focus dirty-check avoids.
+ */
+const sameRootList = (a: FolderRoot[], b: FolderRoot[]): boolean =>
+  a.length === b.length &&
+  a.every(
+    (r, i) =>
+      r.path === b[i]!.path &&
+      r.name === b[i]!.name &&
+      r.usable === b[i]!.usable &&
+      r.readable === b[i]!.readable &&
+      r.removable === b[i]!.removable,
+  )
+
 /** greeting sublines on the home page: one is picked at random on entry */
 const GREET_ASK_KEYS = [
   'greetAsk1',
@@ -291,7 +308,11 @@ export function Home() {
           const added = next.filter((r) => !known.has(r.path)).map((r) => r.path)
           if (added.length > 0) setExpanded((e) => new Set([...e, ...added]))
         }
-        return next
+        // an unchanged answer keeps the previous array's identity: the
+        // expanded-listings effect below keys on it, and a fresh identity on
+        // every focus refresh would re-list every expanded folder — the exact
+        // cost the focus dirty-check exists to avoid
+        return sameRootList(prev, next) ? prev : next
       })
     })
   }, [resetFolders])
@@ -337,7 +358,21 @@ export function Home() {
 
   useEffect(() => {
     return window.aiOffice.onFolderChanged((dirs) => {
-      invalidateFolders(dirs.filter(trackedFolder))
+      // a change in a folder the pane never listed (a collapsed child) still
+      // flips data its parent's cached listing embeds — the hasSubfolders
+      // flag behind the child's expand chevron — so a tracked parent
+      // invalidates too; without this the chevron stays hidden until the
+      // folder is re-selected
+      const targets = new Set<string>()
+      for (const dir of dirs) {
+        if (trackedFolder(dir)) {
+          targets.add(dir)
+          continue
+        }
+        const parent = dirOf(dir)
+        if (parent !== dir && trackedFolder(parent)) targets.add(parent)
+      }
+      if (targets.size > 0) invalidateFolders([...targets])
     })
   }, [invalidateFolders, trackedFolder])
 
@@ -392,12 +427,29 @@ export function Home() {
   const refresh = () => {
     reloadRef.current(true)
     loadRoot()
-    // the folder listings dirty-check via their mtimes instead of re-listing
-    // every expanded folder; the cheap JSON-backed reads above stay direct
-    revalidateFolders()
+    // the listings re-list, not dirty-check: a refresh follows a mutation this
+    // renderer made (star toggle, group assignment, a save in a tab), and the
+    // cached rows embed data the mtime probe cannot see — the starred flag is
+    // JSON state and never moves the dir's mtime, so a probe would answer
+    // unchanged and leave the row stale
+    invalidateFolders([...listings.keys()])
   }
   const refreshRef = useRef(refresh)
   refreshRef.current = refresh
+
+  /**
+   * The focus variant: nothing is known to have changed while the window was
+   * unfocused, so the folder listings dirty-check via their mtimes instead of
+   * re-listing every expanded folder (an unchanged directory costs the main
+   * process one stat, not a readdir).
+   */
+  const refreshOnFocus = () => {
+    reloadRef.current(true)
+    loadRoot()
+    revalidateFolders()
+  }
+  const refreshOnFocusRef = useRef(refreshOnFocus)
+  refreshOnFocusRef.current = refreshOnFocus
 
   useEffect(() => {
     reloadRef.current(false)
@@ -411,27 +463,52 @@ export function Home() {
       return
     }
     let timer = 0
+    // one query in flight at a time. While the index is busy each searchFiles
+    // waits out the settle cap (up to ~2 s) and pushes arrive far faster than
+    // that, so an unguarded run() would bump the sequence and discard every
+    // in-flight reply — the results would freeze mid-build. A push that lands
+    // while a query is outstanding marks one re-query instead, chained after
+    // the reply renders.
+    const inflight = { on: false, queued: false }
     const run = () => {
       if (composingRef.current) {
         timer = window.setTimeout(run, 150)
         return
       }
-      const seq = ++searchSeq.current
+      if (inflight.on) {
+        inflight.queued = true
+        return
+      }
       const ext = filter === 'all' ? undefined : filter
+      const seq = ++searchSeq.current
+      inflight.on = true
       void window.aiOffice.searchFiles({ q, ext, limit: 100 }).then((page) => {
+        inflight.on = false
         if (seq !== searchSeq.current) return
         setSearchPage(page)
+        if (inflight.queued) {
+          inflight.queued = false
+          run()
+        } else if (!hasPush && (page.index.pending > 0 || page.index.scanning)) {
+          // a preload from before the push channel (one launch after an app
+          // update): keep the slow re-poll while the index catches up
+          timer = window.setTimeout(run, 1500)
+        }
       })
     }
     timer = window.setTimeout(run, 150)
     // No blind re-poll while the index catches up: the main process pushes
     // index-updated when a scan diff or an extraction lands (coalesced), and
     // each push re-queries — results grow the moment they exist, not on the
-    // next 1.5 s tick. Optional-chained: component tests stub a partial aiOffice.
-    const off = window.aiOffice.onIndexUpdated?.(() => {
-      window.clearTimeout(timer)
-      run()
-    })
+    // next 1.5 s tick. Optional-chained: component tests stub a partial
+    // aiOffice, and a preload that predates the channel falls back above.
+    const hasPush = typeof window.aiOffice.onIndexUpdated === 'function'
+    const off = hasPush
+      ? window.aiOffice.onIndexUpdated?.(() => {
+          window.clearTimeout(timer)
+          run()
+        })
+      : undefined
     return () => {
       window.clearTimeout(timer)
       off?.()
@@ -472,7 +549,7 @@ export function Home() {
   }, [])
 
   useEffect(() => {
-    const onFocus = () => refreshRef.current()
+    const onFocus = () => refreshOnFocusRef.current()
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [])
@@ -908,7 +985,12 @@ export function Home() {
       }
     }
     refresh()
-    if (result.failed.length > 0) void alertBox(result.failed[0].error)
+    // the alert lands before the conflict prompt mounts: both are
+    // z-index-100 overlays and the prompt renders later in the tree, so a
+    // simultaneous mount buries the error dialog — and its capture-phase
+    // Escape would then swallow the first keypress aimed at the prompt. The
+    // old native alert blocked here; awaiting preserves that ordering.
+    if (result.failed.length > 0) await alertBox(result.failed[0].error)
     if (result.conflicts.length > 0) setConflict({ paths: result.conflicts, targetDir })
   }
 

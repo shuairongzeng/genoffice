@@ -36,6 +36,12 @@ const page = (q: string): FileSearchPage => ({
   index: { indexed: 10, pending: 3, scanning: true },
 })
 
+/** the settled index: nothing left to wait for */
+const quietPage = (q: string): FileSearchPage => ({
+  ...page(q),
+  index: { indexed: 13, pending: 0, scanning: false },
+})
+
 beforeEach(async () => {
   HTMLElement.prototype.scrollTo = vi.fn()
   localStorage.clear()
@@ -170,5 +176,80 @@ describe('search refresh on index-updated', () => {
     })
     expect(indexHandlers).toHaveLength(0)
     expect(searchFiles).toHaveBeenCalledTimes(1)
+  })
+
+  it('queues a push that lands while a query is in flight instead of discarding the reply', async () => {
+    await clickNav('Recent')
+    // a busy index makes each query slow (it waits out the settle cap): gate
+    // the first reply the way a real mid-build query behaves
+    let release!: (value: FileSearchPage) => void
+    const gate = new Promise<FileSearchPage>((resolve) => {
+      release = resolve
+    })
+    searchFiles.mockImplementationOnce(() => gate)
+
+    await typeQuery('report')
+    await act(async () => {
+      vi.advanceTimersByTime(150)
+    })
+    expect(searchFiles).toHaveBeenCalledTimes(1)
+
+    // two pushes while the query is outstanding: neither may start a second
+    // query — bumping the sequence would discard the in-flight reply and
+    // freeze the results mid-build
+    await act(async () => {
+      indexHandlers[0]!()
+    })
+    await act(async () => {
+      indexHandlers[0]!()
+    })
+    expect(searchFiles).toHaveBeenCalledTimes(1)
+
+    // the reply lands and renders; exactly one chained re-query follows
+    await act(async () => {
+      release(page('report'))
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(searchFiles).toHaveBeenCalledTimes(2)
+    expect(searchFiles.mock.calls[1]![0]).toMatchObject({ q: 'report' })
+
+    // no push, no further queries
+    await act(async () => {
+      vi.advanceTimersByTime(3200)
+    })
+    expect(searchFiles).toHaveBeenCalledTimes(2)
+  })
+
+  it('an old preload without the push channel keeps the busy-index re-poll', async () => {
+    // one launch after an app update can pair a new renderer with the old
+    // preload: no onIndexUpdated exists, so the slow poll must stay
+    delete (window.aiOffice as Record<string, unknown>).onIndexUpdated
+    await clickNav('Recent')
+
+    await typeQuery('report')
+    await act(async () => {
+      vi.advanceTimersByTime(150)
+    })
+    expect(searchFiles).toHaveBeenCalledTimes(1)
+    expect(indexHandlers).toHaveLength(0)
+
+    // the reply said busy: the 1.5 s re-poll re-arms
+    await act(async () => {
+      vi.advanceTimersByTime(1500)
+    })
+    expect(searchFiles).toHaveBeenCalledTimes(2)
+
+    // the index goes quiet on the next reply: the poll stops
+    searchFiles.mockImplementationOnce(async () => quietPage('report'))
+    await act(async () => {
+      vi.advanceTimersByTime(1500)
+    })
+    expect(searchFiles).toHaveBeenCalledTimes(3)
+    await act(async () => {
+      vi.advanceTimersByTime(3200)
+    })
+    expect(searchFiles).toHaveBeenCalledTimes(3)
   })
 })

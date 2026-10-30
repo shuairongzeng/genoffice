@@ -97,6 +97,18 @@ export function useConfirm(okLabel: string): {
   const [pending, setPending] = useState<ConfirmRequest | null>(null)
   const settleRef = useRef<((confirmed: boolean) => void) | null>(null)
 
+  // a request must not outlive its host: the IPC continuation that opened it
+  // can land after the host unmounted (a picker closed while its create was
+  // in flight), and an unsettled promise would swallow the error message
+  // entirely — settle it as cancelled, the same guard tool-confirm.ts carries
+  useEffect(
+    () => () => {
+      settleRef.current?.(false)
+      settleRef.current = null
+    },
+    [],
+  )
+
   const confirm = (request: ConfirmRequest): Promise<boolean> =>
     new Promise<boolean>((resolve) => {
       settleRef.current?.(false)
