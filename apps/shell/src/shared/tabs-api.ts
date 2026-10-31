@@ -16,6 +16,12 @@ export interface TabSummary {
   dormant?: boolean
   /** excluded from sleeping (tab context menu) */
   pinned?: boolean
+  /**
+   * unsaved-changes state, resolved per family (docs needs a renderer
+   * round-trip, the rest answer synchronously) — so it only appears on the
+   * async `listWithDirty` face, never on the sync one the tab menus use
+   */
+  dirty?: boolean
 }
 
 /**

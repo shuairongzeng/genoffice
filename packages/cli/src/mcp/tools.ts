@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DESKTOP_ACTIONS } from '../control-protocol'
 import type { CommandRegistry, OptionDef } from '../registry'
 import type { McpMode } from './run'
 import { READ_UNITS } from '../length-units'
@@ -519,55 +520,26 @@ export const TOOLS: ToolSpec[] = [
       "What the user currently has selected in the GenOffice editor showing this file: slide + element ids, a block range with its text, a sheet range, or a pdf page. The user's own pointer for 'this one' / 'here'; needs the file open in the app.",
     positionals: [{ key: 'file', description: 'path of the document open in GenOffice' }],
   },
-  {
-    name: 'desktop_get_state',
-    command: 'desktop',
-    fixed: ['get-state'],
-    localOnly: true,
-    readOnly: true,
-    description:
-      "The running GenOffice app's Home desktop in one snapshot: current wallpaper, icon layout summary, todo list and open windows/tabs.",
-  },
-  {
-    name: 'desktop_set_wallpaper',
-    command: 'desktop',
-    fixed: ['set-wallpaper'],
-    localOnly: true,
-    description:
-      'Change the Home desktop wallpaper: "default" (the live aurora), a builtin wallpaper name (an unknown name\'s error reply lists the available ones), or an absolute path to a png/jpg/webp image (imported into the app).',
-    positionals: [
-      {
-        key: 'wallpaper',
-        description: '"default", a builtin wallpaper name, or an absolute image path',
-      },
-    ],
-  },
-  {
-    name: 'desktop_todo_add',
-    command: 'desktop',
-    fixed: ['todo', 'add'],
-    localOnly: true,
-    description: 'Add one item to the Home desktop todo widget.',
-    positionals: [{ key: 'text', description: 'the todo item text' }],
-  },
-  {
-    name: 'desktop_todo_list',
-    command: 'desktop',
-    fixed: ['todo', 'list'],
-    localOnly: true,
-    readOnly: true,
-    description: 'List the Home desktop todo widget items (text + done state).',
-  },
-  {
-    name: 'desktop_windows_list',
-    command: 'desktop',
-    fixed: ['windows', 'list'],
-    localOnly: true,
-    readOnly: true,
-    description:
-      'Enumerate the windows and editor tabs the running GenOffice app has open (kind, title, path, active/dirty/detached).',
-  },
+  ...desktopTools(),
 ]
+
+/**
+ * The `desktop_*` tools derive from the protocol's DESKTOP_ACTIONS table —
+ * the same single source the running app's in-process `desktop` tool derives
+ * from — so the two MCP surfaces expose the same actions, arguments and
+ * descriptions without a hand-maintained copy of either list.
+ */
+function desktopTools(): ToolSpec[] {
+  return DESKTOP_ACTIONS.map((a) => ({
+    name: a.tool,
+    command: 'desktop',
+    fixed: [...a.cli],
+    localOnly: true,
+    ...(a.readOnly ? { readOnly: true } : {}),
+    description: a.toolDescription,
+    ...(a.arg ? { positionals: [{ key: a.arg.key, description: a.arg.description }] } : {}),
+  }))
+}
 
 export function resolveTools(registry: CommandRegistry): ResolvedTool[] {
   return TOOLS.map((tool) => resolveTool(tool, registry))

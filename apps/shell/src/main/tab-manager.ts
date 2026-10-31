@@ -319,16 +319,33 @@ export class TabManager {
   }
 
   list(): TabSummary[] {
-    return this.tabs.map((t) => ({
-      id: t.id,
-      kind: t.kind,
-      title: t.title,
-      closable: t.id !== HOME_ID,
-      active: t.id === this.activeId,
-      ...(t.filePath ? { filePath: t.filePath } : {}),
-      ...(t.dormant ? { dormant: true } : {}),
-      ...(t.pinned ? { pinned: true } : {}),
-    }))
+    return this.tabs.map((t) => this.summaryOf(t))
+  }
+
+  /**
+   * The tab list with each tab's unsaved-changes state resolved — the async
+   * face of list() for state-reporting consumers (the agent's window list):
+   * docs dirtiness lives in its renderer and needs a round-trip, so the sync
+   * face the tab menus use stays dirtiness-free. A dormant tab reports false
+   * by construction — only a clean tab was ever put to sleep.
+   */
+  async listWithDirty(): Promise<TabSummary[]> {
+    return Promise.all(
+      this.tabs.map(async (t) => ({ ...this.summaryOf(t), dirty: await this.tabIsDirty(t) })),
+    )
+  }
+
+  private summaryOf(tab: TabRecord): TabSummary {
+    return {
+      id: tab.id,
+      kind: tab.kind,
+      title: tab.title,
+      closable: tab.id !== HOME_ID,
+      active: tab.id === this.activeId,
+      ...(tab.filePath ? { filePath: tab.filePath } : {}),
+      ...(tab.dormant ? { dormant: true } : {}),
+      ...(tab.pinned ? { pinned: true } : {}),
+    }
   }
 
   /**

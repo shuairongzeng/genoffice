@@ -63,6 +63,14 @@ export function parseEnvelope(line: string): ControlEnvelope | null {
       if (typeof wallpaper === 'string' && wallpaper !== '') return env as ControlEnvelope
       return null
     }
+    if (action === 'arrange') {
+      // shape only — the vocabulary is the store's to judge, so an unknown
+      // mode still reaches the handler and answers with its structured
+      // invalid_argument instead of a silent drop
+      const mode = (req as { mode?: unknown }).mode
+      if (typeof mode === 'string' && mode.trim() !== '') return env as ControlEnvelope
+      return null
+    }
     if (action === 'todo-add') {
       const text = (req as { text?: unknown }).text
       if (typeof text === 'string' && text.trim() !== '') return env as ControlEnvelope

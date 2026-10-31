@@ -86,6 +86,8 @@ import {
 } from './desktop-ipc'
 import {
   desktopControlHandler,
+  detachedToWindowInfo,
+  tabToWindowInfo,
   type DesktopControlDeps,
   type DesktopWindowInfo,
 } from './desktop-control'
@@ -5914,24 +5916,11 @@ const desktopControlDeps: DesktopControlDeps = {
 }
 
 async function listDesktopWindows(): Promise<DesktopWindowInfo[]> {
-  const tabs: DesktopWindowInfo[] = (tabManager?.list() ?? []).map((t) => ({
-    id: t.id,
-    kind: t.kind,
-    title: t.title,
-    active: t.active,
-    ...(t.filePath ? { filePath: t.filePath } : {}),
-    ...(t.dormant ? { dormant: true } : {}),
-    ...(t.pinned ? { pinned: true } : {}),
-  }))
-  const detached: DesktopWindowInfo[] = (await detachedOpenDocuments()).map((d) => ({
-    id: d.id,
-    kind: d.kind,
-    title: d.title,
-    active: d.active,
-    dirty: d.dirty,
-    detached: true,
-    ...(d.filePath ? { filePath: d.filePath } : {}),
-  }))
+  // the shell tabs carry their unsaved-changes state like the detached ones
+  // do (tabToWindowInfo), so the agent's window list sees pending work
+  // wherever it lives
+  const tabs: DesktopWindowInfo[] = (await (tabManager?.listWithDirty() ?? [])).map(tabToWindowInfo)
+  const detached: DesktopWindowInfo[] = (await detachedOpenDocuments()).map(detachedToWindowInfo)
   return [...tabs, ...detached]
 }
 

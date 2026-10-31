@@ -91,6 +91,9 @@ describe('control server', () => {
     expect(
       parseEnvelope('{"token":"t","request":{"cmd":"desktop","action":"todo-add","text":"milk"}}'),
     ).toEqual({ token: 't', request: { cmd: 'desktop', action: 'todo-add', text: 'milk' } })
+    expect(
+      parseEnvelope('{"token":"t","request":{"cmd":"desktop","action":"arrange","mode":"name"}}'),
+    ).toEqual({ token: 't', request: { cmd: 'desktop', action: 'arrange', mode: 'name' } })
     // missing or empty payloads never reach the handler
     expect(parseEnvelope('{"token":"t","request":{"cmd":"desktop","action":"nuke"}}')).toBeNull()
     expect(
@@ -103,6 +106,10 @@ describe('control server', () => {
     ).toBeNull()
     expect(
       parseEnvelope('{"token":"t","request":{"cmd":"desktop","action":"todo-add","text":"  "}}'),
+    ).toBeNull()
+    expect(parseEnvelope('{"token":"t","request":{"cmd":"desktop","action":"arrange"}}')).toBeNull()
+    expect(
+      parseEnvelope('{"token":"t","request":{"cmd":"desktop","action":"arrange","mode":"  "}}'),
     ).toBeNull()
     expect(parseEnvelope('{"token":"t","request":{"cmd":"desktop"}}')).toBeNull()
   })

@@ -107,6 +107,17 @@ describe('genoffice desktop', () => {
     expect(r.json().summary).toContain('builtin:warm-dusk')
   })
 
+  it('arrange sends the mode through', async () => {
+    const { env, requests } = await fakeShell(() => ({
+      ok: true,
+      result: { sortMode: 'name' },
+    }))
+    const r = await run(['desktop', 'arrange', 'name', '--json'], { env })
+    expect(r.code).toBe(0)
+    expect(requests).toEqual([{ cmd: 'desktop', action: 'arrange', mode: 'name' }])
+    expect(r.json().summary).toContain('name')
+  })
+
   it('windows list prints the open tabs', async () => {
     const { env, requests } = await fakeShell(() => ({
       ok: true,
@@ -114,14 +125,18 @@ describe('genoffice desktop', () => {
         windows: [
           { id: 'home', kind: 'home', title: 'GenOffice', active: true },
           { id: 't2', kind: 'docs', title: 'report.docx', filePath: '/tmp/report.docx' },
+          { id: 't3', kind: 'sheets', title: 'budget.xlsx', dirty: true },
         ],
       },
     }))
     const r = await run(['desktop', 'windows', 'list', '--json'], { env })
     expect(r.code).toBe(0)
     expect(requests).toEqual([{ cmd: 'desktop', action: 'windows-list' }])
-    expect(r.json().detail.windows).toHaveLength(2)
+    expect(r.json().detail.windows).toHaveLength(3)
     expect(r.json().summary).toContain('report.docx')
+    // unsaved work is visible in the plain-text face, not only in --json
+    expect(r.json().summary).toContain('budget.xlsx (unsaved)')
+    expect(r.json().summary).not.toContain('report.docx (unsaved)')
   })
 
   it('usage errors never touch the socket', async () => {
@@ -131,6 +146,8 @@ describe('genoffice desktop', () => {
       ['desktop', 'nuke', '--json'],
       ['desktop', 'todo', 'add', '--json'],
       ['desktop', 'set-wallpaper', '--json'],
+      ['desktop', 'arrange', '--json'],
+      ['desktop', 'arrange', 'color', '--json'],
     ]) {
       const r = await run(argv, { env })
       expect(r.code, argv.join(' ')).toBe(1)

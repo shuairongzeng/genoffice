@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, extname, isAbsolute, join } from 'node:path'
+import { DESKTOP_ARRANGE_MODES } from '@genoffice/cli/control-protocol'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron'
 import { atomicCopyFile } from './atomic-write'
@@ -52,7 +53,10 @@ const MAX_WALLPAPER_ID = 200
 const MAX_CAROUSEL_MINUTES = 24 * 60
 
 const ICON_SIZES: ReadonlySet<string> = new Set(['sm', 'md', 'lg'])
-const SORT_MODES: ReadonlySet<string> = new Set(['custom', 'name', 'kind', 'mtime'])
+/** the icon arrangement vocabulary — the surface menu's sort list, the prefs
+ *  normalization and the CLI/MCP `desktop arrange` action all speak it; the
+ *  protocol's mode tuple is the one runtime source this set derives from */
+export const SORT_MODES: ReadonlySet<string> = new Set(DESKTOP_ARRANGE_MODES)
 const WALLPAPER_FITS: ReadonlySet<string> = new Set([
   'cover',
   'contain',

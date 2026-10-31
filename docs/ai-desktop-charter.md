@@ -95,7 +95,7 @@ automatically (commit `f4d15ef1`).
 ### A. Wire the desktop to the agent (P0 — the vision divider)
 
 - ✅ (2026-10-30) New CLI command domain `desktop.*`: `get-state`,
-  `set-wallpaper`, `todo add|list`, `windows list`. Registered once in the CLI
+  `set-wallpaper`, `arrange <custom|name|kind|mtime>`, `todo add|list`, `windows list`. Registered once in the CLI
   registry, they automatically surface as MCP tools and agent-callable verbs.
   Reuse the tool registration mechanism at `apps/shell/src/main/mcp/mcp-server.ts:21`.
 - ✅ (2026-10-30) Ctrl+K becomes the intent bus: `buildRows`

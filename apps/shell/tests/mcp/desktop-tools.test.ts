@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,6 +18,7 @@ vi.mock('electron', () => ({
 }))
 
 import { createDesktopTools } from '../../src/main/mcp/tools/desktop-tools'
+import { DESKTOP_ACTION_NAMES } from '@genoffice/cli/control-protocol'
 
 let userData: string
 let wallpapers: string
@@ -49,8 +51,26 @@ describe('the desktop MCP tool', () => {
     const action = tool!.inputSchema!.action
     expect(JSON.stringify(action)).toContain('get-state')
     expect(JSON.stringify(action)).toContain('set-wallpaper')
+    expect(JSON.stringify(action)).toContain('arrange')
     expect(JSON.stringify(action)).toContain('todo-add')
     expect(JSON.stringify(action)).toContain('windows-list')
+  })
+
+  it('derives its action list, parameters and description from the protocol table', () => {
+    // the same DESKTOP_ACTIONS table feeds the standalone genoffice mcp
+    // server's desktop_* tools; this surface must name every action in its
+    // description (an agent reads the description to learn the vocabulary)
+    // and carry exactly the argument keys the table declares
+    const [tool] = createDesktopTools(deps())
+    expect(Object.keys(tool!.inputSchema!).sort()).toEqual(['action', 'mode', 'text', 'wallpaper'])
+    for (const name of DESKTOP_ACTION_NAMES) expect(tool!.description).toContain(`"${name}"`)
+    // the SDK validates raw tool calls against this shape before the handler
+    // runs — so the arrange mode must really be the table's choices enum, not
+    // a plain string that silently accepts anything and pushes the rejection
+    // to the far-side store
+    const schema = z.object(tool!.inputSchema!)
+    expect(schema.safeParse({ action: 'arrange', mode: 'name' }).success).toBe(true)
+    expect(schema.safeParse({ action: 'arrange', mode: 'color' }).success).toBe(false)
   })
 
   it('runs get-state against the live stores', async () => {
@@ -81,5 +101,19 @@ describe('the desktop MCP tool', () => {
       todos: unknown[]
     }
     expect(added.todos).toHaveLength(1)
+  })
+
+  it('maps arrange onto the same prefs store the surface menu writes', async () => {
+    const [tool] = createDesktopTools(deps())
+    const result = (await tool!.handler({ action: 'arrange', mode: 'name' })) as {
+      sortMode: string
+    }
+    expect(result.sortMode).toBe('name')
+    // the schema's enum plus the handler's argument check, then the store's
+    // own vocabulary check on the far side
+    await expect(tool!.handler({ action: 'arrange' })).rejects.toThrow(/mode/)
+    await expect(tool!.handler({ action: 'arrange', mode: 'color' })).rejects.toThrow(
+      /unknown arrangement/,
+    )
   })
 })

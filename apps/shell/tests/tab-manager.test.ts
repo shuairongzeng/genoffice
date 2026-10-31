@@ -362,6 +362,41 @@ describe('opening tabs', () => {
   })
 })
 
+describe('listWithDirty', () => {
+  it("resolves each tab's unsaved state while the sync list stays dirtiness-free", async () => {
+    manager.openDocsTab('/tmp/report.docx')
+    manager.openPdfTab('/tmp/scan.pdf')
+    // docs answers through its renderer round-trip, pdf synchronously; home
+    // has no document to be dirty
+    docsQueryDirty.mockImplementation(() => Promise.resolve(true))
+    pdfIsDirty.mockImplementation(() => false)
+    const withDirty = await manager.listWithDirty()
+    expect(withDirty).toMatchObject([
+      { id: 'home', kind: 'home', dirty: false },
+      { kind: 'docs', filePath: '/tmp/report.docx', dirty: true },
+      { kind: 'pdf', filePath: '/tmp/scan.pdf', dirty: false },
+    ])
+    // the face the tab menus use is unchanged — no dirty key at all
+    for (const tab of manager.list()) expect(tab.dirty).toBeUndefined()
+  })
+
+  it('a dormant tab answers clean without asking its released renderer', async () => {
+    const a = manager.openDocsTab('/a.docx')
+    manager.openDocsTab('/b.docx')
+    manager.openDocsTab('/c.docx')
+    const slept = await manager.sleepIdleTabs({ maxLiveTabs: 2, idleMs: 1000 }, Date.now() + 5000)
+    expect(slept).toEqual([a])
+    docsQueryDirty.mockClear()
+    const withDirty = await manager.listWithDirty()
+    expect(withDirty.find((t) => t.id === a)).toMatchObject({ dormant: true, dirty: false })
+    // only the two live docs tabs were asked — the dormant one has no
+    // renderer to ask, which is why it answers clean by construction
+    const asked = docsQueryDirty.mock.calls.map((call) => (call[0] as { id: number }).id)
+    expect(asked).toHaveLength(2)
+    expect(asked).not.toContain((createDocsView.mock.results[0]!.value as FakeView).webContents.id)
+  })
+})
+
 describe('spare sheets view', () => {
   it('does not warm Sheets during Home or Docs sessions', () => {
     vi.useFakeTimers()

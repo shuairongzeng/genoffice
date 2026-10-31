@@ -20,7 +20,9 @@ vi.mock('electron', () => ({
 import {
   DesktopControlError,
   desktopControlHandler,
+  detachedToWindowInfo,
   runDesktopAction,
+  tabToWindowInfo,
   type DesktopControlDeps,
 } from '../src/main/desktop-control'
 import { desktopPrefsPath } from '../src/main/desktop-ipc'
@@ -33,8 +35,15 @@ let notified: unknown[]
 let todosNotified: Array<Array<{ id: string; text: string; done: boolean }>>
 
 const WINDOWS = [
-  { id: 'home', kind: 'home', title: 'GenOffice', active: true },
-  { id: 'tab-2', kind: 'docs', title: 'report.docx', active: false, filePath: '/tmp/report.docx' },
+  { id: 'home', kind: 'home', title: 'GenOffice', active: true, dirty: false },
+  {
+    id: 'tab-2',
+    kind: 'docs',
+    title: 'report.docx',
+    active: false,
+    filePath: '/tmp/report.docx',
+    dirty: true,
+  },
 ]
 
 const deps = (): DesktopControlDeps => ({
@@ -246,6 +255,78 @@ describe('set-wallpaper', () => {
   })
 })
 
+describe('arrange', () => {
+  it('writes the sort mode through the prefs store and notifies a live view', async () => {
+    const result = await runDesktopAction(deps(), {
+      cmd: 'desktop',
+      action: 'arrange',
+      mode: 'name',
+    })
+    expect(result).toEqual({ sortMode: 'name' })
+    expect(JSON.parse(readFileSync(desktopPrefsPath(userData), 'utf8'))).toMatchObject({
+      sortMode: 'name',
+    })
+    // a mounted Home view hears about the reflow
+    expect(notified).toHaveLength(1)
+    expect((notified[0] as { sortMode: string }).sortMode).toBe('name')
+  })
+
+  it('accepts every mode the surface menu offers, case-insensitively', async () => {
+    for (const [input, stored] of [
+      ['custom', 'custom'],
+      ['Kind', 'kind'],
+      ['  MTIME ', 'mtime'],
+    ] as const) {
+      const result = await runDesktopAction(deps(), {
+        cmd: 'desktop',
+        action: 'arrange',
+        mode: input,
+      })
+      expect(result).toEqual({ sortMode: stored })
+    }
+  })
+
+  it('keeps the desktop prefs otherwise untouched', async () => {
+    writeFileSync(
+      desktopPrefsPath(userData),
+      JSON.stringify({
+        wallpaper: 'builtin:teal-deep',
+        carouselMinutes: 30,
+        iconSize: 'lg',
+        sortMode: 'custom',
+        wallpaperFit: 'tile',
+        labelColor: '#aabbcc',
+      }),
+    )
+    await runDesktopAction(deps(), { cmd: 'desktop', action: 'arrange', mode: 'mtime' })
+    expect(JSON.parse(readFileSync(desktopPrefsPath(userData), 'utf8'))).toMatchObject({
+      wallpaper: 'builtin:teal-deep',
+      carouselMinutes: 30,
+      iconSize: 'lg',
+      sortMode: 'mtime',
+      wallpaperFit: 'tile',
+      labelColor: '#aabbcc',
+    })
+  })
+
+  it('refuses an unknown mode with the vocabulary attached, writing nothing', async () => {
+    const failure = await desktopControlHandler(deps())({
+      cmd: 'desktop',
+      action: 'arrange',
+      mode: 'color',
+    })
+    expect(failure).toMatchObject({
+      ok: false,
+      error: {
+        reason: 'invalid_argument',
+        detail: { available: ['custom', 'name', 'kind', 'mtime'] },
+      },
+    })
+    expect(existsSync(desktopPrefsPath(userData))).toBe(false)
+    expect(notified).toEqual([])
+  })
+})
+
 describe('todo add / list', () => {
   it('prepends like the widget and reads back through the same file', async () => {
     writeFileSync(
@@ -298,8 +379,84 @@ describe('todo add / list', () => {
 })
 
 describe('windows-list', () => {
-  it('passes the live enumeration through', async () => {
+  it('passes the live enumeration through, unsaved state included', async () => {
     const result = await runDesktopAction(deps(), { cmd: 'desktop', action: 'windows-list' })
     expect(result.windows).toEqual(WINDOWS)
+  })
+})
+
+describe('the window-list mapping', () => {
+  it("carries a shell tab's unsaved state, counting an absent answer as clean", () => {
+    expect(
+      tabToWindowInfo({
+        id: 't1',
+        kind: 'docs',
+        title: 'report.docx',
+        closable: true,
+        active: true,
+        filePath: '/tmp/report.docx',
+        dirty: true,
+      }),
+    ).toEqual({
+      id: 't1',
+      kind: 'docs',
+      title: 'report.docx',
+      active: true,
+      dirty: true,
+      filePath: '/tmp/report.docx',
+    })
+    // the sync list face never carries the key — that still reads as clean
+    expect(
+      tabToWindowInfo({
+        id: 'home',
+        kind: 'home',
+        title: 'GenOffice',
+        closable: false,
+        active: true,
+      }),
+    ).toEqual({ id: 'home', kind: 'home', title: 'GenOffice', active: true, dirty: false })
+  })
+
+  it('keeps the dormant and pinned flags a sleep-aware caller needs', () => {
+    expect(
+      tabToWindowInfo({
+        id: 't2',
+        kind: 'sheets',
+        title: 'budget.xlsx',
+        closable: true,
+        active: false,
+        dormant: true,
+        pinned: true,
+      }),
+    ).toEqual({
+      id: 't2',
+      kind: 'sheets',
+      title: 'budget.xlsx',
+      active: false,
+      dirty: false,
+      dormant: true,
+      pinned: true,
+    })
+  })
+
+  it('flags detached windows and keeps their unsaved state', () => {
+    expect(
+      detachedToWindowInfo({
+        id: 'w1',
+        kind: 'docs',
+        title: 'notes.docx',
+        filePath: '/tmp/notes.docx',
+        active: false,
+        dirty: true,
+      }),
+    ).toEqual({
+      id: 'w1',
+      kind: 'docs',
+      title: 'notes.docx',
+      active: false,
+      dirty: true,
+      detached: true,
+      filePath: '/tmp/notes.docx',
+    })
   })
 })

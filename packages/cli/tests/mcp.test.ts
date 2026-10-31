@@ -18,6 +18,7 @@ import {
   toolShape,
   TOOLS,
 } from '../src/mcp/tools'
+import { DESKTOP_ACTIONS } from '../src/control-protocol'
 import { tempDir, writeMinimalPdf } from './helpers'
 
 const REPO = resolve(__dirname, '../../..')
@@ -120,6 +121,7 @@ describe('mcp tool table', () => {
   it('marks the GUI-driving tools as stdio-only', () => {
     const local = TOOLS.filter((t) => t.localOnly).map((t) => t.name)
     expect(local.sort()).toEqual([
+      'desktop_arrange',
       'desktop_get_state',
       'desktop_set_wallpaper',
       'desktop_todo_add',
@@ -128,6 +130,21 @@ describe('mcp tool table', () => {
       'open',
       'selection',
     ])
+  })
+
+  it('derives the desktop_* tools from the same table the in-app desktop tool uses', () => {
+    // one source (DESKTOP_ACTIONS in control-protocol.ts) feeds both MCP
+    // surfaces; the standalone tools must cover every action it describes
+    const desktop = TOOLS.filter((t) => t.name.startsWith('desktop_'))
+    expect(desktop.map((t) => t.name).sort()).toEqual(DESKTOP_ACTIONS.map((a) => a.tool).sort())
+    const tools = new Map(resolveTools(registry).map((t) => [t.name, t]))
+    const arrange = tools.get('desktop_arrange')!
+    expect(arrange.fixed).toEqual(['arrange'])
+    expect(arrange.positionals?.map((p) => p.key)).toEqual(['mode'])
+    expect(buildArgv(arrange, { mode: 'name' }).argv).toEqual(['desktop', 'arrange', 'name'])
+    // the read-only marks ride along from the table
+    expect(tools.get('desktop_get_state')!.readOnly).toBe(true)
+    expect(tools.get('desktop_set_wallpaper')!.readOnly).toBeUndefined()
   })
 })
 
