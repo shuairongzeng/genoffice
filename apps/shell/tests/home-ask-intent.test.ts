@@ -139,6 +139,23 @@ describe('Home ask intent — deep link', () => {
     expect(container.querySelector('.kb-ask')).toBeNull()
     expect(container.querySelector('.content')?.textContent).toContain('brief.docx')
   })
+
+  it('genoffice://desktop switches Home to the desktop surface and remembers it', async () => {
+    await act(async () => deepLinkHandler!({ view: 'desktop' }))
+    await flush()
+    // the icon desktop takes over the content area, and the launch view
+    // remembers it the way the nav item does (a relaunch lands back there)
+    expect(container.querySelector('.home')!.className).toContain('desktop-mode')
+    expect(container.querySelector('.kb-ask')).toBeNull()
+    expect(localStorage.getItem('home.view')).toBe('desktop')
+
+    // leaving through a link works too: the ask view takes the surface back
+    await act(async () => deepLinkHandler!({ view: 'ask', query: 'back to ask' }))
+    await flush()
+    expect(container.querySelector('.home')!.className).not.toContain('desktop-mode')
+    expect(container.querySelector('.kb-ask')).not.toBeNull()
+    expect(composerDraft()).toBe('back to ask')
+  })
 })
 
 describe('Home ask intent — palette fallback', () => {

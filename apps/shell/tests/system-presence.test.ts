@@ -155,8 +155,9 @@ describe('parseDeepLink', () => {
     expect(parseDeepLink('genoffice://ask')).toEqual({ view: 'ask' })
   })
 
-  it('parses the palette and open verbs', () => {
+  it('parses the palette, desktop and open verbs', () => {
     expect(parseDeepLink('genoffice://palette')).toEqual({ view: 'palette' })
+    expect(parseDeepLink('genoffice://desktop')).toEqual({ view: 'desktop' })
     expect(parseDeepLink('genoffice://open?path=%2Ftmp%2Fa.docx')).toEqual({
       view: 'open',
       path: '/tmp/a.docx',

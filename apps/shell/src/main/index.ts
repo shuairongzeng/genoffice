@@ -89,6 +89,7 @@ import {
   type DesktopControlDeps,
   type DesktopWindowInfo,
 } from './desktop-control'
+import { makeDeepLinkRouter } from './deep-link-router'
 import {
   deepLinksFromArgv,
   installDeepLinkListener,
@@ -3512,32 +3513,25 @@ function summonPalette(): void {
 
 /** genoffice://ask?q=… → Home's Ask AI view, carrying the query when present;
  *  genoffice://palette → the command palette; genoffice://open?path=… → the
- *  document in its owning app (the same router a file drop takes) */
-function deliverDeepLink(payload: DeepLinkPayload): void {
-  if (!app.isReady()) {
-    // open-url can beat ready on a cold macOS protocol launch; the window and
-    // renderer do not exist yet — links queue in arrival order and deliver
-    // once whenReady has built them (a single slot made the second link
-    // silently overwrite the first)
-    pendingDeepLinks.push(payload)
-    return
-  }
-  if (payload.view === 'palette') {
-    summonPalette()
-    return
-  }
-  if (payload.view === 'open') {
-    // focus the shell first so a background launch still surfaces the document
-    revealShellWindow()
-    if (payload.path) routeDocumentPath(payload.path)
-    return
-  }
-  summonHome()
-  sendToShellRenderer(HOME_CHANNELS.deepLink, payload)
-}
-
-/** deep links that arrived before the shell window existed, in arrival order */
-const pendingDeepLinks: DeepLinkPayload[] = []
+ *  document in its owning app (the same router a file drop takes);
+ *  genoffice://desktop → the desktop surface. ask and desktop are Home view
+ *  state, so they ride the deep-link channel to the renderer. The routing
+ *  body lives in deep-link-router.ts with every window-shaped effect
+ *  injected, so the verb matrix is unit-tested without booting Electron;
+ *  below, this file just supplies the real windows. */
+const deepLinkRouter = makeDeepLinkRouter({
+  isReady: () => app.isReady(),
+  // declared further down as a const — read it through a closure so the
+  // reference resolves at call time, not at module-scope creation
+  revealShellWindow: () => revealShellWindow(),
+  summonHome,
+  summonPalette,
+  routeDocumentPath,
+  sendToShellRenderer,
+})
+/** the single entry the open-url listener, second-instance handler and the
+ *  cold-start argv scan all share; queues pre-ready links for the flush */
+const deliverDeepLink = deepLinkRouter.deliver
 
 /**
  * New file from a folder view: the click remembers the folder per kind, the
@@ -6247,9 +6241,8 @@ app.whenReady().then(async () => {
     const payload = parseDeepLink(link)
     if (payload) deliverDeepLink(payload)
   }
-  if (pendingDeepLinks.length > 0) {
-    for (const payload of pendingDeepLinks.splice(0)) deliverDeepLink(payload)
-  }
+  // deliver anything that queued before app ready, in arrival order
+  deepLinkRouter.flushPending()
 
   systemPresence = installSystemPresence({
     settingsPath: APP_SETTINGS_PATH,

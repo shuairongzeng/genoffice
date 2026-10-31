@@ -731,13 +731,15 @@ export function Home() {
     setGroupFilter(null)
   }
 
-  /** the desktop nav item: the icon desktop takes over the content area */
-  const showDesktop = () => {
+  /** the desktop nav item and the genoffice://desktop link: the icon desktop
+   *  takes over the content area (a callback so the deep-link subscription
+   *  below can call it without re-subscribing every render) */
+  const showDesktop = useCallback(() => {
     dispatchView({ type: 'show-desktop' })
     writeLaunchView('desktop')
     setSelected(new Set())
     setRowMenu(null)
-  }
+  }, [])
 
   const changeFilter = (key: string) => {
     setFilter(key)
@@ -804,16 +806,21 @@ export function Home() {
   // contract shipped simply has no onDeepLink — the palette path above works
   // regardless. The query is web-supplied (any page can location.href a link),
   // so it is handed over with the deep-link origin: it parks in the ask
-  // composer as a draft and only an explicit Enter sends it.
+  // composer as a draft and only an explicit Enter sends it. The desktop verb
+  // carries no web-supplied data — it only switches surfaces.
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
     return api.onDeepLink?.((payload) => {
+      if ((payload as { view?: unknown } | null)?.view === 'desktop') {
+        showDesktop()
+        return
+      }
       const link = normalizeAskDeepLink(payload)
       if (!link) return
       if (link.query.trim()) handAskQuery(link.query, 'deep-link')
       else openAskView()
     })
-  }, [handAskQuery, openAskView])
+  }, [handAskQuery, openAskView, showDesktop])
   const openTemplates = useCallback(() => setTemplatesOpen(true), [])
   const openSettings = useCallback((target: SettingsTarget) => setSettingsRequest(target), [])
   const openFolderView = useCallback((root: FolderRoot) => selectFolder(root.path), [selectFolder])

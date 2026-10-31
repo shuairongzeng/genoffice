@@ -89,14 +89,31 @@ describe('onDeepLink buffering', () => {
     off()
   })
 
-  it('drops non-ask and malformed payloads instead of buffering them', async () => {
+  it('drops unknown views and malformed payloads instead of buffering them', async () => {
     electronMocks.emit(HOME_CHANNELS.deepLink, { view: 'recent' })
+    electronMocks.emit(HOME_CHANNELS.deepLink, { view: 'palette' })
+    electronMocks.emit(HOME_CHANNELS.deepLink, { view: 'open', path: '/tmp/a.docx' })
     electronMocks.emit(HOME_CHANNELS.deepLink, 'ask')
     electronMocks.emit(HOME_CHANNELS.deepLink, null)
     const seen: DeepLinkPayload[] = []
     const off = homeApi.onDeepLink((payload) => seen.push(payload))
     await flushMicrotasks()
     expect(seen).toEqual([])
+    off()
+  })
+
+  it('forwards the desktop verb through the buffer and the live path, data-stripped', async () => {
+    // before attach: the module-scope subscription buffers it for replay
+    electronMocks.emit(HOME_CHANNELS.deepLink, { view: 'desktop' })
+    // a forged desktop payload carrying a query must not smuggle it through
+    electronMocks.emit(HOME_CHANNELS.deepLink, { view: 'desktop', query: 'not mine to carry' })
+    const seen: DeepLinkPayload[] = []
+    const off = homeApi.onDeepLink((payload) => seen.push(payload))
+    await flushMicrotasks()
+    expect(seen).toEqual([{ view: 'desktop' }, { view: 'desktop' }])
+    // attached: direct delivery, same stripped shape
+    electronMocks.emit(HOME_CHANNELS.deepLink, { view: 'desktop', query: 'still not carried' })
+    expect(seen).toEqual([{ view: 'desktop' }, { view: 'desktop' }, { view: 'desktop' }])
     off()
   })
 
