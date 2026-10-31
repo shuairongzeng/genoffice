@@ -44,7 +44,11 @@ import {
   cropToKonva,
   presetToShapeKind,
   shapeGlyphs,
+  shapeGlyphsWithFind,
   layoutGlyphs,
+  layoutGlyphsWithFind,
+  highlightRects,
+  type FindSpan,
   normalizeColor,
   boxPivotProps,
   centerFillProps,
@@ -68,6 +72,8 @@ export interface NodeBodyProps {
   /** Accumulated mirror parity from flipped ancestor groups (their transform also mirrors this node's text) */
   flipHInherited?: boolean
   flipVInherited?: boolean
+  /** Active find hit on this node (issue #56 P1 #7): run-level spans highlighted in the text */
+  findHit?: { sourceId: string; spans: FindSpan[] } | null
 }
 
 /**
@@ -81,6 +87,7 @@ export const NodeBody = React.memo(function NodeBody({
   hideCellText,
   flipHInherited,
   flipVInherited,
+  findHit,
 }: NodeBodyProps) {
   // Late-loading FontFaces (private/embedded) change glyph baseline anchors; the epoch
   // subscription re-renders past React.memo so glyph y props recompute (a batchDraw alone
@@ -115,6 +122,7 @@ export const NodeBody = React.memo(function NodeBody({
           hideCellText={hideCellText}
           flipHInherited={flipHInherited}
           flipVInherited={flipVInherited}
+          findHit={findHit}
         />
       </>
     )
@@ -311,10 +319,16 @@ export const NodeBody = React.memo(function NodeBody({
           />
         )}
         {table.cells.map((cell, i) => {
+          const cellSpans =
+            findHit && findHit.sourceId === node.sourceId
+              ? findHit.spans.filter((sp) => sp.cell?.row === cell.row && sp.cell?.col === cell.col)
+              : []
           const cellGlyphs =
             hideCellText && cell.row === hideCellText.row && cell.col === hideCellText.col
               ? []
-              : layoutGlyphs(cell.text)
+              : cellSpans.length
+                ? layoutGlyphsWithFind(cell.text, cellSpans, CANVAS_COLORS.findHit)
+                : layoutGlyphs(cell.text)
           return (
             <React.Fragment key={i}>
               {/* Bevel bands tile the outer ring, so the face keeps to the inner rect and a
@@ -355,19 +369,18 @@ export const NodeBody = React.memo(function NodeBody({
                 />
               )}
               {/* Highlight backgrounds first, so a run's highlight never covers a neighbor's glyphs */}
-              {cellGlyphs.map(
-                (g, j) =>
-                  g.highlight && (
-                    <Rect
-                      key={`hl${j}`}
-                      x={cell.x + (cell.text?.insets.l ?? 0) + g.highlight.x}
-                      y={cell.y + (cell.text?.insets.t ?? 0) + g.highlight.y}
-                      width={g.highlight.w}
-                      height={g.highlight.h}
-                      fill={g.highlight.color}
-                      listening={false}
-                    />
-                  ),
+              {cellGlyphs.map((g, j) =>
+                highlightRects(g).map((h, k) => (
+                  <Rect
+                    key={`hl${j}-${k}`}
+                    x={cell.x + (cell.text?.insets.l ?? 0) + h.x}
+                    y={cell.y + (cell.text?.insets.t ?? 0) + h.y}
+                    width={h.w}
+                    height={h.h}
+                    fill={h.color}
+                    listening={false}
+                  />
+                )),
               )}
               {cellGlyphs.map((g, j) => (
                 <Text
@@ -437,8 +450,18 @@ export const NodeBody = React.memo(function NodeBody({
   const fillProps = fillToKonva(shape.fill, box.w, box.h, images, { x: box.x, y: box.y })
   const strokeProps = strokeToKonva(shape.stroke, { w: box.w, h: box.h })
   const shadowProps = shadowToKonva(shape.shadow, shape.glow)
-  let glyphs = hideText ? [] : shapeGlyphs(shape)
-  // WordArt envelope warp: per-character transforms replace the straight runs
+  let glyphs = hideText
+    ? []
+    : findHit && findHit.sourceId === shape.sourceId && findHit.spans.length
+      ? shapeGlyphsWithFind(shape, findHit.spans, CANVAS_COLORS.findHit)
+      : shapeGlyphs(shape)
+  // WordArt envelope warp: per-character transforms replace the straight runs.
+  // explode() rebuilds each run per character and drops highlight — authored
+  // run highlights have always been dropped here — so find-hit rects and any
+  // other line-box rects set above do not survive warp either: a hit on a
+  // txWarp shape still navigates and selects, it just paints no marker (the
+  // same accepted degradation as vertical layouts; per-char re-derivation
+  // through the warp transform is future work)
   const txWarp = shape.text?.txWarp
   const warped =
     txWarp && glyphs.length
@@ -753,19 +776,18 @@ export const NodeBody = React.memo(function NodeBody({
         y={!!box.flipV !== !!flipVInherited ? box.h : 0}
       >
         {/* Text highlight backgrounds: all rects first so a run's highlight never covers a neighbor's glyphs */}
-        {glyphs.map(
-          (g, i) =>
-            g.highlight && (
-              <Rect
-                key={`hl${i}`}
-                x={(shape.text?.insets.l ?? 0) + g.highlight.x}
-                y={(shape.text?.insets.t ?? 0) + g.highlight.y}
-                width={g.highlight.w}
-                height={g.highlight.h}
-                fill={g.highlight.color}
-                listening={false}
-              />
-            ),
+        {glyphs.map((g, i) =>
+          highlightRects(g).map((h, k) => (
+            <Rect
+              key={`hl${i}-${k}`}
+              x={(shape.text?.insets.l ?? 0) + h.x}
+              y={(shape.text?.insets.t ?? 0) + h.y}
+              width={h.w}
+              height={h.h}
+              fill={h.color}
+              listening={false}
+            />
+          )),
         )}
         {/* WordArt text extrusion: dark offset layers behind every glyph; PowerPoint's 3D
           material also tints the face glyphs with the extrusion color (front stays lighter) */}

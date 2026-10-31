@@ -71,6 +71,7 @@ import { PresenterView } from './components/PresenterView'
 import { CustomShowDialog } from './components/CustomShowDialog'
 import { PrintDialog } from './components/PrintDialog'
 import { FindReplaceDialog } from './components/FindReplaceDialog'
+import type { FindSpan } from './konva-adapter'
 import { formatClock, type CustomShow } from './slideshow-utils'
 import { ContextMenu } from './components/ContextMenu'
 import { ShapeGalleryPopover } from './components/ShapeGalleryPopover'
@@ -558,6 +559,16 @@ export function App() {
   const [customShows, setCustomShows] = useState<CustomShow[]>([])
   const [customShowDlgOpen, setCustomShowDlgOpen] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
+  /** Active find hit (issue #56 P1 #7): the hit's run-level text highlight on
+   *  the canvas, cleared when the dialog closes, the hit moves on, or a
+   *  replace rebuilds the runs it was measured against */
+  const [findHit, setFindHit] = useState<{ sourceId: string; spans: FindSpan[] } | null>(null)
+  // any deck mutation (replace, undo/redo, a committed text edit, re-layout)
+  // rebuilds the runs the spans were measured against: drop the highlight
+  // rather than draw it over whatever now occupies those indexes
+  useEffect(() => {
+    setFindHit(null)
+  }, [slides])
   /** Per-page dwell seconds awaiting confirmation after rehearsal (non-null shows the "save?" confirmation dialog) */
   const [pendingRehearse, setPendingRehearse] = useState<number[] | null>(null)
   const [pendingRecording, setPendingRecording] = useState<NarrationTake | null>(null)
@@ -4110,6 +4121,7 @@ export function App() {
                               onTransformCancel={onTransformCancel}
                               images={images}
                               zoom={zoom}
+                              findHit={findHit}
                               enteredGroupId={enteredGroupId}
                               onEnterGroup={handleEnterGroup}
                               onEditConnectorEndpoints={onEditConnectorEndpoints}
@@ -4630,15 +4642,19 @@ export function App() {
       {findOpen && (
         <FindReplaceDialog
           slides={slides}
-          onNavigate={(si, id) => {
+          onNavigate={(si, id, spans) => {
             setCurrent(si)
             setSelectedIds([id])
+            setFindHit(spans.length ? { sourceId: id, spans } : null)
           }}
           onReplaced={(all) => {
             setSlides(all)
             setDirty(true)
           }}
-          onClose={() => setFindOpen(false)}
+          onClose={() => {
+            setFindOpen(false)
+            setFindHit(null)
+          }}
         />
       )}
 
