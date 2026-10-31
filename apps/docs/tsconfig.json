@@ -15,6 +15,7 @@
       "@genoffice/electron-utils/headless-export": [
         "../../packages/electron-utils/src/headless-export.ts"
       ],
+      "@genoffice/electron-utils/cached-json": ["../../packages/electron-utils/src/cached-json.ts"],
       "@genoffice/electron-utils/atomic-write": [
         "../../packages/electron-utils/src/atomic-write.ts"
       ],

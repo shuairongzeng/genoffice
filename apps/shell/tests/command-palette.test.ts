@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, createElement } from 'react'
+import { act, createElement, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -1039,6 +1039,78 @@ describe('CommandPalette + FilesProvider (mounted)', () => {
     })
     const titles = rowTitles()
     expect(titles).toContain('beta.docx')
+    expect(titles.indexOf('beta.docx')).toBeLessThan(titles.indexOf('alpha.docx'))
+  })
+
+  it('survives a StrictMode double-mount: the second mount still reranks', async () => {
+    mountApi([])
+    const reranks: string[] = []
+    // counts the StrictMode cleanups so the test fails loudly if React stops
+    // double-mounting (then this would stop covering the regression at all)
+    let probeDisposes = 0
+    const providers: PaletteProvider[] = [
+      ...defaultPaletteProviders().map((p) =>
+        p.id === 'files'
+          ? createFilesProvider({
+              debounceMs: 0,
+              rerankSettleMs: 0,
+              search: async () => ({
+                hits: [
+                  hit({ path: 'C:\\Docs\\alpha.docx', name: 'alpha.docx' }),
+                  hit({ path: 'C:\\Docs\\beta.docx', name: 'beta.docx' }),
+                ],
+                total: 2,
+                index: { indexed: 1, pending: 0, scanning: false },
+              }),
+              rerank: async (q) => {
+                reranks.push(q)
+                return { order: ['C:\\Docs\\beta.docx'], scores: {} }
+              },
+            })
+          : p,
+      ),
+      {
+        id: 'strict-probe',
+        priority: 1000,
+        getRows: () => [],
+        dispose: () => (probeDisposes += 1),
+      },
+    ]
+    // main.tsx mounts the whole app under React.StrictMode: in dev the
+    // palette's effects run setup -> cleanup -> setup on one mount, and the
+    // cleanup disposes every provider — the same instances the second setup
+    // keeps using, because the palette holds them in a useMemo. Production and
+    // these tests' plain createRoot never trigger it, which is how the latch
+    // hid: green tests, dead dev rerank
+    await act(async () => {
+      root.render(
+        createElement(
+          StrictMode,
+          null,
+          createElement(CommandPalette, {
+            lang: 'en',
+            onClose: () => (closed += 1),
+            onAskAi: (q) => askedQueries.push(q),
+            providers,
+          }),
+        ),
+      )
+    })
+    // the simulated unmount ran once and the palette is now on its second mount
+    expect(probeDisposes).toBe(1)
+    await actType('alp')
+    await flushSearch()
+    // the index still answers in local order (the settle window is open)
+    expect(rowTitles()).toContain('alpha.docx')
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15))
+      await new Promise((resolve) => setTimeout(resolve, 15))
+      await new Promise((resolve) => setTimeout(resolve, 15))
+    })
+    // the regression: the model call must still fire after the double mount,
+    // and the judged order must replace the local one
+    expect(reranks).toEqual(['alp'])
+    const titles = rowTitles()
     expect(titles.indexOf('beta.docx')).toBeLessThan(titles.indexOf('alpha.docx'))
   })
 })

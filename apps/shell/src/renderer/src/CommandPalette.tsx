@@ -104,7 +104,10 @@ export function CommandPalette({
   const [providerTick, setProviderTick] = useState(0)
   const querySeqRef = useRef(0)
   // subscribe for improved answers while the palette is open; dispose the
-  // providers' background work (pending timers) when it closes
+  // providers' background work (pending timers) when it closes. React
+  // StrictMode double-mounts this effect in dev (setup -> cleanup -> setup on
+  // one mount), so the first cleanup disposes mid-mount: the files provider
+  // tolerates that by reviving on its next live query (palette-providers.ts)
   useEffect(() => {
     const offs = providerList.map((p) => p.subscribe?.(() => setProviderTick((n) => n + 1)))
     return () => {

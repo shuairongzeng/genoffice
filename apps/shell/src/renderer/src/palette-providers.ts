@@ -317,7 +317,14 @@ export function createFilesProvider(options?: {
    * "repo" would let the stale first verdict land on the fresh answer.
    */
   let gen = 0
-  /** set once the palette closes: nothing may re-arm after it */
+  /**
+   * Latched when the palette closes so no continuation may re-arm after it.
+   * Not a tombstone: a StrictMode double-mount runs the palette's effects as
+   * setup -> cleanup (dispose) -> setup on this same instance (the palette
+   * keeps it in a useMemo), and the live mount's first real query revives it
+   * below — a closed palette never queries again, so the latch holds for the
+   * one case it exists for.
+   */
   let disposed = false
 
   /** publish improved rows for the current query and wake the palette */
@@ -417,6 +424,11 @@ export function createFilesProvider(options?: {
         return []
       }
       if (q === lastQuery) return lastPromise
+      // a new non-empty query means the palette is alive and asking again (the
+      // StrictMode remount case): unlatch. Every continuation captured before
+      // this point is dropped by the generation bump, so nothing latched-era
+      // can spend a model call on the revived query's behalf
+      disposed = false
       gen += 1
       const myGen = gen
       if (timer) clearTimeout(timer)
@@ -431,6 +443,13 @@ export function createFilesProvider(options?: {
         timer = setTimeout(() => {
           timer = null
           abandon = null
+          // the debounce is a continuation too: a disposed provider must not
+          // spend the search either (the timers are cleared on dispose, this
+          // guard is the same latch every other continuation checks)
+          if (disposed) {
+            resolve([])
+            return
+          }
           search(q).then(
             (page) => {
               resolve(fileRows(ctx, page.hits.slice(0, limit), open))
