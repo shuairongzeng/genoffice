@@ -225,7 +225,7 @@ function mountTabs(list: TabSummary[]): void {
   } as unknown as NonNullable<typeof window.aiOfficeTabs>
 }
 
-async function render(providers?: PaletteProvider[]): Promise<void> {
+async function render(providers?: PaletteProvider[], scope?: 'files'): Promise<void> {
   await act(async () => {
     root.render(
       createElement(CommandPalette, {
@@ -234,6 +234,7 @@ async function render(providers?: PaletteProvider[]): Promise<void> {
         onAskAi: (q) => askedQueries.push(q),
         onOpenSettings: (target) => settingsTargets.push(target),
         ...(providers ? { providers } : {}),
+        ...(scope ? { scope } : {}),
       }),
     )
   })
@@ -1584,5 +1585,83 @@ describe('CommandPalette + FilesProvider (mounted)', () => {
     expect(reranks).toEqual(['alp'])
     const titles = rowTitles()
     expect(titles.indexOf('beta.docx')).toBeLessThan(titles.indexOf('alpha.docx'))
+  })
+})
+
+describe('the file scope (Ctrl/Cmd+P quick open, issue #56 P0 #3)', () => {
+  /** one row shaped like a document row: enough to assert presence by title */
+  const docRow = (title: string): PaletteRow => ({
+    id: `row:${title}`,
+    group: 'recent',
+    title,
+    detail: 'C:\\Docs',
+    icon: { kind: 'file', ext: 'docx' },
+    missing: false,
+    chip: '',
+    run: () => {},
+  })
+
+  it('the default registry answers the file scope with the document sources and the ask fallback only', () => {
+    // the treaty's second chord: Ctrl/Cmd+P lists documents (recents, open
+    // tabs, the file index) plus the ask fallback; the command-shaped
+    // sources — create actions, skills, editor commands, settings, help,
+    // plugins — are the Ctrl/Cmd+K surface. The marker set is the contract;
+    // a provider joining one chord or the other is a deliberate change
+    expect(
+      defaultPaletteProviders()
+        .filter((p) => p.fileQuickOpen)
+        .map((p) => p.id),
+    ).toEqual(['tabs', 'recent', 'files', 'ask'])
+  })
+
+  it('a files mount keeps the marked providers and stands the command sources down', async () => {
+    mountApi([recent({ name: 'report.docx' })])
+    await render(
+      [
+        {
+          id: 'commandish',
+          priority: 10,
+          getRows: () => [docRow('Command row')],
+        },
+        {
+          id: 'docish',
+          priority: 20,
+          fileQuickOpen: true,
+          getRows: () => [docRow('Document row')],
+        },
+      ],
+      'files',
+    )
+    const titles = rowTitles()
+    expect(titles).toContain('Document row')
+    expect(titles).not.toContain('Command row')
+  })
+
+  it('a no-scope mount keeps every provider, marked or not', async () => {
+    await render([
+      {
+        id: 'commandish',
+        priority: 10,
+        getRows: () => [docRow('Command row')],
+      },
+      {
+        id: 'docish',
+        priority: 20,
+        fileQuickOpen: true,
+        getRows: () => [docRow('Document row')],
+      },
+    ])
+    expect(rowTitles()).toContain('Command row')
+    expect(rowTitles()).toContain('Document row')
+  })
+
+  it('the files mount names its own verb: the quick-open placeholder', async () => {
+    await render(undefined, 'files')
+    expect(input()?.placeholder).toBe(COMMAND_PALETTE_STRINGS.en.placeholderFiles)
+  })
+
+  it('the full palette keeps the everything placeholder', async () => {
+    await render()
+    expect(input()?.placeholder).toBe(COMMAND_PALETTE_STRINGS.en.placeholder)
   })
 })

@@ -188,9 +188,11 @@ vi.mock('../../html/src/main/html-main', () => ({
 
 vi.mock('../src/main/tab-manager', () => ({
   canonicalPath: (p: string) => p.toLowerCase(),
-  // the palette summon hook's own behavior lives in tab-manager.test.ts; here
-  // it only needs to install and dispose quietly against the fake view
-  installPaletteSummon: () => () => {},
+  // the palette summon hook's own behavior lives in tab-manager.test.ts; the
+  // args are recorded so these tests can pin the detached call site's wiring
+  // (which app's window was handed which owns-plain-⌘K answer), while the
+  // install itself stays quiet against the fake view
+  installPaletteSummon: vi.fn((_wc: { id: number }, _owns: () => boolean) => () => {}),
   shellTabManager: () => null,
 }))
 
@@ -860,5 +862,33 @@ describe('pinned widgets', () => {
     expect(writes).toHaveLength(8)
     expect(writes.at(-1)).toHaveLength(8)
     detached.setDesktopPinStore(null)
+  })
+})
+
+describe('the plain-⌘K chord treaty in detached windows (issue #56 P0 #3)', () => {
+  it('hands each window the treaty answer for its app: slides owns the chord, sheets does not', async () => {
+    // the detached call site resolves the owns-check from the window's app
+    // kind through the same descriptor table the census pins. If this wiring
+    // drifted, a detached slides window would summon the shell palette over
+    // its own AI annotation binding (or swallow the key) with every gate
+    // green — the census cannot see this call site, so it is pinned here
+    detached.createDetachedEditorWindow({
+      view: fakeView(51) as never,
+      kind: 'slides',
+      title: 'deck.pptx',
+      applyMenuFor: () => {},
+    })
+    detached.createDetachedEditorWindow({
+      view: fakeView(52) as never,
+      kind: 'sheets',
+      title: 'book.xlsx',
+      applyMenuFor: () => {},
+    })
+    const { installPaletteSummon } = await import('../src/main/tab-manager')
+    const calls = vi.mocked(installPaletteSummon).mock.calls
+    expect(calls.length).toBeGreaterThanOrEqual(2)
+    const ownsByWcId = new Map(calls.map((c) => [c[0].id, c[1]]))
+    expect(ownsByWcId.get(51)?.()).toBe(true)
+    expect(ownsByWcId.get(52)?.()).toBe(false)
   })
 })
