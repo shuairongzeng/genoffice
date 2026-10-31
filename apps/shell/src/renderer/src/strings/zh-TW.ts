@@ -14,6 +14,9 @@ export const zhTW: Dict = {
   askTitle: '問知識庫',
   askEmptyCorpusHint: '還沒有收藏檔案——先在最近或資料夾裡點星收藏,AI 就能讀取它們。',
   askCorpusCount: '知識庫:{n} 個檔案',
+  askScopeChip: '語料:{n} 個選取檔案',
+  askScopeNotIndexed: '{n} 個未索引',
+  askScopeClear: '清除選取語料',
   askIntro: '根據你收藏的檔案提問,回答會標註來源檔案,點擊即可開啟。',
   askToolSearch: '搜尋知識庫',
   askToolRead: '讀取檔案',
@@ -28,6 +31,8 @@ export const zhTW: Dict = {
   askSaveFailed: '儲存失敗:{error}',
   askEmptyCorpus: '知識庫還是空的:先收藏一些檔案,再回來提問。',
   askEmptyCorpusFolders: '知識庫還沒有選定資料夾——先在設定裡選好資料夾,再回來提問。',
+  askEmptyCorpusFoldersEmpty:
+    '選定的資料夾裡還沒有知識庫檔案——索引可能仍在掃描,或其中沒有可讀取的檔案。',
   askIntroFolders: '提問只在你選定的資料夾內搜尋,回答會標註來源,點擊即可開啟。',
   askHeroFoldersTagline: 'AI 問答只檢索你在設定裡選定的資料夾,回答標註來源檔案——點擊引用即可開啟。',
   askFoldersStep1Title: '選定資料夾',

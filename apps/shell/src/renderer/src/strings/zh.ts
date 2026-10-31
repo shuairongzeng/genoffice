@@ -14,6 +14,9 @@ export const zh = {
   askTitle: '问知识库',
   askEmptyCorpusHint: '还没有索引到文件——先在设置里添加文件夹。',
   askCorpusCount: '知识库:{n} 个文件',
+  askScopeChip: '语料:{n} 个选中文件',
+  askScopeNotIndexed: '{n} 个未索引',
+  askScopeClear: '清除选中语料',
   askIntro: '基于你收藏的文件提问,回答会标注来源文件,点击即可打开。',
   askToolSearch: '搜索知识库',
   askToolRead: '读取文件',
@@ -28,6 +31,8 @@ export const zh = {
   askSaveFailed: '保存失败:{error}',
   askEmptyCorpus: '知识库还是空的:先收藏一些文件,再回来提问。',
   askEmptyCorpusFolders: '知识库还没有选定文件夹——先在设置里选好文件夹,再回来提问。',
+  askEmptyCorpusFoldersEmpty:
+    '选定的文件夹里还没有知识库文件——索引可能仍在扫描,或其中没有可读取的文件。',
   askIntroFolders: '提问只在你选定的文件夹内搜索,回答会标注来源,点击即可打开。',
   askHeroFoldersTagline: 'AI 问答只检索你在设置里选定的文件夹,回答标注来源文件——点击引用即可打开。',
   askFoldersStep1Title: '选定文件夹',

@@ -15,6 +15,9 @@ export const pl: Dict = {
   askEmptyCorpusHint:
     'Nie ma jeszcze ulubionych plików — najpierw oznacz je gwiazdką, aby AI mogło je czytać.',
   askCorpusCount: 'Baza wiedzy: {n} plików',
+  askScopeChip: 'Korpus: {n} wybranych plików',
+  askScopeNotIndexed: '{n} niezaindeksowanych',
+  askScopeClear: 'Wyczyść wybór',
   askIntro: 'Zadawaj pytania o swoje pliki. Odpowiedzi podają źródła — kliknij, aby otworzyć.',
   askToolSearch: 'Wyszukiwanie w bazie',
   askToolRead: 'Czytanie pliku',
@@ -30,6 +33,8 @@ export const pl: Dict = {
   askEmptyCorpus: 'Baza wiedzy jest pusta: najpierw oznacz pliki, potem pytaj.',
   askEmptyCorpusFolders:
     'Baza wiedzy nie ma jeszcze wybranych folderów: najpierw wybierz je w Ustawieniach, potem pytaj.',
+  askEmptyCorpusFoldersEmpty:
+    'Wybrane foldery nie zawierają jeszcze plików bazy wiedzy: indeks może je jeszcze skanować albo nie ma w nich plików do odczytu.',
   askIntroFolders:
     'Pytania szukają tylko w wybranych folderach; odpowiedzi cytują źródła — kliknij, aby otworzyć.',
   askHeroFoldersTagline:

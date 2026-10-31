@@ -16,6 +16,9 @@ export const id: Dict = {
   askEmptyCorpusHint:
     'Belum ada file berbintang — tandai beberapa file dahulu agar AI bisa membacanya.',
   askCorpusCount: 'Basis pengetahuan: {n} file',
+  askScopeChip: 'Korpus: {n} file terpilih',
+  askScopeNotIndexed: '{n} tidak terindeks',
+  askScopeClear: 'Hapus pilihan',
   askIntro:
     'Bertanyalah tentang file berbintang anda. Jawaban menyebut sumbernya — klik untuk membuka.',
   askToolSearch: 'Mencari basis pengetahuan',
@@ -32,6 +35,8 @@ export const id: Dict = {
   askEmptyCorpus: 'Basis pengetahuan kosong: tandai beberapa file dahulu, lalu bertanya.',
   askEmptyCorpusFolders:
     'Basis pengetahuan belum memiliki folder terpilih: pilih dulu di Pengaturan, lalu bertanya.',
+  askEmptyCorpusFoldersEmpty:
+    'Folder terpilih belum berisi file basis pengetahuan: indeks mungkin masih memindainya, atau tidak berisi file yang dapat dibaca.',
   askIntroFolders:
     'Pertanyaan hanya mencari di folder pilihan Anda; jawaban menyebutkan sumbernya — klik untuk membuka.',
   askHeroFoldersTagline:

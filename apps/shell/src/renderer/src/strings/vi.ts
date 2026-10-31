@@ -15,6 +15,9 @@ export const vi: Dict = {
   askEmptyCorpusHint:
     'Chưa có tệp nào được đánh dấu — hãy đánh dấu tệp trước để AI có thể đọc chúng.',
   askCorpusCount: 'Cơ sở tri thức: {n} tệp',
+  askScopeChip: 'Ngữ liệu: {n} tệp đã chọn',
+  askScopeNotIndexed: '{n} chưa được đánh chỉ mục',
+  askScopeClear: 'Xóa lựa chọn',
   askIntro: 'Hỏi về các tệp bạn đã đánh dấu. Câu trả lời dẫn nguồn — nhấp để mở.',
   askToolSearch: 'Đang tìm cơ sở tri thức',
   askToolRead: 'Đang đọc tệp',
@@ -30,6 +33,8 @@ export const vi: Dict = {
   askEmptyCorpus: 'Cơ sở tri thức trống: hãy đánh dấu tệp trước rồi hỏi.',
   askEmptyCorpusFolders:
     'Chưa chọn thư mục nào cho cơ sở tri thức: chọn trong Cài đặt trước rồi hãy hỏi.',
+  askEmptyCorpusFoldersEmpty:
+    'Các thư mục đã chọn chưa có tệp cơ sở tri thức: có thể chỉ mục đang quét chúng, hoặc trong đó không có tệp nào đọc được.',
   askIntroFolders: 'Câu hỏi chỉ tìm trong các thư mục đã chọn; câu trả lời dẫn nguồn — nhấp để mở.',
   askHeroFoldersTagline:
     'Ask AI chỉ tìm trong các thư mục đã chọn trong Cài đặt và dẫn file nguồn — nhấp vào trích dẫn để mở.',

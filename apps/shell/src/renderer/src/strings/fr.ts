@@ -17,6 +17,9 @@ export const fr: Dict = {
   askEmptyCorpusHint:
     'Aucun fichier favori pour l’instant — ajoutez-en d’abord pour que l’IA puisse les lire.',
   askCorpusCount: 'Base de connaissances : {n} fichiers',
+  askScopeChip: 'Corpus : {n} fichiers sélectionnés',
+  askScopeNotIndexed: '{n} non indexés',
+  askScopeClear: 'Effacer la sélection',
   askIntro:
     'Posez des questions sur vos fichiers favoris. Les réponses citent leurs sources — cliquez pour ouvrir.',
   askToolSearch: 'Recherche dans la base',
@@ -33,6 +36,8 @@ export const fr: Dict = {
   askEmptyCorpus: 'La base de connaissances est vide : ajoutez d’abord des fichiers favoris.',
   askEmptyCorpusFolders:
     'Aucun dossier n’est choisi pour la base de connaissances : choisissez-les dans les réglages, puis posez votre question.',
+  askEmptyCorpusFoldersEmpty:
+    'Les dossiers choisis ne contiennent pas encore de fichiers de la base de connaissances — l’index les analyse peut-être encore, ou ils ne contiennent aucun fichier lisible.',
   askIntroFolders:
     'Les questions cherchent uniquement dans vos dossiers choisis ; les réponses citent leurs sources — cliquez pour ouvrir.',
   askHeroFoldersTagline:

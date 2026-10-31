@@ -6,7 +6,12 @@ import { atomicCopyFile } from './atomic-write'
 import { createJsonStore } from './json-store'
 import { readAppSettings, writeAppSetting } from './app-settings'
 import { isProgramFile } from './tab-menu'
-import { normalizeKbScope, normalizeKbScopeFolders, type KbScope } from './knowledge-base'
+import {
+  KB_SCOPE_FOLDERS_MAX,
+  normalizeKbScope,
+  normalizeKbScopeFolders,
+  type KbScope,
+} from './knowledge-base'
 import {
   HOME_CHANNELS,
   type DesktopLayout,
@@ -713,11 +718,17 @@ export function registerDesktopIpc(deps: DesktopIpcDeps = {}): void {
    * also retries candidates through their own realpath, so index or starred
    * entries recorded under a symlinked spelling still match) and must be an
    * existing directory — anything else is refused so the settings file only
-   * ever holds usable roots.
+   * ever holds usable roots. The list is capped at KB_SCOPE_FOLDERS_MAX
+   * (normalizeKbScopeFolders refuses a longer one): the pick that would
+   * exceed the cap is refused before the dialog even opens.
    */
   ipcMain.handle(
     'kb:add-scope-folder',
     async (event: IpcMainInvokeEvent): Promise<string | null> => {
+      const current = normalizeKbScopeFolders(readAppSettings(appSettingsPath()).kbScopeFolders)
+      if (current.length >= KB_SCOPE_FOLDERS_MAX) {
+        throw new Error(`the folders scope accepts at most ${KB_SCOPE_FOLDERS_MAX} folders`)
+      }
       const win = BrowserWindow.fromWebContents(event.sender)
       const result = await (win
         ? dialog.showOpenDialog(win, PICK_SCOPE_FOLDER_OPTS)
@@ -732,10 +743,7 @@ export function registerDesktopIpc(deps: DesktopIpcDeps = {}): void {
       } catch {
         return null
       }
-      const next = normalizeKbScopeFolders([
-        ...normalizeKbScopeFolders(readAppSettings(appSettingsPath()).kbScopeFolders),
-        real,
-      ])
+      const next = normalizeKbScopeFolders([...current, real])
       writeAppSetting(appSettingsPath(), 'kbScopeFolders', next)
       notifyScopeChanged()
       return real

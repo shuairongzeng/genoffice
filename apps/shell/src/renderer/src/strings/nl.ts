@@ -14,6 +14,9 @@ export const nl: Dict = {
   askTitle: 'Vraag je kennisbank',
   askEmptyCorpusHint: 'Nog geen favorieten — markeer eerst bestanden zodat de AI ze kan lezen.',
   askCorpusCount: 'Kennisbank: {n} bestanden',
+  askScopeChip: 'Corpus: {n} geselecteerde bestanden',
+  askScopeNotIndexed: '{n} niet geïndexeerd',
+  askScopeClear: 'Selectie wissen',
   askIntro: 'Vraag naar je favoriete bestanden. Antwoorden noemen hun bron — klik om te openen.',
   askToolSearch: 'Kennisbank doorzoeken',
   askToolRead: 'Bestand lezen',
@@ -29,6 +32,8 @@ export const nl: Dict = {
   askEmptyCorpus: 'De kennisbank is leeg: markeer eerst bestanden en stel dan je vraag.',
   askEmptyCorpusFolders:
     'Er zijn nog geen mappen gekozen voor de kennisbank: kies ze eerst in Instellingen en stel dan je vraag.',
+  askEmptyCorpusFoldersEmpty:
+    'De gekozen mappen bevatten nog geen kennisbankbestanden — de index is ze misschien nog aan het scannen, of ze bevatten geen leesbare bestanden.',
   askIntroFolders:
     'Vragen zoeken alleen in je gekozen mappen; antwoorden citeren hun bron — klik om te openen.',
   askHeroFoldersTagline:

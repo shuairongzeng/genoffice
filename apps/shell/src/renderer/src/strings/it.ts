@@ -15,6 +15,9 @@ export const it: Dict = {
   askEmptyCorpusHint:
     'Ancora nessun file preferito — contrassegnane prima alcuni perché l’IA possa leggerli.',
   askCorpusCount: 'Base di conoscenza: {n} file',
+  askScopeChip: 'Corpus: {n} file selezionati',
+  askScopeNotIndexed: '{n} non indicizzati',
+  askScopeClear: 'Annulla selezione',
   askIntro:
     'Chiedi informazioni sui tuoi file preferiti. Le risposte citano la fonte — clicca per aprire.',
   askToolSearch: 'Ricerca nella base',
@@ -31,6 +34,8 @@ export const it: Dict = {
   askEmptyCorpus: 'La base di conoscenza è vuota: contrassegna prima alcuni file, poi chiedi.',
   askEmptyCorpusFolders:
     'Nessuna cartella scelta per la base di conoscenza: selezionala prima nelle Impostazioni, poi chiedi.',
+  askEmptyCorpusFoldersEmpty:
+    'Le cartelle scelte non contengono ancora file della base di conoscenza: l’indice potrebbe ancora scansionarle, oppure non contengono file leggibili.',
   askIntroFolders:
     'Le domande cercano solo nelle cartelle scelte; le risposte citano le fonti — clicca per aprire.',
   askHeroFoldersTagline:

@@ -15,6 +15,9 @@ export const pt: Dict = {
   askEmptyCorpusHint:
     'Ainda não há arquivos favoritos — marque alguns primeiro para a IA poder lê-los.',
   askCorpusCount: 'Base de conhecimento: {n} arquivos',
+  askScopeChip: 'Corpus: {n} arquivos selecionados',
+  askScopeNotIndexed: '{n} não indexados',
+  askScopeClear: 'Limpar seleção',
   askIntro:
     'Pergunte sobre seus arquivos favoritos. As respostas citam as fontes — clique para abrir.',
   askToolSearch: 'Pesquisando na base',
@@ -31,6 +34,8 @@ export const pt: Dict = {
   askEmptyCorpus: 'A base de conhecimento está vazia: marque arquivos primeiro e depois pergunte.',
   askEmptyCorpusFolders:
     'Ainda não há pastas escolhidas para a base de conhecimento: escolha primeiro nas Definições e depois pergunte.',
+  askEmptyCorpusFoldersEmpty:
+    'As pastas escolhidas ainda não contêm arquivos da base de conhecimento: o índice ainda pode estar a examiná-las, ou não contêm arquivos legíveis.',
   askIntroFolders:
     'As perguntas pesquisam apenas nas pastas escolhidas; as respostas citam as fontes — clique para abrir.',
   askHeroFoldersTagline:

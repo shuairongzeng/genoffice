@@ -10,8 +10,10 @@ import { LocaleProvider } from '../src/renderer/src/locale'
  * The ask panel's 'folders' corpus scope, the guidance contract of the
  * settings kbScope's third option: the teaching surfaces (hero, step 1,
  * intro) switch to the folders wording, the empty-corpus CTA opens the
- * settings center instead of the recents list, and a kb:scope-changed push
- * re-reads the scope rather than keeping the one the panel mounted with.
+ * settings center instead of the recents list, the empty-corpus guidance
+ * tells an empty folders list and chosen folders with nothing in them apart,
+ * and a kb:scope-changed push re-reads the scope rather than keeping the one
+ * the panel mounted with.
  */
 
 let host: HTMLDivElement
@@ -200,6 +202,22 @@ describe('KbAskPanel folders scope', () => {
     // the guidance answer is scope-keyed: the panel says pick folders, never
     // "star your files", under the scope that cannot see any
     expect(host.textContent).toContain('The knowledge base has no folders chosen yet')
+    expect(host.textContent).not.toContain('Star the files you read often')
+  })
+
+  it('distinguishes an empty folders list from chosen folders with nothing in them', async () => {
+    // folders are chosen, the corpus is still empty: the guidance names the
+    // chosen-but-empty condition, not the "no folders chosen yet" one
+    ;(
+      window as unknown as { aiOffice: { getKbScopeFolders: () => Promise<string[]> } }
+    ).aiOffice.getKbScopeFolders = async () => ['/Users/me/contracts']
+    render()
+    await settle()
+    type('where is the lease?')
+    pressEnter()
+    await settle()
+    expect(host.textContent).toContain('The chosen folders hold no knowledge base files yet')
+    expect(host.textContent).not.toContain('The knowledge base has no folders chosen yet')
     expect(host.textContent).not.toContain('Star the files you read often')
   })
 

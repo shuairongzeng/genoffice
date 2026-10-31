@@ -15,6 +15,9 @@ export const he: Dict = {
   askEmptyCorpusHint:
     'אין עדיין קבצים מסומנים — סמן קבצים בכוכבית תחילה כדי שה-AI יוכל לקרוא אותם.',
   askCorpusCount: 'בסיס ידע: {n} קבצים',
+  askScopeChip: 'גוף ידע: {n} קבצים נבחרים',
+  askScopeNotIndexed: '{n} לא נכללו באינדקס',
+  askScopeClear: 'ניקוי הבחירה',
   askIntro: 'שאל על הקבצים המסומנים שלך. תשובות מציינות את המקור — לחיצה פותחת אותו.',
   askToolSearch: 'מחפש בבסיס הידע',
   askToolRead: 'קורא קובץ',
@@ -29,6 +32,8 @@ export const he: Dict = {
   askSaveFailed: 'השמירה נכשלה: {error}',
   askEmptyCorpus: 'בסיס הידע ריק: סמן קבצים תחילה ואז שאל.',
   askEmptyCorpusFolders: 'לא נבחרו תיקיות לבסיס הידע: בחרו אותן בהגדרות תחילה ואז שאלו.',
+  askEmptyCorpusFoldersEmpty:
+    'התיקיות שנבחרו עדיין אינן מכילות קבצים לבסיס הידע: ייתכן שהאינדקס עדיין סורק אותן, או שאין בהן קבצים קריאים.',
   askIntroFolders: 'השאלות מחפשות רק בתיקיות שנבחרו; התשובות מצטטות את המקור — לחצו לפתיחה.',
   askHeroFoldersTagline:
     'Ask AI מחפש רק בתיקיות שנבחרו בהגדרות ומצטט את קובץ המקור — לחצו על הציטוט לפתיחה.',

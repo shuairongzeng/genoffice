@@ -16,6 +16,9 @@ export const ko: Dict = {
   askEmptyCorpusHint:
     '즐겨찾기한 파일이 아직 없습니다. 먼저 파일을 즐겨찾기하면 AI가 읽을 수 있습니다.',
   askCorpusCount: '지식 베이스: {n}개',
+  askScopeChip: '말뭉치: 선택한 파일 {n}개',
+  askScopeNotIndexed: '{n}개 미인덱싱',
+  askScopeClear: '선택 해제',
   askIntro: '즐겨찾기한 파일에 대해 질문하세요. 답변에는 출처가 표시되며 클릭하면 열립니다.',
   askToolSearch: '지식 베이스 검색 중',
   askToolRead: '파일 읽는 중',
@@ -31,6 +34,8 @@ export const ko: Dict = {
   askEmptyCorpus: '지식 베이스가 비어 있습니다. 먼저 파일을 즐겨찾기한 후 질문해 주세요.',
   askEmptyCorpusFolders:
     '지식 베이스에 선택된 폴더가 없습니다. 먼저 설정에서 폴더를 선택한 후 질문해 주세요.',
+  askEmptyCorpusFoldersEmpty:
+    '선택한 폴더에 아직 지식 베이스 파일이 없습니다. 인덱스 스캔이 진행 중이거나 읽을 수 있는 파일이 없을 수 있습니다.',
   askIntroFolders:
     '질문은 선택한 폴더 안에서만 검색합니다. 답변은 출처를 인용합니다 — 클릭하여 엽니다.',
   askHeroFoldersTagline:

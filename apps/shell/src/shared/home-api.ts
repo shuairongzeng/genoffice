@@ -318,6 +318,18 @@ export interface DesktopLayout {
 export type KbScope = 'indexed' | 'starred' | 'folders'
 
 /**
+ * The `kb:search` answer when the query carried `onlyPaths` (the round scope:
+ * an explicit file selection as this conversation's corpus): the hits that
+ * fall inside the selection, plus the requested paths the index does not
+ * cover — not searchable, not citable; the panel shows them as the chip's
+ * "not indexed" hint. Unscoped queries keep answering a bare `KbSearchHit[]`.
+ */
+export interface KbScopedSearchResult {
+  hits: KbSearchHit[]
+  notIndexed: string[]
+}
+
+/**
  * What `desktopLayoutSave` accepts: positions only. The alias list is the
  * launch whitelist the `desktopOpenExternal` gate checks against, so a
  * renderer must not be able to grow it by writing the layout file — aliases
@@ -532,10 +544,22 @@ export interface HomeApi {
   }): Promise<SystemPresenceSettings>
   /** open Settings › Integrations (the skills list) */
   openSkillsSettings(): Promise<void>
-  /** full-text search over the corpus (scope `kbScope` in app-settings: index-wide by default, starred-only, or the folders list) */
-  kbSearch(query: { q: string; limit?: number }): Promise<KbSearchHit[]>
-  /** one page of a corpus file's parsed text (path must be in the corpus scope) */
-  kbRead(path: string, offset: number): Promise<KbReadPage>
+  /** full-text search over the corpus (scope `kbScope` in app-settings:
+   *  index-wide by default, starred-only, or the folders list). `onlyPaths`
+   *  attaches the round scope — an explicit file selection as this
+   *  conversation's corpus — and outranks the settings for the call; it also
+   *  changes the answer's shape to {@link KbScopedSearchResult}, while
+   *  without it the answer stays a bare hit array */
+  kbSearch(query: {
+    q: string
+    limit?: number
+    onlyPaths?: readonly string[]
+  }): Promise<KbSearchHit[] | KbScopedSearchResult>
+  /** one page of a corpus file's parsed text (path must be in the corpus
+   *  scope). `onlyPaths` (the round scope) replaces the settings scope for
+   *  the call and widens the gate to a selected file the index missed, when
+   *  it exists and is a readable office type */
+  kbRead(path: string, offset: number, onlyPaths?: readonly string[]): Promise<KbReadPage>
   /** write the AI's markdown as a new .md / .docx in the save folder; resolves to its path */
   kbCreateDocument(request: {
     title: string

@@ -16,6 +16,9 @@ export const ja: Dict = {
   askEmptyCorpusHint:
     'スター付きファイルがまだありません。先にファイルをスターすると、AI が読めます。',
   askCorpusCount: 'ナレッジベース:{n} 件',
+  askScopeChip: 'コーパス:選択 {n} 件',
+  askScopeNotIndexed: '{n} 件未インデックス',
+  askScopeClear: '選択を解除',
   askIntro: 'スター付きファイルについて質問できます。回答には出典が付き、クリックで開けます。',
   askToolSearch: 'ナレッジベースを検索中',
   askToolRead: 'ファイルを読み込み中',
@@ -31,6 +34,8 @@ export const ja: Dict = {
   askEmptyCorpus: 'ナレッジベースは空です:先にファイルをスターしてから質問してください。',
   askEmptyCorpusFolders:
     'ナレッジベースにフォルダーが未選択です:先に設定でフォルダーを選んでから質問してください。',
+  askEmptyCorpusFoldersEmpty:
+    '選択したフォルダーにはナレッジベースのファイルがまだありません:インデックスのスキャン中か、読み取り可能なファイルが入っていません。',
   askIntroFolders:
     '質問は選択したフォルダー内のみを検索します。回答は出典を示します—クリックで開けます。',
   askHeroFoldersTagline:

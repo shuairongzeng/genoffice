@@ -199,4 +199,32 @@ describe('home-ipc kb channels — the folders scope', () => {
     expect(searchLimits).toEqual([8])
     expect(unfiltered).toHaveLength(3)
   })
+
+  it('a round scope outranks the folders scope for the call (onlyPaths > folders)', async () => {
+    setScope('folders', [root])
+    // the selection replaces the roots: an indexed file outside the chosen
+    // folders is a hit, and the answer takes the scoped shape with the
+    // unindexed selection paths reported as notIndexed
+    const answer = (await handles.get('kb:search')!(undefined, {
+      q: 'hello',
+      limit: 8,
+      onlyPaths: [outIndexedOnly, outStarred],
+    })) as { hits: { path: string }[]; notIndexed: string[] }
+    expect(answer.hits.map((h) => h.path)).toEqual([outIndexedOnly])
+    expect(answer.notIndexed).toEqual([outStarred])
+    // a paths scope is a narrowing scope too: the widened pool, not the limit
+    expect(searchLimits).toEqual([200])
+
+    // read narrows the same way — the selection is the corpus for the call:
+    // an under-root corpus file inside the selection reads, and the same
+    // corpus file outside the selection is refused
+    const kbRead = (path: string, onlyPaths: string[]) =>
+      handles.get('kb:read')!(undefined, { path, onlyPaths }) as Promise<{ text: string }>
+    await expect(kbRead(inIndexedOnly, [inIndexedOnly, inStarred])).resolves.toMatchObject({
+      text: 'indexed only, inside',
+    })
+    await expect(kbRead(inIndexedOnly, [inStarred])).rejects.toThrow(
+      'path is not in the knowledge base',
+    )
+  })
 })

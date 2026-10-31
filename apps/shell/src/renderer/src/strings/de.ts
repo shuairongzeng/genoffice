@@ -16,6 +16,9 @@ export const de: Dict = {
   askEmptyCorpusHint:
     'Noch keine Favoriten — markieren Sie zuerst Dateien, damit die KI sie lesen kann.',
   askCorpusCount: 'Wissensbasis: {n} Dateien',
+  askScopeChip: 'Korpus: {n} ausgewählte Dateien',
+  askScopeNotIndexed: '{n} nicht indiziert',
+  askScopeClear: 'Auswahl aufheben',
   askIntro:
     'Fragen Sie zu Ihren Favoriten. Antworten nennen ihre Quellen — Klick öffnet die Datei.',
   askToolSearch: 'Wissensbasis durchsuchen',
@@ -32,6 +35,8 @@ export const de: Dict = {
   askEmptyCorpus: 'Die Wissensbasis ist leer: markieren Sie zuerst Dateien, dann fragen Sie.',
   askEmptyCorpusFolders:
     'Für die Wissensbasis sind noch keine Ordner gewählt: wählen Sie sie zuerst in den Einstellungen, dann fragen Sie.',
+  askEmptyCorpusFoldersEmpty:
+    'Die gewählten Ordner enthalten noch keine Wissensbasis-Dateien — der Index scannt sie möglicherweise noch, oder sie enthalten keine lesbaren Dateien.',
   askIntroFolders:
     'Fragen durchsuchen nur die gewählten Ordner; Antworten zitieren ihre Quellen — zum Öffnen klicken.',
   askHeroFoldersTagline:

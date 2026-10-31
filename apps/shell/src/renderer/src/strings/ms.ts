@@ -15,6 +15,9 @@ export const ms: Dict = {
   askEmptyCorpusHint:
     'Tiada fail kegemaran lagi — tanda beberapa fail dahulu supaya AI boleh membacanya.',
   askCorpusCount: 'Pangkalan pengetahuan: {n} fail',
+  askScopeChip: 'Korpus: {n} fail dipilih',
+  askScopeNotIndexed: '{n} tidak diindeks',
+  askScopeClear: 'Kosongkan pilihan',
   askIntro: 'Tanya tentang fail kegemaran anda. Jawapan memetik sumbernya — klik untuk membuka.',
   askToolSearch: 'Mencari pangkalan pengetahuan',
   askToolRead: 'Membaca fail',
@@ -30,6 +33,8 @@ export const ms: Dict = {
   askEmptyCorpus: 'Pangkalan pengetahuan kosong: tanda beberapa fail dahulu, kemudian tanya.',
   askEmptyCorpusFolders:
     'Pangkalan pengetahuan belum mempunyai folder dipilih: pilih dahulu di Tetapan, kemudian tanya.',
+  askEmptyCorpusFoldersEmpty:
+    'Folder dipilih belum mengandungi fail pangkalan pengetahuan: indeks mungkin masih mengimbasnya, atau tiada fail yang boleh dibaca.',
   askIntroFolders:
     'Soalan hanya mencari dalam folder yang dipilih; jawapan memetik sumbernya — klik untuk buka.',
   askHeroFoldersTagline:

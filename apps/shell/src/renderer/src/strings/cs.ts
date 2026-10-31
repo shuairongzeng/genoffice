@@ -15,6 +15,9 @@ export const cs: Dict = {
   askEmptyCorpusHint:
     'Zatím nejsou žádné oblíbené soubory — nejprve je označte hvězdičkou, aby je AI mohla číst.',
   askCorpusCount: 'Znalostní databáze: {n} souborů',
+  askScopeChip: 'Korpus: {n} vybraných souborů',
+  askScopeNotIndexed: '{n} neindexováno',
+  askScopeClear: 'Zrušit vybraný korpus',
   askIntro: 'Ptejte se na své oblíbené soubory. Odpovědi uvádějí zdroje — kliknutím otevřete.',
   askToolSearch: 'Prohledávání databáze',
   askToolRead: 'Čtení souboru',
@@ -30,6 +33,8 @@ export const cs: Dict = {
   askEmptyCorpus: 'Znalostní databáze je prázdná: nejprve označte soubory a pak se ptejte.',
   askEmptyCorpusFolders:
     'Znalostní databáze nemá vybrané žádné složky: nejprve je vyberte v Nastavení a pak se ptejte.',
+  askEmptyCorpusFoldersEmpty:
+    'Vybrané složky zatím neobsahují žádné soubory znalostní databáze: index je možná ještě skenuje, nebo v nich nejsou žádné čitelné soubory.',
   askIntroFolders:
     'Otázky prohledávají jen vybrané složky; odpovědi citují své zdroje — kliknutím otevřete.',
   askHeroFoldersTagline:
