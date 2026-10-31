@@ -684,10 +684,16 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     host.refreshIndexer()
   })
 
-  ipcMain.handle(HOME_CHANNELS.listFolder, (_event, dir: unknown): FolderListing => {
-    if (!insideRoot(dir)) return { dir: String(dir), folders: [], files: [] }
-    return listFolder(dir, new Set(readStarredFiles()))
-  })
+  // async: the listing runs off the main event loop, and a known-mtime probe
+  // answers `unchanged` without re-reading the directory at all
+  ipcMain.handle(
+    HOME_CHANNELS.listFolder,
+    async (_event, dir: unknown, knownMtimeMs: unknown): Promise<FolderListing> => {
+      if (!insideRoot(dir)) return { dir: String(dir), mtimeMs: 0, folders: [], files: [] }
+      const known = typeof knownMtimeMs === 'number' ? knownMtimeMs : undefined
+      return listFolder(dir, new Set(readStarredFiles()), known)
+    },
+  )
 
   ipcMain.handle(
     HOME_CHANNELS.createFolder,

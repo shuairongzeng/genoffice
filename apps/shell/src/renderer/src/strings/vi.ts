@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const vi: Dict = {
+  ok: 'Đồng ý',
   addFolderRoot: 'Thêm thư mục…',
   removeFolderRoot: 'Xóa khỏi danh sách',
   rootUnavailable: 'Không khả dụng',

@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const ms: Dict = {
+  ok: 'OK',
   addFolderRoot: 'Tambah folder…',
   removeFolderRoot: 'Buang daripada senarai',
   rootUnavailable: 'Tidak tersedia',

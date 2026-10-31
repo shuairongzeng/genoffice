@@ -631,8 +631,11 @@ export interface HomeApi {
   removeFolderRoot(path: string): Promise<void>
   /** absolute path of a File from an OS drag (Electron webUtils) */
   pathForFile(file: File): string
-  /** one level of the tree: sub-folders + supported files directly inside `dir` */
-  listFolder(dir: string): Promise<FolderListing>
+  /** one level of the tree: sub-folders + supported files directly inside `dir`.
+   *  `knownMtimeMs` is the mtime the caller saw last: an unchanged directory
+   *  answers `{ unchanged: true }` without re-reading it (the focus refresh
+   *  probes instead of re-listing) */
+  listFolder(dir: string, knownMtimeMs?: number): Promise<FolderListing>
   /** create `parent/name`; resolves to the new path */
   createFolder(parent: string, name: string): Promise<RenameResult>
   /** rename a folder in place (files inside keep their recents/stars/chat history) */
@@ -647,6 +650,10 @@ export interface HomeApi {
    *  head entry) — broadcast on the docs pushRecent funnel, which every editor
    *  app's shell hooks feed; lets Home re-pull without waiting for focus */
   onRecentsChanged(handler: () => void): () => void
+  /** the file index changed in the main process (a scan diff landed or an
+   *  extraction finished) — the search re-queries on it instead of polling
+   *  while the index is busy */
+  onIndexUpdated(handler: () => void): () => void
   /** current UI language (persisted in userData/app-settings.json) */
   getLanguage(): Promise<UiLanguage>
   /** switch + persist the UI language; main rebuilds its menus to match */
@@ -899,11 +906,16 @@ export interface FileEntry {
 
 export interface FolderListing {
   dir: string
+  /** `dir`'s own mtime at read time: the probe argument for the next listFolder call */
+  mtimeMs: number
   folders: FolderEntry[]
   /** supported document files directly inside `dir`, newest first */
   files: FileEntry[]
   /** the directory could not be read (deleted or moved outside the app) */
   missing?: boolean
+  /** the caller-provided mtime still matched, so `folders`/`files` are empty
+   *  placeholders and the cached listing is still current */
+  unchanged?: boolean
 }
 
 /** what to do when a moved item's name already exists in the target */
@@ -990,6 +1002,7 @@ export const HOME_CHANNELS = {
   deleteFolder: 'home:folder-delete',
   folderChanged: 'home:folder-changed',
   recentsChanged: 'home:recents-changed',
+  indexUpdated: 'home:index-updated',
   getLanguage: 'home:get-language',
   setLanguage: 'home:set-language',
   getUpdateChannel: 'home:get-update-channel',

@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const it: Dict = {
+  ok: 'OK',
   addFolderRoot: 'Aggiungi cartella…',
   removeFolderRoot: "Rimuovi dall'elenco",
   rootUnavailable: 'Non disponibile',

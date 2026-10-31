@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const ko: Dict = {
+  ok: '확인',
   addFolderRoot: '폴더 추가…',
   removeFolderRoot: '목록에서 제거',
   rootUnavailable: '사용할 수 없음',

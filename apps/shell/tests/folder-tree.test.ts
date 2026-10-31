@@ -7,6 +7,7 @@ import {
   renameSync,
   rmSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -52,7 +53,7 @@ afterEach(() => {
 })
 
 describe('listFolder', () => {
-  it('lists sub-folders first (natural order) and supported files newest first, skipping junk', () => {
+  it('lists sub-folders first (natural order) and supported files newest first, skipping junk', async () => {
     mkdirSync(join(root, 'Clients'))
     mkdirSync(join(root, 'archive 10'))
     mkdirSync(join(root, 'archive 2'))
@@ -65,33 +66,36 @@ describe('listFolder', () => {
     touch('.DS_Store')
     touch('Thumbs.db')
 
-    const listing = listFolder(root, new Set([join(root, 'notes.md')]))
+    const listing = await listFolder(root, new Set([join(root, 'notes.md')]))
     expect(listing.folders.map((f) => f.name)).toEqual(['archive 2', 'archive 10', 'Clients'])
     expect(listing.files.map((f) => f.name).sort()).toEqual(['notes.md', 'report.docx'])
     expect(listing.files.find((f) => f.name === 'notes.md')?.starred).toBe(true)
     expect(listing.folders.every((f) => f.hasSubfolders === false)).toBe(true)
+    // the dir's own mtime rides along: the probe argument for the next call
+    expect(typeof listing.mtimeMs).toBe('number')
   })
 
-  it('hides the Markdown assets folder only when it holds the asset manifest', () => {
+  it('hides the Markdown assets folder only when it holds the asset manifest', async () => {
     mkdirSync(join(root, 'assets'))
     expect(isHiddenEntry(root, 'assets', true)).toBe(false)
     touch('assets/.genoffice-assets.json', '{}')
     expect(isHiddenEntry(root, 'assets', true)).toBe(true)
-    expect(listFolder(root, new Set()).folders).toEqual([])
+    expect((await listFolder(root, new Set())).folders).toEqual([])
   })
 
-  it('reports whether a folder has visible sub-folders', () => {
+  it('reports whether a folder has visible sub-folders', async () => {
     mkdirSync(join(root, 'a', 'b'), { recursive: true })
     mkdirSync(join(root, 'c', '.git'), { recursive: true })
-    const listing = listFolder(root, new Set())
+    const listing = await listFolder(root, new Set())
     expect(listing.folders.find((f) => f.name === 'a')?.hasSubfolders).toBe(true)
     expect(listing.folders.find((f) => f.name === 'c')?.hasSubfolders).toBe(false)
   })
 
-  it('returns an empty listing for a directory that vanished', () => {
+  it('returns an empty listing for a directory that vanished', async () => {
     const gone = join(root, 'gone')
-    expect(listFolder(gone, new Set())).toEqual({
+    expect(await listFolder(gone, new Set())).toEqual({
       dir: gone,
+      mtimeMs: 0,
       folders: [],
       files: [],
       missing: true,
@@ -104,17 +108,17 @@ describe('listFolder', () => {
    * on Home, so a file the open dialog happily offers cannot be clicked into
    * from the folder pane — the same drift, one list further along.
    */
-  it('lists the text app extensions alongside markdown', () => {
+  it('lists the text app extensions alongside markdown', async () => {
     touch('notes.md')
     touch('notes.txt')
     touch('data.json')
     touch('photo.png')
 
-    expect(
-      listFolder(root, new Set())
-        .files.map((f) => f.name)
-        .sort(),
-    ).toEqual(['data.json', 'notes.md', 'notes.txt'])
+    expect((await listFolder(root, new Set())).files.map((f) => f.name).sort()).toEqual([
+      'data.json',
+      'notes.md',
+      'notes.txt',
+    ])
   })
 
   /**
@@ -122,16 +126,45 @@ describe('listFolder', () => {
    * in TREE_FILE_EXTENSIONS means the open dialog offers a file the folder
    * pane refuses to show, for one app only.
    */
-  it('lists both halves of every ODF import pair', () => {
+  it('lists both halves of every ODF import pair', async () => {
     for (const extension of ['odt', 'ott', 'ods', 'ots', 'odp', 'otp']) {
       touch(`doc.${extension}`)
     }
 
-    expect(
-      listFolder(root, new Set())
-        .files.map((f) => f.name)
-        .sort(),
-    ).toEqual(['doc.odp', 'doc.ods', 'doc.odt', 'doc.otp', 'doc.ots', 'doc.ott'])
+    expect((await listFolder(root, new Set())).files.map((f) => f.name).sort()).toEqual([
+      'doc.odp',
+      'doc.ods',
+      'doc.odt',
+      'doc.otp',
+      'doc.ots',
+      'doc.ott',
+    ])
+  })
+
+  // the focus refresh's dirty check: same mtime answers unchanged without
+  // re-reading, a changed one re-lists
+  it('answers unchanged for the mtime the caller already saw', async () => {
+    touch('report.docx')
+    const first = await listFolder(root, new Set())
+    const probe = await listFolder(root, new Set(), first.mtimeMs)
+    expect(probe.unchanged).toBe(true)
+    expect(probe.mtimeMs).toBe(first.mtimeMs)
+    // the placeholders stay empty: the caller keeps its cached listing
+    expect(probe.folders).toEqual([])
+    expect(probe.files).toEqual([])
+  })
+
+  it('re-lists when the mtime moved (an entry landed or left the folder)', async () => {
+    touch('report.docx')
+    const first = await listFolder(root, new Set())
+    touch('second.md')
+    // pin the dir's mtime to a clearly different whole second: the comparison
+    // must not lean on filesystem timestamp granularity
+    const moved = new Date(Math.ceil(first.mtimeMs / 1000) * 1000 + 5000)
+    utimesSync(root, moved, moved)
+    const second = await listFolder(root, new Set(), first.mtimeMs)
+    expect(second.unchanged).toBeUndefined()
+    expect(second.files.map((f) => f.name)).toContain('second.md')
   })
 })
 

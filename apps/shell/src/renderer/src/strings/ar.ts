@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const ar: Dict = {
+  ok: 'موافق',
   addFolderRoot: 'إضافة مجلد…',
   removeFolderRoot: 'إزالة من القائمة',
   rootUnavailable: 'غير متاح',

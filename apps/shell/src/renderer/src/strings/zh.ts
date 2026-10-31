@@ -1,5 +1,6 @@
 /** home-screen dictionary; zh defines the key set, every other language must match it */
 export const zh = {
+  ok: '确定',
   addFolderRoot: '添加文件夹…',
   removeFolderRoot: '从列表移除',
   rootUnavailable: '不可用',

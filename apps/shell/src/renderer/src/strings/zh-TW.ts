@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const zhTW: Dict = {
+  ok: '確定',
   addFolderRoot: '加入資料夾…',
   removeFolderRoot: '從清單移除',
   rootUnavailable: '無法使用',

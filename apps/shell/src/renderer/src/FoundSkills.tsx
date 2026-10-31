@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { StringKey, TFunc } from './locale'
+import { useConfirm } from './ConfirmDialog'
 import type {
   FoundSkill,
   ForeignSkillCandidate,
@@ -36,6 +37,7 @@ type View =
   | null
 
 export function FoundSkills({ t }: { t: TFunc }) {
+  const { confirm: confirmBox, dialog: confirmDialog } = useConfirm(t('ok'))
   const [skills, setSkills] = useState<FoundSkill[] | null>(null)
   const [recommended, setRecommended] = useState<RecommendedSkill[]>([])
   const [busy, setBusy] = useState(false)
@@ -86,7 +88,14 @@ export function FoundSkills({ t }: { t: TFunc }) {
   }
 
   const doRemove = async (skill: FoundSkill) => {
-    if (busy || !window.confirm(t('intgSkillsRemoveConfirm', { name: skill.name }))) return
+    if (busy) return
+    const confirmed = await confirmBox({
+      body: <p>{t('intgSkillsRemoveConfirm', { name: skill.name })}</p>,
+      confirmLabel: t('delete'),
+      cancelLabel: t('cancel'),
+      danger: true,
+    })
+    if (!confirmed) return
     setBusy(true)
     try {
       await api()?.removeSkill?.(skill.name)
@@ -360,6 +369,7 @@ export function FoundSkills({ t }: { t: TFunc }) {
           )}
         </>
       )}
+      {confirmDialog}
     </>
   )
 }

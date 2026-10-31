@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const hi: Dict = {
+  ok: 'ठीक है',
   addFolderRoot: 'फ़ोल्डर जोड़ें…',
   removeFolderRoot: 'सूची से हटाएँ',
   rootUnavailable: 'उपलब्ध नहीं',

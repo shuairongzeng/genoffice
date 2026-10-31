@@ -1,6 +1,7 @@
 import type { Dict } from './zh'
 
 export const ja: Dict = {
+  ok: 'OK',
   addFolderRoot: 'フォルダーを追加…',
   removeFolderRoot: 'リストから削除',
   rootUnavailable: '利用不可',

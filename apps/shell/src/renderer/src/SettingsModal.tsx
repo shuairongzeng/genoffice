@@ -39,6 +39,7 @@ import type {
 } from '@genoffice/ai-provider'
 import { useI18n } from './locale'
 import type { StringKey, TFunc } from './locale'
+import { useConfirm } from './ConfirmDialog'
 import type {
   AccountStatus,
   AiCatalogEntry,
@@ -356,6 +357,7 @@ function AiModelPane({
   aiPrefs: AiPanelPrefs
   onUpdateAiPrefs: (patch: Partial<AiPanelPrefs>) => void
 }) {
+  const { alert: alertBox, dialog: confirmDialog } = useConfirm(t('ok'))
   const [catalog, setCatalog] = useState<AiCatalogEntry[]>(
     () => window.aiOffice.getAiProviders?.() ?? [],
   )
@@ -670,7 +672,7 @@ function AiModelPane({
         setSaved(true)
       })
       .catch((error) => {
-        window.alert(error instanceof Error ? error.message : String(error))
+        void alertBox(error instanceof Error ? error.message : String(error))
       })
   }
   const test = () => {
@@ -1216,6 +1218,7 @@ function AiModelPane({
           onClick={() => onUpdateAiPrefs({ showToolCalls: !aiPrefs.showToolCalls })}
         />
       </div>
+      {confirmDialog}
     </>
   )
 }
@@ -1262,6 +1265,7 @@ function AiMediaPane({
   onFileSearchChange?: () => void
   focusBlock?: TestedBlock
 }) {
+  const { alert: alertBox, dialog: confirmDialog } = useConfirm(t('ok'))
   const [mediaCatalog] = useState<AiMediaProviderMeta[]>(
     () => window.aiOffice.getAiMediaProviders?.() ?? [],
   )
@@ -1363,7 +1367,7 @@ function AiMediaPane({
         onFileSearchChange?.()
       })
       .catch((error) => {
-        window.alert(error instanceof Error ? error.message : String(error))
+        void alertBox(error instanceof Error ? error.message : String(error))
       })
   }
   // every block reports its own verdict; blocks sharing a vendor share that vendor's one check
@@ -1818,6 +1822,7 @@ function AiMediaPane({
       {mediaBlock('image')}
       {mediaBlock('analysis')}
       {mediaBlock('video')}
+      {confirmDialog}
     </>
   )
 }
