@@ -7,9 +7,8 @@
 // Source-tripwire style (see the sheets ai-kb-wiring precedent): reading the
 // source files is the point — the runtime renders fine with a broken order,
 // which is exactly why it needs a pin.
-import { execSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 
@@ -38,19 +37,31 @@ for (const r of RENDERERS) {
   })
 }
 
+// the retired-bitmap scan only looks at source/stylesheet files (the old
+// grep's --include set), and runs on windows CI too — so it walks the tree
+// with node fs instead of shelling out to a POSIX-only grep.
+const SCAN_EXTENSIONS = new Set(['.ts', '.tsx', '.css'])
+
+function* sourceFiles(dir: string): Generator<string> {
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    // join() keeps separators right on both platforms; a symlinked directory
+    // is not descended (ent.isDirectory() is false for it), like grep -r
+    const full = join(dir, ent.name)
+    if (ent.isDirectory()) yield* sourceFiles(full)
+    else if (ent.isFile() && SCAN_EXTENSIONS.has(extname(ent.name))) yield full
+  }
+}
+
 it('no renderer source still wires the retired send/stop PNG bitmaps', () => {
   // the imports lived in the AI panel files, not the entry points — scan the
   // whole renderer tree of every app so a re-added import anywhere fails
-  const roots = RENDERERS.map((r) => join(repoRoot, r.entry.replace(/\/[^/]+$/, '')))
+  const roots = RENDERERS.map((r) => dirname(join(repoRoot, r.entry)))
   const offenders: string[] = []
   for (const root of roots) {
-    const out = execSync(
-      'grep -rln "send-enter\|send-stop" --include=*.ts --include=*.tsx --include=*.css "' +
-        root +
-        '" || true',
-      { encoding: 'utf8' },
-    ).trim()
-    if (out) offenders.push(...out.split('\n'))
+    for (const file of sourceFiles(root)) {
+      const src = readFileSync(file, 'utf8')
+      if (src.includes('send-enter') || src.includes('send-stop')) offenders.push(file)
+    }
   }
   expect(offenders).toEqual([])
 })
