@@ -1134,6 +1134,7 @@ export function AiPanel({
               insertedIndex,
               fallbackReason,
               imageFailures,
+              slides: res.slides,
             }
           }
           return {
@@ -1168,6 +1169,7 @@ export function AiPanel({
                 'imageFailures' in res && Array.isArray(res.imageFailures)
                   ? res.imageFailures
                   : undefined,
+              slides: res.slides,
             }
           }
           return {

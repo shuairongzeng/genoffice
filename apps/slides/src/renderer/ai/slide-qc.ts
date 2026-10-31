@@ -148,6 +148,15 @@ export function createSlideFixSkill(access: DeckAccess, hasScreenshot = true): A
     id: 'slides-qc',
     systemPrompt: hasScreenshot ? qcVisualPrompt : qcGeometryPrompt,
     tools: full.tools.filter((tool) => QC_TOOL_ALLOWLIST.has(tool.name)),
+    // buildContext must survive the wrap: it is what arms the page-order
+    // baseline, and the fix pass writes by slideIndex pinned at fix start —
+    // without it the stale-order guard is permanently disarmed here. The
+    // full outline it computes is deliberately dropped: the QC instruction
+    // is a focused per-page prompt and stays byte-identical.
+    buildContext: () => {
+      full.buildContext?.()
+      return ''
+    },
     executeTool: full.executeTool,
   }
 }

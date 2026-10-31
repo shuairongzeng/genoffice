@@ -19,7 +19,7 @@ import {
 import { t } from '../i18n/locale'
 import systemPrompt from './prompts/system.md?raw'
 import { placeholderInstruction } from './redact'
-import { textForModel, redactLabelsOf } from './redact-view'
+import { textForModel, redactLabelsOf, redactionCount } from './redact-view'
 import { redactGuardFor } from './redact-guard'
 
 /**
@@ -113,12 +113,20 @@ export interface DeckAccess {
     error?: string
     fallbackReason?: string
     imageFailures?: { page: number; url: string }[]
+    /** The landed deck, for the page-order guard's own-write re-arm. */
+    slides?: RenderSlide[]
   }>
   /** Redo one slide in place: land the marker's page as a replacement for slide slideIndex (other slides untouched; undoable with ⌘Z). */
   regenerateSlide?(
     slideIndex: number,
     marker: string,
-  ): Promise<{ ok: boolean; error?: string; imageFailures?: { page: number; url: string }[] }>
+  ): Promise<{
+    ok: boolean
+    error?: string
+    imageFailures?: { page: number; url: string }[]
+    /** The rebuilt deck, for the page-order guard's own-write re-arm. */
+    slides?: RenderSlide[]
+  }>
   /** Survey: shows a card with options and waits for the user's choices, returning an answer summary. */
   askClarification?(questions: ClarifyQuestion[]): Promise<{ answers: string; cancelled?: boolean }>
   /**
@@ -261,7 +269,7 @@ const TOOLS: AgentToolDef[] = [
   {
     name: 'read_slide',
     description:
-      'Read all elements of a page with full text (untruncated) and current colors (fill/text/stroke, hex). Call before rewriting a page.',
+      "Read all elements of a page with full text (untruncated) and current colors (fill/text/stroke, hex), plus the page's current speaker notes. Call before rewriting a page. setNotes REPLACES the whole notes text — to add to or change notes, read the page first and include the existing text you want to keep in the new text.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -975,6 +983,196 @@ function preview(text: string, max = 50): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat
 }
 
+/**
+ * Page-order fingerprint of the deck (issue #40 item 2): a slide part's
+ * partPath is its stable identity across content edits, so this sequence
+ * captures exactly the addressing-relevant structure — page count and
+ * order — and stays byte-identical while the user edits content.
+ *
+ * Known blind spot: the engine reuses freed part numbers, so a user
+ * delete+add pair can land a NEW page on the deleted page's partPath and
+ * leave the fingerprint unchanged. The guard narrows the wrong-page window;
+ * it is not a hard guarantee.
+ */
+function deckStructureOf(slides: RenderSlide[]): string {
+  return slides.map((s) => s.partPath ?? '?').join('|')
+}
+
+/**
+ * One line per page with the first text as its label: enough for the model
+ * to renumber its page addressing after an out-of-band structural change,
+ * at a bounded cost. Used only in staleness notes and refusals.
+ */
+function compactDeckOutline(slides: RenderSlide[]): string {
+  const pages = slides.map((slide, i) => {
+    const first = collectNodeInfos(slide.nodes).find((n) => n.text)
+    return `page ${i + 1}: ${first ? preview(first.text, 40) : '(no text)'}`
+  })
+  return `The deck now has ${slides.length} page(s) — ${pages.join('; ')}.`
+}
+
+/**
+ * read_slide ran while the live page order diverged from this run's outline
+ * (issue #40 item 2): say so, give the current order, and move the baseline
+ * with it — the model was just shown a live page and the live numbering, so
+ * its next write addresses pages with fresh numbers (the docs tools re-arm
+ * on their read tools the same way).
+ */
+function staleDeckNote(state: SkillState | undefined, slides: RenderSlide[]): string | null {
+  if (!state?.outlineStructure) return null
+  const structure = deckStructureOf(slides)
+  if (structure === state.outlineStructure) return null
+  state.outlineStructure = structure
+  return `Note: the deck's page order changed since this run's outline was captured (the user added, deleted, or moved pages); the content above is the CURRENT page at this slideIndex. ${compactDeckOutline(slides)} Re-plan page numbers from this list.`
+}
+
+/**
+ * A page-positioned WRITE refuses while the live page order diverges from
+ * this run's outline (issue #40 item 2): the outline the model numbered pages
+ * by is a run-start snapshot, and a positional field resolves against
+ * whatever page occupies the slot at apply time — a mid-run delete/reorder
+ * would silently send the edit to the wrong page. Refusal does NOT re-arm:
+ * only a read (or the model's own structural write) moves the baseline, so a
+ * stale retry keeps refusing instead of slipping through.
+ */
+function staleDeckGuard(state: SkillState | undefined, slides: RenderSlide[]): string | null {
+  if (!state?.outlineStructure) return null
+  if (deckStructureOf(slides) === state.outlineStructure) return null
+  return (
+    "The deck's page order changed since this run's outline was captured (the user added, deleted, or moved pages); page positions from the outline may point at the wrong page. Nothing was modified. " +
+    compactDeckOutline(slides) +
+    ' Call read_slide on the page(s) you need to refresh the numbering, then retry with current page numbers (element ids and durable "s_<n>" slide ids keep their meaning; page POSITIONS do not — that includes the slideIndex field of findReplace, the "to" of moveSlide, and section slide index lists).'
+  )
+}
+
+/**
+ * Does this op batch address anything by page POSITION (issue #40 item 2)?
+ * A numeric target.slide resolves against whatever page occupies the slot at
+ * apply time; durable "s_<n>" ids resolve by identity and are reorder-proof.
+ * But identity-addressed ops still carry positional fields — moveSlide's
+ * "to", findReplace's slideIndex, addSection's atSlideIndex,
+ * setSections' slideIndices, insertSlidePptx's "at", pasteSlide's
+ * afterIndex — and those move or target whatever page sits there now.
+ */
+function opsUsePageIndexes(ops: unknown[]): boolean {
+  return ops.some((raw) => {
+    if (typeof raw !== 'object' || raw === null) return false
+    const op = raw as {
+      op?: unknown
+      target?: { slide?: unknown }
+      to?: unknown
+      slideIndex?: unknown
+      atSlideIndex?: unknown
+      at?: unknown
+      afterIndex?: unknown
+      sections?: Array<{ slideIndices?: unknown[] }>
+    }
+    if (typeof op.target?.slide === 'number') return true
+    if (typeof op.slideIndex === 'number' && op.op === 'findReplace') return true
+    if (typeof op.to === 'number' && op.op === 'moveSlide') return true
+    if (typeof op.atSlideIndex === 'number' && op.op === 'addSection') return true
+    if (typeof op.at === 'number' && op.op === 'insertSlidePptx') return true
+    if (typeof op.afterIndex === 'number' && op.op === 'pasteSlide') return true
+    if (op.op === 'setSections' && Array.isArray(op.sections)) {
+      return op.sections.some(
+        (s) => Array.isArray(s?.slideIndices) && s.slideIndices.some((i) => typeof i === 'number'),
+      )
+    }
+    return false
+  })
+}
+
+/** Ops that change the page sequence itself (identity of the slots, or their order). */
+const STRUCTURAL_OPS = new Set([
+  'deleteSlide',
+  'duplicateSlide',
+  'addBlankSlide',
+  'addSlideWithLayout',
+  'pasteSlide',
+  'insertSlidePptx',
+  'moveSlide',
+  // moves a section's pages wholesale: rewrites sldIdLst order like moveSlide
+  'moveSection',
+])
+
+function opsAreStructural(ops: unknown[]): boolean {
+  return ops.some(
+    (raw) =>
+      typeof raw === 'object' &&
+      raw !== null &&
+      STRUCTURAL_OPS.has(String((raw as { op?: unknown }).op)),
+  )
+}
+
+/**
+ * Move the page-order baseline after the skill's own structural write
+ * (issue #40 item 2): the model authored the change and can derive the new
+ * numbering from the tool result, so its follow-up positional writes must
+ * not trip the guard. The new baseline comes from the write's own result
+ * deck — the transaction's / landing's post-op slides — NEVER from
+ * access.getSlides(): the host lands deck changes through React state, whose
+ * commit is a scheduler task that has not run yet when the tool returns, so
+ * reading the render tree back here would arm the PRE-change fingerprint
+ * (the docs markDocSeen analog reads synchronous editor state; the slides
+ * render tree is not synchronous). A follow-up arriving inside that commit
+ * window is impossible in practice (it needs a full LLM roundtrip) and fails
+ * safe anyway — a refusal, not a wrong-page write.
+ *
+ * Two gates, both required:
+ * - structural: a content-only write never re-arms. If the structure moved
+ *   anyway, the change was not ours (the user restructured during the await)
+ *   and the guard must stay armed — re-arming would bless the user's change
+ *   and let the model's stale numbers through, the exact wrong-page bug the
+ *   guard exists for.
+ * - entry-aligned (unless the write replaced the whole deck): operating on
+ *   a diverged deck means the model's numbering was already stale; keep
+ *   refusing positional writes until a read_slide refreshes them.
+ */
+function rearmAfterOwnWrite(
+  state: SkillState | undefined,
+  entryStructure: string,
+  applied: RenderSlide[],
+  opts: { structural: boolean; replacedWholeDeck?: boolean },
+): void {
+  if (!state?.outlineStructure) return
+  if (!opts.structural) return
+  if (!opts.replacedWholeDeck && state.outlineStructure !== entryStructure) return
+  state.outlineStructure = deckStructureOf(applied)
+}
+
+/**
+ * Is `applied` exactly `entry` with slot `idx` swapped for a new page? Used by
+ * the regenerate_slide re-arm: its generation window spans LLM calls (seconds),
+ * so a user restructure can land in the result deck alongside our slot
+ * replacement — a result of any other shape must NOT re-arm the page-order
+ * baseline (the model's numbering for everything but the redone page is still
+ * the run outline, which no longer matches).
+ */
+function isSlotReplacement(entry: RenderSlide[], applied: RenderSlide[], idx: number): boolean {
+  if (entry.length !== applied.length) return false
+  return entry.every((s, i) => i === idx || s.partPath === applied[i]?.partPath)
+}
+
+/**
+ * What read_slide may show of a page's speaker notes (issue #40 item 1).
+ *
+ * Notes live in the notesSlide part and carry no withholding marks of their
+ * own (marks live on canvas runs and pictures), so raw notes text has no
+ * redaction path — but the same secret the user marked on the canvas often
+ * also sits in the notes ("mention the ACME number here"), and redact-view
+ * is documented as the only place deck text becomes model-readable. So a
+ * page that withholds anything gets no notes either — the same rule the QC
+ * pass applies to screenshots (slide-qc's screenshotAllowed). Writing notes
+ * on such a page stays allowed (redact-guard's carve-out): this gates the
+ * read side only.
+ */
+function notesForModel(slide: RenderSlide, notes: string): string {
+  if (redactionCount(slide) > 0) {
+    return '(not shown: this page has content withheld from AI, and speaker notes have no separate withholding marks, so they are hidden too — ask the user for the notes text if an edit needs them)'
+  }
+  return notes
+}
+
 function buildDeckOutline(slides: RenderSlide[], current: number, selectedIds: string[]): string {
   const canvas = slides[0] ? `Canvas ${slides[0].widthPx}×${slides[0].heightPx}px.` : ''
   const lines: string[] = [
@@ -1059,8 +1257,11 @@ function deckImageSkippedNote(): string {
  * Element inventory of one slide as read_slide reports it (ids + geometry + colors + text).
  * Shared by the read_slide tool and the post-generation layout QC pass (slide-qc.ts), so the
  * QC model maps screenshot pixels back to the same ids/coordinates the edit tools accept.
+ * `notes` is passed only by read_slide (issue #40 item 1): speaker notes live in the
+ * notesSlide part, not the render tree, so they arrive separately and always fresh; the QC
+ * callers omit them and get no notes section.
  */
-export function formatSlideDump(slide: RenderSlide): string {
+export function formatSlideDump(slide: RenderSlide, notes?: string): string {
   const infos = collectNodeInfos(slide.nodes)
   const parts = infos.map((n) => {
     const flags = [
@@ -1099,7 +1300,9 @@ export function formatSlideDump(slide: RenderSlide): string {
   // Report the real px→EMU factor: render px carry the viewport scale, so ×9525 only
   // holds for decks whose baseline width is exactly the fit width (standard 16:9 at 1280).
   const pxToEmu = +(9525 / slide.scale).toFixed(2)
-  return `Canvas ${slide.widthPx}×${slide.heightPx}px (1 px = ${pxToEmu} EMU)\n${parts.join('\n---\n') || '(no elements on this page)'}${colorNote}`
+  const notesSection =
+    notes !== undefined ? `\nSpeaker notes: ${notes.trim() ? notes : '(none)'}` : ''
+  return `Canvas ${slide.widthPx}×${slide.heightPx}px (1 px = ${pxToEmu} EMU)\n${parts.join('\n---\n') || '(no elements on this page)'}${colorNote}${notesSection}`
 }
 
 /** tools that need a media provider: Genspark login + cloud tools, or a BYOK media key in Settings */
@@ -1151,7 +1354,12 @@ export function createSlidesSkill(access: DeckAccess): AgentSkill {
       return hidden.size ? TOOLS.filter((t) => !hidden.has(t.name)) : TOOLS
     },
     buildContext: () => {
-      const outline = `<deck outline>\n${buildDeckOutline(access.getSlides(), access.getCurrent(), access.getSelectedIds())}\n</deck outline>`
+      const slidesNow = access.getSlides()
+      // the outline the model will number pages by is THIS structure; a
+      // page-indexed write that lands after the deck diverged refuses
+      // instead of silently editing the wrong page (issue #40 item 2)
+      state.outlineStructure = deckStructureOf(slidesNow)
+      const outline = `<deck outline>\n${buildDeckOutline(slidesNow, access.getCurrent(), access.getSelectedIds())}\n</deck outline>`
       const progress = buildProgressNote(state)
       return progress ? `${outline}\n${progress}` : outline
     },
@@ -1161,6 +1369,12 @@ export function createSlidesSkill(access: DeckAccess): AgentSkill {
 
 interface SkillState {
   htmlGenerated: boolean
+  /** Page-order fingerprint of the deck as of this run's outline snapshot:
+   *  position-addressed writes refuse while the live deck diverges from it
+   *  (issue #40 item 2). Re-armed by read_slide and by the skill's own
+   *  STRUCTURAL writes (from the write result deck, never the render tree —
+   *  see rearmAfterOwnWrite) — never by a refusal or a content-only write. */
+  outlineStructure?: string
   /** A web_search ran in this conversation — unlocks dataSource:'search' in the figure gate */
   webSearched?: boolean
   /** Number of pages most recently planned by plan_deck, used by the progress checklist to remind the AI to finish */
@@ -1450,11 +1664,54 @@ async function executeTool(
   switch (call.name) {
     case 'read_slide': {
       const idx = Number(call.input.slideIndex)
-      const slide = slides[idx]
-      if (!slide)
+      if (!slides[idx])
         return fail(t('aiFailReadSlide'), `slideIndex out of range (0-${slides.length - 1})`)
+      // notes live in the slide's notesSlide part, not the render tree, so
+      // they are read back through the same IPC the human notes pane uses —
+      // always fresh (issue #40 item 1: setNotes REPLACES, so the model must
+      // see the current text before it can add to it without clobbering)
+      let notes = ''
+      try {
+        notes = await window.slidesApi.getNotes(idx)
+      } catch {
+        // fail-open: the dump still describes the page; '(none)' reads the same
+      }
+      // The IPC resolved the LIVE deck, and a structural change may have
+      // landed during it: re-capture so the element view, the notes, and the
+      // staleness note all describe the same deck. If the page in this slot
+      // is no longer the entry object, the notes fetched above may belong to
+      // a different page (the two channels sample the deck at different
+      // moments) — re-fetch so the pairing is against the same later state,
+      // which also keeps the withholding gate honest (a withheld page that
+      // moved out of the slot mid-IPC must not have its notes shown under
+      // the clean page that moved in). The render tree can still lag the
+      // deck-changed broadcast by a frame — that residual is inherent to
+      // every renderer-side tool, not specific to notes.
+      let slidesNow = access.getSlides()
+      let slideNow = slidesNow[idx]
+      if (!slideNow)
+        return fail(
+          t('aiFailReadSlide'),
+          `slideIndex out of range (0-${slidesNow.length - 1}) — the page order changed while this page was being read; call read_slide again with a current page number`,
+        )
+      if (slideNow !== slides[idx]) {
+        try {
+          notes = await window.slidesApi.getNotes(idx)
+        } catch {
+          /* fail-open: '(none)' reads the same */
+        }
+        slidesNow = access.getSlides()
+        slideNow = slidesNow[idx]
+        if (!slideNow)
+          return fail(
+            t('aiFailReadSlide'),
+            `slideIndex out of range (0-${slidesNow.length - 1}) — the page order changed while this page was being read; call read_slide again with a current page number`,
+          )
+      }
+      const stale = staleDeckNote(state, slidesNow)
       return {
-        output: formatSlideDump(slide),
+        output:
+          formatSlideDump(slideNow, notesForModel(slideNow, notes)) + (stale ? `\n${stale}` : ''),
         mutated: false,
         summary: t('aiSumReadSlide', { n: idx + 1 }),
       }
@@ -1462,6 +1719,8 @@ async function executeTool(
 
     case 'execute_layout_script':
     case 'execute_slide_script': {
+      const stale = staleDeckGuard(state, slides)
+      if (stale) return fail(t('aiFailScript'), stale)
       const idx = Number(call.input.slideIndex)
       const slide = slides[idx]
       if (!slide) return fail(t('aiFailScript'), `slideIndex out of range (0-${slides.length - 1})`)
@@ -1632,6 +1891,8 @@ async function executeTool(
     }
 
     case 'insert_web_image': {
+      const stale = staleDeckGuard(state, slides)
+      if (stale) return fail(t('aiFailInsertImage'), stale)
       const idx = Number(call.input.slideIndex)
       if (!slides[idx])
         return fail(t('aiFailInsertImage'), `slideIndex out of range (0-${slides.length - 1})`)
@@ -1672,6 +1933,8 @@ async function executeTool(
     }
 
     case 'replace_image': {
+      const stale = staleDeckGuard(state, slides)
+      if (stale) return fail(t('aiFailReplaceImage'), stale)
       const idx = Number(call.input.slideIndex)
       const sourceId = String(call.input.sourceId ?? '')
       const failKey = 'aiFailReplaceImage' as const
@@ -1790,6 +2053,8 @@ async function executeTool(
     }
 
     case 'regenerate_slide': {
+      const stale = staleDeckGuard(state, slides)
+      if (stale) return fail(t('aiFailRegen'), stale)
       const idx = Number(call.input.slideIndex)
       if (!slides[idx])
         return fail(t('aiFailRegen'), `slideIndex out of range (0-${slides.length - 1})`)
@@ -1844,6 +2109,15 @@ async function executeTool(
           t('aiFailRegen'),
           `${r.error || 'Redo failed'} (the page was not modified; retry once, or edit it in place with execute_slide_script)`,
         )
+      // Regenerate replaces the slot's part with a freshly merged one, so the
+      // fingerprint moves; the model knows the new page (it authored the
+      // brief) and is invited to fine-tune it right away. r.slides is the
+      // post-op deck the host already landed. The generation window spans LLM
+      // calls (seconds), so a user restructure can ride along in the result —
+      // only a result that is exactly the entry deck with slot idx replaced
+      // re-arms; anything else keeps the guard armed until a read.
+      if (r.slides && isSlotReplacement(slides, r.slides, idx))
+        rearmAfterOwnWrite(state, deckStructureOf(slides), r.slides, { structural: true })
       if (state) state.htmlGenerated = true
       const allImageFails = [
         ...(r.imageFailures ?? []),
@@ -2191,6 +2465,9 @@ async function executeTool(
       let firstDone = false
       let baseOffset = 0 // Number of existing pages before generated page 0 in the deck (>0 in append mode); used to re-insert retries at their original position
       let nextToLand = 0 // Index of the next page to land (0-based)
+      // Deck from the most recent successful landing (post-op, already applied
+      // by the host): the page-order baseline re-arms from it once at the end
+      let lastLandedSlides: RenderSlide[] | undefined
 
       // Initialize per-page progress state (all pages pending)
       const pageProgressItems: PageProgressItem[] = pages.map((p) => ({
@@ -2286,6 +2563,7 @@ async function executeTool(
             const m: 'replace' | 'append' = firstDone ? 'append' : insertMode
             const r = await access.landGeneratedPages!([marker], m, deckName)
             if (r.ok) {
+              if (r.slides) lastLandedSlides = r.slides
               if (r.fallbackReason) {
                 degraded.push(nextToLand)
                 pageErrors[nextToLand] = r.fallbackReason
@@ -2376,6 +2654,7 @@ async function executeTool(
                 baseOffset + doneFlags.slice(0, idx).filter(Boolean).length,
               )
           if (r.ok) {
+            if (r.slides) lastLandedSlides = r.slides
             if (isFirstLand) {
               baseOffset = r.appendedFrom ?? 0
               firstDone = true
@@ -2408,6 +2687,18 @@ async function executeTool(
             }
           }
         }
+      }
+
+      // Generation redefined the deck the model's numbering refers to: replace
+      // mode resets it wholesale (the outline came from the model's own page
+      // briefs), append extends it. Re-arm from the landed deck so the
+      // invited fine-tuning calls (set_element_* on "the page just generated")
+      // do not trip the stale-order guard.
+      if (lastLandedSlides) {
+        rearmAfterOwnWrite(state, deckStructureOf(slides), lastLandedSlides, {
+          structural: true,
+          replacedWholeDeck: insertMode === 'replace',
+        })
       }
 
       // User stopped midway: keep landed pages and finish honestly (no more retries / no failed-page reporting)
@@ -2490,6 +2781,8 @@ async function executeTool(
     }
 
     case 'edit_chart': {
+      const stale = staleDeckGuard(state, slides)
+      if (stale) return fail(t('aiFailChartEdit'), stale)
       const idx = Number(call.input.slideIndex)
       const sourceId = String(call.input.sourceId ?? '')
       if (!slides[idx])
@@ -2535,6 +2828,12 @@ async function executeTool(
       const opsIn = Array.isArray(call.input.ops) ? (call.input.ops as unknown[]) : null
       if (!opsIn || opsIn.length === 0)
         return fail(t('aiFailApplyOps'), 'ops must be a non-empty array')
+      // dry runs are guarded too: a stale-index rehearsal would report a
+      // green plan for ops that would land on the wrong pages (issue #40 item 2)
+      if (opsUsePageIndexes(opsIn)) {
+        const stale = staleDeckGuard(state, slides)
+        if (stale) return fail(t('aiFailApplyOps'), stale)
+      }
       const pre = preflightOps(opsIn, slides, state)
       if (!('ops' in pre)) return pre
       const r = await window.slidesApi.applyTxn?.({
@@ -2565,6 +2864,13 @@ async function executeTool(
       // Ops can delete slides — clamp the current index into the rebuilt deck
       // (page deletion may leave the current index past the end)
       access.applyDeck(r.slides!, Math.max(0, Math.min(access.getCurrent(), r.slides!.length - 1)))
+      // r.slides is the post-op deck from the main process — the one source
+      // that has already committed. Re-arm the page-order baseline from it
+      // (never from access.getSlides(), which still holds the pre-change
+      // render tree until React commits).
+      rearmAfterOwnWrite(state, deckStructureOf(slides), r.slides!, {
+        structural: opsAreStructural(pre.ops),
+      })
       const created = (r.records ?? []).flatMap((rec) => rec.created ?? [])
       const doneStr = (r.records ?? [])
         .map((rec) => `${rec.op}${rec.target ? ` @${rec.target}` : ''}`)
