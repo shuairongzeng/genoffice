@@ -70,6 +70,7 @@ import {
   rendererUrl,
   MAX_REMOTE_IMAGE_BYTES,
   readBodyCapped,
+  readJsonCached,
   writeJsonAtomic,
   recoveryCopyDiskNewer,
 } from '@genoffice/electron-utils'
@@ -3418,12 +3419,11 @@ function userDataPath(...parts: string[]): string {
 }
 
 function readJson<T>(path: string, fallback: T): T {
-  try {
-    if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf-8')) as T
-  } catch {
-    /* corrupted state file: fall back to defaults */
-  }
-  return fallback
+  // stat-validated cache: recents/starred/settings are read on every home IPC
+  // (each keystroke's search reads starred.json), and the atomic writes above
+  // prime the cache, so a settled file costs one stat instead of a disk read
+  const raw = readJsonCached(path)
+  return raw.present ? (raw.value as T) : fallback
 }
 
 // ---- recent files ----

@@ -23,6 +23,9 @@ export default defineConfig({
       '@genoffice/electron-utils/atomic-write': local(
         '../../packages/electron-utils/src/atomic-write.ts',
       ),
+      '@genoffice/electron-utils/cached-json': local(
+        '../../packages/electron-utils/src/cached-json.ts',
+      ),
       '@genoffice/electron-utils/safe-external-url': local(
         '../../packages/electron-utils/src/safe-external-url.ts',
       ),

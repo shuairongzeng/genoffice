@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readJsonCached } from '@genoffice/electron-utils/cached-json'
 import { writeJsonAtomic } from '@genoffice/electron-utils/atomic-write'
 
 /**
@@ -26,12 +26,10 @@ export interface StarredStore {
 }
 
 function readJson(path: string): unknown {
-  try {
-    if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf-8'))
-  } catch {
-    /* corrupted state file: fall back to an empty store */
-  }
-  return null
+  // stat-validated cache: every home IPC that touches stars reads this file,
+  // and writeStarredItems below primes the entry after each write
+  const raw = readJsonCached(path)
+  return raw.present ? raw.value : null
 }
 
 /** one entry of either on-disk shape: a bare legacy path or an item object */

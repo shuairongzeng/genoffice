@@ -10,6 +10,7 @@ import {
 } from 'node:fs'
 import { copyFile, open, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
+import { primeJsonCache } from './cached-json'
 
 /** Transient Windows codes: antivirus/indexer briefly locks the rename target. */
 const RETRYABLE_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
@@ -128,7 +129,8 @@ export async function atomicCopyFile(source: string, filePath: string): Promise<
  * Atomic replacement for small userData JSON state files (recents, stars, AI
  * settings). Same retry + in-place fallback as atomicWriteFile; the retry
  * sleeps block the caller, which is acceptable for a few KB under a transient
- * Windows lock.
+ * Windows lock. Every successful write primes the cached-json read cache, so
+ * the next read of the same file skips the disk read.
  */
 export function writeJsonAtomic(filePath: string, value: unknown): void {
   mkdirSync(dirname(filePath), { recursive: true })
@@ -147,6 +149,7 @@ export function writeJsonAtomic(filePath: string, value: unknown): void {
     for (let attempt = 0; ; attempt += 1) {
       try {
         renameSync(tmp, filePath)
+        primeJsonCache(filePath, json)
         return
       } catch (error) {
         if (!isRetryableRename(error) || attempt >= RENAME_RETRY_DELAYS_MS.length) throw error
@@ -156,6 +159,7 @@ export function writeJsonAtomic(filePath: string, value: unknown): void {
   } catch (error) {
     if (isRetryableRename(error)) {
       writeFileSync(filePath, json, 'utf8')
+      primeJsonCache(filePath, json)
       removeTemp()
       return
     }

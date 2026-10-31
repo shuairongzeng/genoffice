@@ -99,7 +99,22 @@ export function CommandPalette({
 
   const providerList = useMemo(() => providers ?? defaultPaletteProviders(), [providers])
   const [rows, setRows] = useState<PaletteRow[]>([])
+  /** bumped when a provider improves an already-answered query (the files
+   *  source reorders once the decision model's judgement lands) */
+  const [providerTick, setProviderTick] = useState(0)
   const querySeqRef = useRef(0)
+  // subscribe for improved answers while the palette is open; dispose the
+  // providers' background work (pending timers) when it closes. React
+  // StrictMode double-mounts this effect in dev (setup -> cleanup -> setup on
+  // one mount), so the first cleanup disposes mid-mount: the files provider
+  // tolerates that by reviving on its next live query (palette-providers.ts)
+  useEffect(() => {
+    const offs = providerList.map((p) => p.subscribe?.(() => setProviderTick((n) => n + 1)))
+    return () => {
+      for (const off of offs) off?.()
+      for (const p of providerList) p.dispose?.()
+    }
+  }, [providerList])
   useEffect(() => {
     let alive = true
     const seq = ++querySeqRef.current
@@ -139,7 +154,7 @@ export function CommandPalette({
     return () => {
       alive = false
     }
-  }, [providerList, strings, query, recentsList, skills, plugins, onAskAi])
+  }, [providerList, strings, query, recentsList, skills, plugins, onAskAi, providerTick])
 
   // a new result set starts from the top, whether it came from the query or a
   // source landing late

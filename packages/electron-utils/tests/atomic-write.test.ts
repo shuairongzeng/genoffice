@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { atomicCopyFile, atomicWriteFile, writeJsonAtomic } from '../src/atomic-write'
+import { readJsonCached } from '../src/cached-json'
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
@@ -250,6 +251,21 @@ describe('writeJsonAtomic', () => {
     writeJsonAtomic(target, ['fallback'])
     expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual(['fallback'])
     expect(readdirSync(dir)).toEqual(['recent.json'])
+  })
+
+  // the fallback path must prime the cached-json read cache like the rename
+  // path does, or the next read of a fallback-written state file serves the
+  // previous value until the mtime check catches up
+  it('primes the read cache through the in-place fallback', () => {
+    dir = mkdtempSync(join(tmpdir(), 'eu-json-'))
+    const target = join(dir, 'state.json')
+    const locked = () => {
+      throw errnoError('EPERM')
+    }
+    for (let i = 0; i < 5; i += 1) vi.mocked(renameSync).mockImplementationOnce(locked)
+    writeJsonAtomic(target, { fallback: true })
+    expect(readJsonCached(target)).toEqual({ present: true, value: { fallback: true } })
+    expect(readdirSync(dir)).toEqual(['state.json'])
   })
 
   it('tolerates a refused fsync on the temp file', () => {

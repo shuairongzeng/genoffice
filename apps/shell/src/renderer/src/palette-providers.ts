@@ -1,4 +1,11 @@
-import type { FileSearchPage, HomeApi, RecentEntry, UserSkillEntry } from '../../shared/home-api'
+import type {
+  FileSearchHit,
+  FileSearchPage,
+  FileSearchRerank,
+  HomeApi,
+  RecentEntry,
+  UserSkillEntry,
+} from '../../shared/home-api'
 import type { InstalledPlugin } from '../../shared/found-skill'
 import type { CommandPaletteStrings } from './command-palette-strings'
 
@@ -10,8 +17,17 @@ const RECENT_EMPTY_LIMIT = 5
 const RESULT_CAP = 50
 /** the file index contributes at most this many hits per query */
 const FILES_ROW_LIMIT = 5
+/** the pool the provider asks the index for — the same candidate depth Home's
+ *  rerank judges (its top 20), so both entries pick from one ordering */
+const FILES_POOL = 20
 /** the file search waits this long for the query to settle before hitting the index */
 const FILES_DEBOUNCE_MS = 200
+/** the decision model's verdict needs a beat to be worth its call; Home's
+ *  rerank waits the same settle window after its results land */
+const FILES_RERANK_SETTLE_MS = 600
+/** while the index is still scanning, re-ask at Home's poll cadence so both
+ *  entries show the same growing answer for the same query */
+const FILES_BUSY_POLL_MS = 1500
 
 export type GroupId = 'create' | 'recent' | 'files' | 'skills' | 'settings' | 'plugins' | 'ask'
 
@@ -53,6 +69,12 @@ export interface PaletteProvider {
   readonly id: string
   readonly priority: number
   getRows(query: string, ctx: PaletteContext): PaletteRow[] | Promise<PaletteRow[]>
+  /** optional: fires when an already-answered query's rows improved (the
+   *  files source reorders once the decision model's judgement lands) — the
+   *  palette re-queries so the better answer shows while it stays open */
+  readonly subscribe?: (listener: () => void) => () => void
+  /** optional: release background work (pending timers) when the palette closes */
+  readonly dispose?: () => void
 }
 
 // ── the default registry ──
@@ -224,22 +246,37 @@ function createPluginsProvider(): PaletteProvider {
  * source never re-searches. Any failure — the bridge predating `searchFiles`,
  * an index still scanning — settles to no rows: the other sources still
  * answer, which is what a launcher degrading gracefully means.
+ *
+ * Ranking parity with the Home search: the provider asks for the same
+ * candidate depth Home judges and then runs the same decision-model rerank
+ * (skipped — null — when reranking is off), ordering hits exactly as Home's
+ * results list does. The local order shows first (a launcher must answer
+ * fast); the judged order replaces it once the model's verdict lands, and
+ * `subscribe` wakes the palette to re-query for the improved rows. While the
+ * index is still scanning, the provider re-asks at Home's poll cadence so
+ * the rows grow the same way Home's results do.
  */
 export function createFilesProvider(options?: {
   readonly search?: (q: string) => Promise<FileSearchPage>
+  readonly rerank?: (q: string, paths: string[]) => Promise<FileSearchRerank | null>
   readonly open?: (path: string) => void
   readonly debounceMs?: number
+  readonly rerankSettleMs?: number
+  readonly busyPollMs?: number
   readonly limit?: number
 }): PaletteProvider {
   const limit = options?.limit ?? FILES_ROW_LIMIT
+  const pool = Math.max(limit, FILES_POOL)
   const debounceMs = options?.debounceMs ?? FILES_DEBOUNCE_MS
+  const rerankSettleMs = options?.rerankSettleMs ?? FILES_RERANK_SETTLE_MS
+  const busyPollMs = options?.busyPollMs ?? FILES_BUSY_POLL_MS
   const search =
     options?.search ??
     ((q: string) => {
-      const request = (window.aiOffice as Partial<HomeApi> | undefined)?.searchFiles?.({
-        q,
-        limit,
-      })
+      const request =
+        typeof window === 'undefined'
+          ? undefined
+          : (window.aiOffice as Partial<HomeApi> | undefined)?.searchFiles?.({ q, limit: pool })
       return (
         request ??
         Promise.resolve<FileSearchPage>({
@@ -249,22 +286,137 @@ export function createFilesProvider(options?: {
         })
       )
     })
+  const rerank =
+    options?.rerank ??
+    ((q: string, paths: string[]) => {
+      const request =
+        typeof window === 'undefined'
+          ? undefined
+          : (window.aiOffice as Partial<HomeApi> | undefined)?.rerankSearch?.({ q, paths })
+      return request ?? Promise.resolve<FileSearchRerank | null>(null)
+    })
   const open =
     options?.open ??
     ((path: string) => void (window.aiOffice as Partial<HomeApi> | undefined)?.openPath?.(path))
   let timer: ReturnType<typeof setTimeout> | null = null
+  /** the settle timer holding the decision-model call back until the query quiets */
+  let rerankTimer: ReturnType<typeof setTimeout> | null = null
+  /** the catch-up poll timer while the index is still scanning */
+  let pollTimer: ReturnType<typeof setTimeout> | null = null
   /** resolves the superseded query's promise with no rows, so it never contributes */
   let abandon: (() => void) | null = null
   let lastQuery = ''
   let lastPromise: Promise<PaletteRow[]> = Promise.resolve([])
+  const listeners = new Set<() => void>()
+  /**
+   * Search generation. Every supersede (a new query, a cleared query, dispose)
+   * bumps it, and every continuation — a late search answer, the rerank settle
+   * timer, the model's verdict, a catch-up poll — captures the generation it
+   * belongs to and drops itself when the number moved. A string comparison on
+   * the query alone cannot do this: typing "repo", then "re", then back to
+   * "repo" would let the stale first verdict land on the fresh answer.
+   */
+  let gen = 0
+  /**
+   * Latched when the palette closes so no continuation may re-arm after it.
+   * Not a tombstone: a StrictMode double-mount runs the palette's effects as
+   * setup -> cleanup (dispose) -> setup on this same instance (the palette
+   * keeps it in a useMemo), and the live mount's first real query revives it
+   * below — a closed palette never queries again, so the latch holds for the
+   * one case it exists for.
+   */
+  let disposed = false
+
+  /** publish improved rows for the current query and wake the palette */
+  const publishRows = (rows: PaletteRow[]) => {
+    lastPromise = Promise.resolve(rows)
+    for (const listener of listeners) listener()
+  }
+
+  /** ask the decision model to order the pool, Home's settle window later */
+  const scheduleRerank = (q: string, hits: readonly FileSearchHit[], ctx: PaletteContext) => {
+    if (rerankTimer) clearTimeout(rerankTimer)
+    const paths = hits.slice(0, FILES_POOL).map((h) => h.path)
+    if (paths.length < 2) return // one candidate has nothing to order
+    const myGen = gen
+    rerankTimer = setTimeout(() => {
+      rerankTimer = null
+      if (gen !== myGen || disposed) return
+      rerank(q, paths).then(
+        (result) => {
+          if (!result || gen !== myGen || disposed) return
+          // Home's ordering rule exactly: judged hits in the model's order,
+          // then the unjudged rest in local order
+          const rank = new Map(result.order.map((path, i) => [path, i]))
+          const ordered = [...hits].sort(
+            (a, b) => (rank.get(a.path) ?? Infinity) - (rank.get(b.path) ?? Infinity),
+          )
+          publishRows(fileRows(ctx, ordered.slice(0, limit), open))
+        },
+        () => undefined, // a failed judgement keeps the local order
+      )
+    }, rerankSettleMs)
+  }
+
+  /**
+   * Everything after an answer lands: judge the pool, and while the index is
+   * still scanning keep re-asking like Home does (its results grow during a
+   * scan; the palette's must too, or the two entries show different answers
+   * for the same query). The loop ends with the index, the query, or the
+   * palette — whichever moves first.
+   */
+  const afterAnswer = (q: string, ctx: PaletteContext, myGen: number, page: FileSearchPage) => {
+    if (gen !== myGen || disposed) return
+    scheduleRerank(q, page.hits, ctx)
+    if (page.index.pending > 0 || page.index.scanning) {
+      if (pollTimer) clearTimeout(pollTimer)
+      pollTimer = setTimeout(() => {
+        pollTimer = null
+        if (gen !== myGen || disposed) return
+        search(q).then(
+          (next) => {
+            if (gen !== myGen || disposed) return
+            publishRows(fileRows(ctx, next.hits.slice(0, limit), open))
+            afterAnswer(q, ctx, myGen, next)
+          },
+          () => undefined, // a failed catch-up keeps the rows it has
+        )
+      }, busyPollMs)
+    }
+  }
+
+  const cancelPending = () => {
+    if (timer) clearTimeout(timer)
+    if (rerankTimer) clearTimeout(rerankTimer)
+    if (pollTimer) clearTimeout(pollTimer)
+    timer = null
+    rerankTimer = null
+    pollTimer = null
+  }
+
   return {
     id: 'files',
     priority: PRIORITY.files,
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    dispose() {
+      // the generation bump drops every in-flight continuation: a search that
+      // resolves after close must not re-arm the rerank or the catch-up poll
+      disposed = true
+      gen += 1
+      cancelPending()
+      // settle the in-flight promise so a late consumer never hangs
+      abandon?.()
+      abandon = null
+      listeners.clear()
+    },
     getRows(query, ctx) {
       const q = query.trim()
       if (!q) {
-        if (timer) clearTimeout(timer)
-        timer = null
+        gen += 1
+        cancelPending()
         abandon?.()
         abandon = null
         lastQuery = ''
@@ -272,7 +424,18 @@ export function createFilesProvider(options?: {
         return []
       }
       if (q === lastQuery) return lastPromise
+      // a new non-empty query means the palette is alive and asking again (the
+      // StrictMode remount case): unlatch. Every continuation captured before
+      // this point is dropped by the generation bump, so nothing latched-era
+      // can spend a model call on the revived query's behalf
+      disposed = false
+      gen += 1
+      const myGen = gen
       if (timer) clearTimeout(timer)
+      if (rerankTimer) clearTimeout(rerankTimer)
+      if (pollTimer) clearTimeout(pollTimer)
+      rerankTimer = null
+      pollTimer = null
       abandon?.()
       lastQuery = q
       lastPromise = new Promise<PaletteRow[]>((resolve) => {
@@ -280,8 +443,18 @@ export function createFilesProvider(options?: {
         timer = setTimeout(() => {
           timer = null
           abandon = null
+          // the debounce is a continuation too: a disposed provider must not
+          // spend the search either (the timers are cleared on dispose, this
+          // guard is the same latch every other continuation checks)
+          if (disposed) {
+            resolve([])
+            return
+          }
           search(q).then(
-            (page) => resolve(fileRows(ctx, page.hits.slice(0, limit), open)),
+            (page) => {
+              resolve(fileRows(ctx, page.hits.slice(0, limit), open))
+              afterAnswer(q, ctx, myGen, page)
+            },
             () => resolve([]),
           )
         }, debounceMs)

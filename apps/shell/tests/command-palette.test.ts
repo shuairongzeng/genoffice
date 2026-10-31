@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, createElement } from 'react'
+import { act, createElement, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -686,6 +686,218 @@ describe('createFilesProvider', () => {
     await expect(second).resolves.toHaveLength(1)
     expect(searched).toEqual(['new'])
   })
+
+  /** two macrotask rounds: the rerank timer plus the async judgement chain */
+  const settleRerank = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+
+  it('runs the Home decision-model rerank: local order first, judged order on the notification', async () => {
+    const hits = [
+      hit({ path: 'C:\\Docs\\a.docx', name: 'a.docx' }),
+      hit({ path: 'C:\\Docs\\b.docx', name: 'b.docx' }),
+      hit({ path: 'C:\\Docs\\c.docx', name: 'c.docx' }),
+    ]
+    const reranks: Array<[string, string[]]> = []
+    const provider = createFilesProvider({
+      debounceMs: 0,
+      rerankSettleMs: 0,
+      search: async () => page(hits),
+      rerank: async (q, paths) => {
+        reranks.push([q, [...paths]])
+        return { order: ['C:\\Docs\\c.docx', 'C:\\Docs\\a.docx'], scores: {} }
+      },
+    })
+    // the whole pool is offered to the judge, exactly as Home's top-20 is
+    const rows = await provider.getRows('hit', ctx())
+    expect(rows.map((r) => r.id)).toEqual([
+      'file:C:\\Docs\\a.docx',
+      'file:C:\\Docs\\b.docx',
+      'file:C:\\Docs\\c.docx',
+    ])
+    const fired: number[] = []
+    const off = provider.subscribe?.(() => fired.push(1))
+    await settleRerank()
+    expect(reranks).toEqual([['hit', ['C:\\Docs\\a.docx', 'C:\\Docs\\b.docx', 'C:\\Docs\\c.docx']]])
+    expect(fired).toHaveLength(1)
+    // the re-query the notification triggers sees the judged order: the model's
+    // picks first, the unjudged rest in local order
+    const again = await provider.getRows('hit', ctx())
+    expect(again.map((r) => r.id)).toEqual([
+      'file:C:\\Docs\\c.docx',
+      'file:C:\\Docs\\a.docx',
+      'file:C:\\Docs\\b.docx',
+    ])
+    off?.()
+  })
+
+  it('a null judgement (reranking off) keeps the local order and notifies nobody', async () => {
+    const provider = createFilesProvider({
+      debounceMs: 0,
+      rerankSettleMs: 0,
+      search: async () => page([hit({}), hit({ path: 'C:\\Docs\\b.docx', name: 'b.docx' })]),
+      rerank: async () => null,
+    })
+    const rows = await provider.getRows('hit', ctx())
+    const fired: number[] = []
+    const off = provider.subscribe?.(() => fired.push(1))
+    await settleRerank()
+    expect(fired).toHaveLength(0)
+    const again = await provider.getRows('hit', ctx())
+    expect(again.map((r) => r.id)).toEqual(rows.map((r) => r.id))
+    off?.()
+  })
+
+  it('a superseding query cancels the pending judgement before it fires', async () => {
+    const reranks: string[] = []
+    const provider = createFilesProvider({
+      debounceMs: 0,
+      rerankSettleMs: 30,
+      search: async (q) =>
+        page([
+          hit({ path: `C:\\Docs\\${q}.docx`, name: `${q}.docx` }),
+          hit({ path: `C:\\Docs\\${q}-2.docx`, name: `${q}-2.docx` }),
+        ]),
+      rerank: async (q) => {
+        reranks.push(q)
+        return null
+      },
+    })
+    await provider.getRows('old', ctx())
+    // the 'old' judgement is armed for +30ms; typing again must cancel it
+    await provider.getRows('new', ctx())
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(reranks).toEqual(['new'])
+  })
+
+  it('dispose cancels pending search and judgement timers and settles the in-flight promise', async () => {
+    const searched: string[] = []
+    const reranks: string[] = []
+    const provider = createFilesProvider({
+      debounceMs: 20,
+      rerankSettleMs: 10,
+      search: async (q) => {
+        searched.push(q)
+        return page([
+          hit({ path: `C:\\Docs\\${q}.docx`, name: `${q}.docx` }),
+          hit({ path: `C:\\Docs\\${q}-2.docx`, name: `${q}-2.docx` }),
+        ])
+      },
+      rerank: async (q) => {
+        reranks.push(q)
+        return null
+      },
+    })
+    const promise = provider.getRows('hit', ctx()) as Promise<PaletteRow[]>
+    provider.dispose?.()
+    await expect(promise).resolves.toEqual([])
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(searched).toEqual([])
+    expect(reranks).toEqual([])
+  })
+
+  it('a search resolving after dispose cannot re-arm the rerank: no stray model call', async () => {
+    const reranks: string[] = []
+    let releaseSearch: ((page: ReturnType<typeof page>) => void) | null = null
+    const provider = createFilesProvider({
+      debounceMs: 0,
+      rerankSettleMs: 0,
+      search: () =>
+        new Promise((resolve) => {
+          releaseSearch = resolve
+        }),
+      rerank: async (q) => {
+        reranks.push(q)
+        return null
+      },
+    })
+    const promise = provider.getRows('report', ctx()) as Promise<PaletteRow[]>
+    // the palette closes while the searchFiles IPC is still in flight
+    provider.dispose?.()
+    releaseSearch?.(page([hit({}), hit({ path: 'C:\\Docs\\b.docx', name: 'b.docx' })]))
+    await expect(promise).resolves.toEqual([])
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(reranks).toEqual([])
+  })
+
+  it('a stale verdict never lands: typing A, then B, then back to A drops the first A judgement', async () => {
+    // each rerank call hands back its own resolver, so the test can age one
+    const verdicts: Array<(result: FileSearchRerank | null) => void> = []
+    const provider = createFilesProvider({
+      debounceMs: 0,
+      rerankSettleMs: 0,
+      search: async (q) =>
+        page([
+          hit({ path: `C:\\Docs\\${q}-1.docx`, name: `${q}-1.docx` }),
+          hit({ path: `C:\\Docs\\${q}-2.docx`, name: `${q}-2.docx` }),
+        ]),
+      rerank: () =>
+        new Promise<FileSearchRerank | null>((resolve) => {
+          verdicts.push(resolve)
+        }),
+    })
+    await provider.getRows('repo', ctx())
+    // let the first query's judgement actually start (its settle timer fires)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(verdicts).toHaveLength(1)
+    // supersede with a new query, then come back to the first one
+    await provider.getRows('re', ctx())
+    await provider.getRows('repo', ctx())
+    const before = await provider.getRows('repo', ctx())
+    // the first query's verdict arrives late: it would put repo-2 first, and
+    // must not touch the fresh answer for the same query
+    verdicts[0]!({ order: ['C:\\Docs\\repo-2.docx'], scores: {} })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const after = await provider.getRows('repo', ctx())
+    expect(after.map((r) => r.id)).toEqual(before.map((r) => r.id))
+    expect(after[0]!.id).toBe('file:C:\\Docs\\repo-1.docx')
+  })
+
+  it("while the index is scanning the provider re-asks and its rows grow like Home's", async () => {
+    const searched: number[] = []
+    const pages = [
+      // first answer: partial, the index still busy
+      {
+        hits: [hit({ path: 'C:\\Docs\\a.docx', name: 'a.docx' })],
+        total: 1,
+        index: { indexed: 40, pending: 3, scanning: true },
+      },
+      // catch-up: more hits, the index quiet now
+      {
+        hits: [
+          hit({ path: 'C:\\Docs\\a.docx', name: 'a.docx' }),
+          hit({ path: 'C:\\Docs\\b.docx', name: 'b.docx' }),
+        ],
+        total: 2,
+        index: { indexed: 43, pending: 0, scanning: false },
+      },
+    ]
+    const provider = createFilesProvider({
+      debounceMs: 0,
+      rerankSettleMs: 0,
+      busyPollMs: 10,
+      search: async () => {
+        const page = pages[Math.min(searched.length, pages.length - 1)]!
+        searched.push(1)
+        return page
+      },
+      rerank: async () => null,
+    })
+    const rows = await provider.getRows('hit', ctx())
+    expect(rows.map((r) => r.id)).toEqual(['file:C:\\Docs\\a.docx'])
+    const fired: number[] = []
+    const off = provider.subscribe?.(() => fired.push(1))
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(searched.length).toBe(2) // the catch-up poll fired once
+    const grown = await provider.getRows('hit', ctx())
+    expect(grown.map((r) => r.id)).toEqual(['file:C:\\Docs\\a.docx', 'file:C:\\Docs\\b.docx'])
+    expect(fired).toHaveLength(1)
+    off?.()
+    // the index went quiet: no further polls
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(searched.length).toBe(2)
+  })
 })
 
 describe('mergePaletteRows', () => {
@@ -792,5 +1004,113 @@ describe('CommandPalette + FilesProvider (mounted)', () => {
     await actType('quarterly')
     await flushSearch()
     expect(rowTitles()).toEqual(['quarterly.docx', 'Ask AI: quarterly'])
+  })
+
+  it('re-renders the file rows in the judged order when the decision model answers', async () => {
+    mountApi([])
+    const providers = defaultPaletteProviders().map((p) =>
+      p.id === 'files'
+        ? createFilesProvider({
+            debounceMs: 0,
+            rerankSettleMs: 30,
+            search: async () => ({
+              hits: [
+                hit({ path: 'C:\\Docs\\alpha.docx', name: 'alpha.docx' }),
+                hit({ path: 'C:\\Docs\\beta.docx', name: 'beta.docx' }),
+              ],
+              total: 2,
+              index: { indexed: 1, pending: 0, scanning: false },
+            }),
+            rerank: async () => ({ order: ['C:\\Docs\\beta.docx'], scores: {} }),
+          })
+        : p,
+    )
+    await render(providers)
+    await actType('alp')
+    await flushSearch()
+    // local order first: the launcher answers before the model judges (the
+    // settle window below is still open at this point)
+    expect(rowTitles().indexOf('alpha.docx')).toBeLessThan(rowTitles().indexOf('beta.docx'))
+    // the judgement lands and the palette re-queries on the provider's notify
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15))
+      await new Promise((resolve) => setTimeout(resolve, 15))
+      await new Promise((resolve) => setTimeout(resolve, 15))
+    })
+    const titles = rowTitles()
+    expect(titles).toContain('beta.docx')
+    expect(titles.indexOf('beta.docx')).toBeLessThan(titles.indexOf('alpha.docx'))
+  })
+
+  it('survives a StrictMode double-mount: the second mount still reranks', async () => {
+    mountApi([])
+    const reranks: string[] = []
+    // counts the StrictMode cleanups so the test fails loudly if React stops
+    // double-mounting (then this would stop covering the regression at all)
+    let probeDisposes = 0
+    const providers: PaletteProvider[] = [
+      ...defaultPaletteProviders().map((p) =>
+        p.id === 'files'
+          ? createFilesProvider({
+              debounceMs: 0,
+              rerankSettleMs: 0,
+              search: async () => ({
+                hits: [
+                  hit({ path: 'C:\\Docs\\alpha.docx', name: 'alpha.docx' }),
+                  hit({ path: 'C:\\Docs\\beta.docx', name: 'beta.docx' }),
+                ],
+                total: 2,
+                index: { indexed: 1, pending: 0, scanning: false },
+              }),
+              rerank: async (q) => {
+                reranks.push(q)
+                return { order: ['C:\\Docs\\beta.docx'], scores: {} }
+              },
+            })
+          : p,
+      ),
+      {
+        id: 'strict-probe',
+        priority: 1000,
+        getRows: () => [],
+        dispose: () => (probeDisposes += 1),
+      },
+    ]
+    // main.tsx mounts the whole app under React.StrictMode: in dev the
+    // palette's effects run setup -> cleanup -> setup on one mount, and the
+    // cleanup disposes every provider — the same instances the second setup
+    // keeps using, because the palette holds them in a useMemo. Production and
+    // these tests' plain createRoot never trigger it, which is how the latch
+    // hid: green tests, dead dev rerank
+    await act(async () => {
+      root.render(
+        createElement(
+          StrictMode,
+          null,
+          createElement(CommandPalette, {
+            lang: 'en',
+            onClose: () => (closed += 1),
+            onAskAi: (q) => askedQueries.push(q),
+            providers,
+          }),
+        ),
+      )
+    })
+    // the simulated unmount ran once and the palette is now on its second mount
+    expect(probeDisposes).toBe(1)
+    await actType('alp')
+    await flushSearch()
+    // the index still answers in local order (the settle window is open)
+    expect(rowTitles()).toContain('alpha.docx')
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15))
+      await new Promise((resolve) => setTimeout(resolve, 15))
+      await new Promise((resolve) => setTimeout(resolve, 15))
+    })
+    // the regression: the model call must still fire after the double mount,
+    // and the judged order must replace the local one
+    expect(reranks).toEqual(['alp'])
+    const titles = rowTitles()
+    expect(titles.indexOf('beta.docx')).toBeLessThan(titles.indexOf('alpha.docx'))
   })
 })
