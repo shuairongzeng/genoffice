@@ -21,8 +21,6 @@
   --docs-del-ink: #b91c1c;
   --docs-del-bg: rgb(185 28 28 / 6%);
   --docs-ai-error: #c62828;
-  --docs-ai-error-border: rgb(198 40 40 / 45%);
-  --docs-ai-error-bg: rgb(198 40 40 / 8%);
   --docs-ok-ink: #2e7d32;
   --docs-ok-bg: #e6f2e6;
   --docs-ok-border: #a5d6a7;
@@ -32,15 +30,12 @@
   --docs-brand-ghost-weak: rgb(15 127 255 / 6%);
   --docs-brand-ring: rgb(15 127 255 / 40%);
   --docs-focus-ring: rgb(35 36 37 / 20%);
-  --docs-focus-ring-blue: rgb(74 141 246 / 30%);
   --docs-input-focus: #0f7fff;
   --docs-input-ring: rgb(15 127 255 / 10%);
   --docs-error-ring: rgb(239 68 68 / 10%);
   --docs-scroll-thumb: rgb(0 0 0 / 25%);
   --docs-tooltip-bg: #232425;
   --docs-tooltip-ink: #ffffff;
-  --docs-shimmer-base: #666666;
-  --docs-shimmer-hi: #d9d9d9;
   --docs-statusbar-bg: #f3f4f6;
   --docs-statusbar-border: #e1e4e8;
   --docs-statusbar-hover: rgb(0 0 0 / 8%);
@@ -69,7 +64,6 @@
   --docs-shadow-modal-gs: 0 12px 40px rgb(0 0 0 / 16%);
   --docs-shadow-chip: 0 2px 8px rgb(0 0 0 / 12%);
   --docs-shadow-tooltip: 0 4px 6px rgb(0 0 0 / 10%);
-  --docs-shadow-composer: 0 6px 30px rgb(0 0 0 / 8%);
   --docs-shadow-toast: 0 4px 16px rgb(0 0 0 / 18%);
 
   /* brand-fixed chrome: identical in both themes */
@@ -93,7 +87,6 @@
   --docs-toast-ink: #fff;
   --docs-toast-ok: #34c759;
 }
-
 /* content-side constants: everything painted on the paper (including the AI
  * change highlight). Light values here regardless of the UI theme; the dark
  * page (.page-dark, further down) swaps in their darkPageColor() twins. A
@@ -157,7 +150,6 @@
   --docs-paper-hit-active-bg: #ff9632;
   --docs-paper-hit-active-ink: #fff;
 }
-
 /* Word flips automatic-colour text to white on dark shading (cell / paragraph /
    run fill, table-style fill); document data, identical in both UI themes.
    Explicit colours are inline declarations and win over this inherited ink. */
@@ -165,14 +157,12 @@
   --docs-paper-ink: #fff;
   color: var(--docs-paper-ink);
 }
-
 /* the nearest fill wins: a light fill inside dark shading takes the paper ink
    back; a light fill on its own touches nothing, so inherited explicit colours stay */
 [data-ink='light'] [data-ink='dark'] {
   --docs-paper-ink: #000;
   color: var(--docs-paper-ink);
 }
-
 [data-theme='dark'] {
   --word-blue: #4a9eff;
   --word-blue-dark: #3a8eef;
@@ -191,8 +181,6 @@
   --docs-del-ink: #f28b82;
   --docs-del-bg: rgb(242 139 130 / 10%);
   --docs-ai-error: #f28b82;
-  --docs-ai-error-border: rgb(242 139 130 / 45%);
-  --docs-ai-error-bg: rgb(242 139 130 / 12%);
   --docs-ok-ink: #7bd88a;
   --docs-ok-bg: #16351c;
   --docs-ok-border: #2e5c36;
@@ -202,15 +190,12 @@
   --docs-brand-ghost-weak: rgb(74 158 255 / 10%);
   --docs-brand-ring: rgb(74 158 255 / 45%);
   --docs-focus-ring: rgb(228 228 228 / 25%);
-  --docs-focus-ring-blue: rgb(74 158 255 / 40%);
   --docs-input-focus: #4a9eff;
   --docs-input-ring: rgb(74 158 255 / 20%);
   --docs-error-ring: rgb(242 139 130 / 20%);
   --docs-scroll-thumb: rgb(255 255 255 / 28%);
   --docs-tooltip-bg: #e4e4e4;
   --docs-tooltip-ink: #1e1e1e;
-  --docs-shimmer-base: #8a8a8a;
-  --docs-shimmer-hi: #d0d0d0;
   --docs-statusbar-bg: #252525;
   --docs-statusbar-border: #3a3a3a;
   --docs-statusbar-hover: rgb(255 255 255 / 10%);
@@ -239,10 +224,8 @@
   --docs-shadow-modal-gs: 0 20px 50px rgb(0 0 0 / 65%);
   --docs-shadow-chip: 0 2px 8px rgb(0 0 0 / 40%);
   --docs-shadow-tooltip: 0 4px 6px rgb(0 0 0 / 30%);
-  --docs-shadow-composer: 0 6px 30px rgb(0 0 0 / 30%);
   --docs-shadow-toast: 0 4px 16px rgb(0 0 0 / 45%);
 }
-
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']):not([data-theme='dark']) {
     --word-blue: #4a9eff;
@@ -262,8 +245,6 @@
     --docs-del-ink: #f28b82;
     --docs-del-bg: rgb(242 139 130 / 10%);
     --docs-ai-error: #f28b82;
-    --docs-ai-error-border: rgb(242 139 130 / 45%);
-    --docs-ai-error-bg: rgb(242 139 130 / 12%);
     --docs-ok-ink: #7bd88a;
     --docs-ok-bg: #16351c;
     --docs-ok-border: #2e5c36;
@@ -273,15 +254,12 @@
     --docs-brand-ghost-weak: rgb(74 158 255 / 10%);
     --docs-brand-ring: rgb(74 158 255 / 45%);
     --docs-focus-ring: rgb(228 228 228 / 25%);
-    --docs-focus-ring-blue: rgb(74 158 255 / 40%);
     --docs-input-focus: #4a9eff;
     --docs-input-ring: rgb(74 158 255 / 20%);
     --docs-error-ring: rgb(242 139 130 / 20%);
     --docs-scroll-thumb: rgb(255 255 255 / 28%);
     --docs-tooltip-bg: #e4e4e4;
     --docs-tooltip-ink: #1e1e1e;
-    --docs-shimmer-base: #8a8a8a;
-    --docs-shimmer-hi: #d0d0d0;
     --docs-statusbar-bg: #252525;
     --docs-statusbar-border: #3a3a3a;
     --docs-statusbar-hover: rgb(255 255 255 / 10%);
@@ -310,40 +288,32 @@
     --docs-shadow-modal-gs: 0 20px 50px rgb(0 0 0 / 65%);
     --docs-shadow-chip: 0 2px 8px rgb(0 0 0 / 40%);
     --docs-shadow-tooltip: 0 4px 6px rgb(0 0 0 / 30%);
-    --docs-shadow-composer: 0 6px 30px rgb(0 0 0 / 30%);
     --docs-shadow-toast: 0 4px 16px rgb(0 0 0 / 45%);
   }
 }
-
 * {
   box-sizing: border-box;
 }
-
 /* UI CJK fonts per language (documentElement.lang is set at bootstrap and on switch);
  * the zh expansion must keep the historical stack byte-identical */
 :root {
   --ui-cjk: 'PingFang SC', 'Microsoft YaHei';
 }
-
 :root:lang(ja) {
   --ui-cjk: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', 'Meiryo';
 }
-
 :root:lang(ko) {
   --ui-cjk: 'Apple SD Gothic Neo', 'Malgun Gothic';
 }
-
 :root:lang(zh-TW) {
   --ui-cjk: 'PingFang TC', 'Microsoft JhengHei';
 }
-
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
 }
-
 body {
   font-family:
     'Segoe UI',
@@ -366,13 +336,10 @@ body {
   flex-direction: column;
   height: 100%;
 }
-
 button {
   font-family: inherit;
 }
-
 /* ================= title bar (doc name centered) ================= */
-
 .qa-btn {
   width: 30px;
   height: 28px;
@@ -397,9 +364,7 @@ button {
   color: var(--text-tertiary);
   cursor: default;
 }
-
 /* ================= ribbon ================= */
-
 .ribbon {
   flex-shrink: 0;
   background: var(--chrome-bg);
@@ -427,7 +392,6 @@ button {
 .ribbon-tabs .qa-btn {
   -webkit-app-region: no-drag;
 }
-
 /* While a popover is open the row must deliver presses (drag regions swallow
    them), so outside-press dismissal can see presses on the blank band */
 html.genoffice-popover-open .ribbon-tabs {
@@ -467,7 +431,6 @@ html.genoffice-popover-open .ribbon-tabs {
   border-bottom: 2.5px solid transparent;
   border-radius: 4px 4px 0 0;
 }
-
 /* hovering a tab tints the label, it doesn't paint a box */
 .ribbon-tab:hover {
   color: var(--word-blue);
@@ -477,7 +440,6 @@ html.genoffice-popover-open .ribbon-tabs {
   color: var(--word-blue);
   font-weight: 600;
 }
-
 /* active underline: exactly the text width (insets = horizontal padding),
  * ends slightly rounded — not a full capsule */
 .ribbon-tab.active::after {
@@ -585,7 +547,6 @@ html.genoffice-popover-open .ribbon-tabs {
   border-color: var(--word-blue);
   color: var(--word-blue);
 }
-
 /* AI entry points share the app icon (used by the Ribbon AI button and the AI panel title) */
 .app-badge {
   display: block;
@@ -594,7 +555,6 @@ html.genoffice-popover-open .ribbon-tabs {
   border-radius: 7px;
   box-shadow: var(--docs-shadow-badge);
 }
-
 /* Genspark brand logo (Ribbon AI button and AI panel title) */
 .genspark-badge {
   display: block;
@@ -602,13 +562,7 @@ html.genoffice-popover-open .ribbon-tabs {
   height: 22px;
   border-radius: 50%;
 }
-
-.ai-panel-title .genspark-badge {
-  width: 18px;
-  height: 18px;
-}
 /* ---- ribbon body ---- */
-
 .ribbon-body {
   display: flex;
   align-items: stretch;
@@ -632,7 +586,6 @@ html.genoffice-popover-open .ribbon-tabs {
   overflow-x: scroll;
   overflow-y: hidden;
 }
-
 /* Slim visible scrollbar so mouse users can reach overflowed groups
    (genspark-ai/genoffice#55 precedent from the sheets ribbon). */
 .ribbon-body::-webkit-scrollbar {
@@ -663,7 +616,6 @@ html.genoffice-popover-open .ribbon-tabs {
   gap: 2px;
   flex: 1;
 }
-
 /* Word for Mac shows no group captions under the ribbon */
 .ribbon-group-label {
   display: none;
@@ -687,7 +639,6 @@ html.genoffice-popover-open .ribbon-tabs {
   font-size: 12.5px;
   padding: 0 14px;
 }
-
 /* big paste button */
 .rb-big {
   display: flex;
@@ -714,7 +665,6 @@ html.genoffice-popover-open .ribbon-tabs {
   justify-content: center;
   color: var(--text-primary);
 }
-
 /* hover/open paint only the icon row — the label below
  * stays outside the gray. The box spans the whole button width (align-self
  * stretch + horizontal bleed), not just the icon content. Negative margins
@@ -725,7 +675,6 @@ html.genoffice-popover-open .ribbon-tabs {
   padding: 3px 4px;
   margin: 0 -4px;
 }
-
 /* ---- Compact ribbon (⌥⌘K / Ctrl+Alt+K), see #362 ----
  * The middle density: the band stays and every command stays reachable, it
  * just drops to icon-only on a shorter band. The three defences above
@@ -764,7 +713,6 @@ html.genoffice-popover-open .ribbon-tabs {
   min-height: 22px;
   flex: none;
 }
-
 /* Keep the label in the accessibility tree and in the DOM (Playwright's
  * hasText and getByRole(name) both read it) but take it out of the visual
  * flow. display: none here would strip the accessible name and break the
@@ -780,7 +728,6 @@ html.genoffice-popover-open .ribbon-tabs {
   white-space: nowrap;
   border: 0;
 }
-
 /* the icon row is the whole button now, so let the hover/open paint cover it */
 .ribbon-compact .rb-big .rb-big-icon {
   align-self: stretch;
@@ -790,16 +737,13 @@ html.genoffice-popover-open .ribbon-tabs {
   padding: 1px 3px;
   margin: 0 -2px;
 }
-
 /* Groups and separators centre on the shorter band. */
 .ribbon-compact .ribbon-group {
   padding: 0 3px;
 }
-
 /* The table ribbon groups its tools in .table-tool-group (min-width 66px), not
  * .ribbon-group — without this they keep the full-band inset and the band ends
- * up wider than the content it holds. */
-/* These three were never compact-styled, and they are what overflowed: the
+ * up wider than the content it holds. */ /* These three were never compact-styled, and they are what overflowed: the
  * style gallery's cards are a fixed 62px tall with a 62px box to match, and the
  * font group is a column that grows to whatever its two pickers need. Measured
  * in the compact band they came out at 62-64px starting at top:-13 — taller
@@ -810,7 +754,6 @@ html.genoffice-popover-open .ribbon-tabs {
   width: 46px;
   height: 30px;
 }
-
 /* Every control the compact band has to hold was measured, not guessed: with
  * 38px of button and a 33px content box, *every* tab clipped by at least 5px.
  * These are the ones that needed more than the icon padding above. */
@@ -819,7 +762,6 @@ html.genoffice-popover-open .ribbon-tabs {
      30px in compact mode now, and this one was left behind. */
   height: 30px;
 }
-
 /* Split buttons (Paste Special, font colour, ...) stack a caret under the
  * button: `.rb-big-split` is a column, so 32 + 17 = 49px and the caret alone
  * accounts for 17px of the 51px group that was overflowing Home. Compact puts
@@ -833,7 +775,6 @@ html.genoffice-popover-open .ribbon-tabs {
   margin: 0 0 0 2px;
   padding: 1px 2px;
 }
-
 /* `.rb-col` is the same shape as `.rb-font-group`: a column of controls that
  * fits a 38px band only by going side by side. Home and Insert both carry one. */
 .ribbon-compact .rb-col {
@@ -841,13 +782,11 @@ html.genoffice-popover-open .ribbon-tabs {
   align-items: center;
   gap: 4px;
 }
-
 /* Ink: swatches (16px) stacked over widths (22px) with a 4px gap is 42px. */
 .ribbon-compact .ink-settings {
   flex-direction: row;
   gap: 8px;
 }
-
 /* Page Layout: two columns each stacking two controls, 28 + 5 + 28 = 61px. */
 .ribbon-compact .layout-para {
   gap: 6px;
@@ -857,7 +796,6 @@ html.genoffice-popover-open .ribbon-tabs {
   flex-direction: row;
   gap: 4px;
 }
-
 /* The font and size pickers are two 28px controls stacked in a column, so the
  * group is 28 + 4 + 28 = 60px before padding — taller than the 38px band on
  * its own, and the reason the font picker was cut through the middle. Side by
@@ -876,13 +814,11 @@ html.genoffice-popover-open .ribbon-tabs {
   min-width: 0;
   padding: 2px 4px;
 }
-
 /* Split buttons stack a caret beside the icon; without the label row the pair
  * needs to sit on one line. */
 .ribbon-compact .rb-caret-svg {
   margin-left: 2px;
 }
-
 /* The table tabs stack two rows of controls (font block, cell size grid), which
  * cannot compress to 38px. Let that content scroll inside the band instead of
  * overflowing it and pushing the document down — the band itself keeps its
@@ -890,7 +826,6 @@ html.genoffice-popover-open .ribbon-tabs {
 .ribbon-compact .table-ribbon-body {
   overflow-y: auto;
 }
-
 /* the dropdown chevron sits beside the icon (top row), not the label */
 .rb-caret-svg {
   flex-shrink: 0;
@@ -914,7 +849,6 @@ html.genoffice-popover-open .ribbon-tabs {
   width: auto;
   border: 1px solid var(--docs-swatch-outline);
 }
-
 /* AI badge marking AI-backed entry points (ribbon buttons and context-menu items), same look as slides */
 .copilot-badge {
   display: inline-flex;
@@ -944,7 +878,6 @@ html.genoffice-popover-open .ribbon-tabs {
   opacity: 0.4;
   cursor: default;
 }
-
 /* Big split button (Home ▸ Paste): the icon half runs the default action,
    the label half opens the menu, like Word's Paste. */
 .rb-big-split {
@@ -996,17 +929,14 @@ html.genoffice-popover-open .ribbon-tabs {
 .spacing-menu.paste-menu button > svg {
   flex-shrink: 0;
 }
-
 /* Active state paints only the gray icon plate — ink stays the standard #232425 */
 .rb-big.active .rb-big-icon {
   background: var(--active-bg);
 }
-
 /* The Genspark AI entry keeps a black label even while the panel is open. */
 .rb-big.ai-entry.active {
   color: var(--text);
 }
-
 /* The AI entry buttons read as one piece: hover/press tint the whole button
    (icon + label together), unlike the other tall buttons where only the icon
    row is painted. */
@@ -1106,7 +1036,6 @@ html.genoffice-popover-open .ribbon-tabs {
 .rb-font-size {
   width: 44px;
 }
-
 /* hide the native number spinner: the grow/shrink font buttons next to the
    input already cover stepping */
 .rb-font-size::-webkit-outer-spin-button,
@@ -1114,14 +1043,12 @@ html.genoffice-popover-open .ribbon-tabs {
   -webkit-appearance: none;
   margin: 0;
 }
-
 /* the combobox inputs and their carets render as one bordered control, Word-style */
 .rb-font-size,
 .rb-font-family {
   border-right: none;
   border-radius: 3px 0 0 3px;
 }
-
 /* double class beats the base .rb-caret rules defined further down */
 .rb-caret.rb-combo-caret {
   width: 18px;
@@ -1189,14 +1116,12 @@ html.genoffice-popover-open .ribbon-tabs {
   display: block;
   margin: 0 auto;
 }
-
 /* split button: main action + caret dropdown */
 .rb-split-wrap {
   position: relative;
   display: flex;
   align-items: center;
 }
-
 /* Anchor for the dropdown panels (color-palette / layout-menu / …), which are
    position: fixed so they escape the ribbon-body scroll clip while tracking
    their trigger through ribbon scrolling. Every wrap shares the name, so the
@@ -1229,7 +1154,6 @@ html.genoffice-popover-open .ribbon-tabs {
   opacity: 0.35;
   cursor: default;
 }
-
 /* True split buttons (icon action + caret dropdown) read as one pill, matching
    the slides rb-split model: hovering either zone washes both edge to edge,
    and the zone under the pointer (or whose dropdown is open) darkens a step.
@@ -1253,7 +1177,6 @@ html.genoffice-popover-open .ribbon-tabs {
 .rb-split-wrap:has(> .rb-icon + .rb-caret) > .rb-caret.active {
   background: var(--active-bg);
 }
-
 /* same footprint as the plain .rb-caret — a wider zone reads as a gap
    between the icon and the chevron */
 .rb-color-caret {
@@ -1266,7 +1189,6 @@ html.genoffice-popover-open .ribbon-tabs {
   color: var(--text-dim);
   margin-left: 2px;
 }
-
 /* font color button with color bar */
 .rb-color-wrap {
   position: relative;
@@ -1278,7 +1200,6 @@ html.genoffice-popover-open .ribbon-tabs {
   height: 30px;
   line-height: 1;
 }
-
 /* Color swatches (sheets' pattern): the glyph is the SAME size as its row
    siblings (15px/600 letter / 20px svg) so the cap line stays level, and the
    16×4 bar hangs below it out of flow instead of pushing the stack taller. */
@@ -1305,7 +1226,6 @@ html.genoffice-popover-open .ribbon-tabs {
   transform: translateX(-50%);
   margin: 0;
 }
-
 /* the svg box carries ~4px of padding below its ink — tuck the bar into it so
    both buttons' bars sit on the same line (20px svg bottom is 1.5px below the
    15px letter's em box + 1px gap) */
@@ -1330,7 +1250,6 @@ html.genoffice-popover-open .ribbon-tabs {
   padding: 8px;
   box-shadow: var(--docs-shadow-menu);
 }
-
 /* Sharp 20px squares with a faint contour, matching the shared gcp picker */
 .color-swatch {
   width: 20px;
@@ -1388,13 +1307,11 @@ html.genoffice-popover-open .ribbon-tabs {
   padding: 5px 0;
   font-size: 12.5px;
 }
-
 /* Selected (no highlight applied) is a quiet filled state, matching the
    shared picker's auto row — an accent ring reads as a stray focus outline. */
 .color-highlight-none.selected {
   background: var(--hover);
 }
-
 /* Anchor positioning for the shared Word-style color panel (@genoffice/ui
    .gcp-palette draws the chrome; this only places it under its trigger). */
 .docs-color-pop {
@@ -1428,11 +1345,8 @@ html.genoffice-popover-open .ribbon-tabs {
 .color-none:hover {
   background: var(--hover);
 }
-
-/* line spacing dropdown */
-/* Home-tab Genspark AI entry: black circular "+" badge with a dropdown caret,
-   brand label below (mirrors the sheets Home ribbon). */
-/* AI feature buttons next to the entry: purple glyphs, label below */
+/* line spacing dropdown */ /* Home-tab Genspark AI entry: black circular "+" badge with a dropdown caret,
+   brand label below (mirrors the sheets Home ribbon). */ /* AI feature buttons next to the entry: purple glyphs, label below */
 .ai-feature-icon {
   display: grid;
   place-items: center;
@@ -1484,7 +1398,6 @@ html.genoffice-popover-open .ribbon-tabs {
 .spacing-menu button.active {
   background: var(--active-bg);
 }
-
 /* Font size preset list: compact Word-style rows so the whole list fits
    without scrolling (the viewport cap only kicks in on tiny windows), and the
    current size gets a leading check instead of a highlight. Placed after the
@@ -1515,7 +1428,6 @@ html.genoffice-popover-open .ribbon-tabs {
   position: absolute;
   left: 10px;
 }
-
 /* Font family list: each entry renders in its own typeface (inline style);
    long list scrolls like Word's */
 .rb-font-family-menu {
@@ -1546,7 +1458,6 @@ html.genoffice-popover-open .ribbon-tabs {
   left: 10px;
   font-family: system-ui;
 }
-
 /* type-ahead / arrow-key highlight, kept distinct from the check on the current font */
 .rb-font-family-menu button.kbd-focus {
   background: var(--hover);
@@ -1566,10 +1477,7 @@ html.genoffice-popover-open .ribbon-tabs {
   margin-top: 0;
   padding-top: 4px;
 }
-
-/* ---- Insert: table size picker ---- */
-
-/* Insert → Cover Page gallery */
+/* ---- Insert: table size picker ---- */ /* Insert → Cover Page gallery */
 .cover-gallery {
   position: fixed;
   position-anchor: --rb-drop-wrap;
@@ -1683,7 +1591,6 @@ html.genoffice-popover-open .ribbon-tabs {
   grid-template-columns: repeat(10, 18px);
   gap: 3px;
 }
-
 /* "Insert Table…" entry under the hover grid (opens the rows/cols dialog) */
 .table-picker-custom {
   display: block;
@@ -1703,7 +1610,6 @@ html.genoffice-popover-open .ribbon-tabs {
 .table-picker-custom:hover {
   background: var(--hover);
 }
-
 /* Word-style table move handle at the hovered table's top-left corner */
 .doc-table-handle {
   position: absolute;
@@ -1762,9 +1668,7 @@ html.genoffice-popover-open .ribbon-tabs {
   background: var(--accent-soft);
   border-color: var(--word-blue);
 }
-
 /* ---- Insert: symbol palette ---- */
-
 .symbol-palette {
   position: fixed;
   position-anchor: --rb-drop-wrap;
@@ -1797,9 +1701,7 @@ html.genoffice-popover-open .ribbon-tabs {
 .symbol-cell:hover {
   background: var(--active-bg);
 }
-
 /* ---- Shape picker dropdown ---- */
-
 .shape-palette {
   position: fixed;
   position-anchor: --rb-drop-wrap;
@@ -1844,10 +1746,7 @@ html.genoffice-popover-open .ribbon-tabs {
 .shape-cell:hover {
   background: var(--active-bg);
 }
-
-/* ---- WordArt picker panel ---- */
-
-/* Unlabeled letter grid matching the slides WordArt gallery (style name = tooltip) */
+/* ---- WordArt picker panel ---- */ /* Unlabeled letter grid matching the slides WordArt gallery (style name = tooltip) */
 .wordart-palette {
   position: fixed;
   position-anchor: --rb-drop-wrap;
@@ -1883,9 +1782,7 @@ html.genoffice-popover-open .ribbon-tabs {
 .wordart-cell:hover {
   border-color: var(--accent);
 }
-
 /* ---- Drop cap dropdown menu ---- */
-
 .dropcap-menu {
   position: fixed;
   position-anchor: --rb-drop-wrap;
@@ -1934,9 +1831,7 @@ html.genoffice-popover-open .ribbon-tabs {
   display: flex;
   align-items: center;
 }
-
 /* ---- Equations: built-in equation library dropdown + LaTeX insert dialog ---- */
-
 .equation-gallery {
   /* right-aligned to its trigger (the Equation button sits at the ribbon's
      far right) — fixed + anchored like the other panels */
@@ -2042,9 +1937,7 @@ html.genoffice-popover-open .ribbon-tabs {
   color: var(--text-dim);
   user-select: none;
 }
-
 /* ---- Layout: preset menus + paragraph spinners ---- */
-
 .layout-menu {
   position: fixed;
   position-anchor: --rb-drop-wrap;
@@ -2109,7 +2002,6 @@ html.genoffice-popover-open .ribbon-tabs {
   max-height: min(70vh, 560px);
   overflow-y: auto;
 }
-
 /* w:trHeight hRule="exact": Word clips overflow instead of growing the row. td height is
    min-height in CSS table layout, so cells wrap content in this fixed-height box instead;
    clip (not hidden) so contenteditable's programmatic scrolls can't shift the content */
@@ -2119,7 +2011,6 @@ html.genoffice-popover-open .ribbon-tabs {
   display: flow-root;
   overflow: clip;
 }
-
 /* w:textDirection cells: Word sizes the row from the horizontal cells / trHeight and
    wraps the rotated text into the resulting cell height. Out of flow, the vertical
    line no longer stretches the row group; padding:inherit keeps the cell insets. */
@@ -2129,7 +2020,6 @@ html.genoffice-popover-open .ribbon-tabs {
   padding: inherit;
   overflow: clip;
 }
-
 /* a row with no other height source (no declared trHeight, every in-flow cell
    rotated) sizes from the rotated text like Word: the wrapper drops back into
    flow. Structural :has() rather than a rendered tr attribute: ProseMirror
@@ -2147,7 +2037,6 @@ tr:not([style*='height']):not(
   inset: auto;
   padding: 0;
 }
-
 /* table row/cell revisions: insert = green background, delete = red background (inline text has separate ins/del underline/strike styles) */
 tr.row-rev-ins > td,
 tr.row-rev-ins > th,
@@ -2155,14 +2044,12 @@ td.cell-rev-ins,
 th.cell-rev-ins {
   background: var(--docs-paper-ins-bg);
 }
-
 tr.row-rev-del > td,
 tr.row-rev-del > th,
 td.cell-rev-del,
 th.cell-rev-del {
   background: var(--docs-paper-del-bg);
 }
-
 /* no-markup / simple-markup mode = as if all accepted: deleted rows hidden, insert background removed */
 .rev-display-none tr.row-rev-del,
 .rev-display-none td.cell-rev-del,
@@ -2183,7 +2070,6 @@ th.cell-rev-del {
 .rev-display-simple th.cell-rev-ins {
   background: none;
 }
-
 /* original mode = as if all rejected: inserted rows hidden, delete background removed */
 .rev-display-original tr.row-rev-ins,
 .rev-display-original td.cell-rev-ins,
@@ -2197,7 +2083,6 @@ th.cell-rev-del {
 .rev-display-original th.cell-rev-del {
   background: none;
 }
-
 /* Arrange group position gallery: 3x3 page thumbnail grid, dots indicate image placement */
 .pos-grid {
   display: grid;
@@ -2230,22 +2115,26 @@ th.cell-rev-del {
 .pos-cell.ph-left {
   justify-content: flex-start;
 }
+
 .pos-cell.ph-center {
   justify-content: center;
 }
+
 .pos-cell.ph-right {
   justify-content: flex-end;
 }
+
 .pos-cell.pv-top {
   align-items: flex-start;
 }
+
 .pos-cell.pv-center {
   align-items: center;
 }
+
 .pos-cell.pv-bottom {
   align-items: flex-end;
 }
-
 /* Switch Windows sits at the ribbon's right edge — anchor right so it isn't clipped */
 .layout-menu.align-right {
   left: auto;
@@ -2294,9 +2183,7 @@ th.cell-rev-del {
   color: var(--text-dim);
   font-size: 11px;
 }
-
 /* ---- Review: word count ---- */
-
 .stats-table {
   width: 100%;
   border-collapse: collapse;
@@ -2317,9 +2204,7 @@ th.cell-rev-del {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-
-/* style gallery */
-/* The Styles group absorbs the row's free width and shrinks with the window
+/* style gallery */ /* The Styles group absorbs the row's free width and shrinks with the window
    (min-width keeps three cards + the expander visible); extra cards wrap onto
    a clipped second row inside .style-gallery — whole cards only, never a
    half-cut one — instead of widening the scrolling ribbon row, and the
@@ -2428,7 +2313,6 @@ th.cell-rev-del {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 /* the preview carries the style's own face/weight/color; the card only sizes it */
 .style-card-preview {
   max-width: 100%;
@@ -2438,7 +2322,6 @@ th.cell-rev-del {
   white-space: nowrap;
   overflow: hidden;
 }
-
 /* Styles pane (Word for Mac): docked on the right like the comments pane */
 .styles-pane {
   width: 264px;
@@ -2585,18 +2468,14 @@ th.cell-rev-del {
   overflow: hidden;
   white-space: nowrap;
 }
-
 /* ================= workspace / document canvas ================= */
-
 .workspace {
   display: flex;
   flex: 1;
   min-height: 0;
   background: var(--canvas);
 }
-
 /* the document stays ltr under an RTL UI — the chrome mirrors, the content does not */
-
 .editor-scroll {
   direction: ltr;
   flex: 1;
@@ -2616,7 +2495,6 @@ th.cell-rev-del {
   width: fit-content;
   margin: 0 auto;
 }
-
 /* Multiple Pages: the canvas stays one flow; the grid shows every page in a
    slot of its own. Non-active slots are painted from canvas clones, the live
    editor sits in the active slot behind a clip window (overflow: clip, so no
@@ -2665,7 +2543,6 @@ th.cell-rev-del {
 .mp-block {
   position: absolute;
 }
-
 /* Format painter armed: Word-style I-beam + brush cursor, but only while
    hovering the text flow (block children) — page margins and the blank area
    below the content keep their normal cursor. Fixed black/white affordance,
@@ -2676,7 +2553,6 @@ th.cell-rev-del {
       4 14,
     text;
 }
-
 /* selection bar (left page margin): Word's up-right arrow. Fixed black/white
    affordance like the paintbrush above. */
 .ProseMirror.doc-selbar-hover {
@@ -2685,7 +2561,6 @@ th.cell-rev-del {
       17 3,
     default;
 }
-
 /* gap cursor between isolating blocks, such as a final table */
 .ProseMirror-gapcursor {
   display: none;
@@ -2702,7 +2577,6 @@ th.cell-rev-del {
   border-top: 1px solid var(--docs-paper-ink, currentColor);
   animation: ProseMirror-cursor-blink 1.1s steps(2, start) infinite;
 }
-
 @keyframes ProseMirror-cursor-blink {
   to {
     visibility: hidden;
@@ -2712,10 +2586,7 @@ th.cell-rev-del {
 .ProseMirror-focused .ProseMirror-gapcursor {
   display: block;
 }
-
-/* ---- Word basics: marks / columns / page border / header-footer / nav / ruler ---- */
-
-/* ¶ editing marks (front-end only) */
+/* ---- Word basics: marks / columns / page border / header-footer / nav / ruler ---- */ /* ¶ editing marks (front-end only) */
 .show-marks .doc-page p::after,
 .show-marks .doc-page h1::after,
 .show-marks .doc-page h2::after,
@@ -2728,21 +2599,18 @@ th.cell-rev-del {
   margin-left: 2px;
   user-select: none;
 }
-
 /* multi-column layout (w:cols) */
 .doc-page {
   column-count: var(--page-cols, auto);
   column-gap: 28px;
   column-fill: auto;
 }
-
 /* mixed-column canvas layout (sections with differing column specs): blocks keep the
    engine's stacked flow and are painted into their column slot by a per-block width +
    constant translate; the width also applies in preview clones (line breaks must match) */
 .doc-page .doc-col-block {
   width: var(--col-w, auto);
 }
-
 /* floating-anchor wrappers and side-wrap carriers force width:100%, which
    beats the section-width decoration above: their stray in-flow lines then
    wrap at the full canvas width on the canvas but at the section width in
@@ -2754,7 +2622,6 @@ th.cell-rev-del {
   width: var(--col-w, 100%);
   max-width: var(--col-w, 100%);
 }
-
 /* a paragraph cut between two columns of different widths keeps one element at
    the wider width; this leading float (columnLayoutSpecs split shape) shortens
    the head lines or, via shape-outside, only the tail lines to the narrower
@@ -2764,13 +2631,11 @@ th.cell-rev-del {
   pointer-events: none;
   user-select: none;
 }
-
 /* --page-cx: the block's page centered on a wider shared paper (differing-width
    documents); page-relative anchors below undo the column shift only */
 .editor-scroll .doc-page:not(.measuring-columns) .doc-col-block {
   transform: translate(calc(var(--col-dx, 0px) + var(--page-cx, 0px)), var(--col-dy, 0px));
 }
-
 /* w:docGrid charSpace character grid (Word probes 2026-09-02, 2026-10-22):
    every character in a typed linesAndChars section advances by natural width
    + charSpace/4096pt — plain letter-spacing, inherited into tables and
@@ -2784,17 +2649,16 @@ th.cell-rev-del {
 .doc-page {
   letter-spacing: var(--doc-char-space-sb, var(--doc-char-space, normal));
 }
+
 .doc-page .doc-charspace-block {
   letter-spacing: var(--doc-char-space-sb, var(--doc-char-space, normal));
 }
 /* the full-width restore rule is injected by App.tsx with the variables; a
-   run-level w:spacing (inline letter-spacing) keeps winning over the grid */
-/* per-page header/footer strips are page-gap widgets inside the editor root,
+   run-level w:spacing (inline letter-spacing) keeps winning over the grid */ /* per-page header/footer strips are page-gap widgets inside the editor root,
    but Word does not grid header/footer text (scope probe) */
 .doc-page .page-gap-hf {
   letter-spacing: normal;
 }
-
 /* page/margin-relative X anchors are absolute on the page in Word: undo the
    column shift for boxes riding a column-translated block (Y keeps following
    the anchor paragraph). Boxes with their own inline transform (rotation)
@@ -2808,7 +2672,6 @@ th.cell-rev-del {
 .editor-scroll .doc-page:not(.measuring-columns) img[data-page-rel-x='1'] {
   --page-rel-x-undo: var(--page-rel-x-pin, var(--col-dx, 0px));
 }
-
 /* sectPr w:textDirection sections (verticalTextSpecs): blocks are measured as
    horizontal paragraphs wrapping at the line length (--col-w) and shown as
    writing-mode boxes of that height, translated to their sideways slot. The
@@ -2827,27 +2690,27 @@ th.cell-rev-del {
     var(--pv-vdy, var(--col-dy, 0px))
   );
 }
+
 .doc-page:not(.measuring-columns) .doc-vert-block:not(.doc-vert-first) {
   margin-top: 0 !important;
 }
+
 .doc-page:not(.measuring-columns) .doc-vert-tbRlV {
   text-orientation: sideways;
 }
+
 .doc-page:not(.measuring-columns) .doc-vert-btLr {
   writing-mode: sideways-lr;
 }
-
 /* w:framePr paragraph frame: fixed box beside which body text wraps (see para-frame.ts) */
 .doc-page .doc-para-frame {
   position: relative;
 }
-
 /* single-flow measuring state: transforms and the column-space pull-up must not
    distort the 1-D virtual coordinates */
 .editor-scroll .doc-page.measuring-columns .page-gap {
   margin-top: 0 !important;
 }
-
 /* natural-flow measuring state: in-paragraph gap widgets force a line break at
    the PREVIOUS pass's cut position, so measuring with them in layout can only
    re-confirm that cut even after decoration-only reflows (justify space-shrink)
@@ -2859,7 +2722,6 @@ th.cell-rev-del {
 .editor-scroll .doc-page.measuring-natural .page-gap-inline {
   display: none !important;
 }
-
 /* block-level gaps leave the measuring flow too: an in-flow box between two
    paragraphs stops their margins collapsing, so the measured distance across a
    page turn was space-after + space-before instead of the larger of the two,
@@ -2869,7 +2731,6 @@ th.cell-rev-del {
 .editor-scroll .doc-page.measuring-natural .page-gap:not(.page-gap-inline) {
   display: none !important;
 }
-
 /* phantom table rows (gap rows, repeated header clones) must keep their grid
    slot while hidden: syncPhantomRowspans grew the vMerge rowspans crossing
    them, so a display:none row makes those spans overrun by one row and shifts
@@ -2880,7 +2741,6 @@ th.cell-rev-del {
   display: table-row !important;
   visibility: collapse;
 }
-
 /* page border (w:pgBorders): per-page overlay boxes (see syncPageBorders);
    border color/width are document data and come inline from the sectPr */
 .page-border-overlays {
@@ -2893,7 +2753,6 @@ th.cell-rev-del {
 .page-border-overlay {
   position: absolute;
 }
-
 /* w:zOrder=back: the layer cannot live under the text (the paper is the editor
    root), so it multiplies into it: dark text stays readable over the pattern */
 .page-border-overlays-back {
@@ -2903,12 +2762,10 @@ th.cell-rev-del {
 .page-dark .page-border-overlays-back {
   mix-blend-mode: screen;
 }
-
 /* art border approximation: tiled pattern strip along one side of the box */
 .page-border-art {
   position: absolute;
 }
-
 /* preview/print copy: same document-data border, one box per .pv-page sheet */
 .pv-page-border {
   position: absolute;
@@ -2919,7 +2776,6 @@ th.cell-rev-del {
 .pv-page-border-back {
   z-index: -1;
 }
-
 /* line numbers (w:lnNumType): one label per counted line, right-aligned before the
    text column (see syncLineNumbers / syncPreviewLineNumbers); font and color are
    document data copied from the document root */
@@ -2937,49 +2793,40 @@ th.cell-rev-del {
   text-align: right;
   white-space: nowrap;
 }
-
-/* ---- tab stops (w:tabs) ---- */
-
-/* Paragraphs whose tabs were measured (TabStopExtension): tab chars get zero
+/* ---- tab stops (w:tabs) ---- */ /* Paragraphs whose tabs were measured (TabStopExtension): tab chars get zero
    intrinsic width; the jump to the stop is a letter-spacing decoration on the
    tab char itself, so an ancestor <u> still underlines the gap. */
 .has-tab-stops {
   tab-size: 0;
 }
-
 /* TabStopExtension measures tab paragraphs with justification suspended: tab
    advances are laid out in left-aligned space (Chromium and Word alike), so
    the stretched spaces of a justified line must not enter the measurements */
 .ProseMirror.doc-tabs-measuring .has-tab-stops {
   text-align: left !important;
 }
-
 /* Word never stretches a tab on a justified line (the segment after it stays at
    its stop); Chromium counts the tab as a justification opportunity unless told
    otherwise */
 .doc-tab {
   text-justify: none;
 }
-
 /* symbols Chromium counts as ideographs for justification (U+2116 and friends,
    see justifySymbolRanges) in non-CJK justified paragraphs: Word stretches only
    the spaces around them */
 .doc-justify-symbol {
   text-justify: none;
 }
-
 /* tab with no room left on its line (TabStopExtension collapses it to half a
    space): a zero font keeps the character itself from adding to the line box */
 .doc-tab-collapse {
   font-size: 0;
 }
-
 /* underlined tab run: browsers skip text-decoration over a tab advance, so
    the blank (e.g. signature "By: ____") gets an explicit line */
 .doc-tab-underline {
   border-bottom: 1px solid currentColor;
 }
-
 /* first-line tab inside a hanging indent (TabStopExtension): a box of the
    exact advance; the inner tab is zero-width and must not inherit the
    paragraph's negative text-indent or alignment */
@@ -2989,7 +2836,6 @@ th.cell-rev-del {
   text-indent: 0;
   text-align: left;
 }
-
 /* right/center/decimal tab glued to the word after it (TabStopExtension):
    Chromium treats the boundary from a white-space:pre tab to the following
    text as unbreakable, so a TOC entry that outgrows its line wraps before
@@ -2997,7 +2843,6 @@ th.cell-rev-del {
 .doc-tab-glue {
   white-space: pre;
 }
-
 /* tab leader (w:leader): Word fills the gap with the run font's glyphs on
    the baseline (TOC dots are periods at their natural advance), anchored at
    the stop so the rows line up; a border would sit at the descender like an
@@ -3007,6 +2852,7 @@ th.cell-rev-del {
 .doc-tab-leader-hyphen {
   position: relative;
 }
+
 .doc-tab-leader-dot::before,
 .doc-tab-leader-middleDot::before,
 .doc-tab-leader-hyphen::before {
@@ -3019,22 +2865,26 @@ th.cell-rev-del {
   pointer-events: none;
   user-select: none;
 }
+
 .doc-tab-leader-dot::before {
   content: '................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................';
 }
+
 .doc-tab-leader-middleDot::before {
   content: '\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7\00B7';
 }
+
 .doc-tab-leader-hyphen::before {
   content: '------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------';
 }
+
 .doc-tab-leader-underscore {
   border-bottom: 1px solid currentColor;
 }
+
 .doc-tab-leader-heavy {
   border-bottom: 2px solid currentColor;
 }
-
 /* Drop cap: first-letter floats to 3 lines height */
 .has-drop-cap::first-letter {
   float: left;
@@ -3043,37 +2893,31 @@ th.cell-rev-del {
   margin-top: 0.1em;
   font-weight: normal;
 }
-
 /* editor-created caps keep the body size on the run: scale the letter here;
    Word-imported caps (drop-cap-own-size) already carry the enlarged run size */
 .has-drop-cap:not(.drop-cap-own-size)::first-letter {
   font-size: 3em;
 }
-
 /* Margin drop cap (in-margin): negative left margin to push it outside text area */
 [data-drop-cap*='"type":"margin"']::first-letter {
   margin-left: -0.6em;
 }
-
 /* Move-from revision: strikethrough + light red background (content moved away) */
 .has-move-from {
   background: var(--docs-paper-del-bg);
   text-decoration: line-through;
   text-decoration-color: var(--docs-paper-del-line);
 }
-
 /* Move-to revision: light green background (content moved in) */
 .has-move-to {
   background: var(--docs-paper-ins-bg);
 }
-
 /* pPrChange (tracked paragraph format change): light amber left border + badge */
 .has-ppr-change {
   border-left: 3px solid var(--docs-paper-ppr);
   padding-left: 4px;
   position: relative;
 }
-
 /* pPrChange badge: "format revision" label at paragraph end via ::after */
 .has-ppr-change::after {
   content: attr(data-ppr-change-label);
@@ -3096,7 +2940,6 @@ th.cell-rev-del {
   outline-offset: 1px;
   border-radius: 2px;
 }
-
 /* SDT alias label: tiny floating tag in the top-left corner via ::before.
    Only the first block of a multi-block control carries the attribute */
 .has-sdt[data-sdt-alias]::before {
@@ -3153,7 +2996,6 @@ th.cell-rev-del {
   white-space: pre-wrap;
   min-height: 1.3em;
 }
-
 /* w:framePr floated frame (page number at a margin edge): the frame shares
    the next paragraph's flow line instead of stacking above it. Only when a
    following line exists — a frame that is the last/only paragraph keeps its
@@ -3163,7 +3005,6 @@ th.cell-rev-del {
   min-height: 0;
   overflow: visible;
 }
-
 /* tabbed header/footer paragraph (left\tcenter\tright): segments after each
    tab are pinned at their stop offsets from the text-column left edge */
 .page-hf-tabbed {
@@ -3175,7 +3016,6 @@ th.cell-rev-del {
   position: absolute;
   white-space: nowrap;
 }
-
 /* text after the last tab that overflows the column wraps like body text */
 .page-hf-tabbed-flow {
   white-space: pre-wrap;
@@ -3192,7 +3032,6 @@ th.cell-rev-del {
 .page-hf-tabseg-right {
   transform: translateX(-100%);
 }
-
 /* header/footer layout-table row: cells as columns (display-only). Default
    align-items (stretch) on purpose: a shaded cell's background must fill the
    row height even when its own content is a single empty paragraph (Word cells
@@ -3201,7 +3040,6 @@ th.cell-rev-del {
   display: flex;
   text-align: left;
 }
-
 /* declared widths include the cell margins and borders (border-box); a tab laid
    out past the cell edge stays hidden like Word's legacy layout */
 .page-hf-cell {
@@ -3212,7 +3050,6 @@ th.cell-rev-del {
   box-sizing: border-box;
   overflow: hidden;
 }
-
 /* one block line per cell paragraph */
 .page-hf-cell-para {
   white-space: pre-wrap;
@@ -3227,7 +3064,6 @@ th.cell-rev-del {
 .page-hf-cell-para .page-hf-tabseg {
   overflow: hidden;
 }
-
 /* inline picture on a layout-table cell run (logo); sits in the cell's text line */
 .page-hf-cell-img {
   vertical-align: middle;
@@ -3235,7 +3071,6 @@ th.cell-rev-del {
   user-select: none;
   pointer-events: none;
 }
-
 /* inline picture on a text-paragraph run (logo after a tab): sits on the line's
    baseline like Word; a positioned tab segment holding one is out of flow, so
    the strut reserves its height and the segment starts at the line top */
@@ -3253,7 +3088,6 @@ th.cell-rev-del {
 .page-hf-tabseg-img {
   top: 0;
 }
-
 /* logo and other images in the part (display-only, excluded from text editing) */
 .page-hf-images {
   display: flex;
@@ -3278,7 +3112,6 @@ th.cell-rev-del {
   overflow: visible;
   cursor: text;
 }
-
 /* editor host: the nested rich-text editor owns its children and unmounts with the strip */
 .page-hf-edit-surface {
   outline: none;
@@ -3292,7 +3125,6 @@ th.cell-rev-del {
 .page-hf-editor .doc-textbox-para {
   min-height: 1.3em;
 }
-
 /* PAGE / NUMPAGES atoms show the live number (decoration attribute); a selected field takes the selection tint */
 .hf-field {
   border-radius: 2px;
@@ -3305,7 +3137,6 @@ th.cell-rev-del {
 .hf-field.ProseMirror-selectednode {
   background: var(--selection-soft, var(--hover));
 }
-
 /* Word's "Header -Section 2-" / "Same as Previous" tags hang off the strip edge while editing */
 .page-hf-tags {
   position: absolute;
@@ -3335,7 +3166,6 @@ th.cell-rev-del {
   color: var(--docs-on-accent);
   white-space: nowrap;
 }
-
 /* Word dims the body while a header/footer is being edited; the gap widgets (which host
    the strip editors on inner pages) keep full contrast */
 .page-wrap.hf-editing .ProseMirror > :not(.page-gap) {
@@ -3353,7 +3183,6 @@ th.cell-rev-del {
   border-top: 1px dashed transparent;
   padding-top: 2px;
 }
-
 /* Word's print layout: the header/footer boundary shows only while editing it,
    and strips at rest are drawn washed out (per child: an opacity on the strip
    itself would trap behindDoc boxes in its stacking context) */
@@ -3365,7 +3194,6 @@ th.cell-rev-del {
 .page-hf:not(.page-hf-editing) > :not(.page-hf-tags) {
   opacity: 0.5;
 }
-
 /* Word/WPS crop marks: an L at each text-boundary corner, arms running out into
    the margins. Inner boundaries sit in the page gaps (--gap-* are the adjacent
    pages' margins), the first page's top and the last page's bottom on the wrap */
@@ -3427,7 +3255,6 @@ th.cell-rev-del {
     var(--cm-len) 1px,
     1px var(--cm-len);
 }
-
 /* first page top corners: the box ends at the top text boundary (clipped to the margin) */
 .page-wrap:not(.paper-mixed)::before {
   --cm-h: min(var(--cm-len), var(--page-mt, 96px));
@@ -3439,7 +3266,6 @@ th.cell-rev-del {
     calc(100% - var(--page-mr, 96px) + var(--cm-len)) 100%,
     calc(100% - var(--page-mr, 96px)) 0;
 }
-
 /* last page bottom corners: the box starts at the bottom text boundary */
 .page-wrap:not(.paper-mixed)::after {
   --cm-h: min(var(--cm-len), var(--page-mb, 96px));
@@ -3451,7 +3277,6 @@ th.cell-rev-del {
     calc(100% - var(--page-mr, 96px) + var(--cm-len)) 0,
     calc(100% - var(--page-mr, 96px)) 0;
 }
-
 /* preview/export clones carry full ink (selector outranks the washout above) */
 .pv-page .page-hf:not(.page-hf-editing) > :not(.page-hf-tags) {
   opacity: 1;
@@ -3460,7 +3285,6 @@ th.cell-rev-del {
 .pv-clip .page-gap::after {
   display: none;
 }
-
 /* navigation pane */
 .nav-pane {
   position: relative;
@@ -3803,7 +3627,6 @@ th.cell-rev-del {
   font-size: 12px;
   color: var(--text-dim);
 }
-
 /* tracked changes: insertions underlined, deletions struck through (Word revisions) */
 .doc-ins {
   color: var(--docs-paper-rev-ink);
@@ -3817,13 +3640,11 @@ th.cell-rev-del {
   text-decoration-color: var(--docs-paper-rev-ink);
   opacity: 0.72;
 }
-
 /* deleted text inside an insertion (insert-then-delete) keeps both cues */
 .doc-ins .doc-del,
 .doc-del .doc-ins {
   text-decoration: underline line-through;
 }
-
 /* revision display mode: No Markup = as if all accepted (insertions shown normally, deletions hidden);
    Simple Markup renders the same text and only adds the changed-line bars */
 .rev-display-none .doc-ins,
@@ -3861,7 +3682,6 @@ th.cell-rev-del {
 .rev-display-simple .has-ppr-change::after {
   content: none;
 }
-
 /* revision display mode: Original = as if all rejected (deletions shown normally, insertions hidden).
    known approximation: old formats of rPrChange/pPrChange can't be restored in CSS; markers are merely hidden */
 .rev-display-original .doc-del {
@@ -3892,14 +3712,12 @@ th.cell-rev-del {
 .rev-display-original .has-ppr-change::after {
   content: none;
 }
-
 /* inserted then deleted: they cancel out in No Markup view → hidden; also nonexistent in Original view */
 .rev-display-none .doc-ins .doc-del,
 .rev-display-simple .doc-ins .doc-del,
 .rev-display-original .doc-del .doc-ins {
   display: none;
 }
-
 /* balloon mode (print view, All Markup): deletions and format-change chrome move
    to margin balloons and leave the text flow (Word's balloon view); insertions
    stay inline. Collapsed paragraphs are fully deleted ones whose mark is also
@@ -3908,7 +3726,6 @@ th.cell-rev-del {
 .rev-balloon .doc-para-del-collapse {
   display: none;
 }
-
 /* deleted table rows/cells leave the flow with their fills (Word shows them balloon-side only) */
 .rev-balloon tr.row-rev-del,
 .rev-balloon td.cell-rev-del,
@@ -3924,7 +3741,6 @@ th.cell-rev-del {
 .rev-balloon .has-ppr-change::after {
   content: none;
 }
-
 /* every inline child deleted, mark live: Word keeps the paragraph as one empty
    line — the strut is that line, so the trailing break after a deleted hard
    break must not add a second one. Placed after the has-ppr-change::after
@@ -3946,7 +3762,6 @@ th.cell-rev-del {
 .rev-balloon .doc-para-content-del > br.ProseMirror-trailingBreak {
   display: none;
 }
-
 /* Compare result pane */
 .compare-meta {
   padding: 8px 12px;
@@ -3990,7 +3805,6 @@ th.cell-rev-del {
 .compare-removed {
   background: var(--docs-del-bg);
 }
-
 /* comment composer (new comment) */
 .comment-compose {
   border-bottom: 1px solid var(--border);
@@ -4049,7 +3863,6 @@ th.cell-rev-del {
   padding: 3px;
   border-radius: 4px;
 }
-
 /* the pencil sits directly before the trash; only the first icon pushes to the right edge */
 .comment-card-edit + .comment-card-del {
   margin-left: 0;
@@ -4064,20 +3877,17 @@ th.cell-rev-del {
   background: var(--hover);
   color: var(--text);
 }
-
 /* comments: in-text highlight + right-side pane */
 .doc-comment {
   background: var(--docs-paper-comment-bg);
   border-bottom: 2px solid var(--docs-paper-comment-line);
   cursor: pointer;
 }
-
 /* range picked for a comment that is still being composed */
 .comment-pending {
   background: var(--docs-paper-comment-bg);
   border-bottom: 2px dashed var(--docs-paper-comment-line);
 }
-
 /* Word: body shading of resolved threads is hidden (the jump flash animation can still briefly reveal the position) */
 .doc-comment:has(.doc-comment-resolved),
 .doc-comment-resolved,
@@ -4090,7 +3900,6 @@ th.cell-rev-del {
 .doc-comment-flash {
   animation: comment-flash 350ms cubic-bezier(0, 0, 0.2, 1);
 }
-
 @keyframes comment-flash {
   0%,
   40% {
@@ -4229,7 +4038,6 @@ th.cell-rev-del {
   font-size: 12px;
   color: var(--text-dim);
 }
-
 /* horizontal ruler */
 .ruler {
   position: relative;
@@ -4267,7 +4075,6 @@ th.cell-rev-del {
 .ruler-tab-type:hover {
   background: var(--docs-ruler-btn-hover);
 }
-
 /* tab stop markers on ruler */
 .ruler-tab {
   position: absolute;
@@ -4294,7 +4101,6 @@ th.cell-rev-del {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-
 /* default tab stop guide (no interaction) */
 .ruler-tab-default {
   position: absolute;
@@ -4334,7 +4140,6 @@ th.cell-rev-del {
 .ruler-tick-mid {
   height: 6px;
 }
-
 /* indent markers (Word): first-line triangle on top, hanging triangle over the
    left-indent box below, right-indent triangle at the right edge */
 .ruler-ind {
@@ -4394,7 +4199,6 @@ th.cell-rev-del {
   pointer-events: none;
   z-index: 1000;
 }
-
 /* contextual Header & Footer tab */
 .hf-ribbon-body {
   display: flex;
@@ -4409,7 +4213,6 @@ th.cell-rev-del {
 .hf-distance > span:first-child {
   width: auto;
 }
-
 /* header/footer dropdown editor */
 .hf-menu {
   /* fixed + anchored like the other ribbon panels, so the ribbon-body
@@ -4468,7 +4271,6 @@ th.cell-rev-del {
   border-color: var(--accent);
   color: var(--docs-on-accent);
 }
-
 /* the page: size/margins/background follow the docx sectPr via CSS vars */
 .doc-page {
   width: var(--page-w, 816px);
@@ -4491,7 +4293,6 @@ th.cell-rev-del {
   /* the other half of Word's ~1/4em gap, delivered by .doc-autospace-pad spans */
   --doc-autospace-pad: 0.125em;
 }
-
 /* CJK/Latin autospace pad: the character after the boundary carries the extra
    1/8em as a start margin. Plain inline (not inline-block): an atomic inline
    would suppress Chromium's own text-autospace gap. Not an empty span: when an
@@ -4510,13 +4311,11 @@ th.cell-rev-del {
 .doc-autospace-pad-le {
   margin-inline-start: calc(var(--doc-autospace-pad, 0.125em) * var(--doc-autospace-pad-le, 1));
 }
-
 /* static-DOM word-joiner (protected-render padSegments): generated content keeps
    the U+2060 out of innerText, so cell / textbox edits never commit it */
 .doc-kr-wj:empty::before {
   content: '\2060';
 }
-
 /* a space with a hangul neighbour advances 0.5em in Word whatever the run font
    (line-metrics hangulSpaceOffsets); the half-width space face supplies that
    advance. Keep it a plain baseline inline: line-height:0 or vertical-align:top
@@ -4525,13 +4324,11 @@ th.cell-rev-del {
 .doc-hangul-space {
   font-family: 'GenOffice Hangul Space';
 }
-
 /* dark page in the light theme: Word's gray band around the dark paper — one
    variable override, every canvas-band rule below reads var(--canvas) */
 .workspace-dark {
   --canvas: #3d3d3d;
 }
-
 /* ---- Dark page (View ▸ Dark Mode; the dark theme's default) ----
    Word-style: the paper renders dark and authored document colors are remapped
    for contrast, on screen only. Emission sites append `--dk-*` twins next to the
@@ -4675,7 +4472,6 @@ th.cell-rev-del {
     border-right: var(--dk-tb-r, var(--dk-tb-v, none));
   }
 }
-
 /* visual page-break indicator (w:pageBreakBefore): one out-of-flow pseudo-element
    in the margin above the paragraph — as a border + 14px padding it pushed the
    page's content down 15px, where Word reserves nothing. A list item's ::before
@@ -4704,7 +4500,6 @@ th.cell-rev-del {
 .doc-page p {
   margin: 0 0 8pt;
 }
-
 /* M4 always-on pagination in the canvas: page gap = previous page's bottom margin (white) + inter-page band (gray) + next page's top margin (white) */
 .page-gap {
   position: relative;
@@ -4722,7 +4517,6 @@ th.cell-rev-del {
   background: var(--canvas);
   box-shadow: var(--docs-gap-inset);
 }
-
 /* inline gap for mid-paragraph page breaks: inserted at the broken line inside the paragraph, takes its own line, excluded from text selection/cursor.
    Opaque paper background so the paragraph's own shading can't cross the band (the ::before canvas band paints on top of it). */
 .page-gap-inline {
@@ -4732,14 +4526,12 @@ th.cell-rev-del {
   text-indent: 0;
   background: var(--page-bg, var(--docs-paper));
 }
-
 /* in-cell gap (single-column in-row table cut): opaque paper background so the cell's
    shading/borders don't cross the band; z-index lifts it above collapsed-border painting */
 .page-gap-cell {
   background: var(--page-bg, var(--docs-paper));
   z-index: 1;
 }
-
 /* In-table gap at a row boundary. A real spanning cell isolates collapsed
    borders/backgrounds from the page gutter; the inner fill paints paper /
    canvas / paper bands without inheriting table-cell decoration. */
@@ -4760,7 +4552,6 @@ th.cell-rev-del {
 .page-gap-table::before {
   display: none;
 }
-
 /* absolute: height 100% of an auto-height td resolves to 0, hiding the bands.
    left/width are re-anchored to the paper box by alignTableGapFills (inline
    styles): the cell's own box follows the table, not the paper */
@@ -4774,7 +4565,6 @@ th.cell-rev-del {
     var(--page-bg, var(--docs-paper)) calc(var(--gap-mb, 96px) + 28px) 100%
   );
 }
-
 /* differing-width documents (syncPageSheets): the shared paper goes transparent and
    every page paints its own centered sheet; the gap band's inset shadow would run
    past a narrower page's edges */
@@ -4803,7 +4593,6 @@ th.cell-rev-del {
   background: var(--page-bg, var(--docs-paper));
   box-shadow: var(--docs-page-shadow);
 }
-
 /* footnote area at the top of a page gap (previous page's bottom, Word behavior): the gap was already enlarged by the reserved height;
    the estimated height differs from actual rendering by pixels, so overflow into the bottom-margin area is allowed (no clipping) */
 .page-gap-notes {
@@ -4822,7 +4611,6 @@ th.cell-rev-del {
   text-indent: 0;
   text-align: left;
 }
-
 /* Word's built-in separator: a 2in rule (clamped to the column) on its own line;
    the border sits at the bottom of the reserved row (11 + 1 + 4 = FOOTNOTE_SEPARATOR_H)
    so it clears the last body line's descenders instead of underlining them */
@@ -4834,7 +4622,6 @@ th.cell-rev-del {
   border-bottom: 1px solid var(--docs-paper-ink-faint);
   margin-bottom: 4px;
 }
-
 /* rows are min-height (App.tsx): a long entry grows past its reserved height
    and spills into the bottom margin instead of being clipped mid-line */
 .page-gap-note {
@@ -4849,7 +4636,6 @@ th.cell-rev-del {
   margin-right: 4px;
   font-size: 0.65em;
 }
-
 /* pagination preview: page-bottom footnote area (the referencing page; separator + small text); tiny overflow spills into the bottom margin */
 .pv-footnotes {
   position: absolute;
@@ -4859,7 +4645,6 @@ th.cell-rev-del {
   line-height: 1.3;
   color: var(--docs-paper-ink-dim);
 }
-
 /* same 2in bottom-anchored rule as .page-gap-notes::before; consuming the full
    reserved row keeps the entries aligned with the engine's height reservation */
 .pv-footnotes::before {
@@ -4870,14 +4655,12 @@ th.cell-rev-del {
   border-bottom: 1px solid var(--docs-paper-ink-faint);
   margin-bottom: 4px;
 }
-
 /* Word renders note markers with the reference character style: superscript at
    ~65% of the entry size (the UA's font-size:smaller left them oversized) */
 .pv-footnote sup {
   margin-right: 4px;
   font-size: 0.65em;
 }
-
 /* endnote area: right after the body's end, separator above the first entry, continuation pages have no separator */
 .pv-endnotes {
   position: absolute;
@@ -4896,7 +4679,6 @@ th.cell-rev-del {
   margin-bottom: 4px;
   height: 11px;
 }
-
 /* header/footer strips inside canvas page gaps: double-click opens that page's
    strip editor in place (App.startGapHfEdit); hover hints at it like Word */
 .page-gap-hf {
@@ -4911,7 +4693,6 @@ th.cell-rev-del {
 .page-gap-hf .page-hf-tags {
   display: none;
 }
-
 /* floating textbox in a header/footer part: drawn at its anchor's page position
    (strip-relative offsets from hfTextBoxStyle) like Word's anchored shapes, so
    its lines never stack into the strip flow. The box can sit outside the strip's
@@ -4938,12 +4719,10 @@ th.cell-rev-del {
 .page-hf-textbox .page-hf-para {
   min-height: 0;
 }
-
 /* a strip paragraph hosting the boxes anchored to it (paragraph-relative offsets) */
 .page-hf-anchor {
   position: relative;
 }
-
 /* words break only at spaces like Word; wrap="none" keeps a label on one line */
 .page-hf-textbox .page-hf-para {
   word-break: normal;
@@ -4953,7 +4732,6 @@ th.cell-rev-del {
 .page-hf-textbox.page-hf-nowrap .page-hf-para {
   white-space: pre;
 }
-
 /* floating header image (picture watermark) on canvas pages, mirroring
    .pv-watermark-img: behind the body text via negative z-index, which needs
    .doc-page as the stacking context (isolation below) so the image still paints
@@ -4968,7 +4746,6 @@ th.cell-rev-del {
 .view-print .doc-page {
   isolation: isolate;
 }
-
 /* first page's floating-image host: zero-height page-float-host so measurement
    and preview clones ignore it without page-boundary consumers counting it as a page */
 .page-first-floats {
@@ -4977,13 +4754,11 @@ th.cell-rev-del {
   cursor: default;
   user-select: none;
 }
-
 /* when a page gap is right next to a page-break indicator, hide the duplicate dashed marker */
 .page-gap + .page-break-before:where(:not(.doc-li))::before,
 .page-gap + .doc-li.page-break-before::after {
   display: none;
 }
-
 /* Word drops space-before on a page's lead block but still charges it for the fit on
    the previous page: display-only, the measuring pass keeps the declared margin (else a
    natural lead fits back, loses the gap, overflows again). !important beats the inline
@@ -4991,14 +4766,12 @@ th.cell-rev-del {
 .page-break-lead:not(.measuring-natural *) {
   margin-top: 0 !important;
 }
-
 /* Sole line taller than its column (oversized inline picture): Word overflow-clips
    it at the page bottom. The max-height rides the setOversizeClips inline style;
    unscoped so pv clones and direct print match */
 .doc-oversize-clip {
   overflow: hidden;
 }
-
 /* Word border groups: adjacent paragraphs with identical w:pBdr + shading draw
    top/bottom lines only at the group edges (ParaBorderMergeExtension classes).
    !important beats the inline border style; unscoped so pv clones and print match */
@@ -5011,7 +4784,6 @@ th.cell-rev-del {
   border-bottom: none !important;
   padding-bottom: 0 !important;
 }
-
 /* pagination preview: read-only overlay, one fixed-size box per page, content clone clipped via negative margin */
 .pagination-preview {
   position: fixed;
@@ -5021,7 +4793,6 @@ th.cell-rev-del {
   flex-direction: column;
   background: var(--docs-pv-canvas);
 }
-
 /* chunked PDF export: each printToPDF flips print<->screen media over the whole
    document; parking the subtree layout of everything outside the printed group
    (the editor is covered by the opaque preview overlay; skipped pages keep
@@ -5102,13 +4873,11 @@ th.cell-rev-del {
 .pv-clip {
   overflow: hidden;
 }
-
 /* own formatting context: the clone's first block may carry a negative top
    margin (lifted table); collapsing it with the window offset would swallow it */
 .pv-offset {
   display: flow-root;
 }
-
 /* header picture watermark (absolute VML shape): drawn once per preview page,
    behind the body text. Document content: renders identically in both themes. */
 .pv-watermark-img {
@@ -5116,7 +4885,6 @@ th.cell-rev-del {
   z-index: -1;
   pointer-events: none;
 }
-
 /* clip at the paper edge, not the content box: over-wide tables bleed into the right
    margin like Word (keep overflow hidden — print pagination needs the box monolithic).
    Left side symmetrically: negative w:tblInd tables start inside the left margin, and
@@ -5128,7 +4896,6 @@ th.cell-rev-del {
   margin-left: calc(-1 * var(--pv-ml, 0px));
   padding-left: var(--pv-ml, 0px);
 }
-
 /* the page's layout lives on this wrapper so the whole sheet can scale as one
    when the markup strip is on (Word's print-markup geometry) */
 .pv-sheet {
@@ -5188,7 +4955,6 @@ th.cell-rev-del {
 .pv-comment-leaders path.pv-leader-rev {
   stroke: var(--docs-print-rev-line);
 }
-
 /* Word's revision balloons: white, author-line border, tighter than comments */
 .pv-rev-bubble {
   padding: 2px 6px;
@@ -5197,14 +4963,12 @@ th.cell-rev-del {
   font-size: 11px;
   line-height: 14px;
 }
-
 /* crowded page: one line per balloon, like Word before it spills to the overflow pane */
 .pv-rev-bubble-compact {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 /* column flow: regions stack vertically; narrow clipped columns sit side by side within a region */
 .pv-region {
   display: flex;
@@ -5215,14 +4979,12 @@ th.cell-rev-del {
 .pv-col {
   flex: none;
 }
-
 /* the clone is a gapless continuous flow (slices use virtual coordinates); canvas page gaps don't enter the clone */
 .pv-clip .page-gap,
 .pv-clip .page-gap-cut,
 .pv-clip .page-float-host {
   display: none;
 }
-
 /* the clone keeps only content layout, stripping the page box's chrome (width = content area, matching the canvas) */
 .pv-clip .doc-page {
   width: auto;
@@ -5233,7 +4995,6 @@ th.cell-rev-del {
   min-height: 0;
   pointer-events: none;
 }
-
 /* the clone never paints the indicator (out of flow: line heights are unaffected) */
 .pv-clip .doc-page .page-break-before:where(:not(.doc-li))::before,
 .pv-clip .doc-page .doc-li.page-break-before::after {
@@ -5249,7 +5010,6 @@ th.cell-rev-del {
   left: var(--pv-ml);
   transform: none;
 }
-
 /* the 1.3em floor is editor chrome (clickable empty strips): exported strip
    lines take their natural height, where Word draws them and what the
    push-down probe measures */
@@ -5276,7 +5036,6 @@ th.cell-rev-del {
   line-height: 1.2;
   margin: 14pt 0 4pt;
 }
-
 /* built-in heading look; :where keeps specificity below [data-style] rules,
    and .doc-outline-only (heading by w:outlineLvl alone) keeps body formatting */
 .doc-page h1:where(:not(.doc-outline-only)) {
@@ -5301,12 +5060,10 @@ th.cell-rev-del {
   color: inherit;
   font-style: italic;
 }
-
 /* body size instead of the UA heading size; stays below [data-style] rules */
 .doc-page :where(h1, h2, h3, h4, h5, h6).doc-outline-only {
   font-size: inherit;
 }
-
 /* text of a w:bidi paragraph whose runs carry no w:rtl: one LTR item on an RTL line (Word) */
 .doc-ltr-runs {
   direction: ltr;
@@ -5318,13 +5075,11 @@ th.cell-rev-del {
   text-decoration: underline;
   cursor: pointer;
 }
-
 /* unstyled bookmark-link runs (TOC entries) keep the paragraph's ink, as in Word */
 .doc-link.doc-link-plain {
   color: inherit;
   text-decoration: none;
 }
-
 /* flat list items (1:1 with w:p anchors)
    geometry comes from w:ind (--li-left text indent / --li-hang hanging marker-area width,
    emitted by extensions.ts; --style-li-left is the style-level w:ind fallback from
@@ -5354,7 +5109,6 @@ th.cell-rev-del {
 .doc-li.ilvl-4 {
   padding-inline-start: var(--li-left, var(--style-li-left, 1.75in));
 }
-
 /* Word HTML auto spacing (sp-auto-*, 14pt inline margins) collapses to 0 between
    two items of the same list: doc-style-css.ts emits those rules per list.
    auto space-before is also suppressed on the document's first paragraph (Word);
@@ -5362,7 +5116,6 @@ th.cell-rev-del {
 .doc-page > .sp-auto-b:nth-child(1 of :not(.page-float-host)) {
   margin-top: 0 !important;
 }
-
 /* Word zeroes auto spacing at a cell's first/last paragraph (probe 2026-09-03) */
 .doc-table :is(td, th, .cell-clip, .cell-vert) > .sp-auto-b:nth-child(1 of :not(.doc-cell-boxes)) {
   margin-top: 0 !important;
@@ -5373,7 +5126,6 @@ th.cell-rev-del {
   > .sp-auto-a:nth-last-child(1 of :not(.doc-cell-boxes)) {
   margin-bottom: 0 !important;
 }
-
 /* direct w:contextualSpacing between unstyled (Normal) paragraphs, list items
    (.doc-li) included: same-style suppression (styled pairs are handled per
    style in doc-style-css.ts) */
@@ -5384,7 +5136,6 @@ th.cell-rev-del {
 .doc-page :is(p, .doc-li):not([data-style]) + :is(p, .doc-li).ctx-sp:not([data-style]) {
   margin-top: 0 !important;
 }
-
 /* ...and across table boundaries: Word compares with the next paragraph in
    cell-flow order (probe 2026-10-20) - the first cell's first paragraph after a
    paragraph before the table, the next cell's first paragraph after a cell's
@@ -5479,14 +5230,12 @@ th.cell-rev-del {
 .doc-li-ordered::before {
   content: counter(doc-ol) '.';
 }
-
 /* restart numbering after any non-ordered block; counter-set (applied after
    increment) mutates the page-scoped counter, while a sibling counter-reset
    would nest a new instance and desync the numbers from the 2nd item on */
 .doc-page > :not(.doc-li-ordered) + .doc-li-ordered {
   counter-set: doc-ol 1;
 }
-
 /* real multilevel numbering: items defined in numbering.xml get data-marker computed by ListNumberingExtension,
    overriding the bullet/CSS-counter fallbacks above (selector includes .doc-page for higher specificity and comes later) */
 .doc-page .doc-li[data-marker] {
@@ -5496,13 +5245,11 @@ th.cell-rev-del {
 .doc-page .doc-li[data-marker]::before {
   content: attr(data-marker);
 }
-
 /* Word clips cell content at the cell's text area: a marker hanging left of it never shows
    (ListNumberingExtension flags the item); the box still holds the text position */
 .doc-page .doc-li[data-marker-clip]::before {
   visibility: hidden;
 }
-
 /* w:suff space/nothing: the marker no longer fills the hanging area (no tab);
    first-line text starts right after the marker (+ one space), wrapped lines keep the indent */
 .doc-page .doc-li[data-suff]::before {
@@ -5513,7 +5260,6 @@ th.cell-rev-del {
 .doc-page .doc-li[data-suff='space'][data-marker]:not([data-marker-pic])::before {
   content: attr(data-marker) '\00a0';
 }
-
 /* picture bullet (w:lvlPicBulletId): a 1em image box on the baseline like Word; the rest
    of the hanging area becomes inline-end margin so the box stays logical (RTL mirrors) */
 .doc-page .doc-li[data-marker-pic]::before,
@@ -5536,7 +5282,6 @@ th.cell-rev-del {
 .doc-page [data-stray-marker][data-marker-pic] .doc-li-stray::before {
   margin-inline-end: max(0px, calc(var(--li-tab, var(--li-hang, var(--style-li-hang, 0))) - 1em));
 }
-
 /* w:suff space/nothing on a picture level: one space after the image, or none */
 .doc-page .doc-li[data-suff][data-marker-pic]::before,
 .doc-page [data-stray-marker][data-suff][data-marker-pic] .doc-li-stray::before {
@@ -5547,7 +5292,6 @@ th.cell-rev-del {
 .doc-page [data-stray-marker][data-suff='space'][data-marker-pic] .doc-li-stray::before {
   margin-inline-end: 0.25em;
 }
-
 /* protected blocks (table / image / chart / math ...) */
 .doc-protected {
   position: relative;
@@ -5587,22 +5331,18 @@ th.cell-rev-del {
   opacity: 1;
   pointer-events: auto;
 }
-
 /* Pictures drag directly from their body. Their left-side chrome is the
    paragraph anchor marker below, not the generic protected-block move button. */
 .doc-protected[data-doc-protected='image'] > .doc-move-handle {
   display: none;
 }
-
 /* pictures drag-move from anywhere on their body (Word parity) */
 .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   cursor: grab;
 }
-
 body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   cursor: default;
 }
-
 /* Word-style inactive selection: while a ribbon combobox (font family/size)
    holds keyboard focus the DOM selection lives in that input, so the editor's
    native highlight vanishes — this decoration keeps the target text visibly
@@ -5614,7 +5354,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 
   background-color: var(--doc-inactive-selection-bg);
 }
-
 /* corner resize handle of floating shape/textbox/WordArt/line boxes */
 .box-resize-handle {
   position: absolute;
@@ -5643,7 +5382,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   opacity: 0;
   pointer-events: none;
 }
-
 /* Native ProseMirror tables: no vertical gap of their own (Word) */
 .doc-page > .doc-table {
   margin: 0;
@@ -5707,14 +5445,12 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
      pitch in cells and they snap like body lines (Word probe 2026-09-02) */
   --doc-grid-pitch: 0.0001px;
 }
-
 /* empty paragraph in a cell: LO sizes it near the Latin single line, so it must
    not out-grow the row's content cells via the inherited CJK factor */
 .doc-table td .doc-p-empty,
 .doc-table th .doc-p-empty {
   --doc-line-factor: var(--doc-line-factor-latin, 1.2);
 }
-
 /* Word lays out the mandatory end-of-cell paragraph at zero height when it is
    empty and directly follows a nested table (any other empty cell paragraph
    keeps its line); margins are inline, hence the override */
@@ -5728,7 +5464,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   padding: 0;
   margin: 0 !important;
 }
-
 /* w:hideMark: Word leaves the end-of-cell mark out of the row height, so a cell
    holding nothing but one empty paragraph collapses to its margins (or trHeight);
    a picture-only paragraph is textless too but keeps its picture extent */
@@ -5740,7 +5475,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   padding: 0;
   margin: 0 !important;
 }
-
 /* Word ignores page-type w:br inside table cells; a visible line break here
    inflates every cell that carries one (HWP-exported TOC/decor tables) */
 .doc-table td .doc-page-br,
@@ -5773,7 +5507,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
      than letting it overflow (unless w:noWrap, which we don't model yet) */
   overflow-wrap: break-word;
 }
-
 /* Word sizes rows with the true border width (0.5pt = 0.667px) while we draw whole
    px (Chromium snaps sub-px borders anyway); this spacer hands the difference back
    so a 40-row table ends where Word's does (--cell-bd-* = true - drawn). A positive
@@ -5787,10 +5520,10 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   height: max(0px, var(--cell-bd-sum));
   margin-bottom: min(0px, var(--cell-bd-sum));
 }
+
 .doc-table .page-gap-table > td::before {
   content: none;
 }
-
 /* repeated header rows after a table page break (w:tblHeader): pure decoration —
    not selectable, not editable, invisible to hit-testing. display beats the
    .page-gap-inline inline-block (that class only marks them as measurement gaps). */
@@ -5799,7 +5532,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   user-select: none;
   pointer-events: none;
 }
-
 /* outer edges: table-level outer borders beat the inside-line variables even when the
    frame is explicitly none (border-collapse would otherwise let inside lines win) */
 .doc-table tr:first-child > td,
@@ -5807,28 +5539,29 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   border-top: var(--doc-b-t, var(--doc-b-h, none));
   --cell-bd-t: var(--doc-bd-t, var(--doc-bd-h, 0px));
 }
+
 .doc-table tr:last-child > td,
 .doc-table tr:last-child > th {
   border-bottom: var(--doc-b-b, var(--doc-b-h, none));
   --cell-bd-b: var(--doc-bd-b, var(--doc-bd-h, 0px));
 }
+
 .doc-table td:first-child,
 .doc-table th:first-child {
   border-left: var(--doc-b-l, var(--doc-b-v, none));
   --cell-bw-l: var(--doc-bw-l, var(--doc-bw-v, 0px));
 }
+
 .doc-table td:last-child,
 .doc-table th:last-child {
   border-right: var(--doc-b-r, var(--doc-b-v, none));
   --cell-bw-r: var(--doc-bw-r, var(--doc-bw-v, 0px));
 }
-
 /* header cells follow the document model (cell bold/align attrs), not the UA defaults */
 .doc-table th {
   font-weight: inherit;
   text-align: inherit;
 }
-
 /* the move handle / Select Table pick the table as a node: Word tints every cell, same as a cell selection */
 .doc-table .selectedCell,
 .doc-table.ProseMirror-selectednode > tbody > tr:not(.page-gap-table) > td,
@@ -5855,7 +5588,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .row-resize-cursor .doc-table th {
   cursor: row-resize;
 }
-
 /* the handle is an absolute child of its cell; cells are positioned only while a
    handle is live (prosemirror-tables sets resize-cursor), never in the export clone */
 .resize-cursor .doc-table td,
@@ -5918,7 +5650,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   white-space: nowrap;
   cursor: pointer;
 }
-
 /* icon + label buttons (insert/merge/align/borders) */
 .table-tool-row > button,
 .table-tool-grid > button {
@@ -6097,7 +5828,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   gap: 2px;
   flex: 1;
 }
-
 /* Three stacked rows have to fit the 64px the fixed 80px band leaves after its
    padding and the scrollbar lane: 3 × 20px + 2 × 2px. At the default 25-26px
    the bottom row (Table Properties, Insert Cells…) was clipped. */
@@ -6117,7 +5847,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   padding-top: 0;
   padding-bottom: 0;
 }
-
 /* Word's split button: the left half repeats the last gallery pick, the caret opens it */
 .table-split {
   display: flex;
@@ -6176,7 +5905,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 /* anchored textboxes (code boxes, callout cards): render the box itself,
    text edits happen in place */
 .doc-protected-textboxes {
@@ -6195,14 +5923,12 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-protected-textboxes:hover {
   border-color: var(--border);
 }
-
 /* side-wrapped box: the wrapper spans the column so the float's edge margin
    lands on the column edge; the float is not contained, so following
    paragraphs wrap beside the box too (Word) */
 .doc-protected-textboxes.doc-protected-wrapside {
   width: 100%;
 }
-
 /* inline shapes (WordArt) follow their paragraph's justification like Word */
 .doc-protected-textboxes.doc-protected-boxes-center {
   margin-left: auto;
@@ -6212,18 +5938,17 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-protected-textboxes.doc-protected-boxes-right {
   margin-left: auto;
 }
-
 /* floating drawings (wrapNone/front/behind anchors, or several drawings
    anchored in one paragraph): the wrapper marks the anchor paragraph's flow
    position but takes no flow height — each box positions absolutely at its
-   own offset, overlapping body text exactly like Word */
-/* canvas-only page-gap compensation for floating boxes (syncFloatShifts);
+   own offset, overlapping body text exactly like Word */ /* canvas-only page-gap compensation for floating boxes (syncFloatShifts);
    the pagination preview clones per-page flow with no gaps, so it neutralizes it */
 .doc-protected-floating > .doc-textbox {
   translate: 0 var(--page-float-dy, 0px);
   /* anchored shapes keep their declared extent past the column (Word) */
   max-width: none;
 }
+
 .pv-clip .doc-protected-floating > .doc-textbox {
   translate: none;
 }
@@ -6238,7 +5963,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   width: 100%;
   max-width: 100%;
 }
-
 /* behindDoc anchors: under the body text like Word (positioned boxes would
    otherwise paint above every later in-flow paragraph); on the boxes too so
    it also holds when the pagepinned wrapper is un-positioned */
@@ -6250,7 +5974,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-protected.doc-protected-behind .doc-textbox {
   z-index: -1;
 }
-
 /* page-pinned cover art: the un-positioned wrapper lets the boxes' absolute
    page coordinates resolve against the page box itself */
 .doc-protected.doc-protected-floating.doc-protected-pagepinned {
@@ -6260,7 +5983,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-protected-pagepinned > .doc-move-handle {
   display: none;
 }
-
 /* wrapNone / behind-text anchored images: same zero-flow-height semantics */
 .doc-protected.doc-img-float {
   position: relative;
@@ -6273,7 +5995,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   max-width: 100%;
   overflow: visible;
 }
-
 /* banded side wrap: the wrapper keeps the picture's band as flow height (inline
    min-height) while the picture itself positions at its anchor offset */
 .doc-protected.doc-img-float.img-wrap-band {
@@ -6283,20 +6004,19 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-img-float > .doc-img-wrap {
   translate: 0 var(--page-float-dy, 0px);
 }
-
 /* a banded picture may overhang the column (cover art at the paper edge): it
    keeps its wp:extent instead of the wrapper-width cap */
 .doc-img-float.img-wrap-band > .doc-img-wrap,
 .doc-img-float.img-wrap-band > .doc-img-wrap > .doc-protected-img {
   max-width: none;
 }
-
 /* cell-anchored boxes share the float display-shift channel (paper-top clamp);
    layoutInCell="0" page-positioned boxes add their cell-to-page correction */
 .doc-cell-boxes > .doc-textbox,
 .doc-cell-boxes > div {
   translate: var(--cell-page-dx, 0px) calc(var(--page-float-dy, 0px) + var(--cell-page-dy, 0px));
 }
+
 .pv-clip .doc-cell-boxes > .doc-textbox,
 .pv-clip .doc-cell-boxes > div {
   translate: none;
@@ -6307,12 +6027,14 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .pv-clip .doc-cell-boxes-page > .doc-textbox[data-cell-page] {
   visibility: hidden;
 }
+
 .pv-cell-page-box {
   position: absolute;
   width: 0;
   height: 0;
   overflow: visible;
 }
+
 .pv-cell-page-box > .doc-textbox {
   left: 0 !important;
   top: 0 !important;
@@ -6328,7 +6050,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .pv-clip .doc-img-float > .doc-img-wrap {
   translate: none;
 }
-
 /* anchor-paragraph text next to all-floating boxes keeps its flow line:
    the wrapper takes the stray line's height instead of collapsing. flow-root
    keeps the line's space-before inside, where Word's paragraph-relative box
@@ -6337,13 +6058,11 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   height: auto;
   display: flow-root;
 }
-
 /* preview: an anchor-shifted box reaching above its page top rides --pv-anchor-lift
    (stamped before cloning) back onto the anchor's page */
 .pv-clip [data-anchor-dy] > .doc-textbox {
   translate: 0 var(--pv-anchor-lift, 0px);
 }
-
 /* preview: wrappers whose boxes are all page-relative V (data-pv-pagerel,
    stamped before cloning) un-position like pinned covers so the boxes escape
    the pv-clip (sized to the page's flow content) and resolve against the page
@@ -6353,6 +6072,7 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .pv-page .doc-anchor-origin[data-pv-pagerel='1'] {
   position: static;
 }
+
 .pv-page [data-pv-pagerel='1'] > .doc-textbox[data-page-rel-v='1'],
 .pv-page [data-pv-pagerel='1'] > .doc-img-wrap[data-page-rel-v='1'],
 .pv-page [data-pv-pagerel='1'] .doc-inline-img-anchor > img[data-page-rel-v='1'] {
@@ -6364,7 +6084,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .pv-page [data-pv-pagerel='1'] .doc-inline-img-anchor > img[data-page-rel-from='page'] {
   translate: var(--pv-ml, 0px) var(--pv-mt-page, var(--pv-mt, 0px));
 }
-
 /* preview: wrappers whose boxes spill past the page's flow window (data-pv-hoist,
    stamped before cloning — cover flows ending in an early page break, page-bottom
    overhang) un-position the same way so the boxes escape the pv-clip (which cut
@@ -6373,6 +6092,7 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .pv-page [data-pv-hoist='1'] {
   position: static;
 }
+
 .pv-page [data-pv-hoist='1'] > .doc-textbox,
 .pv-page [data-pv-hoist='1'] > .doc-img-wrap {
   translate: var(--pv-ml, 0px) calc(var(--pv-mt, 0px) + var(--pv-hoist-dy, 0px));
@@ -6384,6 +6104,7 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   translate: calc((var(--pv-ml, 0px) - var(--pv-mr, 0px)) / 2)
     calc(var(--pv-mt, 0px) + var(--pv-hoist-dy, 0px));
 }
+
 .pv-page [data-pv-hoist-slot='right'] > .doc-textbox,
 .pv-page [data-pv-hoist-slot='right'] > .doc-img-wrap {
   translate: calc(-1 * var(--pv-mr, 0px)) calc(var(--pv-mt, 0px) + var(--pv-hoist-dy, 0px));
@@ -6420,7 +6141,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   opacity: 0;
   pointer-events: none;
 }
-
 /* the nested tiptap editor inside each box */
 .doc-textbox .doc-textbox-editor {
   outline: none;
@@ -6440,7 +6160,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   white-space: pre-wrap;
   word-break: break-word;
 }
-
 /* numbering inside a textbox: marker resolved at parse time (data-marker), same hanging
    box geometry as .doc-li (margin-inline-start carries the text indent; --li-tab widens
    the box to the default tab stop when the level declares no hanging area) */
@@ -6456,7 +6175,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   vertical-align: var(--li-marker-va, baseline);
   color: var(--li-marker-color, inherit);
 }
-
 /* same picture bullet as .doc-li[data-marker-pic]; listed after the text rule so it wins */
 .doc-textbox-para[data-marker-pic]::before {
   content: '';
@@ -6467,7 +6185,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   margin-inline-end: max(0px, calc(var(--li-tab, var(--li-hang, 0)) - 1em));
   background: var(--li-marker-pic) center / contain no-repeat;
 }
-
 /* numbered anchor paragraph (Word keeps it in the list): its stray line runs on the
    .doc-li geometry; ListNumberingExtension decorates the protected wrapper with
    --li-marker since attr() cannot read an ancestor */
@@ -6487,7 +6204,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   vertical-align: var(--li-marker-va, baseline);
   color: var(--li-marker-color, inherit);
 }
-
 /* the wrapper carries the same flags as a .doc-li: clipped-in-cell, w:suff space/nothing */
 .doc-page [data-stray-marker][data-marker-clip] .doc-li-stray::before {
   visibility: hidden;
@@ -6501,12 +6217,10 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-page [data-stray-marker][data-suff='space']:not([data-marker-pic]) .doc-li-stray::before {
   content: var(--li-marker) '\00a0';
 }
-
 /* inline pictures in table cells (document content, theme-independent) */
 .doc-inline-img {
   max-width: 100%;
 }
-
 /* picture-only paragraph (extensions isPictureOnlyContent): the line is the
    picture extent, no strut or descent below it; an auto multiple adds its
    (m - 1) x single line under the picture like Word (cf. .doc-img-para) */
@@ -6518,7 +6232,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-page .doc-p-pic .doc-inline-img {
   vertical-align: bottom;
 }
-
 /* floating (wp:anchor) run pictures: zero-size marker at the run, the picture
    overlays without consuming flow space. The hosting paragraph is the
    positioning origin — wp:posOffset measures from the column / paragraph top
@@ -6527,19 +6240,16 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-inline-img-anchor {
   display: inline;
 }
-
 /* set by the lineFactorLive decoration pass; a stylesheet :has() here OOMed
    Blink's invalidation on long picture-heavy documents */
 .doc-page .doc-anchor-origin {
   position: relative;
 }
-
 /* a leading sized w:br (lineFactorLive): its own block, so the line is as tall
    as the break run and not the paragraph strut */
 .doc-page .doc-br-line {
   display: block;
 }
-
 /* CJK stretch of a mixed-script paragraph (lineFactorLive): the strut sits at
    the Latin base and the stretch re-resolves the auto line rule with its own
    factor, so only the lines it lands on lift (Word sizes each line by the faces
@@ -6550,7 +6260,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
     calc(var(--doc-line-factor, 1.2) * 1em * var(--doc-line-mult, 1))
   );
 }
-
 /* Cell paragraph mixing declared faces (extensions paraMixedFaceClass): a run whose
    face box is shorter than the strut's, centred in the inherited line-height, would
    lift the line by (asc - box/2) of the two faces (Times in Sakkal Majalla: 0.15em);
@@ -6563,23 +6272,24 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   span[style*='--doc-run-lh']:not([style*='vertical-align']) {
   line-height: calc(var(--doc-run-lh) * 1em * var(--doc-line-mult, 1));
 }
-
 /* rtl run (marks.ts doc-cs): weight / style resolved by the engine through the whole
    chain (table style, paragraph style, Cs twins, XOR). A user strong/em wrapper
    still paints: the regular rules step aside inside it. */
 .doc-page span.doc-cs.doc-cs-b {
   font-weight: 600;
 }
+
 .doc-page span.doc-cs.doc-cs-nb:not(strong *) {
   font-weight: normal;
 }
+
 .doc-page span.doc-cs.doc-cs-i {
   font-style: italic;
 }
+
 .doc-page span.doc-cs.doc-cs-ni:not(em *) {
   font-style: normal;
 }
-
 /* Mixed Latin + complex-script paragraph (extensions paraCsMixedClass): Word sizes
    the line by the tallest face (Calibri 1.22 over Arial Arabic 1.15); Chromium
    centres the Arial span's box in the inherited line-height and the union runs
@@ -6592,7 +6302,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   span[data-cs][style*='--doc-run-lh']:not([style*='vertical-align']) {
   line-height: 0;
 }
-
 /* One-size paragraph with a bold/italic run of a per-cut size-adjusted alias
    (extensions paraCutAdjustedClass): the span's box is another size than the
    regular-cut strut and the union inflates the line; the strut paces it. The
@@ -6605,12 +6314,10 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   span[data-cut-adj][style*='--doc-run-lh']:not([style*='vertical-align']) {
   line-height: 0;
 }
-
 /* behind text at full opacity (Word); the page's stacking context keeps it above the paper */
 .doc-inline-img--behind {
   z-index: -1;
 }
-
 /* Word puts the whole (m-1) x single extra of an auto multiple below the glyphs,
    rests the descent on the single line's bottom (--doc-lead-gap: the face's
    leading sits above, Chromium centres it), bottom-aligns atLeast lines
@@ -6633,21 +6340,19 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   position: relative;
   top: var(--doc-lead-shift);
 }
-
 /* anchored pictures measure from the paragraph box, not from its glyphs */
 .doc-page .doc-anchor-origin .doc-inline-img-anchor > img {
   translate: 0 calc(-1 * var(--doc-lead-shift, 0px));
 }
-
 /* page-relative run pictures also ride the floating-box shift channel (same
    specificity as the rule above, so source order keeps both terms) */
 .doc-anchor-origin .doc-inline-img-anchor > img[data-page-rel-v='1'] {
   translate: 0 calc(var(--page-float-dy, 0px) - var(--doc-lead-shift, 0px));
 }
+
 .pv-clip .doc-inline-img-anchor > img[data-page-rel-v='1'] {
   translate: 0 calc(-1 * var(--doc-lead-shift, 0px));
 }
-
 /* square/tight/through wrap: real CSS float so same-paragraph text wraps */
 .doc-inline-img--wrap-square-left,
 .doc-inline-img--wrap-tight-left,
@@ -6667,7 +6372,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   display: block;
   margin: 2px auto;
 }
-
 /* wrap-obstacle mode (syncWrapObstacles): the paragraph's lines take the
    measured gap through its padding, while its own side-wrapped run pictures
    stay at their anchor offsets as overlays (Word allowOverlap) instead of
@@ -6688,7 +6392,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   right: var(--obs-right, auto);
   top: var(--obs-top, 0px);
 }
-
 /* invisible drawing paragraph: Word still lays out its (empty) line */
 .doc-protected.doc-protected-anchor-line {
   border: none;
@@ -6699,7 +6402,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   pointer-events: none;
   user-select: none;
 }
-
 /* body-level invisible markers (stray bookmarkEnd…): occupy no space at all, and
    no BFC (overflow) so the neighbouring paragraphs' margins still collapse */
 .doc-protected-invisible {
@@ -6710,7 +6412,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   pointer-events: none;
   user-select: none;
 }
-
 /* empty section-break paragraphs: zero flow height like Word's absorbed section
    mark (a 26px strip shifted every page below it); the label is an absolute
    overlay (transparent until the node is selected), so it never takes flow space */
@@ -6750,7 +6451,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .ProseMirror-focused .doc-protected-sectbreak.ProseMirror-selectednode .doc-sectbreak-label {
   color: var(--text-dim);
 }
-
 /* decorative rule drawings (heading underlines, dividers): a plain line */
 .doc-protected-rule {
   border-color: transparent;
@@ -6762,7 +6462,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-protected-rule:hover {
   border-color: var(--border-strong);
 }
-
 /* floating rule (connector line) anchored to an empty paragraph: Word keeps the
    paragraph's full line in the flow and draws the line over it at its offset */
 .doc-protected-rule.doc-protected-rule-anchored {
@@ -6779,7 +6478,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   left: 0;
   top: 0;
 }
-
 /* inline-level at full width: a line shortened by a float cannot hold it, so
    the rule drops below the float like Word's full-width rule picture */
 .doc-rule-line {
@@ -6789,7 +6487,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   height: 1px;
   background: var(--docs-paper-ink-dim);
 }
-
 /* VML horizontal rule, alone in its paragraph or sharing it with text: Word puts
    the shape on a line of its own and sits it on that line's baseline; that line is
    one single line of the rule run's own font (the document base size unless the
@@ -6813,7 +6510,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   background: var(--doc-rule-color, var(--docs-paper-ink-dim));
   background-clip: content-box;
 }
-
 /* a rule opening a paragraph that goes on with text gets no text line of its own:
    Word sets the rule ~5.5pt below the paragraph top and starts the first text line
    right under it (probe 2026-09-05: 9.4px for a 1.5pt rule, 11.4px for 3pt, at any
@@ -6823,7 +6519,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   padding-top: 5.5pt;
   padding-bottom: 0;
 }
-
 /* exact / atLeast runs keep their own natural box: an inherited absolute
    line-height centred on a smaller glyph would hang below the strut and grow
    the line (Word: atLeast is max(rule value, tallest run)); an exact rule caps
@@ -6831,7 +6526,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-lh-fixed span {
   line-height: min(calc(var(--doc-line-factor, 1.2) * 1em), var(--doc-lh-cap, 9999px));
 }
-
 /* exact / atLeast paragraphs fix every line, the rule line included; typed-grid
    documents already snap the rule through the generic span rule (doc-style-css) */
 .doc-lh-fixed > .doc-inline-rule {
@@ -6842,7 +6536,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   padding-top: calc(1lh - 0.22em - var(--doc-rule-h, 1px));
   padding-bottom: 0.22em;
 }
-
 /* ProseMirror's trailing separator/break after a final leaf node would open an
    extra empty line under the block rule (prosemirror.css forces the separator
    inline with !important) */
@@ -6850,7 +6543,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-inline-rule + .ProseMirror-separator + .ProseMirror-trailingBreak {
   display: none !important;
 }
-
 /* the same trailing break when a sized rule run is wrapped in its mark span
    (the break sits outside the span, so the sibling rule above misses it;
    only separator images may follow the rule inside the span) */
@@ -6861,7 +6553,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   + .ProseMirror-trailingBreak {
   display: none !important;
 }
-
 /* ProseMirror 1.42 puts a separator image in front of an atom that opens a
    textblock; inline before the block-level rule it would open a text line of
    its own above the rule (one extra line per rule, cumulative page drift) */
@@ -6872,13 +6563,11 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-page br.doc-wrap-br {
   clear: both;
 }
-
 /* a column break ending a paragraph is one line in Word (the mark opens the
    next column); the trailing-break phantom after it would add a second */
 .doc-page br.doc-col-br + br.ProseMirror-trailingBreak {
   display: none;
 }
-
 /* a column break leading a paragraph with text (.doc-lead-col-br) has no
    line of its own: Word opens the next column with the first text line
    (CNKI/PDF-converter output breaks every second column this way); a
@@ -6887,7 +6576,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-page .doc-lead-col-br > :first-child br.doc-col-br:first-of-type {
   display: none;
 }
-
 /* a page break ending a paragraph has no line of its own either: the paragraph
    mark sits on the last text line, and the next page starts with the next
    paragraph. The phantom line after it (directly, or after the run-mark span
@@ -6896,14 +6584,12 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-page span:has(br.doc-page-br:last-child) + br.ProseMirror-trailingBreak {
   display: none;
 }
-
 /* the same break inside a run-mark span (a w:br run carrying rPr): the sibling
    combinator cannot reach the phantom, so the break's own line goes instead
    and the phantom supplies the single line */
 .doc-page span:last-of-type > br.doc-col-br:last-child {
   display: none;
 }
-
 /* broken pictures: empty frame placeholder (frame/text colors are inline —
    they substitute document content and must not follow the theme) */
 .doc-protected-broken-img {
@@ -6930,7 +6616,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   text-align: center;
   user-select: none;
 }
-
 /* field paragraphs whose visible result is rendered directly (TOC lines, page
    fields...): no chip frame, dashed outline only on hover */
 .doc-protected-field {
@@ -6953,7 +6638,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-protected-field:hover {
   outline-color: var(--border-strong);
 }
-
 /* text-field paragraphs are body text in Word: no chip inset (the 4px shifted
    citation paragraphs off the column edge and shortened every line); TOC
    entries likewise start at the column edge and end at the right tab stop */
@@ -6981,7 +6665,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   color: var(--accent);
   text-decoration: underline;
 }
-
 /* level indent applies to the first cell (the numbering marker when present, the title otherwise) */
 .doc-toc-l2 > span:first-child {
   padding-left: 1.5em;
@@ -7002,7 +6685,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
      the same run as the title); only the leader and page drop to the last */
   align-self: flex-start;
 }
-
 /* leader glyphs at the entry font's own advance (Word: a period every 0.25em
    in Times, no extra tracking), starting right after the title */
 .doc-toc-dots {
@@ -7016,7 +6698,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-toc-leader-heavy {
   font-weight: bold;
 }
-
 /* tiptap injects `.ProseMirror [contenteditable="false"] { white-space: normal }`
  * (0-2-0), beating the single-class rules above; mirror it to keep TOC lines
  * from wrapping their leader dots into extra lines. */
@@ -7024,6 +6705,7 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .ProseMirror [contenteditable='false'].doc-toc-dots {
   white-space: nowrap;
 }
+
 .ProseMirror [contenteditable='false'] .doc-toc-num,
 .ProseMirror [contenteditable='false'].doc-toc-num {
   white-space: pre;
@@ -7054,7 +6736,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   font-size: inherit;
   line-height: inherit;
 }
-
 /* field results keep their spaces (Word preserves them; collapsing reflows the
    wrap column around anchored pictures) — must outrank prosemirror-view's
    injected `.ProseMirror [contenteditable=false] { white-space: normal }` */
@@ -7099,7 +6780,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-formula-token:empty::before {
   content: '\00a0';
 }
-
 /* 2D MathML rendering: shown by default, swapped for the editable token
    strip while the block is in content-editing mode */
 .doc-formula-wrap {
@@ -7134,7 +6814,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-content-editing .doc-formula-math {
   display: none;
 }
-
 /* display equations (oMathPara-style) are centered; inline fallbacks keep flow.
    Paragraph-height box like .doc-protected-field: the chip border/padding/margin
    added ~15pt per equation over Word; document CSS supplies the real spacing */
@@ -7155,7 +6834,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .ProseMirror-focused .doc-protected-formula-display.ProseMirror-selectednode {
   border: none;
 }
-
 /* embedded charts: SVG preview + editable data sheet.
    No chip padding: the drawing must occupy exactly its wp:extent box or
    pagination gains ~20px per chart over Word and drifts across pages */
@@ -7163,7 +6841,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   background: var(--docs-paper);
   padding: 0;
 }
-
 /* no flex gap: title + plot must fill exactly the wp:extent box (the plot
    height already budgets a 22px title row); the editing-only data grid
    carries its own top margin instead */
@@ -7220,7 +6897,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   max-width: 100%;
   margin: 0 auto;
 }
-
 /* data grid is an editing affordance: visible while the chart block is
    selected or in text-edit mode; the printed/preview chart shows only the plot
    (Word/LO behavior) */
@@ -7292,13 +6968,11 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   /* blue-tinted like an in-document selection, not the gray toolbar plate */
   background: var(--docs-paper-select-bg);
 }
-
 /* field rows stay borderless when selected too — the border's 2px would
    reflow the page under the caret */
 .ProseMirror-focused .doc-protected-field.ProseMirror-selectednode {
   border: none;
 }
-
 /* a floating anchor wrapper's selected border would push every block below
    it by 2px and turn a knife-edge page bottom (the outline stays) */
 .ProseMirror-focused .doc-protected.doc-protected-floating.ProseMirror-selectednode {
@@ -7326,7 +7000,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   /* SmartArt degrade lists one node label per line */
   white-space: pre-line;
 }
-
 /* SmartArt degrade: precomputed diagram shapes at absolute positions.
    Shape/text colors are document data — inline per shape, never themed. */
 .doc-diagram {
@@ -7353,7 +7026,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   z-index: 1;
   padding: 0 4px;
 }
-
 /* drawing canvas (lockedCanvas): text keeps its raw font size and overflows
    the scaled child geometry downward instead of clipping (LO behavior) */
 .doc-diagram-canvas,
@@ -7369,7 +7041,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   word-break: break-all;
   line-height: 1.2;
 }
-
 /* OLE embed degrade: the packaged preview picture at its declared size —
    Word draws no box or caption (the type name lives in the hover tooltip).
    The block stays display:block so consecutive objects stack like w:p and
@@ -7384,7 +7055,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-protected-ole:hover {
   border-color: var(--border-strong);
 }
-
 /* wrap inline-block + img block (like image blocks): the paragraph's
    text-align places the shrink-wrapped preview without a baseline gap */
 .doc-protected-ole .doc-ole-wrap {
@@ -7401,7 +7071,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   max-width: 100%;
   display: block;
 }
-
 /* SmartArt / drawing-canvas blocks: the shapes are the content — no chip box.
    Zero padding: the block footprint must equal the declared wp:extent so
    pagination matches Word (the dashed 1px border stays as hover chrome). */
@@ -7415,14 +7084,12 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-protected-diagram:hover {
   border-color: var(--border);
 }
-
 /* srcRect crop windows carry the declared extent inline; the float wrap's
    60% clamp must not squeeze them (Word keeps the placed size and lets the
    picture reach into the margin instead) */
 .doc-protected .doc-img-crop {
   max-width: none;
 }
-
 /* image blocks: no chip chrome; zero border/padding/margin/strut because Word
    sizes a picture-only paragraph to the picture extent (hover frame = outline);
    the paragraph's own spacing arrives as .doc-img-para margins */
@@ -7433,7 +7100,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   margin: 0;
   line-height: 0;
 }
-
 /* the document CSS gives .doc-img-para its paragraph margins and line-height;
    the line itself is the picture extent plus, under an auto multiple, the
    (m - 1) x single-line extra Word adds below the picture (typed-grid docs
@@ -7451,14 +7117,12 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-protected[data-doc-protected='image'] .doc-img-crop-viewport > img {
   vertical-align: bottom;
 }
-
 /* Word never shrinks an in-line picture to the column: a wp:extent wider than
    the text width runs into the right margin at full size */
 .doc-page .doc-img-para > .doc-img-wrap,
 .doc-page .doc-img-para > .doc-img-wrap > .doc-protected-img {
   max-width: none;
 }
-
 /* leading spaces/tabs share the picture line when they fit (bottom-aligned so
    they add nothing below it); an overwide picture wraps under them (pre-wrap:
    pre would forbid the break) and the text keeps a full line of its own (Word) */
@@ -7469,7 +7133,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
     var(--doc-line-factor, 1.2) * 1em * var(--doc-pic-mult, var(--doc-line-mult, 1))
   );
 }
-
 /* float anchors are zero-height wrappers: an outline there would paint a
    full-width bar at the anchor, so only in-flow pictures get the hover frame */
 .doc-protected[data-doc-protected='image']:not(.doc-img-float):hover {
@@ -7494,7 +7157,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   width: 100%;
   height: 100%;
 }
-
 /* find option toggles (match case / whole word) */
 .find-opt {
   border: 1px solid var(--border);
@@ -7511,7 +7173,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   border-color: var(--word-blue);
   color: var(--docs-on-accent);
 }
-
 /* data grid of the Insert Chart dialog */
 .modal-chart {
   min-width: 460px;
@@ -7540,9 +7201,7 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .chart-data-grid thead input {
   font-weight: 600;
 }
-
-/* cross-reference (REF field): gray field shading */
-/* Word's default field shading is "when selected": a static view shows the
+/* cross-reference (REF field): gray field shading */ /* Word's default field shading is "when selected": a static view shows the
    field result as plain text, shading appears on hover/interaction only */
 .doc-ref-field {
   border-radius: 2px;
@@ -7555,7 +7214,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-ref-field:hover {
   background: var(--docs-paper-field-bg);
 }
-
 /* Toggle Field Codes: the cached result collapses, the widget shows { INSTR } */
 .doc-field-result-hidden {
   font-size: 0;
@@ -7571,7 +7229,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-checkbox-control {
   cursor: pointer;
 }
-
 /* Bookmark / Cross-reference dialogs */
 .modal-row {
   display: flex;
@@ -7588,7 +7245,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   font-size: 12px;
   margin-bottom: 6px;
 }
-
 /* Custom page margins dialog: two labeled inputs per row */
 .margin-row label {
   flex: 1;
@@ -7645,7 +7301,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   color: var(--text-dim);
   font-size: 15px;
 }
-
 /* text wrap: square uses a real CSS float so following paragraphs wrap automatically; tight/through display approximately as square */
 .doc-protected.img-wrap-square-left,
 .doc-protected.img-wrap-tight-left,
@@ -7668,7 +7323,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .doc-protected.img-wrap-topBottom {
   text-align: center;
 }
-
 /* floating tables (w:tblpPr): text flows around the free side. Paragraphs are
    positioned (lead shift) and so paint over floats; lift the table above the
    following paragraph's full-width box or clicks on its cells land there */
@@ -7686,12 +7340,10 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   float: right;
   margin: 2px 0 6px 12px;
 }
-
 /* floating table with an over-page row: the engine flows it so the row page-breaks */
 .doc-table.doc-table-float-flow {
   float: none;
 }
-
 /* Word keeps the space-after above and the space-before below a floating table
    (no collapse across the float); float-table-spacing.ts carries the sum */
 .doc-page
@@ -7699,7 +7351,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   + .doc-after-tblp {
   margin-top: var(--tblp-sp-before) !important;
 }
-
 /* split floating table: the anchor paragraph starts beside the last portion.
    page-float-carry is flow space (kept in the gapless preview snapshot);
    page-gap-carry skips the table's in-table gaps and paints no band */
@@ -7712,7 +7363,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .page-gap-carry::before {
   display: none;
 }
-
 /* behind text: the absolutely positioned wrap drops under the flow's inline
    content (negative z-index stays above the paper: no intermediate background) */
 .img-wrap-behind > .doc-img-wrap {
@@ -7794,7 +7444,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   .img-resize-handle {
   display: block;
 }
-
 /* inline run pictures (table / header cells): the editor wraps the img so
    the selection frame and handles can hang off it. An inline-block with no
    strut is exactly the picture's box and sits on the baseline like the bare
@@ -7814,7 +7463,6 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .ProseMirror-focused .doc-inline-pic.ProseMirror-selectednode > .img-resize-handle {
   display: block;
 }
-
 /* the cell clip would cut the handles hanging 5px outside the picture */
 .page-hf-cell:has(> * > .doc-inline-pic.ProseMirror-selectednode) {
   overflow: visible;
@@ -7841,14 +7489,12 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
   > .doc-image-anchor-marker {
   display: flex;
 }
-
 /* Crop owns the active image controls while its modal is open. */
 body.docs-crop-active
   .doc-protected[data-doc-protected='image'].ProseMirror-selectednode
   .doc-img-wrap {
   outline: none;
 }
-
 body.docs-crop-active
   .doc-protected[data-doc-protected='image'].ProseMirror-selectednode
   .img-resize-handle,
@@ -7861,15 +7507,12 @@ body.docs-crop-active
   display: none !important;
   pointer-events: none !important;
 }
-
 /* AI diff highlight */
 .doc-page .ai-changed {
   background: var(--ai-highlight);
   box-shadow: -3px 0 0 var(--ai-highlight-border);
 }
-
 /* ================= start screen ================= */
-
 .start-screen {
   width: 100%;
   min-height: 100%;
@@ -7883,7 +7526,6 @@ body.docs-crop-active
   padding: 0;
   background: var(--surface);
 }
-
 /* Starting up (while the pending-open check runs): lightweight placeholder, don't flash the start screen */
 .start-booting {
   display: flex;
@@ -7970,9 +7612,7 @@ body.docs-crop-active
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 /* ================= AI panel (Copilot-style pane) ================= */
-
 .ai-panel {
   position: relative;
   width: 360px;
@@ -7986,72 +7626,6 @@ body.docs-crop-active
   font-family: var(--gs-font-sans);
   color: var(--color-text-primary);
 }
-
-/* drag handle on the panel's right edge — resize the panel horizontally */
-.ai-panel-resizer {
-  position: absolute;
-  right: -3px;
-  top: 0;
-  bottom: 0;
-  width: 7px;
-  cursor: col-resize;
-  z-index: 20;
-  background: transparent;
-}
-
-/* while dragging: keep the col-resize cursor everywhere, no text selection */
-.ai-panel-resizing {
-  cursor: col-resize;
-  user-select: none;
-}
-
-.ai-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px 10px 14px;
-  border-bottom: 1px solid var(--color-border-default);
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--color-text-primary);
-}
-
-.ai-panel-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-}
-
-.ai-panel-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  min-width: 0;
-}
-
-.ai-header-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
-  border: none;
-  background: none;
-  border-radius: var(--radius-8);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  padding: 0;
-  transition: all var(--transition-fast);
-}
-
-.ai-header-btn:hover {
-  background: var(--color-bg-subtle);
-  color: var(--color-text-primary);
-}
-
 /* collapsed AI sidebar: thin rail on the left edge */
 .ai-rail {
   display: flex;
@@ -8079,34 +7653,6 @@ body.docs-crop-active
   letter-spacing: 2px;
   color: var(--text-dim);
 }
-
-.ai-chat {
-  flex: 1;
-  overflow-y: auto;
-  padding: 32px 16px;
-  display: flex;
-  flex-direction: column;
-  /* uniform 16px flex gap between blocks, messages carry no margin */
-  gap: 16px;
-  font-family: var(--gs-font-sans);
-}
-
-/* Boundary between the restored transcript and the live turn */
-.ai-history-sep {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 30px;
-  font-size: 14px;
-  color: var(--color-text-tertiary);
-}
-
-.ai-chat-empty {
-  margin-top: 36px;
-  padding: 0 10px;
-  text-align: center;
-}
-
 /* unconfigured-AI prompt in the empty state: an obvious action, not a hint */
 .ai-setup-needed {
   display: block;
@@ -8124,20 +7670,6 @@ body.docs-crop-active
 .ai-setup-needed:hover {
   background: var(--hover);
 }
-
-.ai-chat-empty-title {
-  font-size: var(--text-body-lg);
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin-bottom: 8px;
-}
-
-.ai-chat-empty-body {
-  color: var(--color-text-secondary);
-  font-size: var(--text-small);
-  line-height: 1.5;
-}
-
 /* clickable starter prompts in the empty state — suggestion chips:
  * 30px-radius outline pills, 13px/400 */
 .ai-starter-list {
@@ -8170,94 +7702,12 @@ body.docs-crop-active
   filter: brightness(0.88);
   transform: scale(0.98);
 }
-
-/* Chat messages (scaled to the 14px panel): user = gray pill, AI = plain text without a bubble, no accent colors */
-.ai-msg {
-  position: relative;
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 /* markdown body inside assistant bubbles */
 .ai-md {
   white-space: normal;
 }
 
-.ai-md p,
-.ai-md ul,
-.ai-md ol {
-  margin: 0 0 16px;
-}
-
-.ai-md :last-child {
-  margin-bottom: 0;
-}
-
-/* blank markdown paragraphs would each eat a 16px margin — the stream never renders them */
-.ai-md p:empty {
-  display: none;
-}
-
-.ai-md ul,
-.ai-md ol {
-  margin-bottom: 20px;
-  padding-left: 20px;
-}
-
-.ai-md li {
-  margin-left: 20px;
-  line-height: 28px;
-}
-
-.ai-md .ai-md-h {
-  font-weight: 700;
-  line-height: 1.3;
-  margin: 20px 0 8px;
-}
-
-.ai-md .ai-md-h:first-child {
-  margin-top: 0;
-}
-
-/* inline code: neutral gray chip (deliberately not red), 2px below body size */
-.ai-md code {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--color-bg-subtle);
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-}
-
-/* User pill: gray, fully rounded (no tail) */
-.ai-msg-user {
-  align-self: flex-end;
-  background: var(--color-bg-subtle);
-  color: var(--color-text-primary);
-  padding: 8px 16px;
-  border-radius: 14px;
-  max-width: 80%;
-  line-height: 1.5;
-}
-
-.ai-msg-assistant {
-  align-self: stretch;
-  background: none;
-  border: none;
-  padding: 0;
-  max-width: 100%;
-  color: var(--color-text-primary);
-}
-
-/* tool activity chips inside assistant bubbles */
-/* Collapsible tool-activity group */
 .ai-work-group {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
   margin-top: 12px;
 }
 
@@ -8265,180 +7715,6 @@ body.docs-crop-active
 .ai-work-group:only-child {
   margin-top: 0;
 }
-
-.ai-work-group-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  margin: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  user-select: none;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--color-text-tertiary);
-  transition: color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-work-group-summary:hover {
-  color: var(--color-text-secondary);
-}
-
-.ai-work-group-summary:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--docs-focus-ring);
-  border-radius: 4px;
-}
-
-.ai-work-group-summary.running {
-  color: var(--color-text-secondary);
-}
-
-.ai-work-group-summary.running .ai-work-group-label {
-  animation: ai-summary-pulse 1500ms linear infinite;
-}
-
-@keyframes ai-summary-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
-}
-
-.ai-work-group-body {
-  align-self: stretch;
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-work-group-body.open {
-  grid-template-rows: 1fr;
-}
-
-.ai-work-group-body-inner {
-  overflow: hidden;
-  min-height: 0;
-  padding: 0 0 0 8px;
-  transition: padding 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-work-group-body.open .ai-work-group-body-inner {
-  padding: 4px 0 8px 8px;
-}
-
-/* Step rows inside the group: 20px icon slot + 1px connector */
-.ai-step-row {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 8px 0;
-  color: var(--color-text-tertiary);
-  animation: ai-row-ease-in 320ms ease-out;
-}
-
-.ai-step-row:not(:last-child) {
-  padding-bottom: 16px;
-}
-
-.ai-step-row:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  left: 9.5px;
-  top: 32px;
-  bottom: -4px;
-  width: 1px;
-  background: var(--color-border-default);
-}
-
-.ai-step-icon {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-tertiary);
-}
-
-.ai-step-icon.done {
-  color: var(--color-text-secondary);
-}
-
-.ai-step-icon.error {
-  color: var(--color-error);
-}
-
-.ai-step-icon.running svg {
-  animation: ai-hourglass-flip 1.8s ease-in-out infinite;
-}
-
-@keyframes ai-hourglass-flip {
-  0%,
-  12% {
-    transform: rotate(0);
-  }
-  44%,
-  56% {
-    transform: rotate(180deg);
-  }
-  88%,
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-.ai-step-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 1px;
-}
-
-.ai-step-title {
-  font-size: 14px;
-  line-height: 1.3;
-  color: var(--color-text-secondary);
-  text-align: left;
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  font-family: inherit;
-}
-
-.ai-step-title.clickable {
-  cursor: pointer;
-  transition: color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-step-title.clickable:hover {
-  color: var(--text-primary);
-}
-
-.ai-step-title.clickable:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--docs-focus-ring);
-  border-radius: 4px;
-}
-
-/* Step detail opens instantly, no animation */
-.ai-step-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-}
-
 /* Model reasoning ("thinking") block on assistant messages: same family as
  * the tool-activity group — quiet summary row, collapsible body */
 .ai-thinking {
@@ -8509,7 +7785,6 @@ body.docs-crop-active
 .ai-thinking-body.open .ai-thinking-body-inner {
   padding: 4px 0 8px 8px;
 }
-
 /* ---- interactive mind map card (generate_mindmap) ---- */
 .ai-mindmap {
   margin-top: 12px;
@@ -8674,7 +7949,6 @@ body.docs-crop-active
 .ai-mindmap-toggle:hover circle {
   stroke: var(--color-ai-action);
 }
-
 @media (prefers-reduced-motion: reduce) {
   .ai-step-row,
   .ai-step-icon.running svg,
@@ -8682,65 +7956,6 @@ body.docs-crop-active
     animation: none;
   }
 }
-
-/* Running tool row: two grow/shrink brand dots */
-.ai-tool-chip-spinner {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  height: 12px;
-}
-
-.ai-tool-chip-spinner::before,
-.ai-tool-chip-spinner::after {
-  content: '';
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--color-brand-secondary);
-}
-
-.ai-tool-chip-spinner::before {
-  animation: ai-tool-dot-grow 2s infinite;
-}
-
-.ai-tool-chip-spinner::after {
-  animation: ai-tool-dot-shrink 2s infinite;
-}
-
-@keyframes ai-tool-dot-grow {
-  0%,
-  100% {
-    transform: scale(0.333);
-    opacity: 0.45;
-  }
-  50% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes ai-tool-dot-shrink {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(0.333);
-    opacity: 0.45;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ai-tool-chip-spinner::before,
-  .ai-tool-chip-spinner::after {
-    animation: none;
-    opacity: 0.65;
-  }
-}
-
 /* Elapsed run time next to the typing indicator */
 .ai-typing-row {
   display: inline-flex;
@@ -8754,220 +7969,6 @@ body.docs-crop-active
   font-variant-numeric: tabular-nums;
 }
 
-/* caret: text glyph right after the label, always visible, rotates open */
-.ai-tool-chip-caret {
-  margin-left: 4px;
-  opacity: 0.7;
-  display: inline-block;
-  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-tool-chip-caret.open {
-  transform: rotate(90deg);
-}
-
-/* stream rows ease in */
-@keyframes ai-row-ease-in {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* expanded step detail: subtle gray card, no border */
-.ai-tool-output {
-  background: var(--color-bg-subtle);
-  border: none;
-  border-radius: 12px;
-  font-family:
-    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-  font-size: 14px;
-  color: var(--text-primary);
-  max-height: 300px;
-  overflow-y: auto;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.ai-tool-output-pre {
-  padding: 12px 16px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
-}
-
-/* streaming typing indicator */
-/* Thinking indicator (white background, no container):
- * phase one = two bouncing blue dots (alternating small/large); phase two = shimmering "Thinking…" text + streaming caret block */
-.ai-typing {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 0;
-  font-size: 15px;
-} /* Thinking indicator: shimmer label above two grow/shrink dots */
-.ai-typing {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 4px 0;
-}
-
-.ai-typing-label {
-  display: inline-block;
-  position: relative;
-  font-size: 14px;
-  line-height: 1;
-  letter-spacing: 0.01em;
-  color: var(--docs-shimmer-base);
-  -webkit-text-fill-color: transparent;
-  background: var(--docs-shimmer-base)
-    linear-gradient(
-      to left,
-      var(--docs-shimmer-base),
-      var(--docs-shimmer-hi) 50%,
-      var(--docs-shimmer-base)
-    );
-  background-clip: text;
-  -webkit-background-clip: text;
-  background-repeat: no-repeat;
-  background-size: 70% 100%;
-  animation: ai-thinking-shimmer 1.2s infinite alternate linear;
-}
-
-.ai-typing-elapsed {
-  font-variant-numeric: tabular-nums;
-}
-
-@keyframes ai-thinking-shimmer {
-  0% {
-    background-position: -100% top;
-  }
-  100% {
-    background-position: 250% top;
-  }
-}
-
-.ai-typing-dots {
-  height: 12px;
-  display: flex;
-  gap: 2px;
-}
-
-.ai-typing-dot-slot {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 12px;
-}
-
-.ai-typing-dot-grow,
-.ai-typing-dot-shrink {
-  background: var(--color-brand-secondary);
-  border-radius: 50%;
-}
-
-.ai-typing-dot-grow {
-  animation: ai-dot-grow 2s infinite;
-}
-
-.ai-typing-dot-shrink {
-  animation: ai-dot-shrink 2s infinite;
-}
-
-@keyframes ai-dot-grow {
-  0%,
-  100% {
-    width: 4px;
-    height: 4px;
-    opacity: 0.45;
-  }
-  50% {
-    width: 12px;
-    height: 12px;
-    opacity: 1;
-  }
-}
-
-@keyframes ai-dot-shrink {
-  0%,
-  100% {
-    width: 12px;
-    height: 12px;
-    opacity: 1;
-  }
-  50% {
-    width: 4px;
-    height: 4px;
-    opacity: 0.45;
-  }
-}
-
-/* streaming caret at the tail of streaming assistant text */
-.ai-msg-streaming .ai-md > :last-child::after {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 1em;
-  margin-left: 2px;
-  border-radius: 1px;
-  background: var(--color-text-secondary);
-  vertical-align: text-bottom;
-  animation: ai-caret-blink 900ms steps(1, end) infinite;
-}
-
-@keyframes ai-caret-blink {
-  0%,
-  50% {
-    opacity: 1;
-  }
-  51%,
-  100% {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ai-typing-label,
-  .ai-msg-streaming .ai-md > :last-child::after {
-    animation: none;
-  }
-}
-
-/* hover actions under assistant messages (copy / regenerate):
- * borderless 30px icon buttons, radius 8, hover = subtle gray fill */
-.ai-msg-toolbar {
-  display: flex;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.ai-msg-tool-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  height: 30px;
-  min-width: 30px;
-  padding: 5px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background-color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-msg-tool-btn svg {
-  width: 20px;
-  height: 20px;
-}
-
 .ai-msg-tool-btn:hover:not(:disabled) {
   background: var(--color-bg-subtle);
 }
@@ -8976,7 +7977,6 @@ body.docs-crop-active
   opacity: 0.45;
   cursor: default;
 }
-
 /* Hairline before the roll-back action; hidden unless an icon action precedes it */
 .ai-rollback-sep {
   display: none;
@@ -8989,7 +7989,6 @@ body.docs-crop-active
 .ai-msg-tool-btn ~ .ai-rollback-sep {
   display: block;
 }
-
 /* Quiet roll-back in the message toolbar (after copy/regenerate): dim at rest, solid on hover */
 .ai-rollback-btn {
   display: inline-flex;
@@ -9015,22 +8014,6 @@ body.docs-crop-active
 .ai-rollback-btn:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.ai-msg-tool-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--docs-focus-ring-blue);
-}
-
-/* Tooltip: dark pill under the button, 0.3s hover delay */
-.ai-msg-tool-btn {
-  position: relative;
-}
-
-/* Global press feedback */
-.ai-msg-tool-btn:active {
-  filter: brightness(0.88);
-  transform: scale(0.98);
 }
 
 .ai-continue-btn {
@@ -9110,40 +8093,12 @@ body.docs-crop-active
   font-size: 10px;
 }
 
-/* Composer floats over the chat scroll area — no top border (agent-shell §4.6) */
-.ai-composer {
-  border-top: none;
-  padding: 8px 12px 12px;
-  background: var(--color-bg-page);
-}
-
 .ai-composer-top {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 5px;
   margin-bottom: 7px;
-}
-
-/* scope chip — guidance accent (blue is reserved for guidance/onboarding) */
-.ai-scope-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: var(--radius-30);
-  background: var(--docs-brand-ghost);
-  font-size: var(--text-caption);
-  color: var(--color-brand-secondary);
-  font-weight: 500;
-}
-
-.ai-scope-hint::before {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
 }
 
 .ai-scope-row {
@@ -9184,7 +8139,6 @@ body.docs-crop-active
   white-space: pre-wrap;
   word-break: break-word;
 }
-
 /* in-answer citation links: click selects and scrolls to the cited block */
 .ai-md .ai-md-nav {
   color: var(--accent);
@@ -9196,14 +8150,12 @@ body.docs-crop-active
 .ai-md .ai-md-nav:hover {
   text-decoration-style: solid;
 }
-
 /* queued-edit anchor highlight inside the document (decoration, never document data) */
 .ai-queue-anchor {
   background: var(--docs-paper-ai-anchor-bg);
   border-bottom: 2px dashed var(--docs-paper-ai-anchor-line);
   cursor: pointer;
 }
-
 /* a non-contiguous range added with ctrl/cmd+click (genoffice#2013): painted
    as a decoration, never as document data, so it survives without editing
    anything */
@@ -9211,7 +8163,6 @@ body.docs-crop-active
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   border-radius: 2px;
 }
-
 /* floating Ask-AI entry that follows the text selection */
 .ai-ask-trigger {
   position: fixed;
@@ -9232,20 +8183,6 @@ body.docs-crop-active
 
 .ai-ask-trigger:hover {
   background: var(--hover);
-}
-
-/* anchored ask popover (shared look with the slides one, docs tokens) */
-.ai-ask-pop {
-  position: fixed;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-12);
-  background: var(--surface);
-  box-shadow: var(--docs-shadow-menu);
 }
 
 .ai-ask-pop-close {
@@ -9274,105 +8211,6 @@ body.docs-crop-active
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-
-.ai-ask-pop-title {
-  padding-right: 24px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.ai-ask-pop-sub {
-  margin-top: -4px;
-  font-size: 11.5px;
-  color: var(--text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ai-ask-pop-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-8);
-  background: var(--color-bg-page);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 13px;
-  outline: none;
-}
-
-.ai-ask-pop-input:focus {
-  border-color: var(--accent);
-}
-
-.ai-ask-pop-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.ai-ask-chip {
-  padding: 3px 9px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 11.5px;
-  cursor: pointer;
-}
-
-.ai-ask-chip:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.ai-ask-pop-foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.ai-ask-cancel,
-.ai-ask-confirm {
-  padding: 5px 12px;
-  border-radius: var(--radius-6);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.ai-ask-cancel {
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--color-text-secondary);
-}
-
-.ai-ask-cancel:hover {
-  background: var(--hover);
-}
-
-.ai-ask-cancel:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.ai-ask-confirm {
-  border: 1px solid transparent;
-  background: var(--color-ai-action);
-  color: var(--color-ai-action-text);
-}
-
-.ai-ask-confirm:hover:not(:disabled) {
-  background: var(--color-ai-action-hover);
-}
-
-.ai-ask-confirm:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
 /* queue card above the composer */
 .ai-queue {
   margin-bottom: 8px;
@@ -9558,56 +8396,6 @@ body.docs-crop-active
   cursor: default;
 }
 
-/* composer card — 16px radius, default border, production float shadow */
-.ai-input-box {
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-16);
-  background: var(--color-bg-page);
-  box-shadow: var(--docs-shadow-composer);
-  transition:
-    border-color var(--transition-fast),
-    box-shadow var(--transition-fast);
-}
-
-/* textarea: 16px / 24px fixed line-height (chat body size), auto-grow band
- * (resting height matches the sheets panel, 25% taller than default) */
-.ai-input-box textarea {
-  display: block;
-  width: 100%;
-  resize: none;
-  border: none;
-  background: none;
-  border-radius: var(--radius-16) var(--radius-16) 0 0;
-  /* vertical gaps live on margin, not padding: textarea padding scrolls away
-   * with the content, so clipped lines would sit flush against chips/footer */
-  padding: 0 14px;
-  margin: 12px 0 4px;
-  font-size: 14px;
-  font-family: inherit;
-  line-height: 24px;
-  outline: none;
-  color: var(--color-text-primary);
-  min-height: 48px;
-  max-height: 168px;
-  overflow-y: auto;
-}
-
-.ai-input-box textarea::placeholder {
-  color: var(--color-text-tertiary);
-}
-
-.ai-input-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 4px 8px 8px 10px;
-}
-
-.ai-input-footer .ai-send-btn {
-  margin-left: auto;
-}
-
 /* attach — brand-supplied paperclip art, 20×20 (5/9 of the 36px enter button), same as the sheets panel */
 .ai-attach-btn {
   display: inline-flex;
@@ -9632,7 +8420,6 @@ body.docs-crop-active
 .ai-attach-btn:hover {
   filter: brightness(0.7);
 }
-
 /* track-changes pill: quiet gray when off, guide-blue tinted when on */
 .ai-track-btn {
   display: inline-flex;
@@ -9681,7 +8468,6 @@ body.docs-crop-active
 .ai-track-btn.on .ai-track-dot {
   background: var(--color-brand-secondary);
 }
-
 /* attachment chips above the composer */
 .ai-attachments {
   display: flex;
@@ -9703,7 +8489,6 @@ body.docs-crop-active
 .ai-attachments > * {
   flex-shrink: 0;
 }
-
 /* The 4px scrollbar lane is always reserved (no layout jump when it appears);
    the thumb is painted only while scrolling (.is-scrolling from the strip's onScroll) */
 .ai-attachments::-webkit-scrollbar {
@@ -9718,7 +8503,6 @@ body.docs-crop-active
 .ai-attachments.is-scrolling::-webkit-scrollbar-thumb {
   background: var(--docs-scroll-thumb);
 }
-
 /* Image attachments: square thumbnail with a round dark remove button on its corner */
 .ai-attachment-thumb {
   position: relative;
@@ -9755,14 +8539,12 @@ body.docs-crop-active
 .ai-attachment-thumb-remove:hover {
   background: var(--docs-chip-remove-hover);
 }
-
 /* The card's 1px border shifts its absolutely-positioned button inward by 1px
    on both axes; land the borderless thumbs' button on the exact same spot */
 .ai-attachment-thumb .ai-attachment-thumb-remove {
   top: -9px;
   right: -1px;
 }
-
 /* image thumb before its preview arrives (or when reading fails): neutral tile + type icon */
 .ai-attachment-thumb-pending {
   display: flex;
@@ -9778,7 +8560,6 @@ body.docs-crop-active
   width: 26px;
   height: 26px;
 }
-
 /* Non-image attachments (pdf, xlsx, …): fixed-width bordered card — brand type
    icon + truncated name and size, same height and remove button as the thumbs */
 .ai-attachment-card {
@@ -9793,7 +8574,6 @@ body.docs-crop-active
   border-radius: 12px;
   background: var(--bg-content);
 }
-
 /* the type icon sits in its own bordered white tile, like the Genspark card */
 .ai-attachment-card-icon {
   display: flex;
@@ -9834,7 +8614,6 @@ body.docs-crop-active
   font-size: 11px;
   color: var(--text-muted);
 }
-
 /* attachments echoed on a sent user message (read-only: no remove button, smaller thumbs) */
 .ai-msg-attachments {
   display: flex;
@@ -9911,70 +8690,12 @@ body.docs-crop-active
   font-size: 11.5px;
   color: var(--docs-ai-error);
 }
-
 /* whole-panel drop target highlight */
 .ai-panel-dragover {
   outline: 2px dashed var(--word-blue);
   outline-offset: -4px;
 }
-
-.ai-input-hint {
-  font-size: var(--text-caption);
-  color: var(--color-text-tertiary);
-  user-select: none;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* icon-only enter key: transparent button chrome, visuals come from brand-supplied PNGs
- * (gray arrow = disabled, black arrow = enabled), 36×36, same as the sheets panel */
-.ai-send-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  flex-shrink: 0;
-  border: none;
-  border-radius: 35%;
-  background: transparent;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.ai-send-btn img {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.ai-send-btn:hover:not(:disabled) {
-  filter: brightness(0.92);
-}
-
-.ai-send-btn:active:not(:disabled) {
-  filter: brightness(0.88);
-  transform: scale(0.98);
-}
-
-.ai-send-btn:disabled {
-  cursor: default;
-}
-
-/* Stop button while generating: brand-supplied art (white square on black), transparent button chrome */
-.ai-send-btn.ai-stop-btn {
-  background: transparent;
-}
-
-.ai-send-btn.ai-stop-btn:hover {
-  filter: brightness(0.92);
-}
-
 /* ================= status bar ================= */
-
 .status-bar {
   flex-shrink: 0;
   display: flex;
@@ -10001,7 +8722,6 @@ body.docs-crop-active
   margin-right: 14px;
   flex-shrink: 0;
 }
-
 /* Word: the page counter, word count and Track Changes readout are buttons
    (Go To / Word Count / toggle tracking) */
 .status-btn {
@@ -10080,7 +8800,6 @@ body.docs-crop-active
 .zoom-value:disabled {
   cursor: default;
 }
-
 /* Word's status bar view switcher, left of the zoom slider */
 .status-views {
   display: flex;
@@ -10110,9 +8829,7 @@ body.docs-crop-active
   background: var(--active-bg);
   color: var(--accent);
 }
-
 /* ================= modal ================= */
-
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -10172,7 +8889,6 @@ body.docs-crop-active
   outline: none;
   background: var(--surface);
 }
-
 /* Genspark DS modal footer buttons: secondary = bg-subtle, primary = black (#232425) */
 .modal-actions button {
   display: inline-flex;
@@ -10223,9 +8939,7 @@ body.docs-crop-active
   background: var(--color-btn-primary-hover);
   color: var(--color-btn-primary-text);
 }
-
 /* ---- keyboard shortcuts sheet ---- */
-
 .modal-shortcuts {
   width: 620px;
   max-height: min(78vh, 720px);
@@ -10306,9 +9020,7 @@ body.docs-crop-active
   gap: 8px;
   margin-top: 18px;
 }
-
 /* ---- Genspark DS form dialogs (password prompts + Protect Document) ---- */
-
 .modal.gs-form {
   padding: 24px;
   box-shadow: var(--docs-shadow-modal-gs);
@@ -10335,7 +9047,6 @@ body.docs-crop-active
   color: var(--color-text-primary);
   margin-bottom: 16px;
 }
-
 /* the "(optional)" suffix stays lighter than the label itself */
 .gs-form .fld-opt {
   font-weight: 400;
@@ -10375,14 +9086,12 @@ body.docs-crop-active
 .gs-form .fld input.invalid:focus {
   box-shadow: 0 0 0 3px var(--docs-error-ring);
 }
-
 /* side-by-side password + confirm pair */
 .gs-form .fld-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-
 /* wrapper positioning the shared .pwd-eye toggle (defined below) inside a
    gs-form field */
 .pwd-wrap {
@@ -10414,7 +9123,6 @@ body.docs-crop-active
   color: var(--color-text-tertiary);
   margin: -8px 0 16px;
 }
-
 /* mockup g-actions spec: 36px buttons, 12px gap, 24px above the footer */
 .gs-form .modal-actions {
   gap: 12px;
@@ -10442,7 +9150,6 @@ body.docs-crop-active
 .modal select:focus {
   border-color: var(--word-blue);
 }
-
 /* Shared dropdown (@genoffice/ui gs-dd) app sizing: modal dialogs keep the old
    `.modal select` footprint; ribbon/table/page-number rows scope their own
    width/height below */
@@ -10463,7 +9170,6 @@ body.docs-crop-active
   width: 180px;
   flex-shrink: 0;
 }
-
 /* wrap-text picker on the Picture Format tab (was select.rb-select) */
 .rb-wrap-dd {
   width: 128px;
@@ -10488,9 +9194,7 @@ body.docs-crop-active
   padding-top: 0;
   padding-bottom: 0;
 }
-
 /* ---- Protect Document dialog (Review > Protect, Word's Password Protect layout) ---- */
-
 .modal.protect-dialog {
   width: 520px;
   max-height: calc(100vh - 80px);
@@ -10515,7 +9219,6 @@ body.docs-crop-active
   padding-top: 0;
   border-top: none;
 }
-
 /* checkbox / radio rows: the native input is visually replaced by the .ctl
    box (18px, black checked state per the Genspark DS palette) */
 .protect-dialog label.protect-check {
@@ -10600,7 +9303,6 @@ body.docs-crop-active
   color: var(--color-text-tertiary);
   cursor: default;
 }
-
 /* the four Word protection modes, indented under the enable checkbox */
 .protect-dialog .protect-modes {
   display: grid;
@@ -10612,20 +9314,15 @@ body.docs-crop-active
 .protect-dialog .protect-modes .protect-check {
   margin-bottom: 8px;
 }
-
-/* ---- password prompt dialog (open password / password to modify) ---- */
-
-/* the quoted file name in the description can be arbitrarily long */
+/* ---- password prompt dialog (open password / password to modify) ---- */ /* the quoted file name in the description can be arbitrarily long */
 .pwd-dialog .modal-desc {
   overflow-wrap: anywhere;
 }
-
 /* wrong password: shake the field; the red border / ring / error line come
    from the shared gs-form invalid + fld-error rules */
 .pwd-dialog .fld.has-error .pwd-wrap {
   animation: pwd-shake 0.4s ease;
 }
-
 @keyframes pwd-shake {
   0%,
   100% {
@@ -10644,7 +9341,6 @@ body.docs-crop-active
     transform: translateX(4px);
   }
 }
-
 /* show/hide toggle inside the field */
 .pwd-eye {
   position: absolute;
@@ -10681,9 +9377,7 @@ body.docs-crop-active
   opacity: 0.4;
   cursor: default;
 }
-
 /* ---- print dialog (Word-style: page preview + range options) ---- */
-
 .modal.print-dialog {
   width: min(880px, calc(100vw - 64px));
 }
@@ -10693,7 +9387,6 @@ body.docs-crop-active
   gap: 18px;
   height: min(600px, calc(100vh - 220px));
 }
-
 /* while the dialog is open the pagination preview is only its (hidden) print source */
 @media screen {
   .app:has(.modal.print-dialog) .pagination-preview {
@@ -10720,7 +9413,6 @@ body.docs-crop-active
   justify-content: center;
   overflow: hidden;
 }
-
 /* the cloned .pv-page keeps its own paper background/shadow; only the flow margin goes */
 .print-preview-page .pv-page {
   margin: 0;
@@ -10889,9 +9581,7 @@ body.docs-crop-active
   font-size: 12px;
   color: var(--text-dim);
 }
-
 /* provider tabs in AI settings */
-
 .provider-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -10929,10 +9619,7 @@ body.docs-crop-active
   border-radius: 50%;
   background: var(--docs-ok-dot);
 }
-
-/* ProseMirror basics */
-
-/* pre-wrap, NOT prosemirror-view's break-spaces (its runtime-injected sheet
+/* ProseMirror basics */ /* pre-wrap, NOT prosemirror-view's break-spaces (its runtime-injected sheet
    loads after this one, so the selector is doubled to win): Word hangs the
    space at a line break into the margin, while break-spaces reserves width
    for it — every line wraps a word early and a space that fits nowhere takes
@@ -10940,7 +9627,6 @@ body.docs-crop-active
 .ProseMirror.ProseMirror {
   white-space: pre-wrap;
 }
-
 /* The pagination-preview clone must lay out exactly like the editor canvas it
    was measured on. ProseMirror's whitespace/ligature rules are part of that
    layout: without them whitespace-only lines collapse in the clone, every
@@ -10953,7 +9639,6 @@ body.docs-crop-active
   font-variant-ligatures: none;
   font-feature-settings: 'liga' 0;
 }
-
 /* Word pair-kerns only under w:kern; doc-style-css turns kerning back on where
    the document asks (Chromium would otherwise kern every Latin run). */
 .page-wrap,
@@ -10965,9 +9650,7 @@ body.docs-crop-active
 .ProseMirror:focus {
   outline: none;
 }
-
 /* ---- find & replace ---- */
-
 .find-panel {
   position: absolute;
   top: 8px;
@@ -11196,9 +9879,7 @@ body.docs-crop-active
   background: var(--docs-paper-hit-active-bg);
   color: var(--docs-paper-hit-active-ink);
 }
-
 /* ---- autosave toggle (pill in the title bar) ---- */
-
 .autosave-toggle {
   display: flex;
   align-items: center;
@@ -11248,9 +9929,7 @@ body.docs-crop-active
   color: var(--text-dim);
   white-space: nowrap;
 }
-
 /* ---- editable table cells ---- */
-
 .doc-table td[contenteditable='true'] {
   cursor: text;
   user-select: text;
@@ -11261,9 +9940,7 @@ body.docs-crop-active
   outline: 2px solid var(--word-blue);
   outline-offset: -2px;
 }
-
 /* ---- print / export PDF: only the document itself ---- */
-
 @media print {
   html,
   body,
@@ -11503,10 +10180,7 @@ body.docs-crop-active
     display: none !important;
   }
 }
-
-/* ================= View tab: view modes / gridlines / split / windows ================= */
-
-/* editor column: document scroller on top, optional split pane below */
+/* ================= View tab: view modes / gridlines / split / windows ================= */ /* editor column: document scroller on top, optional split pane below */
 .editor-area {
   flex: 1;
   min-width: 0;
@@ -11514,9 +10188,7 @@ body.docs-crop-active
   display: flex;
   flex-direction: column;
 }
-
 /* ---- Read mode: chrome hidden, document only, Esc to exit ---- */
-
 .read-mode .ribbon,
 .read-mode .ai-dock,
 .read-mode .nav-pane,
@@ -11550,9 +10222,7 @@ body.docs-crop-active
 .read-exit:hover {
   background: var(--hover);
 }
-
 /* ---- Web Layout: document fills the window width, no page chrome ---- */
-
 .view-web {
   width: 100%;
 }
@@ -11567,9 +10237,7 @@ body.docs-crop-active
 .view-web .page-hf {
   display: none;
 }
-
 /* ---- Outline view: headings only, still editable ---- */
-
 .view-outline .doc-page > :not(h1):not(h2):not(h3):not(h4):not(h5):not(h6) {
   display: none;
 }
@@ -11592,22 +10260,26 @@ body.docs-crop-active
 .view-outline .doc-page h1 {
   margin-left: 0;
 }
+
 .view-outline .doc-page h2 {
   margin-left: 26px;
 }
+
 .view-outline .doc-page h3 {
   margin-left: 52px;
 }
+
 .view-outline .doc-page h4 {
   margin-left: 78px;
 }
+
 .view-outline .doc-page h5 {
   margin-left: 104px;
 }
+
 .view-outline .doc-page h6 {
   margin-left: 130px;
 }
-
 /* Word outline view marks each heading with a ⊕ handle */
 .view-outline .doc-page h1::before,
 .view-outline .doc-page h2::before,
@@ -11622,9 +10294,7 @@ body.docs-crop-active
   font-size: 0.8em;
   top: 0.25em;
 }
-
 /* ---- Gridlines: alignment grid inside the text area (content-box = inside margins) ---- */
-
 .show-grid .doc-page {
   background-image:
     linear-gradient(to right, var(--docs-paper-grid) 1px, transparent 1px),
@@ -11633,9 +10303,7 @@ body.docs-crop-active
   background-origin: content-box;
   background-clip: content-box;
 }
-
 /* ---- Split: read-only second pane with independent scrolling ---- */
-
 .split-pane {
   height: 42%;
   min-height: 160px;
@@ -11676,14 +10344,11 @@ body.docs-crop-active
   overflow-y: auto;
   padding: 18px 24px 60px;
 }
-
 /* preview copy: not interactive (clicks/links disabled) */
 .split-doc {
   pointer-events: none;
 }
-
 /* ---- Design → Watermark: diagonal ghost text across the page ---- */
-
 .page-watermark {
   position: absolute;
   inset: 0;
@@ -11701,9 +10366,7 @@ body.docs-crop-active
   pointer-events: none;
   user-select: none;
 }
-
 /* ---- Design → Themes/Colors: accent color preview dots in dropdowns ---- */
-
 .theme-accent-row {
   display: inline-flex;
   gap: 2px;
@@ -11718,10 +10381,7 @@ body.docs-crop-active
   border-radius: 2px;
   border: 1px solid var(--docs-swatch-outline);
 }
-
-/* ---- References → Footnotes/Endnotes: reference marker + page-bottom notes area ---- */
-
-/* bare superscript number inheriting body ink (Word parity: brackets/color would leak into
+/* ---- References → Footnotes/Endnotes: reference marker + page-bottom notes area ---- */ /* bare superscript number inheriting body ink (Word parity: brackets/color would leak into
    exports and change line widths); accent is a hover/selection-only affordance */
 .doc-note-ref {
   cursor: default;
@@ -11739,13 +10399,10 @@ body.docs-crop-active
   outline: 2px solid var(--word-blue);
   border-radius: 2px;
 }
-
 /* ---- Phonetic guide (w:ruby): native ruby, kept from stretching the line ---- */
-
 ruby.doc-ruby {
   ruby-position: over;
 }
-
 ruby.doc-ruby rt {
   font-size: 0.5em;
   line-height: 1;
@@ -11755,9 +10412,7 @@ ruby.doc-ruby rt {
   outline: 2px solid var(--word-blue);
   border-radius: 2px;
 }
-
 /* ---- Inline equations: atomic MathML node flowing with the text ---- */
-
 .doc-inline-math {
   display: inline-block;
   /* The atom must not restart its paragraph's first-line indent or alignment. */
@@ -11781,7 +10436,6 @@ ruby.doc-ruby rt {
 .doc-inline-math math {
   font-size: 1em;
 }
-
 /* EQ field layouts draw in the paragraph face like Word, not the UA math font */
 .doc-field-math math {
   font-family: inherit;
@@ -11827,7 +10481,6 @@ ruby.doc-ruby rt {
   line-height: 1.5;
   color: var(--docs-paper-ink-dim);
 }
-
 /* canvas twin of the pv separators: Word's 2in rule, drawn at the row's bottom */
 .page-notes::before {
   content: '';
@@ -11837,13 +10490,11 @@ ruby.doc-ruby rt {
   border-bottom: 1px solid var(--docs-paper-ink-faint);
   margin-bottom: 6px;
 }
-
 /* endnotes follow the footnote block as their own area: cancel the pull-up overlap and stack below */
 .page-notes + .page-endnotes {
   margin-top: 0;
   padding-top: 0;
 }
-
 /* Word: endnotes sit right after the last body line, not at the page bottom —
    anchored at the measured flow end (inline top), over the paper's padded tail */
 .page-endnotes-anchored {
@@ -11861,7 +10512,6 @@ ruby.doc-ruby rt {
   gap: 6px;
   padding: 1px 0;
 }
-
 /* Word parity: area markers are superscript body-ink; the flex row ignores
    vertical-align, so raise off the shared baseline instead */
 .page-note sup {
@@ -11895,10 +10545,8 @@ ruby.doc-ruby rt {
 .page-note-btn:hover {
   color: var(--word-blue);
 }
-
 /* ---- References → Index: XE marks (hidden field codes: Word shows nothing
    unless formatting marks are on, so the chip only appears with .show-marks) ---- */
-
 .doc-xe-mark {
   display: inline-block;
   font-size: 0;
@@ -11925,9 +10573,7 @@ ruby.doc-ruby rt {
 .ProseMirror-focused .doc-xe-mark.ProseMirror-selectednode {
   outline: 2px solid var(--word-blue);
 }
-
 /* ---- Context menu: editor right-click menu ---- */
-
 .ctx-menu {
   position: fixed;
   z-index: 200;
@@ -12013,9 +10659,7 @@ ruby.doc-ruby rt {
   max-height: 320px;
   overflow-y: auto;
 }
-
 /* ---- Font / Paragraph dialogs ---- */
-
 .font-dialog-row {
   display: flex;
   gap: 12px;
@@ -12200,9 +10844,7 @@ ruby.doc-ruby rt {
 .prompt-textarea:focus {
   border-color: var(--word-blue);
 }
-
 /* ---- Draw (ink annotations) ---- */
-
 .ink-overlay {
   position: absolute;
   inset: 0;
@@ -12236,7 +10878,6 @@ ruby.doc-ruby rt {
   gap: 4px;
   justify-content: center;
 }
-
 /* 6px so the active swatch's outline (2px + 1px offset) keeps clear air */
 .ink-swatches {
   display: flex;
@@ -12288,7 +10929,6 @@ ruby.doc-ruby rt {
   border-radius: 50%;
   display: inline-block;
 }
-
 /* Page Number Format dialog */
 .pgnum-row {
   display: flex;
@@ -12310,15 +10950,12 @@ ruby.doc-ruby rt {
   color: var(--text-dim);
   margin: 6px 0 0;
 }
-
-/* table border / size tools */
-/* side by side: stacked, the three rows outgrow the fixed 80px band */
+/* table border / size tools */ /* side by side: stacked, the three rows outgrow the fixed 80px band */
 .table-tool-borders {
   flex-direction: row;
   align-items: center;
   gap: 8px;
 }
-
 /* Border Styles / Line Weight / Pen Color stacked beside Borders ▾ (Word) */
 .table-border-opts {
   display: flex;
@@ -12385,14 +11022,12 @@ ruby.doc-ruby rt {
 .table-tool-button.active {
   background: var(--accent-soft);
 }
-
 /* run-level format revision (w:rPrChange): amber underline hint */
 .has-rpr-change {
   text-decoration: underline wavy var(--docs-paper-rpr);
   text-decoration-skip-ink: none;
   text-underline-offset: 3px;
 }
-
 /* inline table-break cut point: zero-height dashed page-break marker (spans the page, takes no layout height) */
 .page-gap-cut {
   display: inline-block;
@@ -12401,7 +11036,6 @@ ruby.doc-ruby rt {
   position: relative;
   pointer-events: none;
 }
-
 /* safety net: a cut marker misplaced as a direct table/row child would otherwise be
    wrapped in an anonymous table row, adding one line-height of phantom table height
    that skews pagination measurement (#86 line shear / #93 page-count inflation) */
@@ -12419,7 +11053,6 @@ tr > .page-gap-cut {
   width: 200vw;
   border-top: 2px dashed var(--docs-gap-cut);
 }
-
 /* cut markers for anchors inside read-only nested-table DOM (no PM position):
    absolute overlays on the page wrap instead of inline widgets */
 .page-cut-overlays {
@@ -12438,7 +11071,6 @@ tr > .page-gap-cut {
   left: 0;
   width: 100%;
 }
-
 /* Word-style margin annotations: comment bubbles right of the paper + revision
    change bars in the left page margin (absolute overlay, no layout height) */
 .page-margin-annotations {
@@ -12446,25 +11078,21 @@ tr > .page-gap-cut {
   inset: 0;
   pointer-events: none;
 }
-
 /* the markup column takes real wrap width so captures include it; the paper
    (in-flow, content box) keeps its position */
 .page-wrap.has-markup-area {
   padding-right: var(--markup-w, 0px);
 }
-
 /* percentage-centered wrap overlays must keep centering on the paper, not the widened padding box */
 .page-wrap.has-markup-area .page-hf {
   left: calc((100% - var(--markup-w, 0px)) / 2);
 }
-
 /* box-hosting edge strips center by offset (no translate, see .page-hf-has-boxes) on the padded wrap */
 .page-wrap.has-markup-area .page-hf.page-hf-has-boxes {
   left: calc(
     (100% - var(--markup-w, 0px) - var(--section-content-w, calc(var(--page-w, 816px) - 120px))) / 2
   );
 }
-
 /* gap strips position against the unpadded page gap: paper-centered, no markup offset */
 .page-wrap.has-markup-area .page-gap-hf.page-hf-has-boxes {
   left: calc((100% - var(--section-content-w, calc(var(--page-w, 816px) - 120px))) / 2);
@@ -12479,7 +11107,6 @@ tr > .page-gap-cut {
   width: 2px;
   background: var(--docs-paper-rev-ink);
 }
-
 /* Simple Markup: Word's fixed-red changed-line bar, clickable (switches to All Markup) */
 .rev-display-simple .change-bar {
   background: var(--docs-revision-bar);
@@ -12558,7 +11185,6 @@ tr > .page-gap-cut {
   padding-top: 3px;
   border-top: 1px solid var(--border);
 }
-
 /* revision balloons (Deleted:/Formatted:) share the bubble frame, keyed by revision ink */
 .rev-bubble {
   cursor: default;
@@ -12577,9 +11203,7 @@ tr > .page-gap-cut {
 .rev-bubble-del .rev-bubble-text {
   text-decoration: line-through;
 }
-
-/* nested table inside a cell (read-only child table) */
-/* anchored shapes/textboxes inside a cell: in-flow spacer sized to the boxes'
+/* nested table inside a cell (read-only child table) */ /* anchored shapes/textboxes inside a cell: in-flow spacer sized to the boxes'
    extent (Word grows the row), boxes positioned absolutely within it */
 .doc-cell-boxes {
   position: relative;
@@ -12587,7 +11211,6 @@ tr > .page-gap-cut {
   width: 0;
   overflow: visible;
 }
-
 /* the zero-width host must not collapse an absolutely-positioned box:
    its own width (from the anchor extent) wins over the 100% cap */
 .doc-cell-boxes > .doc-textbox {
@@ -12597,12 +11220,10 @@ tr > .page-gap-cut {
 .doc-nested-table .doc-table {
   max-width: 100%;
 }
-
 /* picture-only cell paragraph (line-height 0 inline): the image sits on the line bottom */
 .doc-table .doc-p-picture > .doc-inline-img {
   vertical-align: bottom;
 }
-
 /* list library galleries (bullets/numbering/multilevel) */
 .list-gallery {
   display: grid;
@@ -12611,7 +11232,6 @@ tr > .page-gap-cut {
   padding: 6px;
   min-width: 180px;
 }
-
 /* doubled class strength: .layout-menu button (0,1,1) sets border: none and
    would erase the card frame (bit the old gallery too) */
 .list-gallery .list-gallery-card {
@@ -12628,7 +11248,6 @@ tr > .page-gap-cut {
 .list-gallery .list-gallery-card:hover {
   border-color: var(--accent);
 }
-
 /* Word-style bullet/numbering library: header row, a "None" card, bordered
    preview cards and a define-new footer (matches the multilevel gallery) */
 .list-gallery-word {
@@ -12721,7 +11340,6 @@ tr > .page-gap-cut {
 .list-gallery .list-gallery-define:hover {
   color: var(--accent);
 }
-
 /* Change List Level row inside the bullet / numbering / multilevel galleries */
 .list-gallery-levels {
   grid-column: 1 / -1;
@@ -12769,7 +11387,6 @@ tr > .page-gap-cut {
   margin: 4px 0;
   background: var(--border);
 }
-
 /* List dialogs: numbering value, indents, define bullet / number / multilevel */
 .modal.list-dialog {
   width: 460px;
@@ -13025,7 +11642,6 @@ tr > .page-gap-cut {
 .list-define-grid .fld > span:first-child {
   flex-basis: 110px;
 }
-
 /* table style gallery cards */
 .table-style-gallery {
   display: flex;
@@ -13291,7 +11907,6 @@ tr > .page-gap-cut {
 .table-margin-value.right {
   right: 8px;
 }
-
 @media (max-width: 620px) {
   .table-properties-segments {
     grid-template-columns: 1fr;
@@ -13305,7 +11920,6 @@ tr > .page-gap-cut {
     display: none;
   }
 }
-
 /* comment threads: replies and resolution */
 .comment-thread {
   border-bottom: 1px solid var(--border);
@@ -13392,7 +12006,6 @@ tr > .page-gap-cut {
   padding: 6px;
   box-sizing: border-box;
 }
-
 /* Sliding AI dock: one persistent wrapper animates between the panel width and
  * the 34px collapsed rail (Excel-parity 180ms ease); --ai-panel-width tracks
  * the panel's drag-resizer */
@@ -13408,23 +12021,19 @@ tr > .page-gap-cut {
 .ai-dock.collapsed {
   width: 34px;
 }
-
 /* "show the AI sidebar" off and panel closed: no rail, no sliver */
 .ai-dock.collapsed.ai-dock-off {
   width: 0;
 }
-
 /* while dragging the resizer, follow the pointer without easing */
 .ai-dock:has(.ai-panel-resizing) {
   transition: none;
 }
-
 /* the rail stretches to fill the dock while the width animates */
 .ai-dock .ai-rail {
   flex: 1;
   width: auto;
 }
-
 @media (prefers-reduced-motion: reduce) {
   .ai-dock {
     transition: none;
@@ -13445,9 +12054,7 @@ tr > .page-gap-cut {
 .ai-login-btn:hover {
   opacity: 0.88;
 }
-
 /* ================= transient toast (save feedback) ================= */
-
 .app-toast {
   position: fixed;
   top: 64px;
@@ -13492,7 +12099,6 @@ tr > .page-gap-cut {
 .app-toast.success .app-toast-icon {
   color: var(--docs-toast-ok);
 }
-
 /* body row (AI dock + content column) — the status bar spans only the content
    column so the dock runs the full height of the window */
 .app-main {
@@ -13507,13 +12113,11 @@ tr > .page-gap-cut {
   flex: 1;
   min-width: 0;
 }
-
 /* Shape draw mode (Word parity): crosshair over the whole document while armed */
 .ProseMirror.doc-shape-drawing,
 .ProseMirror.doc-shape-drawing * {
   cursor: crosshair !important;
 }
-
 /* Shape gallery dropdown (slides parity: grouped, outline-icon grid) */
 .rb-drop-title {
   font-size: 11px;
@@ -13555,12 +12159,10 @@ tr > .page-gap-cut {
   border-color: var(--accent);
   background: var(--hover);
 }
-
 /* Gallery variant keeps .shape-palette's anchored-card chrome but stacks grouped grids */
 .shape-palette.rb-shape-gallery {
   display: block;
 }
-
 /* Whitespace-only runs: Word ignores their font size for line height (tdf#137335).
    Only the run's own [data-doc-style] span carries the oversized font-size — outer
    comment/ins/del spans inherit the paragraph size and contribute nothing — so zero
@@ -13571,7 +12173,6 @@ tr > .page-gap-cut {
 .doc-page span[data-doc-style]:has(.doc-ws-run) span {
   line-height: 0;
 }
-
 /* Curly quotes in w:hint="eastAsia" runs: Word draws them with the East Asian
    font at a fullwidth advance, while every macOS Chinese system face keeps them
    proportional — only the bundled Noto subset matches Word's 1em cell. */
@@ -13584,7 +12185,6 @@ tr > .page-gap-cut {
   font-size: 12px;
   color: var(--color-text-secondary);
 }
-
 /* ---- post-paste "Paste options" chip (Word parity) ---- */
 .paste-chip {
   position: fixed;
@@ -13670,7 +12270,6 @@ tr > .page-gap-cut {
   font-size: 12px;
   cursor: pointer;
 }
-
 /* ---- table operations wave: 9-way cell alignment, small dialogs, screen gridlines ---- */
 .cell-align-grid {
   display: grid;
@@ -13724,7 +12323,6 @@ tr > .page-gap-cut {
   grid-template-columns: 1fr 1fr;
   gap: 6px 14px;
 }
-
 /* scoped above the generic .modal label rule */
 .zoom-dialog .zoom-dialog-radio,
 .zoom-dialog .zoom-dialog-percent {
@@ -13855,7 +12453,6 @@ tr > .page-gap-cut {
   background: var(--surface);
   color: var(--text);
 }
-
 /* Word's View Gridlines: a faint dashed grid on screen only, never printed or exported */
 @media screen {
   .show-table-gridlines .doc-table td,
@@ -13864,7 +12461,6 @@ tr > .page-gap-cut {
     outline-offset: -1px;
   }
 }
-
 /* ---- withheld spans: text kept in the document, hidden from the model ----
    An underline rather than a fill, because every other decoration here is
    either a fill (search hits) or a style (bold, highlight), and the reader has
@@ -13879,7 +12475,6 @@ tr > .page-gap-cut {
   padding: 0 1px;
   cursor: pointer;
 }
-
 /* the marker is a screen affordance; the printed page shows the plain run */
 @media print {
   .redact-span {
@@ -13900,7 +12495,6 @@ tr > .page-gap-cut {
   line-height: 1.5;
   color: var(--text-dim);
 }
-
 /* the marker the model will see, shown before anything is committed */
 .redact-preview {
   font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, var(--ui-cjk), monospace;
@@ -13913,9 +12507,7 @@ tr > .page-gap-cut {
   margin-bottom: 14px;
   word-break: break-all;
 }
-
 /* ---- Mailings: the mail merge panel and the field list ---- */
-
 .modal-mailmerge {
   width: 560px;
   max-height: 84vh;

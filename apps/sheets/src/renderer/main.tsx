@@ -3,6 +3,7 @@ import { htmlDir, htmlLang, type Lang } from '@genoffice/i18n'
 import { applyAiPanelPrefs, installScreenTips } from '@genoffice/ui'
 
 import '@genoffice/ui/tokens.css'
+import '@genoffice/ui/ai-panel.css'
 import '@genoffice/ui/screentip.css'
 import '@genoffice/ui/ai-model-picker.css'
 import '@genoffice/ui/ai-queue-strip.css'

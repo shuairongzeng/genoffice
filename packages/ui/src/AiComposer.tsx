@@ -9,7 +9,9 @@ const MAX_TEXTAREA_HEIGHT = 168
  * The AI panel input box shared by docs and sheets: auto-growing textarea
  * (Enter sends, Shift+Enter newline, Esc stops) plus a footer with optional
  * app-specific controls, a shortcut hint, and the send/stop button.
- * Renders the `.ai-input-box` class family; each app themes it in its own CSS.
+ * Renders the `.ai-input-box` class family, styled once by
+ * packages/ui/src/ai-panel.css (issue #1 item 13); apps layer only their
+ * genuinely app-specific rules on top.
  * While busy, Enter queues the draft instead (see useChatRunQueue).
  * While `setupRequired` is true, the composer points at setup instead: the
  * guidance placeholder replaces the invite, and Enter/send wait (see props).
@@ -30,9 +32,6 @@ export function AiComposer({
   queueStrip,
   footerStart,
   iconOnly = false,
-  sendIconEnabled,
-  sendIconDisabled,
-  stopIcon,
   textareaRef,
   onChange,
   onSend,
@@ -63,11 +62,6 @@ export function AiComposer({
   readonly footerStart?: React.ReactNode
   /** compact variant: no hint text, icon-only enter/stop button (Genspark composer style) */
   readonly iconOnly?: boolean | undefined
-  /** custom art for the icon-only send button (e.g. brand-supplied PNGs); falls back to IconEnter */
-  readonly sendIconEnabled?: React.ReactNode
-  readonly sendIconDisabled?: React.ReactNode
-  /** custom art for the icon-only stop button while busy; falls back to IconStop */
-  readonly stopIcon?: React.ReactNode
   /** pass a ref to focus the textarea from outside */
   readonly textareaRef?: React.RefObject<HTMLTextAreaElement | null> | undefined
   readonly onChange: (next: string) => void
@@ -156,7 +150,7 @@ export function AiComposer({
             title={stopLabel}
             aria-label={stopLabel}
           >
-            {iconOnly ? (stopIcon ?? <IconStop size={16} />) : <IconStop size={16} />}
+            <IconStop size={20} />
             {!iconOnly && stopLabel}
           </button>
         ) : (
@@ -167,13 +161,7 @@ export function AiComposer({
             title={gated && setupHint ? setupHint : sendLabel}
             aria-label={sendLabel}
           >
-            {iconOnly ? (
-              ((canSend ? sendIconEnabled : (sendIconDisabled ?? sendIconEnabled)) ?? (
-                <IconEnter size={16} />
-              ))
-            ) : (
-              <IconSend size={16} />
-            )}
+            {iconOnly ? <IconEnter size={20} /> : <IconSend size={16} />}
             {!iconOnly && sendLabel}
           </button>
         )}

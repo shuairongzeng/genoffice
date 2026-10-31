@@ -60,7 +60,6 @@
   font-style: italic;
   font-display: block;
 }
-
 /* Per-app accent (powerpoint-orange family) + slides-only tokens.
  * Chrome tokens (surface/text/border/…, AI panel --color-*) come from
  * @genoffice/ui/tokens.css; nothing here may shadow those names. */
@@ -95,15 +94,9 @@
   --slides-error-bg: #fdecec;
   --slides-danger-bg: #fbe9e7;
   --slides-ai-error: #c62828;
-  --slides-ai-error-border: rgb(198 40 40 / 45%);
-  --slides-ai-error-bg: rgb(198 40 40 / 8%);
-  --slides-ai-step-error: #b91c1c;
   --slides-focus-ring: rgb(35 36 37 / 20%);
   --slides-focus-ring-soft: rgb(35 36 37 / 18%);
   --slides-focus-ring-strong: rgb(35 36 37 / 35%);
-  --slides-focus-ring-blue: rgb(74 141 246 / 30%);
-  --slides-shimmer-base: #666666;
-  --slides-shimmer-hi: #d9d9d9;
   --slides-scroll-thumb: rgb(0 0 0 / 25%);
   --slides-swatch-ring: rgb(0 0 0 / 15%);
   --slides-swatch-ring-strong: rgb(0 0 0 / 25%);
@@ -196,11 +189,9 @@
   --slides-shadow-tip: 0 4px 6px rgb(0 0 0 / 10%);
   --slides-shadow-toast: 0 4px 16px rgb(0 0 0 / 18%);
   --slides-shadow-copilot: 4px 0 16px rgb(82 41 31 / 5%);
-  --slides-shadow-composer: 0 6px 30px rgb(0 0 0 / 8%);
   --slides-shadow-stage: 0 2px 14px rgb(0 0 0 / 18%);
   --slides-shadow-reading: 0 10px 36px rgb(0 0 0 / 50%);
 }
-
 [data-theme='dark'] {
   --accent: #e8663f;
   --accent-dark: #d4552f;
@@ -229,15 +220,9 @@
   --slides-error-bg: rgb(229 115 115 / 12%);
   --slides-danger-bg: #3a2020;
   --slides-ai-error: #f28b82;
-  --slides-ai-error-border: rgb(242 139 130 / 45%);
-  --slides-ai-error-bg: rgb(242 139 130 / 12%);
-  --slides-ai-step-error: #f28b82;
   --slides-focus-ring: rgb(228 228 228 / 25%);
   --slides-focus-ring-soft: rgb(228 228 228 / 22%);
   --slides-focus-ring-strong: rgb(228 228 228 / 40%);
-  --slides-focus-ring-blue: rgb(74 158 255 / 40%);
-  --slides-shimmer-base: #8a8a8a;
-  --slides-shimmer-hi: #d0d0d0;
   --slides-scroll-thumb: rgb(255 255 255 / 28%);
   --slides-swatch-ring: rgb(255 255 255 / 25%);
   --slides-swatch-ring-strong: rgb(255 255 255 / 35%);
@@ -248,7 +233,6 @@
   --slides-anim-media: #a58cf0;
   --slides-choice-check: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2.5 6.5l2.5 2.5 4.5-5' fill='none' stroke='%231e1e1e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>");
 }
-
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']):not([data-theme='dark']) {
     --accent: #e8663f;
@@ -278,15 +262,9 @@
     --slides-error-bg: rgb(229 115 115 / 12%);
     --slides-danger-bg: #3a2020;
     --slides-ai-error: #f28b82;
-    --slides-ai-error-border: rgb(242 139 130 / 45%);
-    --slides-ai-error-bg: rgb(242 139 130 / 12%);
-    --slides-ai-step-error: #f28b82;
     --slides-focus-ring: rgb(228 228 228 / 25%);
     --slides-focus-ring-soft: rgb(228 228 228 / 22%);
     --slides-focus-ring-strong: rgb(228 228 228 / 40%);
-    --slides-focus-ring-blue: rgb(74 158 255 / 40%);
-    --slides-shimmer-base: #8a8a8a;
-    --slides-shimmer-hi: #d0d0d0;
     --slides-scroll-thumb: rgb(255 255 255 / 28%);
     --slides-swatch-ring: rgb(255 255 255 / 25%);
     --slides-swatch-ring-strong: rgb(255 255 255 / 35%);
@@ -298,36 +276,29 @@
     --slides-choice-check: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2.5 6.5l2.5 2.5 4.5-5' fill='none' stroke='%231e1e1e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>");
   }
 }
-
 * {
   box-sizing: border-box;
 }
-
 /* UI CJK fonts per language (documentElement.lang is set at bootstrap and on switch);
  * the zh expansion must keep the historical stack byte-identical */
 :root {
   --ui-cjk: 'PingFang SC', 'Microsoft YaHei';
 }
-
 :root:lang(ja) {
   --ui-cjk: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', 'Meiryo';
 }
-
 :root:lang(ko) {
   --ui-cjk: 'Apple SD Gothic Neo', 'Malgun Gothic';
 }
-
 :root:lang(zh-TW) {
   --ui-cjk: 'PingFang TC', 'Microsoft JhengHei';
 }
-
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
 }
-
 body {
   font-family:
     'Segoe UI',
@@ -353,13 +324,10 @@ body {
      so a wide tab (e.g. Animations) can't become a document-level scroll */
   overflow: hidden;
 }
-
 button {
   font-family: inherit;
 }
-
 /* ================= title bar ================= */
-
 .autosave-toggle {
   display: flex;
   align-items: center;
@@ -434,9 +402,7 @@ button {
   color: var(--text-tertiary);
   cursor: default;
 }
-
 /* ================= ribbon ================= */
-
 .ribbon {
   flex-shrink: 0;
   background: var(--chrome-bg);
@@ -462,7 +428,6 @@ button {
 .ribbon-tabs .qa-btn {
   -webkit-app-region: no-drag;
 }
-
 /* While a ribbon popup is open the row must deliver mousedown (drag regions
    swallow it), so outside-press dismissal can see presses on the blank band */
 .ribbon-tabs.ribbon-tabs-nodrag {
@@ -511,7 +476,6 @@ button {
   color: var(--accent);
   font-weight: 600;
 }
-
 /* active underline: exactly the text width (insets = horizontal padding),
  * ends slightly rounded — not a full capsule */
 .ribbon-tab.active::after {
@@ -594,7 +558,6 @@ button {
   background: var(--border-strong);
   flex-shrink: 0;
 }
-
 /* AI badge shared by ribbon button and (later) AI panel title */
 .copilot-badge {
   display: inline-flex;
@@ -607,7 +570,6 @@ button {
   background: var(--slides-copilot-grad);
   box-shadow: var(--slides-shadow-badge);
 }
-
 /* Mini variant: corner marker on ribbon buttons whose action calls AI (Spelling / Translate) */
 .rb-ai-icon {
   position: relative;
@@ -623,7 +585,6 @@ button {
   border-radius: 4px;
   box-shadow: none;
 }
-
 /* AI entry points all use the app icon (Ribbon AI button / AI panel title / collapsed entry) */
 .app-badge {
   display: block;
@@ -632,7 +593,6 @@ button {
   border-radius: 7px;
   box-shadow: var(--slides-shadow-badge-soft);
 }
-
 /* Genspark brand logo (Ribbon AI button / AI panel title / collapsed entry) */
 .genspark-badge {
   display: block;
@@ -640,13 +600,7 @@ button {
   height: 22px;
   border-radius: 50%;
 }
-
-.ai-panel-title .genspark-badge {
-  width: 18px;
-  height: 18px;
-}
 /* ---- ribbon body ---- */
-
 .ribbon-body {
   display: flex;
   /* groups stretch to the full ribbon height, buttons fill it:
@@ -756,10 +710,8 @@ button {
   justify-content: center;
   color: var(--text-primary);
 }
-
 /* Home-tab Genspark AI entry: black circular "+" badge with a dropdown caret,
-   brand label below (mirrors the sheets Home ribbon). */
-/* AI feature buttons next to the entry: purple glyphs, label below */
+   brand label below (mirrors the sheets Home ribbon). */ /* AI feature buttons next to the entry: purple glyphs, label below */
 .ai-feature-icon {
   display: grid;
   place-items: center;
@@ -774,7 +726,6 @@ button {
   width: 24px;
   height: 24px;
 }
-
 /* the dropdown chevron sits beside the icon (top row), not the label */
 .rb-caret {
   flex-shrink: 0;
@@ -802,12 +753,10 @@ button {
 .rb-big.active .rb-big-icon {
   background: var(--active-bg);
 }
-
 /* The Genspark AI entry keeps a black label even while the panel is open. */
 .rb-big.ai-entry.active {
   color: var(--text);
 }
-
 /* The AI entry buttons read as one piece: hover/press tint the whole button
    (icon + label together), unlike the other tall buttons where only the icon
    row is painted. */
@@ -828,7 +777,6 @@ button {
 .rb-big.ai-entry.active .rb-big-icon {
   background: transparent;
 }
-
 /* hover/open paint only the icon row — the label below
 
 /* AI button: brand logo only — no gray plate behind the icon, label stays black */
@@ -849,7 +797,6 @@ button {
 .rb-big.rb-ai:hover .rb-big-icon {
   background: none;
 }
-
 /* PowerPoint-style: hover/open paint only the icon row — the label below
  * stays outside the gray. The box spans the whole button width (align-self
  * stretch + horizontal bleed), not just the icon content. Negative margins
@@ -867,18 +814,17 @@ button {
   justify-content: center;
   gap: 4px;
 }
-
 /* compact stacked mini buttons (cut/copy/format painter ONLY): 3 × 18px lines up with a big button (57px).
    Scoped to .rb-clip-col — .rb-col is also the font group's row container and must keep normal sizing. */
 .rb-clip-col {
   gap: 0;
 }
+
 .rb-clip-col .rb-icon {
   height: 20px;
   min-width: 24px;
   padding: 0 4px;
 }
-
 /* PowerPoint-style combined slides group: big new-slide button + stacked
    small labeled rows (layout / add section). The column stretches to the big
    button's height; 4px top tracks .rb-big's icon row, and the 1px bottom
@@ -899,11 +845,11 @@ button {
   height: 20px;
   stroke-width: 1.8;
 }
+
 .rb-slides-col .rb-small .rb-caret {
   width: 10px;
   height: 10px;
 }
-
 /* ---- Compact ribbon (⌥⌘K / Ctrl+Alt+K), docs parity, see #362 ----
  * The middle density: the band stays and every command stays reachable, it
  * just drops to icon-only on a shorter band. The band keeps the HARD-fixed
@@ -930,7 +876,6 @@ button {
   min-height: 22px;
   flex: none;
 }
-
 /* Keep the label in the accessibility tree and in the DOM (Playwright's
  * hasText and getByRole(name) both read it) but take it out of the visual
  * flow. display: none here would strip the accessible name. */
@@ -945,14 +890,12 @@ button {
   white-space: nowrap;
   border: 0;
 }
-
 /* the icon row is the whole button now, so let the hover/open paint cover it */
 .ribbon-compact .rb-big .rb-big-icon {
   align-self: stretch;
   padding: 1px 3px;
   margin: 0 -2px;
 }
-
 /* Split buttons (paste dropdown, color pickers) paint their hover in two
  * inner zones that stretch to the icon row — the extra padding above would
  * stack on the zones' own, putting the pair 4px over every plain button. */
@@ -965,12 +908,10 @@ button {
   padding-top: 1px;
   padding-bottom: 1px;
 }
-
 /* Groups centre on the shorter band. */
 .ribbon-compact .ribbon-group {
   padding: 0 3px;
 }
-
 /* `.rb-col` stacks rows that cannot fit a short band side by side — the font
  * group's two 28px combo rows, the zoom stack, the clipboard mini-column —
  * exactly the docs treatment of .rb-col/.rb-font-group. */
@@ -979,7 +920,6 @@ button {
   align-items: center;
   gap: 4px;
 }
-
 /* the slides group's stacked rows pair with the big New Slide button; in
  * compact there is no pairing height to track anymore */
 .ribbon-compact .rb-slides-col {
@@ -988,7 +928,6 @@ button {
   justify-content: center;
   padding: 0;
 }
-
 /* Draw tab: the pen tray's pens hang from the tray top with 56px glyphs —
  * twice the compact band. Smaller glyphs, less hang; the held pen stays the
  * one fully visible. */
@@ -1009,14 +948,12 @@ button {
 .ribbon-compact .pen-btn:hover:not(:disabled) {
   transform: translateY(-4px);
 }
-
 /* Ink settings stack swatches over widths (42px); side by side like the
  * docs compact band. */
 .ribbon-compact .ink-settings {
   flex-direction: row;
   gap: 8px;
 }
-
 /* Animations' Timing block stacks three 22px rows (trigger / duration /
  * delay = 70px); side by side like the docs compact band. */
 .ribbon-compact .rb-anim-timing {
@@ -1024,14 +961,12 @@ button {
   align-items: center;
   gap: 4px;
 }
-
 /* View tab's Show group is a 3-row checkbox grid (68px); compact flattens it
  * to one row and lets the band's horizontal scroll carry the width. */
 .ribbon-compact .rb-check-grid {
   grid-template-rows: none;
   column-gap: 10px;
 }
-
 /* Design tab theme cards: 62px preview cards shrink like the docs style
  * gallery — the name line goes away and the swatch row carries the card. */
 .ribbon-compact .theme-card {
@@ -1048,7 +983,6 @@ button {
   width: 6px;
   height: 6px;
 }
-
 /* same visually-hidden treatment as the rb-big labels: the name stays in the
  * accessibility tree (the card's data-tip is the translated theme name) */
 .ribbon-compact .theme-card-name {
@@ -1104,7 +1038,6 @@ button {
   opacity: 0.4;
   cursor: default;
 }
-
 /* Checkbox rows (View tab's Show group): one column-flow grid so the second
    column's rows sit level with the first's (notes ↔ ruler, thumbnail pane ↔
    gridlines) instead of each column centering independently */
@@ -1198,12 +1131,10 @@ button {
 .rb-icon svg {
   display: block;
 }
-
 /* pushes an item to the row's right edge (MS: Clear Formatting aligns with row 2's end) */
 .rb-push-right {
   margin-left: auto;
 }
-
 /* dropdown chevron inside compact toggle buttons hugs the glyph */
 .rb-icon .rb-caret {
   margin-left: 1px;
@@ -1216,9 +1147,7 @@ button {
   background: var(--border);
   margin: 0 5px;
 }
-
 /* ================= workspace ================= */
-
 .workspace {
   flex: 1;
   display: flex;
@@ -1234,7 +1163,6 @@ button {
   overflow-y: auto;
   padding: 10px;
 }
-
 /* drag handle between the thumbnail list and the canvas — resize the sidebar
  * horizontally (overlaps the list's right border; cursor-only affordance) */
 .thumb-resizer {
@@ -1245,7 +1173,6 @@ button {
   z-index: 20;
   background: transparent;
 }
-
 /* macOS vibrancy (body.vib set at bootstrap): only the body stays
  * transparent for the window material; the workspace, mode containers and
  * the thumbnail pane paint solid so content never shows the desktop
@@ -1253,16 +1180,13 @@ button {
 body.vib {
   background: transparent;
 }
-
 body.vib .workspace {
   background: var(--canvas);
 }
-
 body.vib .stage-col,
 body.vib .sorter-view {
   background: var(--canvas);
 }
-
 body.vib .slide-list {
   background: var(--slides-rail-bg);
 }
@@ -1278,7 +1202,6 @@ body.vib .slide-list {
   display: block;
   line-height: 0;
 }
-
 /* Thumbnail drag-to-reorder: source page translucent, insertion line shown on the drop target's top/bottom edge (box-shadow not clipped by overflow) */
 .thumb.dragging {
   opacity: 0.4;
@@ -1312,7 +1235,6 @@ body.vib .slide-list {
   border-radius: 3px;
   padding: 1px 4px;
 }
-
 /* Paste-options floater button on the just-pasted slide's thumbnail (PowerPoint-style) */
 .paste-floater-btn {
   position: absolute;
@@ -1339,7 +1261,6 @@ body.vib .slide-list {
   font-size: 8px;
   line-height: 1;
 }
-
 /* ── Sidebar section grouping ─────────────────────────────────────── */
 .section-header {
   display: flex;
@@ -1403,9 +1324,7 @@ body.vib .slide-list {
   border-radius: 3px;
   outline: none;
 }
-
 /* the stage stays ltr under an RTL UI: Konva Text inherits this direction */
-
 .stage-wrap {
   direction: ltr;
   flex: 1;
@@ -1420,7 +1339,6 @@ body.vib .slide-list {
   justify-content: flex-start;
   align-items: flex-start;
 }
-
 /* SlideCanvas carries a transparent 160px Konva bleed for off-page objects.
  * Ignore that implementation-only overflow while the nominal slide fits; at
  * larger zoom levels the base overflow:auto rule restores canvas panning. */
@@ -1437,9 +1355,7 @@ body.vib .slide-list {
 .stage-scale {
   display: inline-block;
 }
-
 /* ================= start screen ================= */
-
 .start-screen {
   flex: 1;
   overflow-y: auto;
@@ -1547,9 +1463,7 @@ body.vib .slide-list {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 /* ================= status bar ================= */
-
 .status-bar {
   flex-shrink: 0;
   display: flex;
@@ -1604,7 +1518,6 @@ body.vib .slide-list {
 .zoom-btn:hover {
   background: var(--slides-statusbar-hover);
 }
-
 /* Same self-drawn treatment as the format-pane sliders (.fp-slider): quiet
  * two-tone track, white knob with the shared contact-ring shadow. The thumb
  * stays at the native 16px so only its color/shadow changes. */
@@ -1636,7 +1549,6 @@ body.vib .slide-list {
   min-width: 38px;
   text-align: right;
 }
-
 /* Status-bar quick toggle button for notes */
 .status-notes-btn {
   display: inline-flex;
@@ -1661,14 +1573,12 @@ body.vib .slide-list {
 .status-notes-btn:hover {
   background: var(--slides-statusbar-hover);
 }
-
 /* Active = neutral pressed gray, not accent (PPT's Notes button stays plain);
  * translucent wash so the shade matches the ribbon's selected gray on the
  * darker statusbar background */
 .status-notes-btn.on {
   background: var(--slides-statusbar-active);
 }
-
 /* Start-show-from-current-slide (PowerPoint keeps this next to the zoom slider) */
 .status-play-btn {
   display: inline-flex;
@@ -1685,9 +1595,7 @@ body.vib .slide-list {
 .status-play-btn:hover {
   background: var(--hover);
 }
-
 /* ================= AI panel (Copilot-style pane, isomorphic to docs) ================= */
-
 .ai-panel {
   position: relative;
   width: 360px;
@@ -1702,69 +1610,6 @@ body.vib .slide-list {
   color: var(--color-text-primary);
 }
 
-/* drag handle on the panel's right edge — resize the panel horizontally (no highlight, cursor-only affordance) */
-.ai-panel-resizer {
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 6px;
-  cursor: col-resize;
-  z-index: 20;
-  background: transparent;
-}
-
-/* while dragging: keep the col-resize cursor everywhere, no text selection */
-.ai-panel-resizing {
-  cursor: col-resize;
-  user-select: none;
-}
-
-.ai-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px 10px 14px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.ai-panel-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-}
-
-.ai-panel-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  min-width: 0;
-}
-
-.ai-header-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
-  border: none;
-  background: none;
-  border-radius: 6px;
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: 0;
-}
-
-.ai-header-btn:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
 .ai-header-btn.ai-undo-btn {
   width: auto;
   gap: 4px;
@@ -1777,7 +1622,6 @@ body.vib .slide-list {
   opacity: 0.45;
   cursor: default;
 }
-
 /* Collapsed state: vertical bar on the left edge */
 .ai-rail {
   display: flex;
@@ -1805,50 +1649,6 @@ body.vib .slide-list {
   letter-spacing: 2px;
   color: var(--text-dim);
 }
-
-.ai-chat {
-  flex: 1;
-  overflow-y: auto;
-  padding: 32px 16px;
-  display: flex;
-  flex-direction: column;
-  /* uniform 16px flex gap between blocks, messages carry no margin */
-  gap: 16px;
-  font-family: var(--gs-font-sans);
-}
-
-/* Boundary between the restored transcript and the live turn */
-.ai-history-sep {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 30px;
-  font-size: 14px;
-  color: var(--text-tertiary);
-}
-
-/* Empty-state title/body: same specs as the docs AI panel (family/size/color); copy unchanged */
-.ai-chat-empty {
-  margin-top: 36px;
-  padding: 0 10px;
-  text-align: center;
-  font-family: var(--gs-font-sans);
-}
-
-.ai-chat-empty-title {
-  font-size: var(--text-body-lg);
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin-bottom: 8px;
-}
-
-.ai-chat-empty-body {
-  color: var(--color-text-secondary);
-  font-size: var(--text-small);
-  font-weight: 400;
-  line-height: 1.5;
-}
-
 /* clickable starter prompts in the empty state — suggestion chips,
  * same spec as the docs AI panel: 30px-radius outline pills, 13px/400 */
 .ai-starter-list {
@@ -1882,91 +1682,11 @@ body.vib .slide-list {
   transform: scale(0.98);
 }
 
-/* Chat messages (agent-shell spec): user = gray bubble, AI = plain text without a bubble, no accent colors */
-.ai-msg {
-  position: relative;
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 .ai-md {
   white-space: normal;
 }
 
-.ai-md p,
-.ai-md ul,
-.ai-md ol {
-  margin: 0 0 16px;
-}
-
-.ai-md :last-child {
-  margin-bottom: 0;
-}
-
-/* blank markdown paragraphs would each eat a 16px margin — the stream never renders them */
-.ai-md p:empty {
-  display: none;
-}
-
-.ai-md ul,
-.ai-md ol {
-  margin-bottom: 20px;
-  padding-left: 20px;
-}
-
-.ai-md li {
-  margin-left: 20px;
-  line-height: 28px;
-}
-
-.ai-md .ai-md-h {
-  font-weight: 700;
-  line-height: 1.3;
-  margin: 20px 0 8px;
-}
-
-.ai-md .ai-md-h:first-child {
-  margin-top: 0;
-}
-
-/* inline code: neutral gray chip (deliberately not red), 2px below body size */
-.ai-md code {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--color-bg-subtle);
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-}
-
-/* User pill: gray, fully rounded (no tail) */
-.ai-msg-user {
-  align-self: flex-end;
-  background: var(--color-bg-subtle);
-  color: var(--color-text-primary);
-  padding: 8px 16px;
-  border-radius: 14px;
-  max-width: 80%;
-  line-height: 1.5;
-}
-
-.ai-msg-assistant {
-  align-self: stretch;
-  background: none;
-  border: none;
-  padding: 0;
-  max-width: 100%;
-  color: var(--color-text-primary);
-}
-
-/* Collapsible tool-activity group */
 .ai-work-group {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
   margin-top: 12px;
 }
 
@@ -1974,74 +1694,6 @@ body.vib .slide-list {
 .ai-work-group:only-child {
   margin-top: 0;
 }
-
-.ai-work-group-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  margin: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  user-select: none;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--color-text-tertiary);
-  transition: color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-work-group-summary:hover {
-  color: var(--color-text-secondary);
-}
-
-.ai-work-group-summary:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--slides-focus-ring);
-  border-radius: 4px;
-}
-
-.ai-work-group-summary.running {
-  color: var(--color-text-secondary);
-}
-
-.ai-work-group-summary.running .ai-work-group-label {
-  animation: ai-summary-pulse 1500ms linear infinite;
-}
-
-@keyframes ai-summary-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
-}
-
-.ai-work-group-body {
-  align-self: stretch;
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-work-group-body.open {
-  grid-template-rows: 1fr;
-}
-
-.ai-work-group-body-inner {
-  overflow: hidden;
-  min-height: 0;
-  padding: 0 0 0 8px;
-  transition: padding 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-work-group-body.open .ai-work-group-body-inner {
-  padding: 4px 0 8px 8px;
-}
-
 /* Model reasoning block (showThinking): collapsible, open while streaming */
 .ai-reasoning {
   display: flex;
@@ -2112,113 +1764,6 @@ body.vib .slide-list {
 .ai-reasoning-body.open .ai-reasoning-body-inner {
   padding: 4px 0 8px 8px;
 }
-
-/* Step rows inside the group: 20px icon slot + 1px connector */
-.ai-step-row {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 8px 0;
-  color: var(--color-text-tertiary);
-  animation: ai-row-ease-in 320ms ease-out;
-}
-
-.ai-step-row:not(:last-child) {
-  padding-bottom: 16px;
-}
-
-.ai-step-row:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  left: 9.5px;
-  top: 32px;
-  bottom: -4px;
-  width: 1px;
-  background: var(--color-border-default);
-}
-
-.ai-step-icon {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-tertiary);
-}
-
-.ai-step-icon.done {
-  color: var(--color-text-secondary);
-}
-
-.ai-step-icon.error {
-  color: var(--slides-ai-step-error);
-}
-
-.ai-step-icon.running svg {
-  animation: ai-hourglass-flip 1.8s ease-in-out infinite;
-}
-
-@keyframes ai-hourglass-flip {
-  0%,
-  12% {
-    transform: rotate(0);
-  }
-  44%,
-  56% {
-    transform: rotate(180deg);
-  }
-  88%,
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-.ai-step-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 1px;
-}
-
-.ai-step-title {
-  font-size: 14px;
-  line-height: 1.3;
-  color: var(--color-text-secondary);
-  text-align: left;
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  font-family: inherit;
-}
-
-.ai-step-title.clickable {
-  cursor: pointer;
-  transition: color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-step-title.clickable:hover {
-  color: var(--color-text-primary);
-}
-
-.ai-step-title.clickable:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--slides-focus-ring);
-  border-radius: 4px;
-}
-
-/* Step detail opens instantly, no animation */
-.ai-step-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .ai-step-row,
   .ai-step-icon.running svg,
@@ -2226,65 +1771,6 @@ body.vib .slide-list {
     animation: none;
   }
 }
-
-/* Running tool row: two grow/shrink brand dots */
-.ai-tool-chip-spinner {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  height: 12px;
-}
-
-.ai-tool-chip-spinner::before,
-.ai-tool-chip-spinner::after {
-  content: '';
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--color-brand-secondary);
-}
-
-.ai-tool-chip-spinner::before {
-  animation: ai-tool-dot-grow 2s infinite;
-}
-
-.ai-tool-chip-spinner::after {
-  animation: ai-tool-dot-shrink 2s infinite;
-}
-
-@keyframes ai-tool-dot-grow {
-  0%,
-  100% {
-    transform: scale(0.333);
-    opacity: 0.45;
-  }
-  50% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes ai-tool-dot-shrink {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(0.333);
-    opacity: 0.45;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ai-tool-chip-spinner::before,
-  .ai-tool-chip-spinner::after {
-    animation: none;
-    opacity: 0.65;
-  }
-}
-
 /* Elapsed run time next to the typing indicator */
 .ai-typing-row {
   display: inline-flex;
@@ -2297,88 +1783,43 @@ body.vib .slide-list {
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
-
-/* caret: text glyph right after the label, always visible, rotates open */
-.ai-tool-chip-caret {
-  margin-left: 4px;
-  opacity: 0.7;
-  display: inline-block;
-  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-tool-chip-caret.open {
-  transform: rotate(90deg);
-}
-
-/* stream rows ease in */
-@keyframes ai-row-ease-in {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Generic tool output container: subtle gray card, no border */
-.ai-tool-output {
-  background: var(--color-bg-subtle);
-  border: none;
-  border-radius: 12px;
-  font-family:
-    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-  font-size: 14px;
-  color: var(--color-text-primary);
-  max-height: 300px;
-  overflow-y: auto;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-/* pre-wrap plain text output */
-.ai-tool-output-pre {
-  padding: 12px 16px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
-}
-
 /* Web search: one per line, clickable URLs */
 .ai-tool-output-text {
   padding: 6px 10px;
   line-height: 1.55;
 }
+
 .ai-tool-output-line {
   padding: 1px 0;
   word-break: break-word;
 }
+
 .ai-tool-output-link {
   color: var(--accent);
   text-decoration: underline;
   cursor: pointer;
   word-break: break-all;
 }
+
 .ai-tool-output-link:hover {
   opacity: 0.8;
 }
-
 /* display.kind='links': link list (title + clickable link per row) */
 .ai-tool-output-links {
   padding: 6px 10px;
   line-height: 1.6;
 }
+
 .ai-tool-output-link-row {
   padding: 2px 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .ai-tool-output-link-row .ai-tool-output-link {
   font-size: 11.5px;
 }
-
 /* Image search: thumbnail grid */
 .ai-tool-output-images {
   display: flex;
@@ -2386,6 +1827,7 @@ body.vib .slide-list {
   gap: 6px;
   padding: 8px;
 }
+
 .ai-tool-output-img-btn {
   background: none;
   border: 1px solid var(--border);
@@ -2401,180 +1843,16 @@ body.vib .slide-list {
   justify-content: center;
   transition: border-color 0.15s;
 }
+
 .ai-tool-output-img-btn:hover {
   border-color: var(--accent);
 }
+
 .ai-tool-output-img-btn img {
   max-width: 96px;
   max-height: 72px;
   object-fit: cover;
   display: block;
-}
-
-/* Thinking indicator (white background, no container):
- * phase one = two bouncing blue dots (alternating small/large); phase two = shimmering "Thinking…" text + streaming caret block */
-.ai-typing {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 0;
-  font-size: 15px;
-} /* Thinking indicator: shimmer label above two grow/shrink dots */
-.ai-typing {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 4px 0;
-}
-
-.ai-typing-label {
-  display: inline-block;
-  position: relative;
-  font-size: 14px;
-  line-height: 1;
-  letter-spacing: 0.01em;
-  color: var(--slides-shimmer-base);
-  -webkit-text-fill-color: transparent;
-  background: var(--slides-shimmer-base)
-    linear-gradient(
-      to left,
-      var(--slides-shimmer-base),
-      var(--slides-shimmer-hi) 50%,
-      var(--slides-shimmer-base)
-    );
-  background-clip: text;
-  -webkit-background-clip: text;
-  background-repeat: no-repeat;
-  background-size: 70% 100%;
-  animation: ai-thinking-shimmer 1.2s infinite alternate linear;
-}
-
-.ai-typing-elapsed {
-  font-variant-numeric: tabular-nums;
-}
-
-@keyframes ai-thinking-shimmer {
-  0% {
-    background-position: -100% top;
-  }
-  100% {
-    background-position: 250% top;
-  }
-}
-
-.ai-typing-dots {
-  height: 12px;
-  display: flex;
-  gap: 2px;
-}
-
-.ai-typing-dot-slot {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 12px;
-}
-
-.ai-typing-dot-grow,
-.ai-typing-dot-shrink {
-  background: var(--color-brand-secondary);
-  border-radius: 50%;
-}
-
-.ai-typing-dot-grow {
-  animation: ai-dot-grow 2s infinite;
-}
-
-.ai-typing-dot-shrink {
-  animation: ai-dot-shrink 2s infinite;
-}
-
-@keyframes ai-dot-grow {
-  0%,
-  100% {
-    width: 4px;
-    height: 4px;
-    opacity: 0.45;
-  }
-  50% {
-    width: 12px;
-    height: 12px;
-    opacity: 1;
-  }
-}
-
-@keyframes ai-dot-shrink {
-  0%,
-  100% {
-    width: 12px;
-    height: 12px;
-    opacity: 1;
-  }
-  50% {
-    width: 4px;
-    height: 4px;
-    opacity: 0.45;
-  }
-}
-
-/* streaming caret at the tail of streaming assistant text */
-.ai-msg-streaming .ai-md > :last-child::after {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 1em;
-  margin-left: 2px;
-  border-radius: 1px;
-  background: var(--color-text-secondary);
-  vertical-align: text-bottom;
-  animation: ai-caret-blink 900ms steps(1, end) infinite;
-}
-
-@keyframes ai-caret-blink {
-  0%,
-  50% {
-    opacity: 1;
-  }
-  51%,
-  100% {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ai-typing-label,
-  .ai-msg-streaming .ai-md > :last-child::after {
-    animation: none;
-  }
-}
-
-/* Message hover actions: borderless 30px icon buttons, radius 8, hover = subtle gray fill */
-.ai-msg-toolbar {
-  display: flex;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.ai-msg-tool-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  height: 30px;
-  min-width: 30px;
-  padding: 5px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background-color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-msg-tool-btn svg {
-  width: 20px;
-  height: 20px;
 }
 
 .ai-msg-tool-btn:hover:not(:disabled) {
@@ -2585,7 +1863,6 @@ body.vib .slide-list {
   opacity: 0.45;
   cursor: default;
 }
-
 /* Hairline before the roll-back action; hidden unless an icon action precedes it */
 .ai-rollback-sep {
   display: none;
@@ -2598,7 +1875,6 @@ body.vib .slide-list {
 .ai-msg-tool-btn ~ .ai-rollback-sep {
   display: block;
 }
-
 /* Quiet roll-back in the message toolbar (after copy/regenerate): dim at rest, solid on hover */
 .ai-rollback-btn {
   display: inline-flex;
@@ -2626,31 +1902,10 @@ body.vib .slide-list {
   cursor: default;
 }
 
-.ai-msg-tool-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--slides-focus-ring-blue);
-}
-
-/* Tooltip: dark pill under the button, 0.3s hover delay */
-.ai-msg-tool-btn {
-  position: relative;
-}
-
-/* Global press feedback */
-.ai-msg-tool-btn:active {
-  filter: brightness(0.88);
-  transform: scale(0.98);
-}
-
 .ai-msg-error {
   margin-top: 6px;
   color: var(--slides-ai-error);
   font-size: 13px;
-}
-
-.ai-composer {
-  padding: 8px 12px 12px;
-  background: var(--surface);
 }
 
 .ai-composer-top {
@@ -2660,78 +1915,9 @@ body.vib .slide-list {
   gap: 5px;
   margin-bottom: 7px;
 }
-
-.ai-scope-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 10px;
-  border-radius: 999px;
-  background: var(--active-bg);
-  font-size: 11.5px;
-  color: var(--accent);
-  font-weight: 500;
-}
-
-.ai-scope-hint::before {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-/* composer card — same spec as the Excel panel: 16px radius, default border, float shadow */
-.ai-input-box {
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-16);
-  background: var(--color-bg-page);
-  box-shadow: var(--slides-shadow-composer);
-  transition:
-    border-color var(--transition-fast),
-    box-shadow var(--transition-fast);
-}
-
 /* Focus state: no colored highlight, just a one-step darker border as the cue */
 .ai-input-box:focus-within {
   border-color: var(--color-border-strong);
-}
-
-/* textarea: 16px / 24px fixed line-height (chat body size); resting height matches the apps/sheets panel */
-.ai-input-box textarea {
-  display: block;
-  width: 100%;
-  resize: none;
-  border: none;
-  background: none;
-  border-radius: var(--radius-16) var(--radius-16) 0 0;
-  /* vertical gaps live on margin, not padding: textarea padding scrolls away
-   * with the content, so clipped lines would sit flush against chips/footer */
-  padding: 0 14px;
-  margin: 12px 0 4px;
-  font-size: 14px;
-  font-family: inherit;
-  line-height: 24px;
-  outline: none;
-  color: var(--color-text-primary);
-  min-height: 48px;
-  max-height: 168px;
-  overflow-y: auto;
-}
-
-.ai-input-box textarea::placeholder {
-  color: var(--color-text-tertiary);
-}
-
-.ai-input-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px 8px 10px;
-}
-
-.ai-input-footer .ai-send-btn {
-  margin-left: auto;
 }
 
 /* Attach button inside the panel composer: brand paperclip art,
@@ -2753,7 +1939,6 @@ body.vib .slide-list {
   background: transparent;
   filter: brightness(0.7);
 }
-
 /* attach — thin-stroked circular icon button (composer left-slot idiom) */
 .ai-attach-btn {
   display: inline-flex;
@@ -2775,7 +1960,6 @@ body.vib .slide-list {
   background: var(--color-bg-subtle);
   color: var(--color-text-primary);
 }
-
 /* attachment chips above the composer */
 .ai-attachments {
   display: flex;
@@ -2797,7 +1981,6 @@ body.vib .slide-list {
 .ai-attachments > * {
   flex-shrink: 0;
 }
-
 /* The 4px scrollbar lane is always reserved (no layout jump when it appears);
    the thumb is painted only while scrolling (.is-scrolling from the strip's onScroll) */
 .ai-attachments::-webkit-scrollbar {
@@ -2812,7 +1995,6 @@ body.vib .slide-list {
 .ai-attachments.is-scrolling::-webkit-scrollbar-thumb {
   background: var(--slides-scroll-thumb);
 }
-
 /* Image attachments: square thumbnail with a round dark remove button on its corner */
 .ai-attachment-thumb {
   position: relative;
@@ -2849,14 +2031,12 @@ body.vib .slide-list {
 .ai-attachment-thumb-remove:hover {
   background: var(--slides-chip-remove-hover);
 }
-
 /* The card's 1px border shifts its absolutely-positioned button inward by 1px
    on both axes; land the borderless thumbs' button on the exact same spot */
 .ai-attachment-thumb .ai-attachment-thumb-remove {
   top: -9px;
   right: -1px;
 }
-
 /* image thumb before its preview arrives (or when reading fails): neutral tile + type icon */
 .ai-attachment-thumb-pending {
   display: flex;
@@ -2872,7 +2052,6 @@ body.vib .slide-list {
   width: 26px;
   height: 26px;
 }
-
 /* Non-image attachments (pdf, xlsx, …): fixed-width bordered card — brand type
    icon + truncated name and size, same height and remove button as the thumbs */
 .ai-attachment-card {
@@ -2887,7 +2066,6 @@ body.vib .slide-list {
   border-radius: 12px;
   background: var(--slides-att-bg);
 }
-
 /* the type icon sits in its own bordered white tile, like the Genspark card */
 .ai-attachment-card-icon {
   display: flex;
@@ -2928,7 +2106,6 @@ body.vib .slide-list {
   font-size: 11px;
   color: var(--color-text-tertiary);
 }
-
 /* attachments echoed on a sent user message (read-only: no remove button, smaller thumbs) */
 .ai-msg-attachments {
   display: flex;
@@ -3005,10 +2182,7 @@ body.vib .slide-list {
   font-size: 11.5px;
   color: var(--slides-ai-error);
 }
-
-/* ── AI element edit queue ─────────────────────────────────────────────── */
-
-/* Anchored annotation popover: fixed-size, mounted at the app root so the
+/* ── AI element edit queue ─────────────────────────────────────────────── */ /* Anchored annotation popover: fixed-size, mounted at the app root so the
  * canvas zoom transform never scales it */
 .ai-ask-trigger {
   position: fixed;
@@ -3029,19 +2203,6 @@ body.vib .slide-list {
 
 .ai-ask-trigger:hover {
   background: var(--hover);
-}
-
-.ai-ask-pop {
-  position: fixed;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-12);
-  background: var(--surface);
-  box-shadow: var(--slides-shadow-popup);
 }
 
 .ai-ask-pop-close {
@@ -3065,100 +2226,6 @@ body.vib .slide-list {
   background: var(--hover);
   color: var(--text);
 }
-
-.ai-ask-pop-title {
-  padding-right: 24px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.ai-ask-pop-sub {
-  margin-top: -4px;
-  font-size: 11.5px;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ai-ask-pop-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-8);
-  background: var(--color-bg-page);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 13px;
-  outline: none;
-}
-
-.ai-ask-pop-input:focus {
-  border-color: var(--accent);
-}
-
-.ai-ask-pop-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.ai-ask-chip {
-  padding: 3px 9px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11.5px;
-  cursor: pointer;
-}
-
-.ai-ask-chip:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.ai-ask-pop-foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.ai-ask-cancel,
-.ai-ask-confirm {
-  padding: 5px 12px;
-  border-radius: var(--radius-6);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.ai-ask-cancel {
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.ai-ask-cancel:hover {
-  background: var(--hover);
-}
-
-.ai-ask-confirm {
-  border: 1px solid transparent;
-  background: var(--color-ai-action);
-  color: var(--color-ai-action-text);
-}
-
-.ai-ask-confirm:hover:not(:disabled) {
-  background: var(--color-ai-action-hover);
-}
-
-.ai-ask-confirm:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
 /* Queue card above the composer */
 .ai-queue {
   margin-bottom: 8px;
@@ -3352,70 +2419,12 @@ body.vib .slide-list {
   opacity: 0.45;
   cursor: default;
 }
-
 /* whole-panel drop target highlight */
 .ai-panel-dragover {
   outline: 2px dashed var(--accent);
   outline-offset: -4px;
 }
-
-.ai-input-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  user-select: none;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* icon-only enter key: transparent button chrome, visuals come from brand-supplied PNGs
- * (gray arrow = disabled, black arrow = enabled), 36×36, same as the apps/sheets panel */
-.ai-send-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  flex-shrink: 0;
-  border: none;
-  border-radius: 35%;
-  background: transparent;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.ai-send-btn img {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.ai-send-btn:hover:not(:disabled) {
-  filter: brightness(0.92);
-}
-
-.ai-send-btn:active:not(:disabled) {
-  filter: brightness(0.88);
-  transform: scale(0.98);
-}
-
-.ai-send-btn:disabled {
-  cursor: default;
-}
-
-/* Stop button while generating: brand-supplied art (white square on black), transparent button chrome */
-.ai-send-btn.ai-stop-btn {
-  background: transparent;
-}
-
-.ai-send-btn.ai-stop-btn:hover {
-  filter: brightness(0.92);
-}
-
 /* ================= modal (AI settings) ================= */
-
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -3446,7 +2455,6 @@ body.vib .slide-list {
   color: var(--text-dim);
   margin-bottom: 12px;
 }
-
 /* Explanatory sentence under a dialog heading, above its controls */
 .modal-note {
   margin: -6px 0 12px;
@@ -3454,7 +2462,6 @@ body.vib .slide-list {
   line-height: 1.5;
   color: var(--text-dim);
 }
-
 /* The `{{label}}` the model will read in place of the words, shown as it is typed */
 .redact-preview {
   margin-bottom: 12px;
@@ -3468,7 +2475,6 @@ body.vib .slide-list {
   word-break: break-all;
   user-select: all;
 }
-
 /* A withheld run while editing: the underline the mark stands for, plus a tint so a long
    withheld span reads as one thing. The canvas draws the underline from the model. */
 .slide-text-editor [data-redact] {
@@ -3501,7 +2507,6 @@ body.vib .slide-list {
   gap: 8px;
   margin-top: 18px;
 }
-
 /* Genspark DS modal footer buttons: secondary = bg-subtle, primary = black (#232425) */
 .modal-actions button {
   display: inline-flex;
@@ -3601,9 +2606,7 @@ body.vib .slide-list {
   border-radius: 50%;
   background: var(--slides-ok);
 }
-
 /* ================= format pane ================= */
-
 .format-pane {
   width: 260px;
   flex-shrink: 0;
@@ -3626,14 +2629,12 @@ body.vib .slide-list {
   padding: 10px 14px;
   overflow-y: auto;
 }
-
 /* First section heading in the body: tightened subtabs → content gap
  * (10px body pad + 5.6px margin ≈ 15.6px instead of 10 + 14 = 24) */
 .fp-body > .fp-sec:first-child,
 .fp-body > .fp-section:first-child {
   margin-top: 5.6px;
 }
-
 /* 形状选项 / 文本选项 primary tabs under the pane header (Genspark style:
    left-aligned text tabs, active = bold + text-colored underline) */
 .fp-tabs {
@@ -3667,7 +2668,6 @@ body.vib .slide-list {
   font-weight: 700;
   border-bottom-color: var(--accent);
 }
-
 /* Second-level tabs (填充与线条 / 效果 / 大小与属性 …): Genspark segmented pill track —
    pills sit in one rounded gray track; active = accent-filled pill. Long locales
    (fr/de/es labels exceed the 260px pane) wrap onto a second row instead of
@@ -3715,7 +2715,6 @@ body.vib .slide-list {
   padding-bottom: 3px;
   border-bottom: 1px solid var(--border);
 }
-
 /* Collapsible PPT-style section header (填充 / 线条): chevron + label over a divider */
 .fp-sec {
   display: flex;
@@ -3742,7 +2741,6 @@ body.vib .slide-list {
   font-size: 10px;
   color: var(--text-dim);
 }
-
 /* PPT-style fill/line mode radio list */
 .fp-radios {
   display: flex;
@@ -3769,7 +2767,6 @@ body.vib .slide-list {
   display: flex;
   gap: 6px;
 }
-
 /* PPT-style checkbox option row (锁定纵横比 / 相对于图片原始尺寸 …); one per line,
    unlike the inline .fp-check used by the background pane */
 .fp-checkrow {
@@ -3796,7 +2793,6 @@ body.vib .slide-list {
 .fp-checkrow input:disabled {
   cursor: default;
 }
-
 /* 预设渐变 tiles (gradients themselves are document fill previews, painted inline) */
 .fp-gpreset {
   width: 26px;
@@ -3816,7 +2812,6 @@ body.vib .slide-list {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-
 /* 角度 row: rotation dial + −/value°/+ stepper (PPT Mac style) */
 .fp-angle {
   display: flex;
@@ -3842,7 +2837,6 @@ body.vib .slide-list {
 .fp-dial:disabled {
   cursor: default;
 }
-
 /* hollow ring indicator orbiting the dial center at the current angle */
 .fp-dial-dot {
   position: absolute;
@@ -3856,7 +2850,6 @@ body.vib .slide-list {
   background: none;
   pointer-events: none;
 }
-
 /* one seamless rounded box: − | value° (centered) | + */
 .fp-stepper {
   display: flex;
@@ -3888,7 +2881,6 @@ body.vib .slide-list {
 .fp-stepper button:hover:not(:disabled) {
   background: var(--hover);
 }
-
 /* beat the generic .fp-prow input box (declared later in this file) */
 .fp-prow .fp-stepper input {
   width: 5ch; /* fallback; the component sets width to fit the value */
@@ -3918,7 +2910,6 @@ body.vib .slide-list {
   color: var(--text);
   font-size: 10px;
 }
-
 /* Value + trailing unit + stacked ▴▾ spinner (PPT-style "0.75 pt ↕" width box; same size as the % boxes) */
 .fp-prow .fp-unitstep {
   position: relative;
@@ -3931,7 +2922,6 @@ body.vib .slide-list {
   border-radius: 3px;
   background: var(--surface);
 }
-
 /* beat the generic .fp-prow input box (declared later in this file).
    The value hugs its content; 1:3 flex spacers around the value+unit group
    pin it to a fixed 5px left inset. */
@@ -3971,7 +2961,6 @@ body.vib .slide-list {
   -webkit-appearance: none;
   margin: 0;
 }
-
 /* Over-limit balloon above the width box, in the shared ScreenTip visual language */
 .fp-limit-tip {
   position: absolute;
@@ -3990,7 +2979,6 @@ body.vib .slide-list {
   box-shadow: var(--shadow-modal-strong);
   pointer-events: none;
 }
-
 /* right pad 1.5px: chevron glyph right edge lands 6px from the box's outer
  * edge (1px border + 1.5px + 3.5px glyph inset), on the shared caret line */
 .fp-unitstep-btns {
@@ -4025,7 +3013,6 @@ body.vib .slide-list {
   background: var(--hover);
   color: var(--text);
 }
-
 /* Focus popover, anchored under the 射线/矩形 style tile */
 .fp-dirwrap {
   position: relative;
@@ -4044,7 +3031,6 @@ body.vib .slide-list {
   background: var(--surface);
   box-shadow: var(--slides-shadow-popup);
 }
-
 /* 渐变光圈 stop strip: gradient bar + selectable stop markers straddling its bottom edge */
 .fp-gstops {
   position: relative;
@@ -4075,7 +3061,6 @@ body.vib .slide-list {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-
 /* Per-stop transparency slider */
 .fp-slider {
   display: flex;
@@ -4084,7 +3069,6 @@ body.vib .slide-list {
   /* narrower % box with the same track length: the whole control shifts right */
   width: 163px;
 }
-
 /* thin custom slider: accent-filled elapsed track (--fp-pct set inline by
    PctControl), quiet gray remainder and thumb (the generic .fp-prow input box
    rules would otherwise inflate the native thumb to 26px) */
@@ -4114,19 +3098,16 @@ body.vib .slide-list {
   /* crisp 1px contact ring + short drop so the knob pops off the light pane */
   box-shadow: var(--slides-thumb-shadow);
 }
-
 /* Shared dropdown (@genoffice/ui gs-dd) app sizing: format-pane rows, the
  * ribbon animation-timing group, and modal dialogs */
 .fp-prow .gs-dd {
   width: 120px;
   flex-shrink: 0;
 }
-
 /* position "From" pickers: same width as the value spinners above them (fp-unitstep) */
 .fp-prow .gs-dd.fp-dd-narrow {
   width: 74px;
 }
-
 /* PPT-style shadow preset gallery: thumbnail trigger + grouped grid of live shadow tiles */
 .fp-shadowgal {
   position: relative;
@@ -4152,7 +3133,6 @@ body.vib .slide-list {
   border-color: var(--accent);
   outline: none;
 }
-
 /* fixed + anchored (same technique as gs-dd-pop) so pane scroll overflow never clips it;
  * right-aligned to the trigger because the pane hugs the window's right edge */
 .fp-shadowgal-pop {
@@ -4203,7 +3183,6 @@ body.vib .slide-list {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
-
 /* tile face: a miniature preview of the document effect, deliberately theme-static */
 .fp-galtile {
   --fp-gal-face: #f4f4f4;
@@ -4226,7 +3205,6 @@ body.vib .slide-list {
   --fp-gal-face: #ffffff;
   box-shadow: 1.5px 1.5px 2.5px var(--fp-gal-shadow);
 }
-
 /* reflection tiles: face + a fading mirrored bar below it */
 .fp-refltile {
   display: flex;
@@ -4258,7 +3236,6 @@ body.vib .slide-list {
 .fp-refltile-cur .fp-refltile-fade {
   width: 15px;
 }
-
 /* text-direction options: PPT-style direction glyph + label in the list; the
  * 120px trigger can't fit the glyph next to the long rotate labels, so it
  * stays text-only (matching PowerPoint's pane field) */
@@ -4271,7 +3248,6 @@ body.vib .slide-list {
   margin-right: 8px;
   color: var(--text-dim);
 }
-
 /* line previews inside dropdown triggers/options (compound + dash pickers) */
 .fp-line-preview {
   width: 100%;
@@ -4299,14 +3275,12 @@ body.vib .slide-list {
   padding: 0 6px 0 10px;
   font-size: 13px;
 }
-
 /* the numeric % box beside a transparency slider (narrower than the width box;
    44px is the floor that still fits "100 %" plus the chevron column) */
 .fp-prow .fp-slider .fp-unitstep.fp-unitstep-pct {
   width: 74px;
   flex-shrink: 0;
 }
-
 /* PPT-style property row: label on the left, control right-aligned */
 .fp-prow {
   display: flex;
@@ -4323,7 +3297,6 @@ body.vib .slide-list {
   text-align: left;
   white-space: nowrap;
 }
-
 /* label-less rows (button clusters, gradient directions) hug the right edge */
 .fp-prow-end {
   justify-content: flex-end;
@@ -4354,7 +3327,6 @@ body.vib .slide-list {
   align-items: center;
   gap: 8px;
 }
-
 /* breathing room between stacked rows in one section (fill swatches ↔ 透明度, stroke ↔ 虚线样式) */
 .fp-row + .fp-row {
   margin-top: 10px;
@@ -4377,7 +3349,6 @@ body.vib .slide-list {
   white-space: nowrap;
   font-size: 12px;
 }
-
 /* Color well trigger + shared palette popover in the format pane. The popover
    is fixed + anchored so it escapes the pane's scroll clip; it right-aligns to
    the well and opens leftwards (the pane hugs the window's right edge). */
@@ -4388,7 +3359,6 @@ body.vib .slide-list {
   anchor-name: --fp-color-well;
   anchor-scope: --fp-color-well;
 }
-
 /* Framed like the % box beside the transparency slider (74×26, same border):
  * stretched swatch + dropdown caret, PPT color-well style */
 .fp-color-well {
@@ -4430,7 +3400,6 @@ body.vib .slide-list {
   position-visibility: anchors-visible;
   z-index: 80;
 }
-
 /* Format-background pane: fill-type buttons wrap their two-word labels */
 .fp-btn.fp-btn-wrap {
   flex: 1;
@@ -4440,7 +3409,6 @@ body.vib .slide-list {
   white-space: normal;
   line-height: 1.3;
 }
-
 /* Format-background pane: hide-background-graphics checkbox + picture preview */
 .fp-check {
   display: inline-flex;
@@ -4480,7 +3448,6 @@ body.vib .slide-list {
   background: var(--active-bg);
   color: var(--accent);
 }
-
 /* Color strip on ribbon large buttons (colored buttons such as background fill) */
 .rb-big {
   position: relative;
@@ -4500,9 +3467,7 @@ body.vib .slide-list {
   border-radius: 1px;
   border: 1px solid var(--slides-swatch-ring);
 }
-
 /* ================= ribbon dropdowns (font color palette / table picker) + transition effects ================= */
-
 .rb-drop-wrap {
   position: relative;
   /* let the wrapped button stretch to the full group height */
@@ -4515,7 +3480,6 @@ body.vib .slide-list {
   anchor-name: --rb-drop-wrap;
   anchor-scope: --rb-drop-wrap;
 }
-
 /* Ribbon dropdown menu (translation language etc.) */
 .rb-menu {
   display: flex;
@@ -4541,7 +3505,6 @@ body.vib .slide-list {
   margin: 4px 2px;
   background: var(--border);
 }
-
 /* paragraph space before/after entries in the line-spacing menu (#149) */
 .rb-menu-input {
   display: flex;
@@ -4622,7 +3585,6 @@ body.vib .slide-list {
   box-shadow: var(--slides-shadow-drop);
   padding: 8px;
 }
-
 /* Bubble tail pointing at the trigger button (skipped on
  * scrollable menus, where overflow would clip the pseudo-element).
  * Anchored to the trigger wrap, NOT the panel edge: near the right window
@@ -4652,7 +3614,6 @@ body.vib .slide-list {
   line-height: 1;
   padding-bottom: 3px;
 }
-
 /* Font name / font size dropdowns (Home tab font group; applies to the selection while editing, otherwise display-only) */
 .rb-font-btn {
   display: flex;
@@ -4686,7 +3647,6 @@ body.vib .slide-list {
 .rb-font-size {
   width: 68px;
 }
-
 /* Font size combobox (editable input + caret): any pt value can be typed, Enter applies */
 .rb-size-combo {
   padding: 0;
@@ -4737,18 +3697,15 @@ body.vib .slide-list {
   font-size: 9px;
   opacity: 0.6;
 }
-
 /* dropdown carets inside toggle buttons (AV / Aa / highlighter / font color) sit 2px off the glyph */
 .rb-icon .rb-font-caret {
   margin-left: 2px;
 }
-
 /* the font-family / font-size dropdowns keep a small gap from their neighbours (MS-style),
    while plain toggle buttons stay flush against each other */
 .rb-font-btn {
   margin-right: 3px;
 }
-
 /* Office-style accent colors on glyph modifiers (blue carets/arrows/scripts, purple eraser) —
    colored in the DEFAULT state, matching Microsoft's ribbon */
 :root {
@@ -4756,13 +3713,11 @@ body.vib .slide-list {
   --ribbon-accent-2: #a33fb5;
   --ribbon-accent-warm: #ed8733;
 }
-
 [data-theme='dark'] {
   --ribbon-accent: #5aa0e8;
   --ribbon-accent-2: #c76ad4;
   --ribbon-accent-warm: #f0a05c;
 }
-
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']):not([data-theme='dark']) {
     --ribbon-accent: #5aa0e8;
@@ -4774,9 +3729,11 @@ body.vib .slide-list {
 .rb-para-drop {
   padding: 12px 14px;
 }
+
 .rb-para-drop .rb-col {
   gap: 8px;
 }
+
 .rb-para-drop .rb-row {
   gap: 4px;
 }
@@ -4785,6 +3742,7 @@ body.vib .slide-list {
   min-width: 36px;
   height: 32px;
 }
+
 .rb-para-drop .rb-mini-sep {
   height: 22px;
   margin: 0 6px;
@@ -4819,10 +3777,12 @@ body.vib .slide-list {
   justify-content: space-between;
   gap: 8px;
 }
+
 .rb-font-download-tag {
   font-size: 11px;
   color: var(--text-secondary);
 }
+
 .rb-font-install-local {
   border-top: 1px solid var(--border);
   margin-top: 4px;
@@ -4839,6 +3799,7 @@ body.vib .slide-list {
   color: var(--text);
   border-bottom: 1px solid var(--border);
 }
+
 .font-missing-banner .fmb-text {
   flex: 1;
   min-width: 0;
@@ -4846,10 +3807,12 @@ body.vib .slide-list {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .font-missing-banner .fmb-fonts {
   margin-left: 6px;
   color: var(--text-secondary);
 }
+
 .font-missing-banner button {
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -4859,13 +3822,16 @@ body.vib .slide-list {
   font-size: 12px;
   cursor: pointer;
 }
+
 .font-missing-banner button:hover {
   background: var(--hover);
 }
+
 .font-missing-banner .fmb-download {
   color: var(--accent);
   font-weight: 600;
 }
+
 .font-missing-banner .fmb-download:disabled {
   opacity: 0.6;
   cursor: default;
@@ -4879,7 +3845,6 @@ body.vib .slide-list {
   height: 3px;
   border-radius: 1px;
 }
-
 /* Anchor positioning for the shared Word-style color panel (@genoffice/ui
    .gcp-palette draws the chrome; this wrapper only places it under the trigger). */
 .rb-color-pop {
@@ -4905,7 +3870,6 @@ body.vib .slide-list {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-
 /* "More colors…" row at the bottom of the font color palette (native any-color picker) */
 .rb-color-more {
   grid-column: 1 / -1;
@@ -4944,7 +3908,6 @@ body.vib .slide-list {
   grid-template-columns: repeat(10, 18px);
   gap: 3px;
 }
-
 /* "Insert Table…" entry under the hover grid (opens the rows/cols dialog) */
 .rb-table-custom {
   display: block;
@@ -4986,7 +3949,6 @@ body.vib .slide-list {
   margin: 6px 0 2px;
   white-space: nowrap;
 }
-
 /* Bullet character picker: PowerPoint-style preset tiles — each tile previews
  * three "bullet + text bar" lines; the first tile is the None reset */
 .rb-bullet-grid {
@@ -5017,7 +3979,6 @@ body.vib .slide-list {
   opacity: 0.45;
   cursor: default;
 }
-
 /* The tile matching the selection's current bullet (WPS-style filled highlight) */
 .rb-bullet-tile.on {
   background: var(--active-bg);
@@ -5081,7 +4042,6 @@ body.vib .slide-list {
 .rb-bullet-hang-input:hover:not(:disabled) {
   background: var(--surface);
 }
-
 /* Extra symbols + custom character + picture bullet */
 .rb-bullet-custom {
   flex-wrap: wrap;
@@ -5126,7 +4086,6 @@ body.vib .slide-list {
 .rb-bullet-sym-input {
   width: 108px;
 }
-
 /* Numbering tiles: "1." / "II." / "iii." samples are wider than a bullet glyph */
 .rb-bullet-tile-num {
   width: auto;
@@ -5134,17 +4093,18 @@ body.vib .slide-list {
   font-size: 8px;
   white-space: nowrap;
 }
-
 /* Bullet color row: swatches + "More colors" on its own line */
 .rb-bullet-colors {
   flex-wrap: wrap;
   align-items: center;
   max-width: 226px;
 }
+
 .rb-bullet-colors .rb-swatch:disabled {
   opacity: 0.45;
   cursor: default;
 }
+
 .rb-bullet-color-more {
   flex-basis: 100%;
 }
@@ -5153,9 +4113,7 @@ body.vib .slide-list {
   font-size: 18px;
   line-height: 22px;
 }
-
 /* ── Animations tab ──────────────────────────────────────────────────────── */
-
 .rb-anim-glyph {
   font-size: 18px;
   line-height: 22px;
@@ -5163,7 +4121,6 @@ body.vib .slide-list {
   align-items: center;
   justify-content: center;
 }
-
 /* PowerPoint colors: entrance=green / emphasis=yellow / exit=red / motion path=blue */
 .rb-anim-entr {
   color: var(--slides-anim-entr);
@@ -5228,9 +4185,7 @@ body.vib .slide-list {
 .rb-anim-timing input {
   width: 58px;
 }
-
 /* ── Animation pane (reuses the comments-pane skeleton) ───────────────── */
-
 .anim-pane .comments-list {
   padding: 8px;
 }
@@ -5339,9 +4294,7 @@ body.vib .slide-list {
   opacity: 0.3;
   cursor: default;
 }
-
 /* ── Canvas animation preview overlay (covers .stage-rel) ──────────────── */
-
 .anim-preview-overlay {
   position: absolute;
   inset: 0;
@@ -5350,9 +4303,7 @@ body.vib .slide-list {
   line-height: 0;
   background: var(--slides-paper);
 }
-
 /* ================= Context menu ================= */
-
 .ctx-menu {
   position: fixed;
   z-index: 200;
@@ -5471,7 +4422,6 @@ body.vib .slide-list {
 .ctx-swatch-none {
   background: var(--surface);
 }
-
 /* Shape style preset grid (fill+stroke combos; colors are document data, set
  * inline) — used by the Shape Tools ribbon gallery. The cell selector carries
  * the button tag to outrank the generic .rb-menu button rule (its padding
@@ -5498,7 +4448,6 @@ body.vib .slide-list {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-
 /* PowerPoint-style shape fill popup (Shape Tools > Fill): color sections reuse
    the shared gcp-* picker styles (the root carries .gcp-palette) at their
    default compact scale; the action rows below (more colors / picture /
@@ -5512,7 +4461,6 @@ body.vib .slide-list {
   margin: 10px -12px 0;
   padding: 3px 0;
 }
-
 /* inset separator above each action block (same look as .rb-menu-sep, not full-bleed) */
 .rb-fill-menu .rbf-actions::before {
   content: '';
@@ -5558,7 +4506,6 @@ body.vib .slide-list {
   opacity: 0;
   cursor: pointer;
 }
-
 /* Gradient 变体 tiles (light/dark rows × 3 directions + radial); the gradients
    themselves are document fill previews, painted inline. */
 .rb-fill-menu .rbf-gradients {
@@ -5583,7 +4530,6 @@ body.vib .slide-list {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-
 /* Bundled texture preset tiles (the texture bitmaps are document fill data, referenced inline) */
 .rb-fill-menu .rbf-textures {
   display: grid;
@@ -5607,7 +4553,6 @@ body.vib .slide-list {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-
 /* the menu's bottom action block bleeds into the panel's rounded bottom */
 .rb-fill-menu > .rbf-actions {
   margin-bottom: -10px;
@@ -5623,7 +4568,6 @@ body.vib .slide-list {
 .rbf-sub-caret {
   color: var(--text-dim);
 }
-
 /* Gradient/texture hover flyout: fixed so it escapes the menu's overflow clip */
 .rb-fill-menu .rbf-flyout {
   position: fixed;
@@ -5638,7 +4582,6 @@ body.vib .slide-list {
 .rb-fill-menu .rbf-flyout .rbf-textures {
   grid-template-columns: repeat(4, 56px);
 }
-
 /* PowerPoint's variant gallery uses square tiles */
 .rb-fill-menu .rbf-flyout .rbf-gradients {
   grid-template-columns: repeat(4, 32px);
@@ -5656,7 +4599,6 @@ body.vib .slide-list {
 .rb-fill-menu .rbf-flyout .rbf-actions::before {
   margin: 0 10px 3px;
 }
-
 /* flyout's leading row (无渐变): bleeds to the top rounding, no separator line */
 .rb-fill-menu .rbf-flyout .rbf-actions-top {
   margin: -10px -10px 0;
@@ -5672,9 +4614,7 @@ body.vib .slide-list {
 .rb-fill-menu.rb-fill-menu .rbf-flyout .rbf-row {
   padding: 6px 12px;
 }
-
 /* ---- Draw (freehand ink) ---- */
-
 .ink-overlay {
   position: absolute;
   inset: 0;
@@ -5714,9 +4654,7 @@ body.vib .slide-list {
   gap: 4px;
   justify-content: center;
 }
-
 /* ===== Draw tab: pen tray ===== */
-
 .pen-tray {
   display: flex;
   align-items: flex-start;
@@ -5728,7 +4666,6 @@ body.vib .slide-list {
   border-radius: 6px;
   overflow: hidden;
 }
-
 /* pens hang from the tray top; the held pen slides down */
 .pen-btn {
   border: none;
@@ -5755,7 +4692,6 @@ body.vib .slide-list {
   opacity: 0.55;
   cursor: default;
 }
-
 /* color/width flyout for the held pen */
 .pen-flyout-backdrop {
   position: fixed;
@@ -5775,12 +4711,10 @@ body.vib .slide-list {
   border-radius: 8px;
   box-shadow: var(--slides-shadow-popup);
 }
-
 /* the pen tray sits flush against the ink settings in the same group */
 .pen-tray + .ink-settings {
   margin-left: 8px;
 }
-
 /* 6px so the active swatch's outline (2px + 1px offset) keeps clear air */
 .ink-swatches {
   display: flex;
@@ -5832,10 +4766,7 @@ body.vib .slide-list {
   border-radius: 50%;
   display: inline-block;
 }
-
-/* ── View tab: view modes / ruler / grid / guides / notes / comments ─── */
-
-/* Canvas column: stage + bottom notes pane */
+/* ── View tab: view modes / ruler / grid / guides / notes / comments ─── */ /* Canvas column: stage + bottom notes pane */
 .stage-col {
   flex: 1;
   min-width: 0;
@@ -5847,12 +4778,10 @@ body.vib .slide-list {
 .stage-col .stage-wrap {
   flex: 1;
 }
-
 /* AI quick actions anchored right above the slide card (mirrors the Home-tab
    Genspark AI group); absolute so it doesn't distort the zoom-box extent.
    z-index lifts it over the Konva stage's transparent 160px bleed, which
-   otherwise swallows the clicks */
-/* Genspark SAS floating toolbar, matched to the reference stage-toolbar:
+   otherwise swallows the clicks */ /* Genspark SAS floating toolbar, matched to the reference stage-toolbar:
    white bar (padding 3px 5px, ~35px tall); 24px borderless tool buttons
    with 12px #374151 labels; thin span dividers separate the groups; the
    assistant toggle shows a gray selected state while the panel is open */
@@ -5922,12 +4851,10 @@ body.vib .slide-list {
   /* AI feature glyphs match the ribbon's blue */
   color: var(--color-brand-secondary);
 }
-
 /* the brand mark uses currentColor and keeps the button's ink, not the blue */
 .stage-ai-btn svg.genspark-mark {
   color: var(--slides-stagebar-ink);
 }
-
 /* Notes pane (bottom, PowerPoint style) */
 .notes-pane {
   flex-shrink: 0;
@@ -5965,7 +4892,6 @@ body.vib .slide-list {
 .notes-pane textarea::placeholder {
   color: var(--text-tertiary);
 }
-
 /* Long notes must stay readable at any pane height: native wheel scrolling
  * plus a slim scrollbar (PowerPoint/WPS keep the notes pane scrollable even
  * when it's dragged down to a single line) */
@@ -5981,7 +4907,6 @@ body.vib .slide-list {
   border-radius: 2.5px;
   background: var(--slides-scroll-thumb);
 }
-
 /* Hidden pane: an invisible strip stays along the bottom edge so the splitter
  * remains grabbable — drag up to pull the notes pane back out (PPT behavior) */
 .notes-pull-zone {
@@ -5989,7 +4914,6 @@ body.vib .slide-list {
   height: 6px;
   cursor: ns-resize;
 }
-
 /* Thin state (PowerPoint-style): dragged down to a one-line bar that stays
  * directly editable — click and type in place, or drag the handle back up.
  * The handle overlays the top edge (absolute) so the textarea gets the full
@@ -6010,7 +4934,6 @@ body.vib .slide-list {
 .notes-pane.notes-thin textarea {
   line-height: 30px;
 }
-
 /* ── Transitions tab: one-shot canvas preview played when an effect is clicked.
    push/cover enter from top/left only — down/right transforms extend the
    scroll area and can flash scrollbars / retrigger the fit logic. ── */
@@ -6121,9 +5044,7 @@ body.vib .slide-list {
     transform: scale(0.5);
   }
 }
-
-/* Ruler: inside .stage-scale, scales with zoom and stays aligned with the slide */
-/* Stage rulers are fixed chrome OUTSIDE the zoomed canvas (PowerPoint-style):
+/* Ruler: inside .stage-scale, scales with zoom and stays aligned with the slide */ /* Stage rulers are fixed chrome OUTSIDE the zoomed canvas (PowerPoint-style):
  * constant type size at any zoom, 0 at the slide center, ticks across the
  * whole work area. Press-drag on a strip pulls out a guide. */
 .ruler-row {
@@ -6154,7 +5075,6 @@ body.vib .slide-list {
   user-select: none;
   touch-action: none;
 }
-
 /* Guides pull out PARALLEL to their ruler (Photoshop/Keynote convention):
  * drag down from the top strip → horizontal guide, right from the left
  * strip → vertical guide; cursors point along the pull direction */
@@ -6205,7 +5125,6 @@ body.vib .slide-list {
   height: 1px;
   width: 5px;
 }
-
 /* Pointer-position hairline while dragging on the stage */
 .ruler-indicator {
   position: absolute;
@@ -6223,7 +5142,6 @@ body.vib .slide-list {
   inset: 0 0 auto;
   height: 1px;
 }
-
 /* Coordinate readout while dragging a guide (distance from slide center) */
 .ruler-bubble {
   position: fixed;
@@ -6239,7 +5157,6 @@ body.vib .slide-list {
   pointer-events: none;
   white-space: nowrap;
 }
-
 /* Grid line / guide overlay (doesn't intercept the mouse) */
 .grid-overlay {
   position: absolute;
@@ -6270,22 +5187,22 @@ body.vib .slide-list {
   right: 0;
   border-top: 1px dashed var(--slides-guide);
 }
-
 /* Draggable guides: widened hit area (border is still a 1px visual line); double-click or drag off canvas to delete */
 .guide-draggable {
   pointer-events: auto;
 }
+
 .guide-draggable.guide-v {
   width: 9px;
   margin-left: -4px;
   cursor: col-resize;
 }
+
 .guide-draggable.guide-h {
   height: 9px;
   margin-top: -4px;
   cursor: row-resize;
 }
-
 /* Outline view (replaces the left thumbnail bar) */
 .outline-pane {
   width: 280px;
@@ -6346,7 +5263,6 @@ body.vib .slide-list {
 .outline-more {
   color: var(--border-strong);
 }
-
 /* Slide sorter (grid overview) */
 .sorter-view {
   flex: 1;
@@ -6407,7 +5323,6 @@ body.vib .slide-list {
   border-radius: 3px;
   padding: 2px 5px;
 }
-
 /* Reading view (full-area page-by-page browsing) */
 .reading-view {
   flex: 1;
@@ -6462,7 +5377,6 @@ body.vib .slide-list {
 .reading-exit {
   margin-left: 16px;
 }
-
 /* ── Review tab: comments pane ──────────────────────────────────────── */
 .comments-pane {
   width: 300px;
@@ -6594,9 +5508,7 @@ body.vib .slide-list {
 .comment-new .btn-primary {
   align-self: flex-end;
 }
-
 /* ---- Design tab: theme gallery ---- */
-
 .theme-gallery {
   display: flex;
   gap: 6px;
@@ -6659,10 +5571,7 @@ body.vib .slide-list {
   color: inherit;
   mix-blend-mode: normal;
 }
-
-/* ── Slide show (full-screen black playback) ──────────────────────── */
-
-/* Click-time curtain: dropped synchronously when a show is requested so the very
+/* ── Slide show (full-screen black playback) ──────────────────────── */ /* Click-time curtain: dropped synchronously when a show is requested so the very
    next frame is already black; the mount + window snap happen behind it. Sits
    just under .slideshow, which takes over once revealed. */
 body.show-curtain::after {
@@ -6688,7 +5597,6 @@ body.show-curtain::after {
 .slideshow .ss-frame {
   line-height: 0;
 }
-
 /* Page transition animations: CSS approximations of the Transitions-tab PowerPoint effects (applied to the entering page) */
 .slideshow .ss-anim-fade {
   animation: ss-fade 0.5s ease both;
@@ -6709,7 +5617,6 @@ body.show-curtain::after {
 .slideshow .ss-anim-circle {
   animation: ss-circle 0.6s ease-out both;
 }
-
 @keyframes ss-fade {
   from {
     opacity: 0;
@@ -6718,7 +5625,6 @@ body.show-curtain::after {
     opacity: 1;
   }
 }
-
 @keyframes ss-push {
   from {
     transform: translateY(100%);
@@ -6727,7 +5633,6 @@ body.show-curtain::after {
     transform: translateY(0);
   }
 }
-
 @keyframes ss-wipe {
   from {
     clip-path: inset(0 100% 0 0);
@@ -6736,7 +5641,6 @@ body.show-curtain::after {
     clip-path: inset(0 0 0 0);
   }
 }
-
 @keyframes ss-split {
   from {
     clip-path: inset(50% 0 50% 0);
@@ -6745,7 +5649,6 @@ body.show-curtain::after {
     clip-path: inset(0 0 0 0);
   }
 }
-
 @keyframes ss-circle {
   from {
     clip-path: circle(0% at 50% 50%);
@@ -6773,7 +5676,6 @@ body.show-curtain::after {
   font-size: 15px;
   letter-spacing: 0.05em;
 }
-
 /* Audience show window (presenter view external screen): frame positioning box + presenter blackout */
 .slideshow .ss-stagebox {
   position: relative;
@@ -6791,7 +5693,6 @@ body.show-curtain::after {
 .slideshow .ss-white {
   background: var(--slides-show-white);
 }
-
 /* "See All Slides" overlay: numbered thumbnails of the play order, click to jump */
 .slideshow .ss-grid {
   position: fixed;
@@ -6836,7 +5737,6 @@ body.show-curtain::after {
   border-radius: 4px;
   padding: 3px 7px;
 }
-
 /* Show ink overlay (presenter pen/laser pointer, mirrored for the audience) */
 .ink-layer {
   position: absolute;
@@ -6861,9 +5761,7 @@ body.show-curtain::after {
   box-shadow: var(--slides-laser-glow);
   pointer-events: none;
 }
-
 /* ── Rehearsal timer bar (top of the show: current page dwell + total time) ── */
-
 .slideshow .ss-rehearse {
   position: absolute;
   top: 10px;
@@ -6890,9 +5788,7 @@ body.show-curtain::after {
   color: var(--slides-show-ink-60);
   font-size: 12px;
 }
-
 /* ── Custom show management dialog ──────────────────────────────── */
-
 .modal.csd {
   width: 580px;
 }
@@ -6988,7 +5884,6 @@ body.show-curtain::after {
 .csd-pages {
   height: 180px;
 }
-
 /* Override .modal input's full-row style: keep checkboxes inline */
 .csd-page {
   display: flex !important;
@@ -7042,16 +5937,13 @@ body.show-curtain::after {
   font-size: 12px;
   padding: 10px 8px;
 }
-
 /* Rehearsal-timing save confirmation body text */
 .rehearse-summary {
   margin: 0 0 6px;
   font-size: 13px;
   line-height: 1.6;
 }
-
 /* ── Hidden slides (marked in thumbnails/slide sorter) ────────────── */
-
 .thumb.thumb-hidden canvas,
 .sorter-item.thumb-hidden canvas {
   opacity: 0.4;
@@ -7062,9 +5954,7 @@ body.show-curtain::after {
   text-decoration: line-through;
   opacity: 0.85;
 }
-
 /* ── Presenter view (PowerPoint style: top bar / large frame + tools / right column / bottom thumbnail strip) ── */
-
 .presenter {
   position: fixed;
   inset: 0;
@@ -7074,7 +5964,6 @@ body.show-curtain::after {
   flex-direction: column;
   user-select: none;
 }
-
 /* Until the fullscreen snap settles only the black root shows — the windowed
    layout still computes, but never paints (same guard as the show's covered gate) */
 .presenter.pv-uncovered > * {
@@ -7406,9 +6295,7 @@ body.show-curtain::after {
   border-color: var(--slides-pv-accent);
   opacity: 1;
 }
-
 /* ── Insert tab: shape gallery / icon gallery / WordArt / SmartArt / chart dropdown ── */
-
 .rb-drop-title {
   font-size: 11px;
   font-weight: 600;
@@ -7543,7 +6430,6 @@ body.show-curtain::after {
   /* neutral glyphs — no accent tint in menus */
   color: var(--text);
 }
-
 /* SmartArt / chart menu entries carry an SVG thumbnail instead of a text glyph */
 .rb-menu-thumb {
   width: 44px;
@@ -7555,9 +6441,7 @@ body.show-curtain::after {
   max-height: 260px;
   overflow-y: auto;
 }
-
 /* ── Insert dialogs: hyperlink / header & footer / equation ────────────── */
-
 .modal.modal-wide {
   width: 460px;
   max-width: 90vw;
@@ -7646,7 +6530,6 @@ body.show-curtain::after {
   flex: 1;
   min-width: 0;
 }
-
 /* Override .modal label / .modal input full-row styles: checkbox/radio rows lay out inline */
 .modal label.dlg-radio,
 .modal label.dlg-check {
@@ -7717,16 +6600,13 @@ body.show-curtain::after {
   font-size: 11px;
   color: var(--text-dim);
 }
-
 /* Starting up (while pending file parsing): lightweight placeholder, don't flash the start screen */
 .start-booting {
   justify-content: center;
   color: var(--text-dim);
   font-size: 13px;
 }
-
-/* AI survey card */
-/* Clarify card docked in the composer slot */
+/* AI survey card */ /* Clarify card docked in the composer slot */
 .ai-clarify-card {
   display: flex;
   flex-direction: column;
@@ -7745,7 +6625,6 @@ body.show-curtain::after {
   border-radius: 12px;
   animation: ai-clarify-rise 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-
 @keyframes ai-clarify-rise {
   from {
     opacity: 0;
@@ -7756,7 +6635,6 @@ body.show-curtain::after {
     transform: translateY(0);
   }
 }
-
 /* Header band bleeding to the card edges */
 .ai-clarify-head {
   display: flex;
@@ -7778,7 +6656,6 @@ body.show-curtain::after {
   line-height: 1.35;
   word-break: break-word;
 }
-
 /* "N / M" progress + 22px pager arrows */
 .ai-clarify-head-progress {
   font-size: 14px;
@@ -7828,7 +6705,6 @@ body.show-curtain::after {
   opacity: 0.3;
   cursor: default;
 }
-
 /* One question at a time; directional slide (240ms / cubic-bezier(.16,1,.3,1)) */
 .ai-clarify-q {
   min-height: 140px;
@@ -7846,7 +6722,6 @@ body.show-curtain::after {
 .ai-clarify-q.slide-prev {
   animation: ai-clarify-slide-prev 240ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-
 @keyframes ai-clarify-slide-next {
   from {
     opacity: 0;
@@ -7857,7 +6732,6 @@ body.show-curtain::after {
     transform: translateX(0);
   }
 }
-
 @keyframes ai-clarify-slide-prev {
   from {
     opacity: 0;
@@ -7907,7 +6781,6 @@ body.show-curtain::after {
   margin: 0 0 8px;
   line-height: 1.5;
 }
-
 /* Options: column of DS choice rows, never wrapping */
 .ai-clarify-opts {
   display: flex;
@@ -7953,7 +6826,6 @@ body.show-curtain::after {
   line-height: 1.4;
   color: var(--color-text-primary);
 }
-
 /* 16px radio/checkbox glyph; selection is neutral black */
 .ai-clarify-opt-box {
   flex-shrink: 0;
@@ -7969,7 +6841,6 @@ body.show-curtain::after {
 .ai-clarify-opt.multi .ai-clarify-opt-box {
   border-radius: 4px;
 }
-
 /* Composer variant: single-select radios are visually removed — selection reads
    from the row fill; a hover-revealed advance arrow appears on the right */
 .ai-clarify-opt:not(.multi) .ai-clarify-opt-box {
@@ -8009,7 +6880,6 @@ body.show-curtain::after {
   background-position: center;
   background-repeat: no-repeat;
 }
-
 /* Free-text answer input */
 .ai-clarify-other {
   width: 100%;
@@ -8035,7 +6905,6 @@ body.show-curtain::after {
   border-color: var(--color-btn-primary);
   box-shadow: 0 0 0 3px var(--slides-focus-ring);
 }
-
 /* Footer actions */
 .ai-clarify-actions {
   display: flex;
@@ -8045,7 +6914,6 @@ body.show-curtain::after {
   margin-top: 8px;
   flex-wrap: wrap;
 }
-
 /* Multi-select foot: "{n} selected" left, actions right */
 .ai-clarify-actions.multi {
   justify-content: space-between;
@@ -8065,7 +6933,6 @@ body.show-curtain::after {
   gap: 8px;
   margin-left: auto;
 }
-
 /* Explicit multi-select advance action: text avoids looking like an unlabeled pager. */
 .ai-clarify-next {
   min-width: 82px;
@@ -8163,7 +7030,6 @@ body.show-curtain::after {
   outline: none;
   box-shadow: 0 0 0 3px var(--slides-focus-ring);
 }
-
 /* Answered receipt: the submitted Q/A shown as a right-aligned user-reply card
    (answered state) */
 .ai-clarify-answered {
@@ -8197,7 +7063,6 @@ body.show-curtain::after {
   color: var(--color-text-secondary);
   margin: 0;
 }
-
 /* Pending marker chip left in the stream while the card is docked */
 .ai-clarify-chip {
   align-self: flex-start;
@@ -8223,7 +7088,6 @@ body.show-curtain::after {
   color: var(--color-text-secondary);
   animation: ai-clarify-chip-bounce 1.6s ease-in-out infinite;
 }
-
 @keyframes ai-clarify-chip-bounce {
   0%,
   100% {
@@ -8233,7 +7097,6 @@ body.show-curtain::after {
     transform: translateY(1.5px);
   }
 }
-
 @media (prefers-reduced-motion: reduce) {
   .ai-clarify-card,
   .ai-clarify-chip-arrow,
@@ -8242,10 +7105,7 @@ body.show-curtain::after {
     animation: none;
   }
 }
-
-/* ================= Generation progress card (deck-progress-card) ================= */
-
-/* Interactive card framing: white card, quiet border, soft shadow */
+/* ================= Generation progress card (deck-progress-card) ================= */ /* Interactive card framing: white card, quiet border, soft shadow */
 .deck-progress-card {
   margin: 6px 0 4px;
   padding: 12px 16px;
@@ -8256,7 +7116,6 @@ body.show-curtain::after {
   font-size: 14px;
   color: var(--color-text-secondary);
 }
-
 /* Collapsible head: one-line status + caret; the only loader while collapsed */
 .deck-progress-head {
   display: flex;
@@ -8307,7 +7166,7 @@ body.show-curtain::after {
 }
 
 .deck-progress-title.is-error {
-  color: var(--slides-ai-step-error);
+  color: var(--ai-error);
   animation: none;
 }
 
@@ -8344,9 +7203,11 @@ body.show-curtain::after {
 .deck-progress-icon.stopped {
   color: var(--color-text-secondary);
 }
+
 .deck-progress-icon.error {
-  color: var(--slides-ai-step-error);
+  color: var(--ai-error);
 }
+
 .deck-progress-icon.running {
   color: var(--color-brand-secondary);
 }
@@ -8359,7 +7220,6 @@ body.show-curtain::after {
   border-radius: 50%;
   animation: deck-dot-pulse 1.4s ease-in-out infinite;
 }
-
 @keyframes deck-dot-pulse {
   0%,
   100% {
@@ -8371,7 +7231,6 @@ body.show-curtain::after {
     transform: scale(1.3);
   }
 }
-
 @media (prefers-reduced-motion: reduce) {
   .deck-progress-spinner {
     animation: none;
@@ -8417,7 +7276,7 @@ body.show-curtain::after {
 
 .deck-progress-page-error-text {
   font-size: 10.5px;
-  color: var(--slides-ai-step-error);
+  color: var(--ai-error);
   opacity: 0.75;
   white-space: nowrap;
   overflow: hidden;
@@ -8429,28 +7288,30 @@ body.show-curtain::after {
 .deck-progress-page-done .deck-progress-page-icon {
   color: var(--color-text-secondary);
 }
+
 .deck-progress-page-running .deck-progress-page-icon {
   color: var(--color-brand-secondary);
 }
+
 .deck-progress-page-error .deck-progress-page-icon {
-  color: var(--slides-ai-step-error);
+  color: var(--ai-error);
 }
+
 .deck-progress-page-done .deck-progress-page-title {
   color: var(--color-text-tertiary);
 }
+
 .deck-progress-page-error .deck-progress-page-title {
-  color: var(--slides-ai-step-error);
+  color: var(--ai-error);
 }
+
 .deck-progress-page-running .deck-progress-page-title {
   color: var(--color-text-primary);
   font-weight: 500;
 }
-
 /* ── Contextual tabs (picture/table/chart design) ───────────────────
  * Same look as the regular tabs (.ribbon-tab covers hover/active/underline);
- * no separate styling. */
-
-/* Table style cards */
+ * no separate styling. */ /* Table style cards */
 .rb-table-style-card {
   display: inline-flex;
   flex-direction: column;
@@ -8466,14 +7327,17 @@ body.show-curtain::after {
   color: var(--text);
   transition: border-color 0.12s;
 }
+
 .rb-table-style-card:hover:not(:disabled) {
   border-color: var(--accent);
   background: var(--hover);
 }
+
 .rb-table-style-card:disabled {
   opacity: 0.4;
   cursor: default;
 }
+
 .rb-table-style-preview {
   display: flex;
   align-items: center;
@@ -8483,6 +7347,7 @@ body.show-curtain::after {
   border-radius: 2px;
   overflow: hidden;
 }
+
 .rb-table-style-label {
   font-size: 10px;
   white-space: nowrap;
@@ -8490,7 +7355,6 @@ body.show-curtain::after {
   text-overflow: ellipsis;
   max-width: 56px;
 }
-
 /* Shading palette */
 .rb-table-shading {
   display: flex;
@@ -8499,6 +7363,7 @@ body.show-curtain::after {
   padding: 2px;
   max-width: 130px;
 }
+
 .rb-color-swatch {
   width: 18px;
   height: 18px;
@@ -8507,14 +7372,17 @@ body.show-curtain::after {
   cursor: pointer;
   padding: 0;
 }
+
 .rb-color-swatch:hover:not(:disabled) {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
 .rb-color-swatch:disabled {
   opacity: 0.4;
   cursor: default;
 }
+
 .rb-color-none {
   background: var(--slides-paper) !important;
   font-size: 10px;
@@ -8523,7 +7391,6 @@ body.show-curtain::after {
   justify-content: center;
   color: var(--slides-swatch-none-ink);
 }
-
 /* Border controls */
 .rb-table-border-row {
   display: flex;
@@ -8531,11 +7398,13 @@ body.show-curtain::after {
   gap: 4px;
   margin-top: 4px;
 }
+
 .rb-label {
   font-size: 11px;
   color: var(--text-dim);
   white-space: nowrap;
 }
+
 .rb-color-input {
   width: 28px;
   height: 22px;
@@ -8553,7 +7422,6 @@ body.show-curtain::after {
   height: 22px;
   font-size: 11px;
 }
-
 /* Chart color scheme cards */
 .rb-chart-scheme-card {
   display: inline-flex;
@@ -8570,24 +7438,29 @@ body.show-curtain::after {
   color: var(--text);
   transition: border-color 0.12s;
 }
+
 .rb-chart-scheme-card:hover:not(:disabled) {
   border-color: var(--slides-select-border);
   background: var(--slides-select-hover-bg);
 }
+
 .rb-chart-scheme-card:disabled {
   opacity: 0.4;
   cursor: default;
 }
+
 .rb-chart-scheme-swatches {
   display: flex;
   gap: 2px;
 }
+
 .rb-chart-scheme-dot {
   width: 12px;
   height: 12px;
   border-radius: 50%;
   border: 1px solid var(--slides-swatch-ring);
 }
+
 .rb-chart-scheme-label {
   font-size: 10px;
 }
@@ -8609,6 +7482,7 @@ body.show-curtain::after {
   padding: 10px;
   min-width: 250px;
 }
+
 .rb-chart-elem-drop .rb-drop-title {
   margin: 2px 0 0;
 }
@@ -8620,20 +7494,22 @@ body.show-curtain::after {
   padding: 10px;
   width: 316px;
 }
+
 .rb-menu button.active {
   background: var(--slides-select-active-bg);
   font-weight: 600;
 }
-
 /* Change chart type dialog */
 .chart-type-modal {
   width: min(460px, 92vw);
 }
+
 .chart-type-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
+
 .chart-type-card {
   display: flex;
   flex-direction: column;
@@ -8649,35 +7525,41 @@ body.show-curtain::after {
     border-color 0.12s,
     background 0.12s;
 }
+
 .chart-type-card:hover {
   border-color: var(--slides-select-border);
   background: var(--slides-select-hover-bg);
 }
+
 .chart-type-card.active {
   border-color: var(--slides-select-border);
   background: var(--slides-select-active-bg);
 }
+
 .chart-type-label {
   font-size: 12px;
 }
-
 /* Chart data edit dialog */
 .chart-data-modal {
   width: min(760px, 92vw);
 }
+
 .chart-data-scroll {
   max-height: 60vh;
   overflow: auto;
 }
+
 .chart-data-grid {
   border-collapse: collapse;
   width: 100%;
 }
+
 .chart-data-grid th,
 .chart-data-grid td {
   border: 1px solid var(--border);
   padding: 0;
 }
+
 .chart-data-grid input {
   width: 110px;
   height: 28px;
@@ -8688,24 +7570,30 @@ body.show-curtain::after {
   background: transparent;
   outline: none;
 }
+
 .chart-data-grid thead input {
   font-weight: 600;
 }
+
 .chart-data-grid tbody th input {
   font-weight: 600;
 }
+
 .chart-data-grid input:focus {
   background: var(--slides-cell-focus-bg);
 }
+
 .chart-data-corner,
 .chart-data-addcol {
   border: none !important;
   background: transparent;
 }
+
 .chart-data-ser-head {
   display: flex;
   align-items: center;
 }
+
 .chart-data-del {
   border: none;
   background: transparent;
@@ -8714,13 +7602,16 @@ body.show-curtain::after {
   font-size: 13px;
   padding: 0 6px;
 }
+
 .chart-data-del:disabled {
   opacity: 0.3;
   cursor: default;
 }
+
 .chart-data-del:hover:not(:disabled) {
   color: var(--slides-error);
 }
+
 .chart-data-add {
   border: 1px dashed var(--border-strong);
   background: transparent;
@@ -8732,11 +7623,11 @@ body.show-curtain::after {
   margin: 2px 4px;
   white-space: nowrap;
 }
+
 .chart-data-add:hover {
   color: var(--accent);
   border-color: var(--accent);
 }
-
 /* Chart style gallery */
 .rb-chart-style-row {
   display: flex;
@@ -8745,6 +7636,7 @@ body.show-curtain::after {
   overflow-x: auto;
   padding-bottom: 2px;
 }
+
 .rb-chart-style-card {
   display: inline-flex;
   flex-direction: column;
@@ -8759,21 +7651,22 @@ body.show-curtain::after {
   flex: 0 0 auto;
   transition: border-color 0.12s;
 }
+
 .rb-chart-style-card:hover:not(:disabled) {
   border-color: var(--slides-select-border);
   background: var(--slides-select-hover-bg);
 }
+
 .rb-chart-style-card.active {
   border-color: var(--slides-select-border);
   background: var(--slides-select-active-bg);
 }
+
 .rb-chart-style-card:disabled {
   opacity: 0.4;
   cursor: default;
 }
-
 /* ---- Picture crop overlay ---- */
-
 .crop-overlay {
   position: absolute;
   inset: 0;
@@ -8832,7 +7725,6 @@ body.show-curtain::after {
   pointer-events: none;
   white-space: nowrap;
 }
-
 /* ── Format painter mode: canvas cursor becomes a brush ───────────────── */
 .format-brush-mode .konvajs-content canvas,
 .format-brush-mode .konvajs-content {
@@ -8841,9 +7733,7 @@ body.show-curtain::after {
       4 14,
     crosshair !important;
 }
-
-/* ── Split button (main action + caret dropdown) ─────────────────────── */
-/* Two hit zones tiling one big button (PowerPoint split button, measured
+/* ── Split button (main action + caret dropdown) ─────────────────────── */ /* Two hit zones tiling one big button (PowerPoint split button, measured
  * from PPT: non-hovered half light, hovered half a step darker, the halves
  * seamlessly forming one rounded block) — the zones replace the icon-row
  * wash instead of floating inside it */
@@ -8860,6 +7750,7 @@ body.show-curtain::after {
   padding: 3px 4px 3px 6px;
   border-radius: 4px 0 0 4px;
 }
+
 .rb-caret-hit {
   display: inline-flex;
   align-items: center;
@@ -8871,6 +7762,7 @@ body.show-curtain::after {
 .rb-split:hover:not(:disabled) .rb-big-icon {
   background: none;
 }
+
 .rb-split:hover:not(:disabled) .rb-split-main,
 .rb-split:hover:not(:disabled) .rb-caret-hit {
   background: var(--hover);
@@ -8881,7 +7773,6 @@ body.show-curtain::after {
 .rb-split .rb-caret-hit.active {
   background: var(--active-bg);
 }
-
 /* collapsed-group flyout: the group's original controls in a floating row
  * (PowerPoint's responsive ribbon) */
 .rb-collapse-panel {
@@ -8890,7 +7781,6 @@ body.show-curtain::after {
   gap: 4px;
   padding: 6px 8px;
 }
-
 /* ── Layout picker panel ──────────────────────────────────────────────── */
 .rb-layout-panel {
   width: 320px;
@@ -8966,7 +7856,6 @@ body.show-curtain::after {
   color: var(--text-dim);
   padding: 8px;
 }
-
 /* ── Find/replace floating panel ─────────────────────────────────── */
 .find-panel {
   position: absolute;
@@ -8985,6 +7874,7 @@ body.show-curtain::after {
   padding: 10px 12px;
   font-size: 13px;
 }
+
 .find-panel-head {
   display: flex;
   justify-content: space-between;
@@ -8992,6 +7882,7 @@ body.show-curtain::after {
   font-weight: 600;
   margin-bottom: 8px;
 }
+
 .find-panel-close {
   border: none;
   background: none;
@@ -9000,12 +7891,15 @@ body.show-curtain::after {
   color: var(--text-dim);
   padding: 0 4px;
 }
+
 .find-panel-close:hover {
   color: var(--text);
 }
+
 .find-panel-row {
   margin-bottom: 6px;
 }
+
 .find-panel-row input[type='text'],
 .find-panel-row input:not([type]) {
   width: 100%;
@@ -9015,27 +7909,32 @@ body.show-curtain::after {
   border-radius: 4px;
   font-size: 13px;
 }
+
 .find-panel-opts {
   display: flex;
   justify-content: space-between;
   align-items: center;
   color: var(--text);
 }
+
 .find-panel-opts label {
   display: flex;
   align-items: center;
   gap: 4px;
 }
+
 .find-panel-status {
   color: var(--text-muted);
   font-size: 12px;
 }
+
 .find-panel-actions {
   display: flex;
   gap: 6px;
   justify-content: flex-end;
   margin-bottom: 0;
 }
+
 .find-panel-actions button {
   padding: 4px 10px;
   border: 1px solid var(--border-strong);
@@ -9043,14 +7942,15 @@ body.show-curtain::after {
   background: var(--surface-subtle);
   cursor: pointer;
 }
+
 .find-panel-actions button:hover:not(:disabled) {
   background: var(--pressed);
 }
+
 .find-panel-actions button:disabled {
   opacity: 0.5;
   cursor: default;
 }
-
 /* ── Slide master editing view (full-screen overlay) ── */
 .master-view {
   position: fixed;
@@ -9060,6 +7960,7 @@ body.show-curtain::after {
   flex-direction: column;
   background: var(--canvas);
 }
+
 .master-bar {
   display: flex;
   align-items: center;
@@ -9073,10 +7974,12 @@ body.show-curtain::after {
    * real click on this bar (notably the Close Master View button) */
   -webkit-app-region: no-drag;
 }
+
 .master-bar-title {
   font-size: 13px;
   font-weight: 600;
 }
+
 .master-close-btn {
   margin-left: auto;
   padding: 4px 12px;
@@ -9087,24 +7990,30 @@ body.show-curtain::after {
   font-size: 12px;
   cursor: pointer;
 }
+
 .master-close-btn:hover {
   background: var(--slides-on-accent-hover);
 }
+
 .master-body {
   flex: 1;
   display: flex;
   overflow: hidden;
 }
+
 .master-list {
   width: 170px;
 }
+
 .master-thumb {
   margin-bottom: 22px;
   overflow: visible; /* Label hangs below the thumbnail's bottom edge */
 }
+
 .master-thumb-layout {
   margin-left: 18px;
 }
+
 .master-thumb-label {
   position: absolute;
   left: 0;
@@ -9117,6 +8026,7 @@ body.show-curtain::after {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .master-stage {
   flex: 1;
   overflow: auto;
@@ -9124,22 +8034,25 @@ body.show-curtain::after {
   display: flex;
   justify-content: safe center;
 }
+
 .master-stage .stage-rel {
   flex-shrink: 0;
   background: var(--slides-paper);
   box-shadow: var(--slides-shadow-stage);
 }
-
 /* CSS approximations of the newly added transition effects */
 .slideshow .ss-anim-cover {
   animation: ss-cover 0.5s ease both;
 }
+
 .slideshow .ss-anim-pull {
   animation: ss-pull 0.5s ease both;
 }
+
 .slideshow .ss-anim-dissolve {
   animation: ss-fade 0.6s steps(12) both;
 }
+
 .slideshow .ss-anim-zoom {
   animation: ss-zoomin 0.5s ease both;
 }
@@ -9169,16 +8082,17 @@ body.show-curtain::after {
     opacity: 1;
   }
 }
-
 /* Print dialog (PowerPoint-style: preview pane + options column) */
 .modal.print-dialog {
   width: min(880px, calc(100vw - 64px));
 }
+
 .print-dialog-body {
   display: flex;
   gap: 18px;
   height: min(560px, calc(100vh - 220px));
 }
+
 .print-preview-pane {
   flex: 1;
   min-width: 0;
@@ -9187,12 +8101,14 @@ body.show-curtain::after {
   background: var(--hover);
   overflow: hidden;
 }
+
 .print-preview-pane iframe {
   display: block;
   width: 100%;
   height: 100%;
   border: 0;
 }
+
 .print-preview-empty {
   height: 100%;
   display: flex;
@@ -9201,6 +8117,7 @@ body.show-curtain::after {
   color: var(--text-dim);
   font-size: 13px;
 }
+
 .print-options {
   width: 240px;
   flex-shrink: 0;
@@ -9209,17 +8126,20 @@ body.show-curtain::after {
   flex-direction: column;
   gap: 12px;
 }
+
 .print-options fieldset {
   margin: 0;
   padding: 8px 10px 6px;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+
 .print-options legend {
   padding: 0 4px;
   font-size: 12px;
   color: var(--text-dim);
 }
+
 .print-options .print-radio {
   display: flex;
   align-items: center;
@@ -9229,6 +8149,7 @@ body.show-curtain::after {
   color: var(--text);
   cursor: pointer;
 }
+
 .print-options .print-radio input {
   display: inline-block;
   width: auto;
@@ -9236,10 +8157,12 @@ body.show-curtain::after {
   margin: 0;
   accent-color: var(--accent);
 }
+
 .print-options .print-radio:has(input:disabled) {
   opacity: 0.45;
   cursor: default;
 }
+
 .print-options .print-range-input {
   display: block;
   width: 100%;
@@ -9253,12 +8176,15 @@ body.show-curtain::after {
   outline: none;
   background: var(--surface);
 }
+
 .print-options .print-range-input:focus {
   border-color: var(--accent);
 }
+
 .print-options .print-range-input.invalid {
   border-color: var(--danger);
 }
+
 .print-page-count {
   margin-top: auto;
   padding: 2px 2px 0;
@@ -9266,7 +8192,6 @@ body.show-curtain::after {
   color: var(--text-dim);
   text-align: right;
 }
-
 /* Sliding AI dock: one persistent wrapper animates between the panel width and
  * the 34px collapsed rail (Excel-parity 180ms ease); --ai-panel-width tracks
  * the panel's drag-resizer */
@@ -9282,23 +8207,19 @@ body.show-curtain::after {
 .ai-dock.collapsed {
   width: 34px;
 }
-
 /* "show the AI sidebar" off and panel closed: no rail, no sliver */
 .ai-dock.collapsed.ai-dock-off {
   width: 0;
 }
-
 /* while dragging the resizer, follow the pointer without easing */
 .ai-dock:has(.ai-panel-resizing) {
   transition: none;
 }
-
 /* the rail stretches to fill the dock while the width animates */
 .ai-dock .ai-rail {
   flex: 1;
   width: auto;
 }
-
 @media (prefers-reduced-motion: reduce) {
   .ai-dock {
     transition: none;
@@ -9324,9 +8245,7 @@ body.show-curtain::after {
 .ai-login-btn:hover {
   opacity: 0.88;
 }
-
 /* ================= transient toast (save feedback) ================= */
-
 .app-toast {
   position: fixed;
   top: 64px;
@@ -9371,7 +8290,6 @@ body.show-curtain::after {
 .app-toast.success .app-toast-icon {
   color: var(--slides-toast-ok);
 }
-
 /* body row (AI dock + content column) — the status bar spans only the content
    column so the dock runs the full height of the window */
 .app-main {
@@ -9387,7 +8305,6 @@ body.show-curtain::after {
   flex: 1;
   min-width: 0;
 }
-
 /* Editing overlay bullets: the canvas hides the edited node's text, so each paragraph div
  * draws its bullet as a ::before filling the hanging indent (set by TextEditOverlay) */
 .slide-text-editor > div[data-bullet-text]::before {
@@ -9406,6 +8323,7 @@ body.show-curtain::after {
   user-select: none;
   pointer-events: none;
 }
+
 .slide-text-editor > div[data-bullet-img] {
   position: relative;
 }
@@ -9421,9 +8339,7 @@ body.show-curtain::after {
   user-select: none;
   pointer-events: none;
 }
-
 /* ── Slide Show > Record: the recording bar ─────────────────────── */
-
 .slideshow .ss-record {
   position: absolute;
   top: 10px;
@@ -9480,9 +8396,7 @@ body.show-curtain::after {
   padding: 2px 10px;
   cursor: pointer;
 }
-
 /* ── 3D models: the rotation handle and the live model while it turns ── */
-
 .m3d-turn {
   position: absolute;
   z-index: 20;

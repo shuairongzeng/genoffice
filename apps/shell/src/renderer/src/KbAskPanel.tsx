@@ -55,9 +55,6 @@ import { artifactFromCall, retryInstruction, settleArtifact, type Artifact } fro
 import { appendToolNote, toolNoteDetail, toolNoteKind, type ToolNote } from './ask-tool-notes'
 import { RunRecorder, runsBridgeOf } from './ask-runs'
 import { RafFlushQueue, sticksToBottom } from './ask-stream'
-import sendEnterOn from './assets/send-enter-on.png'
-import sendEnterOff from './assets/send-enter-off.png'
-import sendStop from './assets/send-stop.png'
 
 /**
  * The home screen's knowledge-base ask panel: chat with the reader's starred
@@ -1652,9 +1649,6 @@ export function KbAskPanel({
         stopLabel={t('askStop')}
         ariaLabel={t('askPlaceholder')}
         iconOnly
-        sendIconEnabled={<img src={sendEnterOn} alt="" aria-hidden />}
-        sendIconDisabled={<img src={sendEnterOff} alt="" aria-hidden />}
-        stopIcon={<img src={sendStop} alt="" aria-hidden />}
         textareaRef={composerRef}
         header={
           <>

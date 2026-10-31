@@ -14,15 +14,10 @@
   --hx-focus-ring-soft: rgb(35 36 37 / 18%);
   --hx-focus-ring-strong: rgb(35 36 37 / 35%);
   --hx-choice-check: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2.5 6.5l2.5 2.5 4.5-5' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>");
-  --hx-focus-ring-blue: rgb(74 141 246 / 30%);
   --hx-error: #c62828;
   --hx-error-border: rgb(198 40 40 / 45%);
   --hx-error-bg: rgb(198 40 40 / 8%);
   --hx-shadow-color: rgb(0 0 0 / 13%);
-  --hx-shadow-soft: rgb(0 0 0 / 9%);
-  --hx-shimmer-base: #666666;
-  --hx-shimmer-hi: #d9d9d9;
-  --hx-pop-shadow: 0 8px 24px rgb(0 0 0 / 18%);
   --hx-tip-shadow: 0 4px 6px rgb(0 0 0 / 10%);
   --hx-code-bg: #f6f8fa;
   --hx-code-inline-bg: rgb(129 139 152 / 14%);
@@ -35,7 +30,6 @@
   --cm-number: #0550ae;
   --cm-punct: #57606a;
 }
-
 [data-theme='dark'] {
   --hx-ai-changed: rgb(255 213 79 / 28%);
   --hx-ai-anchor-bg: rgb(96 148 240 / 22%);
@@ -47,15 +41,10 @@
   --hx-focus-ring-soft: rgb(228 228 228 / 22%);
   --hx-focus-ring-strong: rgb(228 228 228 / 40%);
   --hx-choice-check: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2.5 6.5l2.5 2.5 4.5-5' fill='none' stroke='%231e1e1e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>");
-  --hx-focus-ring-blue: rgb(96 148 240 / 35%);
   --hx-error: #ef5350;
   --hx-error-border: rgb(239 83 80 / 45%);
   --hx-error-bg: rgb(239 83 80 / 10%);
   --hx-shadow-color: rgb(0 0 0 / 45%);
-  --hx-shadow-soft: rgb(0 0 0 / 35%);
-  --hx-shimmer-base: #9a9a9a;
-  --hx-shimmer-hi: #3a3a3a;
-  --hx-pop-shadow: 0 8px 24px rgb(0 0 0 / 55%);
   --hx-tip-shadow: 0 4px 6px rgb(0 0 0 / 40%);
   --hx-code-bg: #23272e;
   --hx-code-inline-bg: rgb(129 139 152 / 22%);
@@ -71,7 +60,6 @@
   --cm-number: #79c0ff;
   --cm-punct: #8b949e;
 }
-
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     --hx-ai-changed: rgb(255 213 79 / 28%);
@@ -84,15 +72,10 @@
     --hx-focus-ring-soft: rgb(228 228 228 / 22%);
     --hx-focus-ring-strong: rgb(228 228 228 / 40%);
     --hx-choice-check: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2.5 6.5l2.5 2.5 4.5-5' fill='none' stroke='%231e1e1e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>");
-    --hx-focus-ring-blue: rgb(96 148 240 / 35%);
     --hx-error: #ef5350;
     --hx-error-border: rgb(239 83 80 / 45%);
     --hx-error-bg: rgb(239 83 80 / 10%);
     --hx-shadow-color: rgb(0 0 0 / 45%);
-    --hx-shadow-soft: rgb(0 0 0 / 35%);
-    --hx-shimmer-base: #9a9a9a;
-    --hx-shimmer-hi: #3a3a3a;
-    --hx-pop-shadow: 0 8px 24px rgb(0 0 0 / 55%);
     --hx-tip-shadow: 0 4px 6px rgb(0 0 0 / 40%);
     --hx-code-bg: #23272e;
     --hx-code-inline-bg: rgb(129 139 152 / 22%);
@@ -109,7 +92,6 @@
     --cm-punct: #8b949e;
   }
 }
-
 html,
 body,
 #root {
@@ -126,9 +108,7 @@ body,
   height: 100%;
   min-height: 0;
 }
-
 /* ---- ribbon (same structure and metrics as the markdown/docs ribbons) ---- */
-
 .ribbon {
   flex: 0 0 auto;
   border-bottom: 1px solid var(--border);
@@ -136,7 +116,6 @@ body,
   user-select: none;
   color: var(--text-primary);
 }
-
 /* quick-access row (save / undo / redo / autosave); doubles as the window drag strip */
 .ribbon-tabs {
   display: flex;
@@ -146,7 +125,6 @@ body,
   min-height: 39px;
   -webkit-app-region: drag;
 }
-
 html.genoffice-popover-open .ribbon-tabs {
   -webkit-app-region: no-drag;
 }
@@ -307,7 +285,6 @@ html.genoffice-popover-open .ribbon-tabs {
   gap: 2px;
   flex: 1;
 }
-
 /* muted verb leading a button row ("Insert  Heading Paragraph Image …"): the ribbon has no tabs to say it */
 .rb-group-lead {
   flex-shrink: 0;
@@ -366,9 +343,7 @@ html.genoffice-popover-open .ribbon-tabs {
   height: 28px;
   color: var(--color-brand-secondary);
 }
-
 /* ---- main layout: AI dock (left) + editor ---- */
-
 .app-main {
   flex: 1;
   display: flex;
@@ -394,10 +369,12 @@ html.genoffice-popover-open .ribbon-tabs {
   background: var(--accent-soft);
   border-bottom: 1px solid var(--border);
 }
+
 .disk-notice span {
   flex: 1;
   min-width: 0;
 }
+
 .disk-notice button {
   padding: 3px 10px;
   font-size: 12px;
@@ -407,18 +384,15 @@ html.genoffice-popover-open .ribbon-tabs {
   border-radius: 4px;
   cursor: pointer;
 }
+
 .disk-notice button:hover {
   background: var(--hover);
 }
-
 /* ---- AI change highlight in the source pane ---- */
-
 .cm-ai-changed {
   background: var(--hx-ai-changed);
 }
-
 /* ---- workspace ---- */
-
 .workspace {
   flex: 1;
   display: flex;
@@ -444,7 +418,6 @@ html.genoffice-popover-open .ribbon-tabs {
 .view-source .pane-source {
   flex: 1 1 100%;
 }
-
 /* hidden, not unmounted: the CodeMirror instance (and its undo history) must survive view switches */
 .view-preview .pane-source,
 .view-source .pane-preview {
@@ -490,9 +463,7 @@ html.genoffice-popover-open .ribbon-tabs {
 .source-editor .cm-editor {
   height: 100%;
 }
-
 /* ---- source context menu (withholding a selection from the model) ---- */
-
 .source-ctx {
   position: fixed;
   z-index: 70;
@@ -526,9 +497,7 @@ html.genoffice-popover-open .ribbon-tabs {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
-
 /* ---- redact dialog ---- */
-
 .redact-dialog-mask {
   position: fixed;
   inset: 0;
@@ -563,7 +532,6 @@ html.genoffice-popover-open .ribbon-tabs {
   line-height: 1.5;
   color: var(--text-dim);
 }
-
 /* the marker as the model will see it, live as the label is typed */
 .redact-dialog-preview {
   margin-bottom: 8px;
@@ -626,9 +594,7 @@ html.genoffice-popover-open .ribbon-tabs {
   opacity: 0.5;
   cursor: default;
 }
-
 /* ---- status bar ---- */
-
 .status-bar {
   flex: 0 0 auto;
   display: flex;
@@ -702,9 +668,7 @@ html.genoffice-popover-open .ribbon-tabs {
   color: var(--text-muted);
   font-size: 14px;
 }
-
 /* ── AI sidebar (same panel language as docs/sheets/markdown) ── */
-
 .ai-feature-icon {
   display: grid;
   place-items: center;
@@ -717,9 +681,7 @@ html.genoffice-popover-open .ribbon-tabs {
   width: 24px;
   height: 24px;
 }
-
 /* ── AI sidebar (aligned with docs/sheets panel language) ── */
-
 .ai-dock {
   display: flex;
   flex-shrink: 0;
@@ -732,34 +694,28 @@ html.genoffice-popover-open .ribbon-tabs {
 .ai-dock.collapsed {
   width: 34px;
 }
-
 /* "show the AI sidebar" off and panel closed: no rail, no sliver */
 .ai-dock.collapsed.ai-dock-off {
   width: 0;
 }
-
 /* while dragging the resizer, follow the pointer without easing */
 .ai-dock:has(.ai-panel-resizing) {
   transition: none;
 }
-
 /* the panel stays mounted (chat history survives) but hidden while collapsed */
 .ai-dock.collapsed .copilot {
   display: none;
 }
-
 /* the rail stretches to fill the dock while the width animates */
 .ai-dock .ai-rail {
   flex: 1;
   width: auto;
 }
-
 @media (prefers-reduced-motion: reduce) {
   .ai-dock {
     transition: none;
   }
 }
-
 /* collapsed AI sidebar: thin rail on the left edge (same as docs) */
 .ai-rail {
   display: flex;
@@ -797,125 +753,12 @@ html.genoffice-popover-open .ribbon-tabs {
   font-family: var(--gs-font-sans);
   color: var(--color-text-primary);
 }
-
-/* drag handle on the panel's right edge — resize the panel horizontally */
-.ai-panel-resizer {
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 6px;
-  cursor: col-resize;
-  z-index: 20;
-  background: transparent;
-}
-
-/* while dragging: keep the col-resize cursor everywhere, no text selection */
-.ai-panel-resizing {
-  cursor: col-resize;
-  user-select: none;
-}
-
-.ai-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px 10px 14px;
-  border-bottom: 1px solid var(--color-border-default);
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--color-text-primary);
-}
-
-.ai-panel-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-}
-
 /* Genspark brand logo (shared by the collapsed entry and the AI panel title) */
 .genspark-badge {
   display: block;
   width: 22px;
   height: 22px;
   border-radius: 50%;
-}
-
-.ai-panel-title .genspark-badge {
-  width: 18px;
-  height: 18px;
-}
-
-.ai-panel-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.ai-header-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
-  border: none;
-  background: none;
-  border-radius: var(--radius-8);
-  color: var(--color-text-secondary);
-  padding: 0;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.ai-header-btn:hover {
-  background: var(--color-bg-subtle);
-  color: var(--color-text-primary);
-}
-
-.ai-chat {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  /* uniform 16px flex gap between blocks, messages carry no margin */
-  gap: 16px;
-  overflow-y: auto;
-  padding: 32px 16px;
-  font-family: var(--gs-font-sans);
-}
-
-/* Boundary between the restored transcript and the live turn */
-.ai-history-sep {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 30px;
-  font-size: 14px;
-  color: var(--text-tertiary);
-}
-
-.ai-chat-empty {
-  margin-top: 36px;
-  padding: 0 10px;
-  text-align: center;
-  font-family: var(--gs-font-sans);
-}
-
-.ai-chat-empty-title {
-  font-size: var(--text-body-lg);
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin-bottom: 8px;
-}
-
-.ai-chat-empty-body {
-  color: var(--color-text-secondary);
-  font-size: var(--text-small);
-  font-weight: 400;
-  line-height: 1.5;
 }
 
 .ai-starter-list {
@@ -949,93 +792,12 @@ html.genoffice-popover-open .ribbon-tabs {
   transform: scale(0.98);
 }
 
-/* Chat messages (scaled to the 14px panel): user = gray pill, AI = plain text without a bubble, no accent colors */
-.ai-msg {
-  position: relative;
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-}
-
-/* User pill: gray, fully rounded (no tail) */
-.ai-msg-user {
-  align-self: flex-end;
-  color: var(--text-primary);
-  background: var(--color-bg-subtle);
-  padding: 8px 16px;
-  border-radius: 14px;
-  max-width: 80%;
-  line-height: 1.5;
-}
-
-.ai-msg-assistant {
-  align-self: stretch;
-  border: none;
-  background: none;
-  padding: 0;
-  max-width: 100%;
-  color: var(--text-primary);
-  white-space: normal;
-}
-
 .ai-msg-error {
   border-color: var(--hx-error-border);
   color: var(--hx-error);
 }
 
-.ai-md p,
-.ai-md ul,
-.ai-md ol {
-  margin: 0 0 16px;
-}
-
-.ai-md :last-child {
-  margin-bottom: 0;
-}
-
-/* blank markdown paragraphs would each eat a 16px margin — the stream never renders them */
-.ai-md p:empty {
-  display: none;
-}
-
-.ai-md .ai-md-h {
-  font-weight: 700;
-  line-height: 1.3;
-  margin: 20px 0 8px;
-}
-
-.ai-md .ai-md-h:first-child {
-  margin-top: 0;
-}
-
-.ai-md ul,
-.ai-md ol {
-  margin-bottom: 20px;
-  padding-left: 20px;
-}
-
-.ai-md li {
-  margin-left: 20px;
-  line-height: 28px;
-}
-
-/* inline code: neutral gray chip (deliberately not red), 2px below body size */
-.ai-md code {
-  border-radius: 4px;
-  padding: 1px 6px;
-  background: var(--color-bg-subtle);
-  color: var(--color-text-secondary);
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 14px;
-}
-
-/* Collapsible tool-activity group (ported from docs) */
 .ai-work-group {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
   margin-top: 12px;
 }
 
@@ -1043,155 +805,6 @@ html.genoffice-popover-open .ribbon-tabs {
 .ai-work-group:only-child {
   margin-top: 0;
 }
-
-.ai-work-group-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  margin: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  user-select: none;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--color-text-tertiary);
-  transition: color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-work-group-summary:hover {
-  color: var(--color-text-secondary);
-}
-
-.ai-work-group-summary:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--hx-focus-ring);
-  border-radius: 4px;
-}
-
-.ai-work-group-summary.running {
-  color: var(--color-text-secondary);
-}
-
-.ai-work-group-summary.running .ai-work-group-label {
-  animation: ai-summary-pulse 1500ms linear infinite;
-}
-
-.ai-work-group-body {
-  align-self: stretch;
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-work-group-body.open {
-  grid-template-rows: 1fr;
-}
-
-.ai-work-group-body-inner {
-  overflow: hidden;
-  min-height: 0;
-  padding: 0 0 0 8px;
-  transition: padding 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-work-group-body.open .ai-work-group-body-inner {
-  padding: 4px 0 8px 8px;
-}
-
-/* Step rows inside the group: 20px icon slot + 1px connector */
-.ai-step-row {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 8px 0;
-  color: var(--color-text-tertiary);
-  animation: ai-row-ease-in 320ms ease-out;
-}
-
-.ai-step-row:not(:last-child) {
-  padding-bottom: 16px;
-}
-
-.ai-step-row:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  left: 9.5px;
-  top: 32px;
-  bottom: -4px;
-  width: 1px;
-  background: var(--color-border-default);
-}
-
-.ai-step-icon {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-tertiary);
-}
-
-.ai-step-icon.done {
-  color: var(--color-text-secondary);
-}
-
-.ai-step-icon.error {
-  color: var(--hx-error);
-}
-
-.ai-step-icon.running svg {
-  animation: ai-hourglass-flip 1.8s ease-in-out infinite;
-}
-
-.ai-step-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 1px;
-}
-
-.ai-step-title {
-  font-size: 14px;
-  line-height: 1.3;
-  color: var(--color-text-secondary);
-  text-align: left;
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  font-family: inherit;
-}
-
-.ai-step-title.clickable {
-  cursor: pointer;
-  transition: color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-step-title.clickable:hover {
-  color: var(--text-primary);
-}
-
-.ai-step-title.clickable:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--hx-focus-ring);
-  border-radius: 4px;
-}
-
-/* Step detail opens instantly, no animation */
-.ai-step-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .ai-step-row,
   .ai-step-icon.running svg,
@@ -1199,60 +812,12 @@ html.genoffice-popover-open .ribbon-tabs {
     animation: none;
   }
 }
-
-/* Running tool row: two grow/shrink brand dots */
-.ai-tool-chip-spinner {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  height: 12px;
-}
-
-.ai-tool-chip-spinner::before,
-.ai-tool-chip-spinner::after {
-  content: '';
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--color-brand-secondary);
-}
-
-.ai-tool-chip-spinner::before {
-  animation: ai-tool-dot-grow 2s infinite;
-}
-
-.ai-tool-chip-spinner::after {
-  animation: ai-tool-dot-shrink 2s infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ai-tool-chip-spinner::before,
-  .ai-tool-chip-spinner::after {
-    animation: none;
-    opacity: 0.65;
-  }
-}
-
 /* Elapsed run time next to the typing indicator */
 .ai-typing-row {
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
 }
-
-/* caret: text glyph right after the label, always visible, rotates open */
-.ai-tool-chip-caret {
-  margin-left: 4px;
-  opacity: 0.7;
-  display: inline-block;
-  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-tool-chip-caret.open {
-  transform: rotate(90deg);
-}
-
 /* Model reasoning (thinking) block attached to an assistant reply */
 .ai-reasoning {
   display: flex;
@@ -1323,261 +888,9 @@ html.genoffice-popover-open .ribbon-tabs {
   line-height: 1.55;
 }
 
-/* expanded step detail: subtle gray card, no border */
-.ai-tool-output {
-  background: var(--color-bg-subtle);
-  border: none;
-  border-radius: 12px;
-  font-family:
-    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-  font-size: 14px;
-  color: var(--text-primary);
-  max-height: 300px;
-  overflow-y: auto;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.ai-tool-output-pre {
-  padding: 12px 16px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
-}
-
-/* Thinking indicator: shimmer label above two grow/shrink dots */
-.ai-typing {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 4px 0;
-}
-
-.ai-typing-label {
-  display: inline-block;
-  position: relative;
-  font-size: 14px;
-  line-height: 1;
-  letter-spacing: 0.01em;
-  color: var(--hx-shimmer-base);
-  -webkit-text-fill-color: transparent;
-  background: var(--hx-shimmer-base)
-    linear-gradient(
-      to left,
-      var(--hx-shimmer-base),
-      var(--hx-shimmer-hi) 50%,
-      var(--hx-shimmer-base)
-    );
-  background-clip: text;
-  -webkit-background-clip: text;
-  background-repeat: no-repeat;
-  background-size: 70% 100%;
-  animation: ai-thinking-shimmer 1.2s infinite alternate linear;
-}
-
-.ai-typing-elapsed {
-  font-variant-numeric: tabular-nums;
-}
-
-.ai-typing-dots {
-  height: 12px;
-  display: flex;
-  gap: 2px;
-}
-
-.ai-typing-dot-slot {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 12px;
-}
-
-.ai-typing-dot-grow,
-.ai-typing-dot-shrink {
-  background: var(--color-brand-secondary);
-  border-radius: 50%;
-}
-
-.ai-typing-dot-grow {
-  animation: ai-dot-grow 2s infinite;
-}
-
-.ai-typing-dot-shrink {
-  animation: ai-dot-shrink 2s infinite;
-}
-
-/* streaming caret at the tail of streaming assistant text */
-.ai-msg-streaming .ai-md > :last-child::after {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 1em;
-  margin-left: 2px;
-  border-radius: 1px;
-  background: var(--color-text-secondary);
-  vertical-align: text-bottom;
-  animation: ai-caret-blink 900ms steps(1, end) infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ai-typing-label,
-  .ai-msg-streaming .ai-md > :last-child::after {
-    animation: none;
-  }
-}
-
-@keyframes ai-summary-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
-}
-
-@keyframes ai-hourglass-flip {
-  0%,
-  12% {
-    transform: rotate(0);
-  }
-  44%,
-  56% {
-    transform: rotate(180deg);
-  }
-  88%,
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes ai-tool-dot-grow {
-  0%,
-  100% {
-    transform: scale(0.333);
-    opacity: 0.45;
-  }
-  50% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes ai-tool-dot-shrink {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(0.333);
-    opacity: 0.45;
-  }
-}
-
-@keyframes ai-row-ease-in {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes ai-thinking-shimmer {
-  0% {
-    background-position: -100% top;
-  }
-  100% {
-    background-position: 250% top;
-  }
-}
-
-@keyframes ai-dot-grow {
-  0%,
-  100% {
-    width: 4px;
-    height: 4px;
-    opacity: 0.45;
-  }
-  50% {
-    width: 12px;
-    height: 12px;
-    opacity: 1;
-  }
-}
-
-@keyframes ai-dot-shrink {
-  0%,
-  100% {
-    width: 12px;
-    height: 12px;
-    opacity: 1;
-  }
-  50% {
-    width: 4px;
-    height: 4px;
-    opacity: 0.45;
-  }
-}
-
-@keyframes ai-caret-blink {
-  0%,
-  50% {
-    opacity: 1;
-  }
-  51%,
-  100% {
-    opacity: 0;
-  }
-}
-
-.ai-msg-toolbar {
-  display: flex;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.ai-msg-tool-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  height: 30px;
-  min-width: 30px;
-  padding: 5px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background-color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-msg-tool-btn svg {
-  width: 20px;
-  height: 20px;
-}
-
 .ai-msg-tool-btn:hover {
   background: var(--color-bg-subtle);
 }
-
-.ai-msg-tool-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--hx-focus-ring-blue);
-}
-
-.ai-msg-tool-btn:active {
-  filter: brightness(0.88);
-  transform: scale(0.98);
-}
-
 /* Version snapshots footer (same as docs) */
 .ai-versions {
   border-top: 1px solid var(--border);
@@ -1653,7 +966,6 @@ html.genoffice-popover-open .ribbon-tabs {
   cursor: default;
   background: none;
 }
-
 /* blank-document intent picker: a compact card row above the composer */
 .ai-intent-bar {
   padding: 0 2px 10px;
@@ -1749,7 +1061,6 @@ html.genoffice-popover-open .ribbon-tabs {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-
 /* attachments (same contract as the docs panel): paperclip in the composer footer,
    chips above the textarea, read-only echo on the sent bubble */
 .ai-attach-btn {
@@ -1929,108 +1240,6 @@ html.genoffice-popover-open .ribbon-tabs {
   outline-offset: -4px;
 }
 
-/* Composer floats over the chat scroll area — no top border (agent-shell §4.6) */
-.ai-composer {
-  border-top: none;
-  padding: 8px 12px 12px;
-  background: var(--color-bg-page);
-  font-family: var(--gs-font-sans);
-}
-
-/* composer card — 16px radius, default border, production float shadow */
-.ai-input-box {
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-16);
-  background: var(--color-bg-page);
-  box-shadow: 0 6px 30px var(--hx-shadow-soft);
-  transition:
-    border-color var(--transition-fast),
-    box-shadow var(--transition-fast);
-}
-
-.ai-input-box textarea {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  resize: none;
-  border: none;
-  background: none;
-  border-radius: var(--radius-16) var(--radius-16) 0 0;
-  padding: 12px 14px 4px;
-  font-size: 14px;
-  font-family: inherit;
-  line-height: 24px;
-  outline: none;
-  color: var(--color-text-primary);
-  min-height: 64px;
-  max-height: 147px;
-  overflow-y: auto;
-}
-
-.ai-input-box textarea::placeholder {
-  color: var(--color-text-tertiary);
-}
-
-.ai-input-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px 8px 10px;
-}
-
-.ai-input-hint {
-  font-size: var(--text-caption);
-  color: var(--color-text-tertiary);
-  user-select: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.ai-send-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  margin-left: auto;
-  flex-shrink: 0;
-  border: none;
-  border-radius: 35%;
-  background: transparent;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.ai-send-btn img {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.ai-send-btn:hover:not(:disabled) {
-  filter: brightness(0.92);
-}
-
-.ai-send-btn:active:not(:disabled) {
-  filter: brightness(0.88);
-  transform: scale(0.98);
-}
-
-.ai-send-btn:disabled {
-  cursor: default;
-}
-
-/* Stop button while generating: brand-supplied art (white square on black), transparent button chrome */
-.ai-send-btn.ai-stop-btn {
-  background: transparent;
-}
-
-.ai-send-btn.ai-stop-btn:hover {
-  filter: brightness(0.92);
-}
-
 .ai-msg-undelivered {
   margin-top: 6px;
   display: flex;
@@ -2059,41 +1268,15 @@ html.genoffice-popover-open .ribbon-tabs {
   flex: 1;
   min-height: 0;
 }
-
-/* ---- main layout: AI dock (left) + editor ---- */
-
-/* ---- transient AI-change highlight ---- */
-
+/* ---- main layout: AI dock (left) + editor ---- */ /* ---- transient AI-change highlight ---- */
 .doc-editor .ai-changed {
   background: var(--hx-ai-changed);
   border-radius: 2px;
   transition: background 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-
 /* ---- selection scope chip in the AI composer header ---- */
-
 .ai-scope-row {
   margin-bottom: 7px;
-}
-
-.ai-scope-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: var(--radius-30);
-  background: var(--accent-soft);
-  font-size: 11.5px;
-  color: var(--accent-dark);
-  font-weight: 500;
-}
-
-.ai-scope-hint::before {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
 }
 
 .ai-scope-hint .ai-scope-label,
@@ -2130,7 +1313,6 @@ html.genoffice-popover-open .ribbon-tabs {
   white-space: pre-wrap;
   word-break: break-word;
 }
-
 /* in-answer citation links: click selects and scrolls to the cited block */
 .ai-md .ai-md-nav {
   color: var(--accent);
@@ -2142,26 +1324,11 @@ html.genoffice-popover-open .ribbon-tabs {
 .ai-md .ai-md-nav:hover {
   text-decoration-style: solid;
 }
-
 /* queued-edit anchor highlight inside the document (decoration, never document data) */
 .ai-queue-anchor {
   background: var(--hx-ai-anchor-bg);
   border-bottom: 2px dashed var(--hx-ai-anchor-line);
   cursor: pointer;
-}
-
-/* anchored ask popover (shared look with docs/slides, markdown tokens) */
-.ai-ask-pop {
-  position: fixed;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-12);
-  background: var(--surface);
-  box-shadow: var(--hx-pop-shadow);
 }
 
 .ai-ask-pop-close {
@@ -2190,107 +1357,7 @@ html.genoffice-popover-open .ribbon-tabs {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-
-.ai-ask-pop-title {
-  padding-right: 24px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.ai-ask-pop-sub {
-  margin-top: -4px;
-  font-size: 11.5px;
-  color: var(--text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ai-ask-pop-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-8);
-  background: var(--color-bg-page);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 13px;
-  outline: none;
-}
-
-.ai-ask-pop-input:focus {
-  border-color: var(--accent);
-}
-
-.ai-ask-pop-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.ai-ask-chip {
-  padding: 3px 9px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 11.5px;
-  cursor: pointer;
-}
-
-.ai-ask-chip:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.ai-ask-pop-foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.ai-ask-cancel,
-.ai-ask-confirm {
-  padding: 5px 12px;
-  border-radius: var(--radius-6);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.ai-ask-cancel {
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--color-text-secondary);
-}
-
-.ai-ask-cancel:hover {
-  background: var(--hover);
-}
-
-.ai-ask-cancel:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.ai-ask-confirm {
-  border: 1px solid transparent;
-  background: var(--color-ai-action);
-  color: var(--color-ai-action-text);
-}
-
-.ai-ask-confirm:hover:not(:disabled) {
-  background: var(--color-ai-action-hover);
-}
-
-.ai-ask-confirm:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
 /* ---- queue card above the composer ---- */
-
 .ai-queue {
   margin-bottom: 8px;
   border: 1px solid var(--border);
@@ -2474,9 +1541,7 @@ html.genoffice-popover-open .ribbon-tabs {
   opacity: 0.45;
   cursor: default;
 }
-
 /* ---- element breadcrumb ---- */
-
 .crumbs {
   flex: 0 0 auto;
   display: flex;
@@ -2546,11 +1611,7 @@ html.genoffice-popover-open .ribbon-tabs {
 .status-notice {
   color: var(--text);
 }
-
-/* ── questionnaire card (same as slides) ── */
-
-/* AI survey card */
-/* Clarify card docked in the composer slot */
+/* ── questionnaire card (same as slides) ── */ /* AI survey card */ /* Clarify card docked in the composer slot */
 .ai-clarify-card {
   display: flex;
   flex-direction: column;
@@ -2565,7 +1626,6 @@ html.genoffice-popover-open .ribbon-tabs {
   border-radius: 12px;
   animation: ai-clarify-rise 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-
 /* Header band bleeding to the card edges */
 .ai-clarify-head {
   display: flex;
@@ -2587,7 +1647,6 @@ html.genoffice-popover-open .ribbon-tabs {
   line-height: 1.35;
   word-break: break-word;
 }
-
 /* "N / M" progress + 22px pager arrows */
 .ai-clarify-head-progress {
   font-size: 14px;
@@ -2637,7 +1696,6 @@ html.genoffice-popover-open .ribbon-tabs {
   opacity: 0.3;
   cursor: default;
 }
-
 /* One question at a time; directional slide (240ms / cubic-bezier(.16,1,.3,1)) */
 .ai-clarify-q {
   min-height: 140px;
@@ -2692,7 +1750,6 @@ html.genoffice-popover-open .ribbon-tabs {
   margin: 0 0 8px;
   line-height: 1.5;
 }
-
 /* Options: column of DS choice rows, never wrapping */
 .ai-clarify-opts {
   display: flex;
@@ -2738,7 +1795,6 @@ html.genoffice-popover-open .ribbon-tabs {
   line-height: 1.4;
   color: var(--color-text-primary);
 }
-
 /* 16px radio/checkbox glyph; selection is neutral black */
 .ai-clarify-opt-box {
   flex-shrink: 0;
@@ -2792,7 +1848,6 @@ html.genoffice-popover-open .ribbon-tabs {
   background-position: center;
   background-repeat: no-repeat;
 }
-
 /* Free-text answer input */
 .ai-clarify-other {
   width: 100%;
@@ -2818,7 +1873,6 @@ html.genoffice-popover-open .ribbon-tabs {
   border-color: var(--color-btn-primary);
   box-shadow: 0 0 0 3px var(--hx-focus-ring);
 }
-
 /* Footer actions */
 .ai-clarify-actions {
   display: flex;
@@ -2847,7 +1901,6 @@ html.genoffice-popover-open .ribbon-tabs {
   gap: 8px;
   margin-left: auto;
 }
-
 /* Explicit multi-select advance action: text avoids looking like an unlabeled pager. */
 .ai-clarify-next {
   min-width: 82px;
@@ -2977,7 +2030,6 @@ html.genoffice-popover-open .ribbon-tabs {
   color: var(--color-text-secondary);
   margin: 0;
 }
-
 /* Pending marker chip left in the stream while the card is docked */
 .ai-clarify-chip {
   align-self: flex-start;
@@ -3003,7 +2055,6 @@ html.genoffice-popover-open .ribbon-tabs {
   color: var(--color-text-secondary);
   animation: ai-clarify-chip-bounce 1.6s ease-in-out infinite;
 }
-
 @keyframes ai-clarify-rise {
   from {
     opacity: 0;
@@ -3014,7 +2065,6 @@ html.genoffice-popover-open .ribbon-tabs {
     transform: translateY(0);
   }
 }
-
 @keyframes ai-clarify-slide-next {
   from {
     opacity: 0;
@@ -3025,7 +2075,6 @@ html.genoffice-popover-open .ribbon-tabs {
     transform: translateX(0);
   }
 }
-
 @keyframes ai-clarify-slide-prev {
   from {
     opacity: 0;
@@ -3036,7 +2085,6 @@ html.genoffice-popover-open .ribbon-tabs {
     transform: translateX(0);
   }
 }
-
 @keyframes ai-clarify-chip-bounce {
   0%,
   100% {
@@ -3046,9 +2094,7 @@ html.genoffice-popover-open .ribbon-tabs {
     transform: translateY(1.5px);
   }
 }
-
 /* ---- brief card (plan_page) ---- */
-
 .brief-card {
   display: flex;
   flex-direction: column;
@@ -3254,11 +2300,7 @@ html.genoffice-popover-open .ribbon-tabs {
 .brief-receipt b {
   color: var(--color-text-primary);
 }
-
-/* ---- design canvas: floating toolbar + style panel over the preview ---- */
-
-/* the preview stays ltr under an RTL UI — the chrome mirrors, the content does not */
-
+/* ---- design canvas: floating toolbar + style panel over the preview ---- */ /* the preview stays ltr under an RTL UI — the chrome mirrors, the content does not */
 .preview-stage {
   direction: ltr;
   position: relative;
@@ -3274,7 +2316,6 @@ html.genoffice-popover-open .ribbon-tabs {
   flex: 1;
   min-height: 0;
 }
-
 /* device preview: fixed-width page centred on a neutral stage */
 .preview-stage[data-device='tablet'] .preview-host,
 .preview-stage[data-device='mobile'] .preview-host {
@@ -3593,9 +2634,7 @@ html.genoffice-popover-open .ribbon-tabs {
   font-size: 11.5px;
   color: var(--text-muted);
 }
-
-/* ── canvas modes (Comment / Edit / Present) in the QAT row ─────────────── */
-/* ── Present: chrome-free preview, only the QAT row stays ── */
+/* ── canvas modes (Comment / Edit / Present) in the QAT row ─────────────── */ /* ── Present: chrome-free preview, only the QAT row stays ── */
 .app.present .ribbon-body,
 .app.present .ribbon-collapse-btn,
 .app.present .crumbs,
@@ -3607,6 +2646,7 @@ html.genoffice-popover-open .ribbon-tabs {
 .app.present-full .ribbon {
   display: none;
 }
+
 .present-exit {
   position: absolute;
   top: 10px;
@@ -3622,7 +2662,6 @@ html.genoffice-popover-open .ribbon-tabs {
   box-shadow: var(--shadow-menu);
   cursor: pointer;
 }
-
 /* ── the present-only view ─────────────────────────────────────────────── */
 .present-view,
 .present-view .preview-host {
@@ -3631,7 +2670,6 @@ html.genoffice-popover-open .ribbon-tabs {
   display: flex;
   flex-direction: column;
 }
-
 /* ── ribbon button menus (Theme directions, Present): anchored + fixed like the
    link popover, because the ribbon body clips overflow ─────────────────── */
 .rb-menu-wrap {
@@ -3639,6 +2677,7 @@ html.genoffice-popover-open .ribbon-tabs {
   anchor-name: --rb-menu-anchor;
   anchor-scope: --rb-menu-anchor;
 }
+
 .rb-menu,
 .table-picker {
   position: fixed;
@@ -3653,15 +2692,16 @@ html.genoffice-popover-open .ribbon-tabs {
   background: var(--surface);
   box-shadow: var(--shadow-menu);
 }
+
 .rb-menu {
   min-width: 140px;
   padding: 4px;
 }
-
 /* Insert: split button (main action + narrow caret), one pill on hover like the docs / slides ribbons */
 .rb-split .rb-split-main {
   border-radius: 3px 0 0 3px;
 }
+
 .rb-split .rb-split-caret {
   min-width: 16px;
   width: 16px;
@@ -3670,18 +2710,20 @@ html.genoffice-popover-open .ribbon-tabs {
   border-radius: 0 3px 3px 0;
   color: var(--text-dim);
 }
+
 .rb-split:hover > .rb-btn:not(:disabled) {
   background: var(--hover);
 }
+
 .rb-split > .rb-btn:hover:not(:disabled),
 .rb-split > .rb-split-caret.active {
   background: var(--active-bg);
 }
-
 /* Insert: table size picker (hover grid) */
 .table-picker {
   padding: 8px;
 }
+
 .table-picker-title {
   margin-bottom: 6px;
   font-size: 12px;
@@ -3689,11 +2731,13 @@ html.genoffice-popover-open .ribbon-tabs {
   text-align: center;
   white-space: nowrap;
 }
+
 .table-picker-grid {
   display: grid;
   grid-template-columns: repeat(10, 18px);
   gap: 3px;
 }
+
 .table-cell {
   width: 18px;
   height: 16px;
@@ -3703,10 +2747,12 @@ html.genoffice-popover-open .ribbon-tabs {
   background: var(--surface);
   cursor: pointer;
 }
+
 .table-cell.hot {
   background: var(--accent-soft);
   border-color: var(--accent);
 }
+
 .rb-menu button {
   display: flex;
   align-items: center;
@@ -3723,15 +2769,18 @@ html.genoffice-popover-open .ribbon-tabs {
   white-space: nowrap;
   cursor: pointer;
 }
+
 .rb-menu button:hover {
   background: var(--hover);
 }
+
 .rb-url-form {
   display: flex;
   gap: 6px;
   min-width: 320px;
   padding: 8px;
 }
+
 .rb-url-form input {
   flex: 1;
   min-width: 0;
@@ -3744,6 +2793,7 @@ html.genoffice-popover-open .ribbon-tabs {
   font: inherit;
   font-size: 13px;
 }
+
 .rb-menu .rb-url-submit {
   width: auto;
   flex: 0 0 auto;
@@ -3751,15 +2801,16 @@ html.genoffice-popover-open .ribbon-tabs {
   background: var(--accent);
   color: var(--hx-on-accent);
 }
+
 .rb-menu .rb-url-submit:disabled {
   opacity: 0.5;
   cursor: default;
 }
+
 .rb-menu button svg {
   flex-shrink: 0;
   color: var(--text-muted);
 }
-
 /* Brief card: style-direction tiles. Inner colors/fonts come from the proposed document style (inline, per tile); only the frame is chrome. */
 .brief-directions {
   display: flex;
