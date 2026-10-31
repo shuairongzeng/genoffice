@@ -3,8 +3,9 @@
  * APG menu pattern, one level of submenu:
  *
  * - ArrowDown / ArrowUp step through the visible menuitems in DOM order (an
- *   open submenu's items sit directly after its trigger), wrapping; Home and
- *   End jump to the ends.
+ *   open submenu's items sit directly after its trigger), wrapping — rows a
+ *   disabled state has taken out of reach (the batch menu's guarded Remove
+ *   and Ask AI) are stepped over; Home and End jump to the ends.
  * - the inline-end arrow (ArrowRight in ltr, ArrowLeft in rtl) opens the
  *   focused row's submenu; the inline-start arrow closes the open submenu
  *   and returns focus to its trigger.
@@ -48,8 +49,17 @@ export interface MenuKeyboardEvent {
 
 const MENU_ITEMS = '[role="menuitem"]'
 
+/** the walkable menuitems in DOM order: a disabled row is skipped — it
+ *  cannot take focus, so walking into it would strand the arrows on the
+ *  row before it (the APG disabled-item rule) */
 function visibleItems(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>(MENU_ITEMS)]
+  return [...container.querySelectorAll<HTMLElement>(MENU_ITEMS)].filter(
+    (el) => el.getAttribute('aria-disabled') !== 'true' && !isDisabledButton(el),
+  )
+}
+
+function isDisabledButton(el: HTMLElement): boolean {
+  return el instanceof HTMLButtonElement && el.disabled
 }
 
 /** the row's trigger button: the focused element's own row when focus sits

@@ -94,6 +94,26 @@ describe('handleMenuKeyDown — vertical walk', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
+  it('a disabled row is stepped over, never stalled on', () => {
+    const container = buildMenu()
+    const refresh = item(container, 'Refresh')
+    refresh.setAttribute('aria-disabled', 'true')
+    item(container, 'Sort by').focus()
+    expect(handleMenuKeyDown(key(container, 'ArrowDown'), container, opts(null))).toBe(true)
+    expect(document.activeElement?.textContent).toBe('Properties')
+    // End lands on the last enabled row, not the disabled one
+    item(container, 'New').focus()
+    expect(handleMenuKeyDown(key(container, 'End'), container, opts(null))).toBe(true)
+    expect(document.activeElement?.textContent).toBe('Properties')
+    // a button's own `disabled` attribute is skipped the same way
+    refresh.setAttribute('aria-disabled', 'false')
+    refresh.setAttribute('disabled', '')
+    item(container, 'Sort by').focus()
+    expect(handleMenuKeyDown(key(container, 'ArrowDown'), container, opts(null))).toBe(true)
+    expect(document.activeElement?.textContent).toBe('Properties')
+    container.remove()
+  })
+
   function opts(openSub: string | null) {
     return {
       openSub,
