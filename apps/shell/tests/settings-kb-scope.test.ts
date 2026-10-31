@@ -177,7 +177,7 @@ describe('Settings — Ask AI corpus scope', () => {
       addKbScopeFolder,
     } as unknown as HomeApi)
 
-    let rows = folderRows()
+    const rows = folderRows()
     expect(rows.map(([path]) => path.textContent)).toEqual(['/Users/me/proj'])
     expect(rows[0]![0]!.getAttribute('title')).toBe('/Users/me/proj')
 

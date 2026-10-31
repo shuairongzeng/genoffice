@@ -3,7 +3,6 @@ import { DESKTOP_ACTIONS } from '../control-protocol'
 import type { CommandRegistry, OptionDef } from '../registry'
 import type { McpMode } from './run'
 import { READ_UNITS } from '../length-units'
-import { DESKTOP_ARRANGE_MODES } from '../control-protocol'
 import type { JsonSchema } from '../op-catalog'
 import type { TypedKey, TypedSchemas } from './op-schemas'
 
