@@ -501,6 +501,11 @@ const homeApi: HomeApi = {
     ipcRenderer.on(HOME_CHANNELS.desktopPrefsChanged, listener)
     return () => ipcRenderer.removeListener(HOME_CHANNELS.desktopPrefsChanged, listener)
   },
+  onTodosChanged(handler) {
+    const listener = (_event: IpcRendererEvent, items: TodoItem[]) => handler(items)
+    ipcRenderer.on(HOME_CHANNELS.todosChanged, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.todosChanged, listener)
+  },
   async getSystemPresence() {
     return (await ipcRenderer.invoke(HOME_CHANNELS.systemPresenceGet)) as SystemPresenceSettings
   },

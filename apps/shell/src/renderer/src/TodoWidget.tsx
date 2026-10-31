@@ -19,7 +19,10 @@ interface TodoWidgetProps {
  * The Home sidebar's todo quick-capture card: one line in, Enter, and the task
  * is on disk (home.css carries the look; the parent mounts it under the
  * folder tree). The list is owned whole by this widget — every change replaces
- * it in one state update and is written through 300ms later, newest on top.
+ * it in one state update and is written through 300ms later, newest on top —
+ * but a write from outside (the CLI, another window) arrives as a
+ * todos-changed broadcast and is adopted or merged, so the two writers never
+ * clobber each other's entries.
  */
 export function TodoWidget({ lang }: TodoWidgetProps) {
   const s = todoStrings(lang)
@@ -33,6 +36,9 @@ export function TodoWidget({ lang }: TodoWidgetProps) {
   const savingRef = useRef(false)
   /** the list that is on disk or in flight; a flush of it is a no-op */
   const savedRef = useRef<TodoItem[] | null>(null)
+  /** ids removed here while a write was pending: the merge must not resurrect
+   *  them — a pending removal is as real as a pending edit */
+  const removedRef = useRef(new Set<string>())
   const retryTimerRef = useRef(0)
 
   // load once on mount. A preload that predates the feature, or an unreadable
@@ -55,13 +61,70 @@ export function TodoWidget({ lang }: TodoWidgetProps) {
         setLoaded(true)
       },
       () => {
-        if (alive) setLoaded(true)
+        if (alive) {
+          // an unreadable store reads as the empty list, and nothing here is
+          // pending against it — the post-subscribe pull adopts disk truth
+          // instead of merging the whole list in and writing it back
+          savedRef.current = itemsRef.current
+          setLoaded(true)
+        }
       },
     )
     return () => {
       alive = false
     }
   }, [])
+
+  // the list changed on disk outside this widget — the CLI's
+  // `desktop todo add`, another window's save. With nothing pending here the
+  // disk truth is adopted wholesale (a cross-window toggle arrives the same
+  // way); with edits in flight, the entries this list has never seen are
+  // spliced in on top, minus anything removed here (a pending removal is as
+  // real as a pending edit), because the next whole-list write-through must
+  // not write either back off the disk. An incoming list of only known
+  // entries changes nothing — that is our own save's echo, and adopting it
+  // would re-arm the write-through against content we already hold.
+  //
+  // The subscription is followed by one pull: a CLI write whose broadcast
+  // landed between the load's disk read and this listener attaching would be
+  // gone otherwise (plain ipc events are not replayed for late subscribers),
+  // and the widget's next save would write it off the disk.
+  useEffect(() => {
+    if (!loaded) return
+    const reconcile = (incoming: TodoItem[]): void => {
+      if (itemsRef.current === savedRef.current) {
+        savedRef.current = incoming
+        removedRef.current.clear()
+        setItems(incoming)
+        return
+      }
+      const known = new Set(itemsRef.current.map((item) => item.id))
+      const fresh = incoming.filter(
+        (item) => !known.has(item.id) && !removedRef.current.has(item.id),
+      )
+      if (fresh.length === 0) return
+      // newest on top, the position both this widget's add() and the CLI's
+      // addTodo give a new entry
+      setItems([...fresh, ...itemsRef.current])
+    }
+    const off = (window.aiOffice as Partial<HomeApi>).onTodosChanged?.((incoming) => {
+      if (Array.isArray(incoming)) reconcile(incoming)
+    })
+    let alive = true
+    const pull = (window.aiOffice as Partial<HomeApi>).todosList?.()
+    if (pull) {
+      pull.then(
+        (fresh) => {
+          if (alive && Array.isArray(fresh)) reconcile(fresh)
+        },
+        () => {},
+      )
+    }
+    return () => {
+      alive = false
+      off?.()
+    }
+  }, [loaded])
 
   // write-through: every change arms one save, 300ms out, of the newest list.
   // A change that lands while a save is still in flight re-arms on that save's
@@ -82,6 +145,14 @@ export function TodoWidget({ lang }: TodoWidgetProps) {
       try {
         await (window.aiOffice as Partial<HomeApi>).todosSave?.(snapshot)
         savedRef.current = snapshot
+        // only the removals this snapshot made durable (ids absent from it —
+        // they are gone from disk now) clear; an id removed while the save
+        // was in flight is still in the written list, so its tombstone must
+        // survive the next broadcast or the removal resurrects
+        const durable = new Set(snapshot.map((item) => item.id))
+        for (const id of [...removedRef.current]) {
+          if (!durable.has(id)) removedRef.current.delete(id)
+        }
         // a change landed mid-flight: write the newest list right away
         if (itemsRef.current !== savedRef.current) {
           retryTimerRef.current = window.setTimeout(() => void flush(), 0)
@@ -106,9 +177,17 @@ export function TodoWidget({ lang }: TodoWidgetProps) {
   const toggle = (id: string) =>
     setItems(items.map((item) => (item.id === id ? { ...item, done: !item.done } : item)))
 
-  const remove = (id: string) => setItems(items.filter((item) => item.id !== id))
+  const remove = (id: string) => {
+    // remember the removal until it is durable: a broadcast merged into a
+    // pending write must not resurrect what this list just dropped
+    removedRef.current.add(id)
+    setItems(items.filter((item) => item.id !== id))
+  }
 
-  const clearDone = () => setItems(items.filter((item) => !item.done))
+  const clearDone = () => {
+    for (const item of items) if (item.done) removedRef.current.add(item.id)
+    setItems(items.filter((item) => !item.done))
+  }
 
   const openCount = items.filter((item) => !item.done).length
   const hasDone = openCount < items.length

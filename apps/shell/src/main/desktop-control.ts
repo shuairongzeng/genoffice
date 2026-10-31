@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { basename, extname, isAbsolute, join } from 'node:path'
 import type { ControlReply, DesktopControlRequest } from '@genoffice/cli/control-protocol'
-import type { DesktopPrefs } from '../shared/home-api'
+import type { DesktopPrefs, TodoItem } from '../shared/home-api'
 import { atomicCopyFile } from './atomic-write'
 import {
   customWallpaperName,
@@ -56,6 +56,11 @@ export interface DesktopControlDeps {
    * re-pull instead of showing yesterday's wallpaper until its next mount.
    */
   notifyDesktopPrefsChanged?: (prefs: DesktopPrefs) => void
+  /**
+   * Called after a CLI write changed the todo list, so a mounted widget adopts
+   * the new list instead of writing its stale copy over it on the next change.
+   */
+  notifyTodosChanged?: (todos: TodoItem[]) => void
 }
 
 /** an action failure with the control protocol's stable reason vocabulary */
@@ -99,6 +104,9 @@ export async function runDesktopAction(
       const text = request.text.trim()
       if (!text) throw new DesktopControlError('invalid_argument', 'todo text must not be empty')
       const todos = await addTodo(deps.userDataDir(), text)
+      // the write already happened; the broadcast is what keeps a mounted
+      // widget from blind-writing the list it still holds over this one
+      deps.notifyTodosChanged?.(todos)
       return { added: text, todos }
     }
     case 'windows-list':

@@ -137,6 +137,20 @@ describe('onDeepLink buffering', () => {
   })
 })
 
+describe('onTodosChanged passthrough', () => {
+  it('delivers the broadcast items and unsubscribes cleanly', () => {
+    const seen: unknown[] = []
+    const off = homeApi.onTodosChanged((items) => seen.push(items))
+    // attached: the broadcast reaches the handler synchronously
+    electronMocks.emit(HOME_CHANNELS.todosChanged, [{ id: 'a', text: 'from the CLI', done: false }])
+    expect(seen).toEqual([[{ id: 'a', text: 'from the CLI', done: false }]])
+    off()
+    expect(electronMocks.listenerCount(HOME_CHANNELS.todosChanged)).toBe(0)
+    electronMocks.emit(HOME_CHANNELS.todosChanged, [])
+    expect(seen).toHaveLength(1)
+  })
+})
+
 describe('onPaletteOpen buffering', () => {
   it('replays a summon that arrived before attach, once, however many arrived', async () => {
     electronMocks.emit(HOME_CHANNELS.paletteOpen)

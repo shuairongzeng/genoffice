@@ -475,6 +475,10 @@ export interface HomeApi {
   todosList(): Promise<TodoItem[]>
   /** persist the todo list (whole-list write-through) */
   todosSave(items: TodoItem[]): Promise<void>
+  /** the todo list changed outside this renderer (CLI `desktop todo add`,
+   *  another window's widget): carries the list as written, so a mounted
+   *  widget can adopt or merge it instead of clobbering it on its next save */
+  onTodosChanged(handler: (items: TodoItem[]) => void): () => void
   /** the Home desktop's icon positions and dragged-in file aliases */
   desktopLayout(): Promise<DesktopLayout>
   /** persist the desktop layout's icon positions (whole-map write-through);
@@ -957,6 +961,9 @@ export const HOME_CHANNELS = {
   newFromTemplate: 'home:new-from-template',
   todosList: 'home:todos-list',
   todosSave: 'home:todos-save',
+  /** main → renderer: the todo list was written outside this renderer (CLI
+   *  `desktop todo add`, another window's widget); carries the list as written */
+  todosChanged: 'home:todos-changed',
   desktopLayout: 'home:desktop-layout',
   desktopLayoutSave: 'home:desktop-layout-save',
   /** the alias list's own add/remove channels: the only writers of the

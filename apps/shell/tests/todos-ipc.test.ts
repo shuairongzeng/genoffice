@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * The todo widget's two channels against a real temp dir: the handlers are the
  * only writers of `<userData>/todos.json`, so this pins what that file is
  * allowed to look like — roundtrip, corrupt-reads-empty, shape refusal, size
- * clamps, and that a save never leaves the file half-written.
+ * clamps, that a save never leaves the file half-written, and that every
+ * write tells the renderers about it (the todos-changed broadcast).
  */
 
 const mockedRename = vi.hoisted(() => vi.fn())
@@ -22,12 +23,29 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 
 const handles = new Map<string, (...args: never[]) => unknown>()
 let userData = ''
+/** every todos-changed send, one per live window per broadcast */
+const broadcasts: Array<{ channel: string; items: unknown }> = []
 
 vi.mock('electron', () => ({
   app: { getPath: () => userData },
   ipcMain: {
     handle: (channel: string, handler: (...args: never[]) => unknown) =>
       handles.set(channel, handler),
+  },
+  BrowserWindow: {
+    // two live windows: a broadcast must reach each of them
+    getAllWindows: () => [
+      {
+        webContents: {
+          send: (channel: string, items: unknown) => broadcasts.push({ channel, items }),
+        },
+      },
+      {
+        webContents: {
+          send: (channel: string, items: unknown) => broadcasts.push({ channel, items }),
+        },
+      },
+    ],
   },
 }))
 
@@ -51,6 +69,7 @@ const leftovers = (): string[] =>
 
 beforeEach(() => {
   userData = mkdtempSync(join(tmpdir(), 'genoffice-todos-'))
+  broadcasts.length = 0
   // the write is the real scratch-then-rename unless a test overrides it
   mockedRename
     .mockReset()
@@ -205,6 +224,45 @@ describe('the file is never half-written', () => {
       await saveTodos([item('b', 'new')])
       await expect(listTodos()).resolves.toEqual([item('b', 'new')])
       expect(readdirSync(userData)).toEqual(['todos.json'])
+    } finally {
+      mockedRename.mockReset()
+    }
+  })
+})
+
+describe('a save tells the renderers (todos-changed)', () => {
+  it('broadcasts the list as written, once per live window', async () => {
+    await saveTodos([item('b', 'second', true), item('a', 'first')])
+    expect(broadcasts).toHaveLength(2) // one send per window in getAllWindows()
+    for (const send of broadcasts) {
+      expect(send.channel).toBe(HOME_CHANNELS.todosChanged)
+      expect(send.items).toEqual([item('b', 'second', true), item('a', 'first')])
+    }
+  })
+
+  it('broadcasts the normalized list, not the payload as sent', async () => {
+    await saveTodos([{ ...item('a', 'x'.repeat(600)), extra: 'stripped' }])
+    expect(broadcasts).toHaveLength(2)
+    const items = broadcasts[0]!.items as Array<{ text: string; extra?: unknown }>
+    expect(items).toHaveLength(1)
+    expect(items[0]!.text).toHaveLength(500)
+    expect(items[0]!.extra).toBeUndefined()
+  })
+
+  it('a refused save never broadcasts, so no renderer adopts a list that is not on disk', async () => {
+    await saveTodos([item('a', 'on disk')])
+    const before = broadcasts.length
+    await expect(saveTodos('not an array')).rejects.toBeInstanceOf(Error)
+    expect(broadcasts.length).toBe(before)
+  })
+
+  it('a failed atomic write never broadcasts: the file, and the renderers, keep the old list', async () => {
+    await saveTodos([item('a', 'old')])
+    const before = broadcasts.length
+    mockedRename.mockRejectedValue(Object.assign(new Error('busy'), { code: 'EPERM' }))
+    try {
+      await expect(saveTodos([item('b', 'new')])).rejects.toMatchObject({ code: 'EPERM' })
+      expect(broadcasts.length).toBe(before)
     } finally {
       mockedRename.mockReset()
     }
