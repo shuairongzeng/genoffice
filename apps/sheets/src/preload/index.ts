@@ -1,5 +1,6 @@
 import type { AiPanelPrefs } from '@genoffice/ui'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { KbFileInfo, KbSearchHit } from '@genoffice/agent-core'
 
 import type {
   AiChatResponse,
@@ -726,6 +727,73 @@ const desktopApi: DesktopApi = {
     if (result.mime !== undefined) image.mime = result.mime
     if (result.error !== undefined) image.error = result.error
     return image
+  },
+  /// Knowledge base: the kb:* handlers are registered once by the shell main
+  /// (home-ipc) and serve every app's panel; validated here like every other
+  /// IPC reply this bridge forwards.
+  async kbList() {
+    const result: unknown = await ipcRenderer.invoke('kb:list')
+    if (
+      !Array.isArray(result) ||
+      result.some(
+        (f) =>
+          !isRecord(f) ||
+          typeof f.path !== 'string' ||
+          typeof f.folder !== 'string' ||
+          typeof f.name !== 'string' ||
+          typeof f.ext !== 'string' ||
+          typeof f.sizeBytes !== 'number',
+      )
+    ) {
+      throw new Error('Invalid knowledge-base list response.')
+    }
+    return result as KbFileInfo[]
+  },
+  async kbSearch(query) {
+    if (
+      !isRecord(query) ||
+      typeof query.q !== 'string' ||
+      query.q.length > 1024 ||
+      (query.limit !== undefined && typeof query.limit !== 'number')
+    ) {
+      throw new Error('Invalid knowledge-base search request.')
+    }
+    const result: unknown = await ipcRenderer.invoke('kb:search', query)
+    if (
+      !Array.isArray(result) ||
+      result.some(
+        (h) =>
+          !isRecord(h) ||
+          typeof h.path !== 'string' ||
+          typeof h.name !== 'string' ||
+          typeof h.ext !== 'string' ||
+          typeof h.folder !== 'string' ||
+          typeof h.snippet !== 'string',
+      )
+    ) {
+      throw new Error('Invalid knowledge-base search response.')
+    }
+    return result as KbSearchHit[]
+  },
+  async kbRead(path, offset) {
+    if (typeof path !== 'string' || path.length === 0 || path.length > 1024) {
+      throw new Error('Invalid knowledge-base path.')
+    }
+    if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) {
+      throw new Error('Invalid knowledge-base read offset.')
+    }
+    const result: unknown = await ipcRenderer.invoke('kb:read', { path, offset })
+    if (
+      !isRecord(result) ||
+      typeof result.text !== 'string' ||
+      typeof result.totalChars !== 'number' ||
+      typeof result.offset !== 'number' ||
+      !Number.isInteger(result.totalChars) ||
+      !Number.isInteger(result.offset)
+    ) {
+      throw new Error('Invalid knowledge-base read response.')
+    }
+    return { text: result.text, totalChars: result.totalChars, offset: result.offset }
   },
   getPathForFile(file) {
     return webUtils.getPathForFile(file)

@@ -12,10 +12,12 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import {
   AgentLoop,
   composeSkills,
+  createKnowledgeBaseSkill,
   skillContextVars,
   withAttachedSkills,
   IPC_STREAM_SILENCE_TIMEOUT_MS,
   type AgentImage,
+  type KbFileInfo,
   type ToolDisplay,
 } from '@genoffice/agent-core'
 import type { Lang } from '@genoffice/i18n'
@@ -631,6 +633,21 @@ export function AiPanel({
   onDeckProgressRef.current = onDeckProgress
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+  // snapshot of the knowledge-base corpus feeding the kb skill; refreshed on
+  // mount and before each send so a freshly indexed file is answerable
+  const kbFilesRef = useRef<KbFileInfo[]>([])
+  const refreshKbFiles = (): Promise<void> => {
+    if (typeof window.slidesApi?.kbList !== 'function') return Promise.resolve()
+    return window.slidesApi
+      .kbList()
+      .then((files) => {
+        kbFilesRef.current = files
+      })
+      .catch(() => undefined)
+  }
+  useEffect(() => {
+    void refreshKbFiles()
+  }, [])
 
   /** gsk login state for the cloud-tools gate (refreshed on mount and window focus) */
   const gskLoggedInRef = useRef(false)
@@ -1484,6 +1501,20 @@ export function AiPanel({
       // feeds the model a do-not-retry result so it can answer without editing
       confirmTool: (call) => confirm.confirm(call),
       skill: composeSkills('slides+files', '', [
+        // the user's indexed files (the shell's knowledge base); empty while
+        // nothing is indexed — buildContext then returns '' and the skill
+        // stays out of the way. Mounted only when the bridge carries the kb
+        // channel at all: a test mock or an older preload must not grow tools
+        // that cannot execute.
+        ...(typeof window.slidesApi?.kbList === 'function'
+          ? [
+              createKnowledgeBaseSkill({
+                listFiles: () => kbFilesRef.current,
+                search: (query, limit) => window.slidesApi.kbSearch({ q: query, limit }),
+                read: (path, offset) => window.slidesApi.kbRead(path, offset),
+              }),
+            ]
+          : []),
         createSlidesSkill(access),
         createFilesSkill(availableAttachments, (path) => readAttachmentPathsRef.current.add(path)),
       ]),
@@ -1884,6 +1915,7 @@ export function AiPanel({
         // Clear the flag before run: loop.run sets running synchronously, leaving no re-entry window
         runStartingRef.current = false
         await onBeforeRunRef.current?.()
+        await refreshKbFiles()
         if (await window.slidesApi.beginHistoryBatch()) historyBatchActiveRef.current = true
         loop.run(modelInstruction, images)
       })
@@ -1983,6 +2015,10 @@ export function AiPanel({
       queueRunResolverRef.current = resolve
       void Promise.resolve(onBeforeRunRef.current?.())
         .then(() => window.slidesApi.beginHistoryBatch())
+        .then(async (ok) => {
+          await refreshKbFiles()
+          return ok
+        })
         .then((ok) => {
           if (ok) historyBatchActiveRef.current = true
           runStartingRef.current = false

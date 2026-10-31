@@ -143,8 +143,10 @@ import {
   AgentLoop,
   COMPLETED_VIA_TOOLS_TEXT,
   composeSkills,
+  createKnowledgeBaseSkill,
   withAttachedSkills,
   type AgentImage,
+  type KbFileInfo,
 } from '@genoffice/agent-core'
 import { imageGenerationAvailable, type AiSettings } from '@genoffice/ai-provider/browser'
 import { type WorkbookOperation } from '@genoffice/xlsx-gateway/domain/workbook-dsl'
@@ -1145,6 +1147,22 @@ export function App({
   const aiSettingsRef = useRef<AiSettings | null>(null)
   aiSettingsRef.current = aiSettings
 
+  // snapshot of the knowledge-base corpus feeding the kb skill; refreshed on
+  // mount and before each send so a freshly indexed file is answerable
+  const kbFilesRef = useRef<KbFileInfo[]>([])
+  const refreshKbFiles = (): Promise<void> => {
+    if (typeof window.desktopApi?.kbList !== 'function') return Promise.resolve()
+    return window.desktopApi
+      .kbList()
+      .then((files) => {
+        kbFilesRef.current = files
+      })
+      .catch(() => undefined)
+  }
+  useEffect(() => {
+    void refreshKbFiles()
+  }, [])
+
   /** gsk login state for the cloud-tools gate (refreshed on mount and window focus) */
   const gskLoggedInRef = useRef(false)
   useEffect(() => {
@@ -1491,6 +1509,20 @@ export function App({
       // feeds the model a do-not-retry result so it can answer without editing
       confirmTool: (call) => aiConfirm.confirm(call),
       skill: composeSkills('sheets+files', '', [
+        // the user's indexed files (the shell's knowledge base); empty while
+        // nothing is indexed — buildContext then returns '' and the skill
+        // stays out of the way. Mounted only when the bridge carries the kb
+        // channel at all: a test mock or an older preload must not grow tools
+        // that cannot execute.
+        ...(typeof window.desktopApi?.kbList === 'function'
+          ? [
+              createKnowledgeBaseSkill({
+                listFiles: () => kbFilesRef.current,
+                search: (query, limit) => window.desktopApi.kbSearch({ q: query, limit }),
+                read: (path, offset) => window.desktopApi.kbRead(path, offset),
+              }),
+            ]
+          : []),
         createWorkbookSkill(sheetsSkillDeps()),
         createFilesSkill(availableAttachments),
         createMergeSkill({
@@ -1770,6 +1802,7 @@ export function App({
       .then(async (images) => {
         const modelInstruction = await withSkillBodies(instruction, sentSkills, runScope)
         runStartingRef.current = false
+        await refreshKbFiles()
         loop.run(modelInstruction, images)
       })
       .catch(async () => {
@@ -1778,6 +1811,7 @@ export function App({
           () => instruction,
         )
         runStartingRef.current = false
+        await refreshKbFiles()
         loop.run(modelInstruction)
       })
   }

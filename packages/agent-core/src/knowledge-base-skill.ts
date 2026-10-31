@@ -253,6 +253,17 @@ export function createKnowledgeBaseSkill(deps: KnowledgeBaseDeps): AgentSkill {
       return { output: `unknown tool: ${call.name}`, isError: true, summary: call.name }
     },
     verifyResponse: (response) => {
+      // an empty session with no alsoCitable hook means this skill showed the
+      // model nothing and expects no filenav citations of its own: there is
+      // no whitelist to enforce, and vetoing a link the document itself
+      // contains would cost a corrective turn for nothing. Panels mount the
+      // skill whenever the bridge carries the channel, including standalone
+      // runs where the corpus stays empty, so this guard is what keeps the
+      // degrade path truly silent. A host that wires alsoCitable runs the
+      // create-document interplay, where saved-file links ARE the answer
+      // grammar — there the whitelist keeps enforcing even while empty.
+      if (!deps.alsoCitable && deps.listFiles().length === 0 && citableSearchPaths.size === 0)
+        return null
       const cited = [...response.matchAll(/\]\((filenav:\/\/[^)\s]+)\)/g)].map((m) => m[1]!)
       if (cited.length === 0) return null
       // hrefs arrive percent-encoded (the renderer's own generator encodes

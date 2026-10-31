@@ -15,10 +15,11 @@ import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 
 import {
   AgentLoop,
   composeSkills,
+  createKnowledgeBaseSkill,
   skillContextVars,
   withAttachedSkills,
 } from '@genoffice/agent-core'
-import type { AgentImage, SkillVars } from '@genoffice/agent-core'
+import type { AgentImage, KbFileInfo, SkillVars } from '@genoffice/agent-core'
 import { activeProvider, type AiSettings } from '@genoffice/ai-provider/browser'
 import type { Lang } from '@genoffice/i18n'
 import { ATTACHMENT_IMAGE_EXTS } from '../../shared/ipc'
@@ -601,6 +602,21 @@ export function AiPanel({
   }, [panelWidth])
 
   const settingsRef = useRef<AiSettings | null>(null)
+  // snapshot of the knowledge-base corpus feeding the kb skill; refreshed on
+  // mount and before each send so a freshly indexed file is answerable
+  const kbFilesRef = useRef<KbFileInfo[]>([])
+  const refreshKbFiles = (): Promise<void> => {
+    if (typeof window.htmlApi?.kbList !== 'function') return Promise.resolve()
+    return window.htmlApi
+      .kbList()
+      .then((files) => {
+        kbFilesRef.current = files
+      })
+      .catch(() => undefined)
+  }
+  useEffect(() => {
+    void refreshKbFiles()
+  }, [])
   const langRef = useRef(lang)
   langRef.current = lang
 
@@ -822,6 +838,20 @@ export function AiPanel({
       // feeds the model a do-not-retry result so it can answer without editing
       confirmTool: (call) => confirm.confirm(call),
       skill: composeSkills('html+search', '', [
+        // the user's indexed files (the shell's knowledge base); empty while
+        // nothing is indexed — buildContext then returns '' and the skill
+        // stays out of the way. Mounted only when the bridge carries the kb
+        // channel at all: a test mock or an older preload must not grow tools
+        // that cannot execute.
+        ...(typeof window.htmlApi?.kbList === 'function'
+          ? [
+              createKnowledgeBaseSkill({
+                listFiles: () => kbFilesRef.current,
+                search: (query, limit) => window.htmlApi.kbSearch({ q: query, limit }),
+                read: (path, offset) => window.htmlApi.kbRead(path, offset),
+              }),
+            ]
+          : []),
         createDocumentSkill({
           getText: () => depsRef.current.access.getText(),
           getVersion: () => depsRef.current.access.getVersion(),
@@ -1130,6 +1160,9 @@ export function AiPanel({
         const images = sentAtts.length > 0 ? await collectImages(sentAtts) : []
         if (!mountedRef.current || seq !== sendSeqRef.current) return
         const withSkills = await withSkillBodies(instruction, sentSkills, skillVars)
+        await refreshKbFiles()
+        // re-check after the kb round-trip: a Stop / New chat during it bumps
+        // the send sequence, and a stale send must never start the loop
         if (!mountedRef.current || seq !== sendSeqRef.current) return
         await loop.run(withSkills, images.length > 0 ? images : undefined)
       } catch (err) {

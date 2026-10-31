@@ -37,6 +37,7 @@ import type {
   GenSparkAccountStatus,
 } from '@genoffice/ai-provider'
 import type { AiPanelPrefs } from '@genoffice/ui'
+import type { KbFileInfo, KbReadPage, KbSearchHit } from '@genoffice/agent-core'
 
 // edit schemas shared with the xlsx gateway package; re-exported so IPC consumers keep one import site
 export {
@@ -3194,6 +3195,12 @@ export interface DesktopApi {
   readAttachment(path: string, offset: number, maxChars: number): Promise<AttachmentReadResult>
   /// Reads an image attachment as base64 for multimodal input (≤5MB)
   readAttachmentImage(path: string): Promise<AttachmentImageResult>
+  /// The reader's indexed files as the AI's knowledge base (kb:* handlers live in the shell main)
+  kbList(): Promise<KbFileInfo[]>
+  /// Full-text search over the knowledge base (q capped like the home search box)
+  kbSearch(query: { q: string; limit?: number }): Promise<KbSearchHit[]>
+  /// One page of a knowledge-base file's parsed text (path must be in kbList)
+  kbRead(path: string, offset: number): Promise<KbReadPage>
   /// Absolute path of a File dropped onto the window (Electron webUtils)
   getPathForFile(file: File): string
 }

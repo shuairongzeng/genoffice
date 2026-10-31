@@ -1,6 +1,7 @@
 import type { AiPanelPrefs } from '@genoffice/ui'
 import type { HeadlessExportTarget } from '@genoffice/electron-utils/headless-export'
 import type { Lang } from '@genoffice/i18n'
+import type { KbFileInfo, KbReadPage, KbSearchHit } from '@genoffice/agent-core'
 import type {
   AiSettings,
   AiStreamChunk,
@@ -280,6 +281,12 @@ export interface HtmlApi {
   readAttachment(path: string, offset: number, maxChars: number): Promise<AttachmentReadResult>
   /** read an image attachment as base64 for multimodal input */
   readAttachmentImage(path: string): Promise<AttachmentImageResult>
+  /** the reader's indexed files as the AI's knowledge base (kb:* handlers live in the shell main) */
+  kbList(): Promise<KbFileInfo[]>
+  /** full-text search over the knowledge base (q capped like the home search box) */
+  kbSearch(query: { q: string; limit?: number }): Promise<KbSearchHit[]>
+  /** one page of a knowledge-base file's parsed text (path must be in kbList) */
+  kbRead(path: string, offset: number): Promise<KbReadPage>
   /** local path of a dropped / pasted File, '' when it has none */
   getPathForFile(file: File): string
   /** Shell menu export → renderer serializes and calls exportDocx/exportPdf */

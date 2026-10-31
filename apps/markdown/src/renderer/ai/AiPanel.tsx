@@ -22,9 +22,11 @@ import type {
 import {
   AgentLoop,
   composeSkills,
+  createKnowledgeBaseSkill,
   skillContextVars,
   streamText,
   withAttachedSkills,
+  type KbFileInfo,
   type MindMapTreeNode,
   type SkillVars,
 } from '@genoffice/agent-core'
@@ -255,6 +257,21 @@ export function AiPanel({
   }, [panelWidth])
 
   const settingsRef = useRef<AiSettings | null>(null)
+  // snapshot of the knowledge-base corpus feeding the kb skill; refreshed on
+  // mount and before each send so a freshly indexed file is answerable
+  const kbFilesRef = useRef<KbFileInfo[]>([])
+  const refreshKbFiles = (): Promise<void> => {
+    if (typeof window.markdownApi?.kbList !== 'function') return Promise.resolve()
+    return window.markdownApi
+      .kbList()
+      .then((files) => {
+        kbFilesRef.current = files
+      })
+      .catch(() => undefined)
+  }
+  useEffect(() => {
+    void refreshKbFiles()
+  }, [])
   /** gsk login state for the generate_image gate (refreshed on mount and window focus) */
   const gskLoggedInRef = useRef(false)
   useEffect(() => {
@@ -489,6 +506,20 @@ export function AiPanel({
       // feeds the model a do-not-retry result so it can answer without editing
       confirmTool: (call) => confirm.confirm(call),
       skill: composeSkills('markdown+search', '', [
+        // the user's indexed files (the shell's knowledge base); empty while
+        // nothing is indexed — buildContext then returns '' and the skill
+        // stays out of the way. Mounted only when the bridge carries the kb
+        // channel at all: a test mock or an older preload must not grow tools
+        // that cannot execute.
+        ...(typeof window.markdownApi?.kbList === 'function'
+          ? [
+              createKnowledgeBaseSkill({
+                listFiles: () => kbFilesRef.current,
+                search: (query, limit) => window.markdownApi.kbSearch({ q: query, limit }),
+                read: (path, offset) => window.markdownApi.kbRead(path, offset),
+              }),
+            ]
+          : []),
         createMarkdownSkill(
           () => depsRef.current.getEditor(),
           {
@@ -796,6 +827,7 @@ export function AiPanel({
         settingsRef.current = await window.markdownApi.getAiSettings()
         const withSkills = await withSkillBodies(instruction, sentSkills, skillVars)
         if (!mountedRef.current) return
+        await refreshKbFiles()
         await loop.run(withSkills)
       } catch (err) {
         if (!mountedRef.current) return

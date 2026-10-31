@@ -403,6 +403,10 @@ const api: SlidesApi = {
   openSkillsSettings: () => ipcRenderer.invoke('ai:open-skills-settings'),
   skillsList: () => ipcRenderer.invoke('ai:skills-list'),
   skillText: (name: string) => ipcRenderer.invoke('ai:skill-text', name),
+  /** knowledge base: the kb:* handlers are registered once by the shell main (home-ipc) and serve every app's panel */
+  kbList: () => ipcRenderer.invoke('kb:list'),
+  kbSearch: (query: { q: string; limit?: number }) => ipcRenderer.invoke('kb:search', query),
+  kbRead: (path: string, offset: number) => ipcRenderer.invoke('kb:read', { path, offset }),
   aiStream: (request: AiStreamRequest) => ipcRenderer.invoke('ai:stream', request),
   aiStreamCancel: (requestId: string) => ipcRenderer.invoke('ai:stream-cancel', requestId),
   aiGskStatus: (withEmail?: boolean) => ipcRenderer.invoke('ai:gsk-status', withEmail),
