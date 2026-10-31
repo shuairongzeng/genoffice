@@ -177,6 +177,7 @@ export const ru: Dict = {
   searchFilesPlaceholder: 'Поиск по именам и содержимому…',
   searchIndexing: 'Индексация {n} файлов…',
   searchNoResults: 'Нет файлов, соответствующих «{q}»',
+  searchAskReferral: 'Спросить ИИ про «{q}»',
   searchResultCount: '{n} результатов',
   searchResultCountOne: '{n} результат',
   searchClear: 'Очистить поиск',

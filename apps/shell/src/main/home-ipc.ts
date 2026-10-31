@@ -12,6 +12,9 @@ import { atomicWriteFile } from './atomic-write'
 import { readAppSettings, writeAppSetting } from './app-settings'
 import { TabManager } from './tab-manager'
 import { handleDroppedFiles, type DroppedFilesDeps } from './dropped-files'
+import type { DocumentTabKind } from '../shared/tabs-api'
+import type { EditorCommandId } from '../shared/editor-commands'
+import { isValidEditorCommand } from './editor-command-dispatch'
 import type { IndexStore } from './file-index/index-store'
 import { FileIndexer } from './file-index/indexer'
 import { normalizeFileSearchSettings, probeDecision, SearchReranker } from './file-index/rerank'
@@ -167,6 +170,11 @@ export interface HomeFileIpcHost {
   cliRunner: () => ReturnType<typeof createCliRunner>
   fetchGithubStars: () => Promise<number | null>
   openDialogExtensions: readonly string[]
+  /**
+   * Run one palette editor command (issue #56 P0 #2) in the family's focused
+   * view — owned by index.ts, which holds the app-registry dispatch.
+   */
+  runEditorCommand: (kind: DocumentTabKind, command: EditorCommandId, tabId?: string) => void
 }
 
 // GenTeam community page opened from the onboarding's second slide. Stable
@@ -646,9 +654,27 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     }
   })
 
-  ipcMain.handle(HOME_CHANNELS.openHelp, () => {
-    host.getTabManager()?.openHelpTab()
+  ipcMain.handle(HOME_CHANNELS.openHelp, (_event, topic: unknown) => {
+    // a topic id from the help registry's grammar; the renderer validates it
+    // against the real topic list and falls back to the default topic
+    const safeTopic =
+      typeof topic === 'string' && /^[a-z0-9-]{1,64}$/.test(topic) ? topic : undefined
+    host.getTabManager()?.openHelpTab(safeTopic)
   })
+
+  ipcMain.handle(
+    HOME_CHANNELS.runCommand,
+    (_event, kind: unknown, command: unknown, tabId: unknown) => {
+      if (!isValidEditorCommand(kind, command, tabId)) return
+      // the guard above proved the strings; the pair's per-kind validity is
+      // the dispatch table's own contract (listed ⇒ runnable)
+      host.runEditorCommand(
+        kind as DocumentTabKind,
+        command as EditorCommandId,
+        typeof tabId === 'string' ? tabId : undefined,
+      )
+    },
+  )
 
   // ── the folder tree over the default save folder ──
 

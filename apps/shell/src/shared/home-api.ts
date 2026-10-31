@@ -33,7 +33,8 @@ export type { ProxiedAppExecuteResult, ProxiedAppManifest } from '@genoffice/age
 export type { RunEvent, RunSummary } from '@genoffice/project-store'
 import type { AiPanelPrefs } from '@genoffice/ui/ai-panel-prefs'
 import type { FoundSkill, ForeignSkillCandidate, InstalledPlugin } from './found-skill'
-import type { TabKind } from './tabs-api'
+import type { DocumentTabKind, TabKind } from './tabs-api'
+import type { EditorCommandId } from './editor-commands'
 
 export interface AttachmentAddResult {
   accepted: AttachmentInfo[]
@@ -689,8 +690,25 @@ export interface HomeApi {
   /** open Settings › AI Model (deep link for onboarding's "Set up AI" CTA) */
   openAiModelSettings(): Promise<void>
   /** open an existing file, routing to the right module by extension */
-  openHelp(): Promise<void>
   openPath(path: string): Promise<void>
+  /**
+   * Open the in-app manual (issue #56 P0 #2): at `topic` when given (a
+   * help-registry topic id), else at the default first topic. When the manual
+   * is already open the existing tab is focused and navigated.
+   */
+  openHelp(topic?: string): Promise<void>
+  /**
+   * Run one palette editor command (issue #56 P0 #2) in the given family's
+   * focused editor view — the same rail the native menus drive. The command
+   * set is the shared `EDITOR_COMMAND_IDS` vocabulary; the main process
+   * validates and dispatches, no-op on an unknown pair.
+   */
+  runEditorCommand(
+    kind: DocumentTabKind,
+    command: EditorCommandId,
+    /** the tab the palette row named; absent means the family's most recently used */
+    tabId?: string,
+  ): Promise<void>
   /** file picker accepting every supported extension, then routes */
   browse(): Promise<void>
   /** open a docs window at its start screen; `dir` = folder the first save should land in */
@@ -768,6 +786,12 @@ export interface HomeApi {
   onAccountLogin(handler: (ev: AccountLoginEvent) => void): () => void
   /** a tab asked for the settings modal (composer model chip → AI Model section) */
   onOpenSettings(handler: (target: { section: string }) => void): () => void
+  /**
+   * main → renderer: the open manual should navigate to this topic id — the
+   * palette's help row lands here when the manual tab already exists (issue
+   * #56 P0 #2). Only the help mode's renderer subscribes.
+   */
+  onHelpTopic(handler: (topic: string) => void): () => void
   /** re-open the pending login auth URL in the default browser (rescue when auto-open failed) */
   openLoginUrl(): Promise<void>
   /** log out (clears the saved API key; the login state is shared globally with the gsk CLI) */
@@ -1030,6 +1054,10 @@ export interface MoveResult {
 
 export const HOME_CHANNELS = {
   openHelp: 'home:open-help',
+  /** renderer → main: run one palette editor command in the family's focused view */
+  runCommand: 'home:run-command',
+  /** main → renderer: the open manual navigates to this topic */
+  helpTopic: 'home:help-topic',
   recents: 'home:recents',
   searchFiles: 'home:search-files',
   rerankSearch: 'home:rerank-search',

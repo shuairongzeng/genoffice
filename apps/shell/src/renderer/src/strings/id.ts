@@ -178,6 +178,7 @@ export const id: Dict = {
   searchFilesPlaceholder: 'Cari nama dan isi file…',
   searchIndexing: 'Mengindeks {n} file…',
   searchNoResults: 'Tidak ada file yang cocok dengan “{q}”',
+  searchAskReferral: 'Tanyakan AI tentang “{q}”',
   searchResultCount: '{n} hasil',
   searchResultCountOne: '{n} hasil',
   searchClear: 'Hapus pencarian',

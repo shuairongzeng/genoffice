@@ -70,18 +70,27 @@ vi.mock('electron', () => ({
   // unlike the editor views which arrive through mocked module factories, so
   // the electron mock itself must construct one. Self-contained: no outside
   // references (vi.mock factories run before the module body). The large id
-  // stays clear of makeFakeView's counter.
+  // stays clear of makeFakeView's counter. Sent channels and loaded URLs are
+  // recorded on the class so the help deep-link tests can read them.
   WebContentsView: class {
+    static sent: Array<{ channel: string; args: unknown[] }> = []
+    static loadedUrls: string[] = []
     webContents = {
       id: 900001,
       setWindowOpenHandler: () => ({ action: 'deny' as const }),
-      loadURL: () => Promise.resolve(),
+      loadURL: (url: string) => {
+        WebContentsView.loadedUrls.push(url)
+        return Promise.resolve()
+      },
       focus: () => {},
       on: () => {},
       once: () => {},
       close: () => {},
       reload: () => {},
       isDestroyed: () => false,
+      send: (channel: string, ...args: unknown[]) => {
+        WebContentsView.sent.push({ channel, args })
+      },
     }
     setBounds = () => {}
     setVisible = () => {}
@@ -193,6 +202,22 @@ import {
   AI_DOCK_WIDTH_DEFAULT,
   DESKTOP_HEADER_HEIGHT,
 } from '../src/shared/desktop-geometry'
+import { WebContentsView } from 'electron'
+
+/** the manual-tab view mock's recorder — the live static arrays, so test-file
+ *  resets actually clear them (a mapped copy would reset a throwaway) */
+const helpRecorder = () =>
+  WebContentsView as unknown as {
+    sent: Array<{ channel: string; args: unknown[] }>
+    loadedUrls: string[]
+  }
+
+/** the manual-tab view mock's recorded sends, as (channel, arg) tuples */
+const helpSent = (): Array<[string, unknown]> =>
+  helpRecorder().sent.map(({ channel, args }) => [channel, ...args] as [string, unknown])
+
+/** the manual-tab view mock's recorded loadURL calls */
+const helpLoadedUrls = (): string[] => helpRecorder().loadedUrls
 
 const WINDOW_WIDTH = 800
 const WINDOW_HEIGHT = 600
@@ -273,6 +298,8 @@ function lastCreatedView(factory: ReturnType<typeof vi.fn>): FakeView {
 beforeEach(() => {
   vi.clearAllMocks()
   nextWebContentsId = 1
+  helpRecorder().sent.length = 0
+  helpRecorder().loadedUrls.length = 0
   docsQueryDirty.mockImplementation(() => Promise.resolve(false))
   requestDocsClose.mockImplementation(() => Promise.resolve(true))
   pdfIsDirty.mockImplementation(() => false)
@@ -290,9 +317,79 @@ beforeEach(() => {
 
 describe('initial state', () => {
   it('starts with only the non-closable, active Home tab', () => {
-    expect(manager.list()).toEqual([
-      { id: 'home', kind: 'home', title: 'GenOffice', closable: false, active: true },
+    // expect.any pins the summary's lastActiveAt export itself: the palette's
+    // MRU resolution reads it, and undefined would fail the matcher
+    expect(manager.list()).toMatchObject([
+      {
+        id: 'home',
+        kind: 'home',
+        title: 'GenOffice',
+        closable: false,
+        active: true,
+        lastActiveAt: expect.any(Number),
+      },
     ])
+  })
+})
+
+describe('activation stamps', () => {
+  it('keeps the most recently used editor answerable while Home holds the active slot', () => {
+    // the palette summons itself on Home, so `active` can never name the
+    // editor the user was last in — its lastActiveAt must. A controlled clock
+    // keeps the stamps strictly ordered across fast consecutive activations.
+    // The last-used editor (d1) is deliberately the OLDER-CREATED one: if
+    // activation did not stamp, the create-time stamps would leave d2 newest
+    // and the palette would list commands for a document the user left
+    let clock = 1_000
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => (clock += 10))
+    try {
+      const d1 = manager.openDocsTab()
+      const d2 = manager.openDocsTab()
+      // the user works in d2 first, then returns to d1 before going Home
+      manager.activateTab(d2)
+      manager.activateTab(d1)
+      // Home takes over: the editor it replaced carries the newest editor
+      // stamp, exactly the state the command palette lists commands from
+      manager.activateTab('home')
+      const stamps = new Map(manager.list().map((t) => [t.id, t.lastActiveAt]))
+      expect(stamps.get(d1)!).toBeGreaterThan(stamps.get(d2)!)
+      expect(manager.list().find((t) => t.id === 'home')?.active).toBe(true)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
+  it('activating a tab stamps the target itself, not only what it replaced', () => {
+    // the fallback flows re-activate a neighbour that was never the active
+    // tab's predecessor (closing the active tab, detaching); the target's
+    // own stamp is what keeps the MRU answer pointing at it afterwards
+    let clock = 1_000
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => (clock += 10))
+    try {
+      const d1 = manager.openDocsTab()
+      const d2 = manager.openDocsTab()
+      const d3 = manager.openDocsTab()
+      manager.activateTab('home')
+      // d1 is the strip-oldest and was never the active tab's predecessor
+      manager.activateTab(d1)
+      const stamps = new Map(manager.list().map((t) => [t.id, t.lastActiveAt]))
+      expect(stamps.get(d1)!).toBeGreaterThan(stamps.get(d2)!)
+      expect(stamps.get(d1)!).toBeGreaterThan(stamps.get(d3)!)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
+  it('reports a presentation view in the summary so palette consumers can skip it', () => {
+    // html Present renders a document but owns no editor surface: the
+    // summary's flag is what lets the palette's command resolution route to
+    // the owning editor tab instead
+    const id = manager.openHtmlPresentTab(makeFakeView().webContents as never, 'Live preview')
+    expect(manager.list().find((t) => t.id === id)).toMatchObject({
+      kind: 'html',
+      present: true,
+      title: 'Live preview',
+    })
   })
 })
 
@@ -325,6 +422,38 @@ describe('opening tabs', () => {
     const second = manager.openHelpTab()
     expect(second).not.toBe(first)
     expect(manager.list().filter((t) => t.kind === 'help')).toHaveLength(1)
+  })
+
+  it('deep-links a palette help topic through the fresh manual view URL', () => {
+    // openHelp(topic) on the first open: the topic rides the ?mode=help URL,
+    // and the manual renderer reads it as its initial article
+    manager.openHelpTab('pdf')
+    expect(helpLoadedUrls()).toHaveLength(1)
+    expect(helpLoadedUrls()[0]).toContain('mode=help')
+    expect(helpLoadedUrls()[0]).toContain('topic=pdf')
+    // the channel route is for the already-open case only
+    expect(helpSent()).toEqual([])
+  })
+
+  it('deep-links a palette help topic to the already-open manual over the channel', () => {
+    // the URL is fixed once the view exists, so a topic picked later (the
+    // palette's help row while the manual tab is already open) arrives as a
+    // home:help-topic event, and the tab is activated to read it
+    const helpId = manager.openHelpTab()
+    manager.openDocsTab()
+    manager.openHelpTab('pdf')
+    expect(helpSent()).toEqual([[HOME_CHANNELS.helpTopic, 'pdf']])
+    expect(manager.list().find((t) => t.id === helpId)?.active).toBe(true)
+    expect(manager.list().filter((t) => t.kind === 'help')).toHaveLength(1)
+  })
+
+  it('a help topic on a fresh manual still lands via URL after the channel case ran', () => {
+    // both deep-link routes must stay independent: a topic sent over the
+    // channel to one manual must not bleed into the next manual's URL
+    manager.openHelpTab('pdf')
+    manager.closeTabWithoutPrompt(manager.list().find((t) => t.kind === 'help')!.id)
+    manager.openHelpTab('shortcuts')
+    expect(helpLoadedUrls().at(-1)).toContain('topic=shortcuts')
   })
 
   it('opens a docs tab, activates it, and attaches its view to the window', () => {
@@ -1532,6 +1661,47 @@ describe('tab sleep (background renderers released to free memory)', () => {
     expect(lastCreatedView(createDocsView).setVisible).toHaveBeenLastCalledWith(false)
     // a freshly woken tab is not put straight back to sleep by the next sweep
     expect(await manager.sleepIdleTabs(policy, Date.now())).toEqual([])
+  })
+
+  it('a background wake renews the sleep lease, not the MRU answer', async () => {
+    // the palette lists commands for "the editor the user was last in" by
+    // lastActiveAt; an agent or CLI background read wakes a sleeping tab
+    // without the user ever visiting it, and must not steal that answer —
+    // the wake is a liveness lease (the sleep clock), not attention. The
+    // lease is real but temporary: protected while fresh, gone once it ages
+    // past the idle policy
+    const oneLive = { maxLiveTabs: 1, idleMs: 1000 }
+    let clock = 1_000
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => (clock += 10))
+    try {
+      openDocs('/a.docx')
+      openDocs('/b.docx')
+      manager.activateTab('home')
+      // idle past the policy: the oldest-stamped editor sleeps
+      clock += 10_000
+      const slept = await manager.sleepIdleTabs(oneLive, Date.now())
+      expect(slept).toHaveLength(1)
+      const woken = slept[0]!
+      expect(manager.list().find((t) => t.id === woken)?.dormant).toBe(true)
+      const stampsBefore = new Map(manager.list().map((t) => [t.id, t.lastActiveAt]))
+      // the background read wakes it — no activation, no user visit
+      clock += 10_000
+      expect(manager.webContentsForTab(woken)).toBeTruthy()
+      const stampsAfter = new Map(manager.list().map((t) => [t.id, t.lastActiveAt]))
+      expect(stampsAfter.get(woken)).toBe(stampsBefore.get(woken))
+      expect(manager.list().find((t) => t.id === woken)?.dormant).toBeUndefined()
+      // under live pressure the fresh lease protects the just-woken tab
+      const protectedSweep = await manager.sleepIdleTabs(oneLive, Date.now())
+      expect(protectedSweep).not.toContain(woken)
+      // and once the lease has aged past the idle policy, the woken tab
+      // sleeps again like any idle tab
+      clock += 10_000
+      openDocs('/c.docx')
+      const expiredSweep = await manager.sleepIdleTabs(oneLive, Date.now())
+      expect(expiredSweep).toContain(woken)
+    } finally {
+      now.mockRestore()
+    }
   })
 
   it('findTabByPath wakes a sleeping tab and returns its new webContents', async () => {

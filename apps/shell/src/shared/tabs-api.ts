@@ -17,6 +17,21 @@ export interface TabSummary {
   /** excluded from sleeping (tab context menu) */
   pinned?: boolean
   /**
+   * A chrome-free presentation view (html Present). It renders its file but
+   * owns no editor surface: no menu rail, no save/print/export target, no
+   * detach. The palette's tab switcher lists it (switching to it is real),
+   * but the editor-command resolution on both sides of the bridge skips it —
+   * its owning editor tab is the thing commands can run on.
+   */
+  present?: boolean
+  /**
+   * When the tab was last active (epoch ms). Every activation stamps both the
+   * target and the tab it replaced, so the most recently used editor stays
+   * answerable even while Home holds the active slot — exactly the state the
+   * command palette creates by summoning Home (issue #56 P0 #2).
+   */
+  lastActiveAt?: number
+  /**
    * unsaved-changes state, resolved per family (docs needs a renderer
    * round-trip, the rest answer synchronously) — so it only appears on the
    * async `listWithDirty` face, never on the sync one the tab menus use

@@ -4,6 +4,7 @@ import type { Lang } from '@genoffice/i18n'
 import type { HomeApi, RecentEntry, UserSkillEntry } from '../../shared/home-api'
 import type { InstalledPlugin } from '../../shared/found-skill'
 import { FileBadge } from './file-badge'
+import type { SettingsTarget } from './SettingsModal'
 import { COMMAND_PALETTE_STRINGS, type CommandPaletteStrings } from './command-palette-strings'
 import {
   defaultPaletteProviders,
@@ -21,6 +22,7 @@ import './command-palette.css'
 export { folderOf, scoreMatch } from './palette-providers'
 
 const noopAskAi = (_query: string): void => {}
+const noopSettings = (_target: SettingsTarget): void => {}
 
 /**
  * The Ctrl/Cmd+K launcher: a centered top-of-screen overlay in the Spotlight /
@@ -29,30 +31,34 @@ const noopAskAi = (_query: string): void => {}
  * in response and unmounts it on close.
  *
  * The row sources form a provider registry (`palette-providers.ts`): the
- * create actions, recent files, the file index (debounced, async), skills,
- * settings sections and plugins each contribute, and an Ask AI row trails
- * every non-empty query as the natural-language fallback. Sync providers
- * publish on the keystroke; async rows fold in when they land. Enter runs the
- * row's action; Esc / backdrop click / Enter all hand control back via
- * `onClose`.
+ * create actions, open tabs, recent files, the file index (debounced, async),
+ * skills, editor commands, the settings catalog, help topics and plugins each
+ * contribute, and an Ask AI row trails every non-empty query as the
+ * natural-language fallback. Sync providers publish on the keystroke; async
+ * rows fold in when they land. Enter runs the row's action; Esc / backdrop
+ * click / Enter all hand control back via `onClose`.
  *
- * Degraded picks, because the component contract is `lang` + `onClose` only:
- * attaching a skill to the AI ask view lives in Home's internals (the ask
- * panel's own state) with no bridge to reach it, so picking a skill or a plugin
- * component opens the skills settings page instead. The settings group lists
- * exactly the sections with a renderer-invokable open path (AI model, skills),
- * and picking a plugin toggles it on or off — both noted in the module docs.
+ * Degraded picks, because the component contract is `lang` + `onClose` +
+ * routes only: attaching a skill to the AI ask view lives in Home's internals
+ * (the ask panel's own state) with no bridge to reach it, so picking a skill
+ * or a plugin component opens the skills settings page instead, and settings
+ * and help rows route through `onOpenSettings` / the openHelp bridge for the
+ * same reason. Picking a plugin toggles it on or off — noted in the module
+ * docs.
  */
 export function CommandPalette({
   lang,
   onClose,
   onAskAi = noopAskAi,
+  onOpenSettings = noopSettings,
   providers,
 }: {
   readonly lang: Lang
   readonly onClose: () => void
   /** the Ask AI fallback row's query goes here (Home routes it into the ask view) */
   readonly onAskAi?: (query: string) => void
+  /** settings rows open the host's settings modal on their section (issue #56 P0 #2) */
+  readonly onOpenSettings?: (target: SettingsTarget) => void
   /** test seam: a custom registry; production uses the default providers */
   readonly providers?: readonly PaletteProvider[]
 }) {
@@ -103,6 +109,9 @@ export function CommandPalette({
    *  source reorders once the decision model's judgement lands) */
   const [providerTick, setProviderTick] = useState(0)
   const querySeqRef = useRef(0)
+  /** each async provider's last landed answer, keyed by provider and query —
+   *  a re-run for the same query seeds its slot instead of blanking it */
+  const asyncLandedRef = useRef(new Map<string, { query: string; rows: PaletteRow[] }>())
   // subscribe for improved answers while the palette is open; dispose the
   // providers' background work (pending timers) when it closes. React
   // StrictMode double-mounts this effect in dev (setup -> cleanup -> setup on
@@ -120,13 +129,19 @@ export function CommandPalette({
     const seq = ++querySeqRef.current
     const ctx: PaletteContext = {
       strings,
+      lang,
       recents: recentsList,
       skills,
       plugins,
       onAskAi,
+      openSettings: onOpenSettings,
     }
     // sync providers publish on this keystroke; an async provider's slot waits
-    // for its promise, and a stale keystroke's late answer is discarded
+    // for its promise, and a stale keystroke's late answer is discarded. A
+    // re-run whose query did not change (recents landing, a rerank tick) seeds
+    // the async slots with what they answered for this same query rather than
+    // blanking them: the palette re-renders for an unrelated source, and a
+    // group the reader was navigating must not flash out and re-land.
     const parts: { priority: number; rows: PaletteRow[] }[] = []
     const publish = () => {
       if (alive && querySeqRef.current === seq) setRows(mergePaletteRows(parts))
@@ -138,23 +153,52 @@ export function CommandPalette({
       } catch {
         continue
       }
-      const part = { priority: provider.priority, rows: Array.isArray(out) ? out : [] }
-      parts.push(part)
-      if (!Array.isArray(out)) {
-        void Promise.resolve(out).then(
-          (resolved) => {
-            part.rows = resolved
-            publish()
-          },
-          () => undefined,
-        )
+      if (Array.isArray(out)) {
+        parts.push({ priority: provider.priority, rows: out })
+        continue
       }
+      // the cache key is the trimmed query: a whitespace-only edit ("ab" ->
+      // " ab") re-runs the effect but is not a new question, and the providers
+      // themselves answer by the trimmed query (the files provider already
+      // caches that way)
+      const cacheKey = query.trim()
+      const landed = asyncLandedRef.current.get(provider.id)
+      const part = {
+        priority: provider.priority,
+        rows: landed?.query === cacheKey ? landed.rows : [],
+      }
+      parts.push(part)
+      void Promise.resolve(out).then(
+        (resolved) => {
+          // only the newest run's answer may land in the cache: a late
+          // resolution from an older run would otherwise poison the seed the
+          // next same-query re-run reads, regressing the rows to a stale
+          // snapshot (a closed tab reappearing) even though its own publish
+          // is seq-discarded
+          if (querySeqRef.current === seq)
+            asyncLandedRef.current.set(provider.id, { query: cacheKey, rows: resolved })
+          part.rows = resolved
+          publish()
+        },
+        () => undefined,
+      )
     }
     publish()
     return () => {
       alive = false
     }
-  }, [providerList, strings, query, recentsList, skills, plugins, onAskAi, providerTick])
+  }, [
+    providerList,
+    strings,
+    lang,
+    query,
+    recentsList,
+    skills,
+    plugins,
+    onAskAi,
+    onOpenSettings,
+    providerTick,
+  ])
 
   // a new result set starts from the top, whether it came from the query or a
   // source landing late
@@ -303,14 +347,20 @@ function groupLabel(strings: CommandPaletteStrings, group: GroupId): string {
   switch (group) {
     case 'create':
       return strings.groupCreate
+    case 'tabs':
+      return strings.groupTabs
     case 'recent':
       return strings.groupRecent
     case 'files':
       return strings.groupFiles
     case 'skills':
       return strings.groupSkills
+    case 'commands':
+      return strings.groupCommands
     case 'settings':
       return strings.groupSettings
+    case 'help':
+      return strings.groupHelp
     case 'plugins':
       return strings.groupPlugins
     case 'ask':
@@ -326,6 +376,8 @@ function RowIcon({ icon }: { icon: PaletteRow['icon'] }) {
   if (icon.kind === 'pen') return <PenIcon />
   if (icon.kind === 'gear') return <GearIcon />
   if (icon.kind === 'sparkle') return <SparkleIcon />
+  if (icon.kind === 'book') return <BookIcon />
+  if (icon.kind === 'command') return <CommandIcon />
   return <PlugIcon />
 }
 
@@ -395,6 +447,35 @@ function SparkleIcon() {
         d="M8 1.8l1.55 4.65L14.2 8l-4.65 1.55L8 14.2 6.45 9.55 1.8 8l4.65-1.55z"
         stroke="currentColor"
         strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/** the manual's topics: an open book */
+function BookIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M8 4.2C7 3.1 5.4 2.6 2.6 2.6c-.4 0-.7.3-.7.7v8.9c0 .4.3.7.7.7 2.7 0 4.4.5 5.4 1.6.1.1.3.1.4 0 1-1.1 2.7-1.6 5.4-1.6.4 0 .7-.3.7-.7V3.3c0-.4-.3-.7-.7-.7-2.8 0-4.4.5-5.4 1.6z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path d="M8 4.4v9.3" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  )
+}
+
+/** an editor command: the keyboard-verb prompt */
+function CommandIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M5 3.5a1.5 1.5 0 1 0-1.5 1.5H12.5A1.5 1.5 0 1 0 11 3.5v9a1.5 1.5 0 1 0 1.5-1.5H3.5A1.5 1.5 0 1 0 5 12.5z"
+        stroke="currentColor"
+        strokeWidth="1.2"
         strokeLinejoin="round"
       />
     </svg>

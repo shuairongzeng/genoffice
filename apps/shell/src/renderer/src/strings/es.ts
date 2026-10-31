@@ -181,6 +181,7 @@ export const es: Dict = {
   searchFilesPlaceholder: 'Buscar en nombres y contenido…',
   searchIndexing: 'Indexando {n} archivos…',
   searchNoResults: 'Ningún archivo coincide con «{q}»',
+  searchAskReferral: 'Preguntar a la IA sobre “{q}”',
   searchResultCount: '{n} resultados',
   searchResultCountOne: '{n} resultado',
   searchClear: 'Borrar búsqueda',

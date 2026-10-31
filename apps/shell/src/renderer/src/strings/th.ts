@@ -172,6 +172,7 @@ export const th: Dict = {
   searchFilesPlaceholder: 'ค้นหาชื่อไฟล์และเนื้อหา…',
   searchIndexing: 'กำลังจัดทำดัชนี {n} ไฟล์…',
   searchNoResults: 'ไม่มีไฟล์ที่ตรงกับ “{q}”',
+  searchAskReferral: 'ถาม AI เกี่ยวกับ “{q}”',
   searchResultCount: '{n} ผลลัพธ์',
   searchResultCountOne: '{n} ผลลัพธ์',
   searchClear: 'ล้างการค้นหา',

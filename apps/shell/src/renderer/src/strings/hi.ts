@@ -172,6 +172,7 @@ export const hi: Dict = {
   searchFilesPlaceholder: 'फ़ाइल नाम और सामग्री खोजें…',
   searchIndexing: '{n} फ़ाइलें इंडेक्स हो रही हैं…',
   searchNoResults: '“{q}” से मेल खाती कोई फ़ाइल नहीं',
+  searchAskReferral: '“{q}” के बारे में AI से पूछें',
   searchResultCount: '{n} परिणाम',
   searchResultCountOne: '{n} परिणाम',
   searchClear: 'खोज साफ़ करें',

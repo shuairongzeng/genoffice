@@ -168,6 +168,7 @@ export const he: Dict = {
   searchFilesPlaceholder: 'חיפוש בשמות קבצים ובתוכן…',
   searchIndexing: 'מוסיף לאינדקס {n} קבצים…',
   searchNoResults: 'אין קבצים התואמים ל־"{q}"',
+  searchAskReferral: 'שאל את ה-AI על “{q}”',
   searchResultCount: '{n} תוצאות',
   searchResultCountOne: 'תוצאה אחת ({n})',
   searchClear: 'ניקוי החיפוש',

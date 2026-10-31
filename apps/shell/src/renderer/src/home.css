@@ -2919,6 +2919,32 @@ body.ai-dock-resizing {
   padding-top: 2px;
 }
 
+/* the no-results state: the empty card plus the "ask AI instead" referral —
+   the search's keyword failure degrades to its semantic reader (issue #56) */
+.search-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0 18px;
+}
+.search-ask-referral {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.search-ask-referral:hover {
+  background: var(--hover);
+}
+
 /* Extension labels like ".docx" read left-to-right even in the RTL UI */
 html[dir='rtl'] .quick-sub {
   direction: ltr;

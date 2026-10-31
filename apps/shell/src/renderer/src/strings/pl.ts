@@ -171,6 +171,7 @@ export const pl: Dict = {
   searchFilesPlaceholder: 'Szukaj w nazwach i treści…',
   searchIndexing: 'Indeksowanie {n} plików…',
   searchNoResults: 'Brak plików pasujących do „{q}”',
+  searchAskReferral: 'Zapytaj AI o „{q}”',
   searchResultCount: '{n} wyników',
   searchResultCountOne: '{n} wynik',
   searchClear: 'Wyczyść wyszukiwanie',

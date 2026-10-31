@@ -151,6 +151,7 @@ import {
   type MenuHost,
 } from './menus'
 import { registerHomeFileIpc, stringPaths } from './home-ipc'
+import { runEditorCommand as dispatchEditorCommand } from './editor-command-dispatch'
 import {
   genofficeLogout,
   gskLoginInfo,
@@ -298,7 +299,11 @@ import { normalizeFileSearchSettings, SearchReranker } from './file-index/rerank
 import { runHeadlessExport, type HeadlessExporters } from './headless-export'
 import { TabManager } from './tab-manager'
 import { tabMenuTemplate, type TabMenuActions, isProgramFile } from './tab-menu'
-import { runTabDocumentAction, type TabDocumentAction } from './tab-document-actions'
+import {
+  runTabDocumentAction,
+  type TabDocumentAction,
+  type TabDocumentActionDeps,
+} from './tab-document-actions'
 import { duplicateDocumentFile } from './tab-duplicate'
 import { closeTabsInOrder, createRecentlyClosedTracker } from './tab-lifecycle'
 import {
@@ -4378,6 +4383,13 @@ function registerHomeIpc(): void {
     // the kb read gate's round-scope whitelist reads the same store the
     // desktop's alias channels own (desktop-ipc's layout file), fresh per call
     desktopAliases: () => readDesktopLayout(app.getPath('userData')).aliases,
+    runEditorCommand: (kind, command, tabId) => {
+      // the home:run-command rail: home-ipc already validated the pair's shape;
+      // the dispatch table owns pair validity (listed ⇒ runnable) and resolves
+      // the pinned tab id the renderer listed the row for, falling back to the
+      // family's most recently used tab
+      if (tabManager) dispatchEditorCommand(documentActionDeps(tabManager), kind, command, tabId)
+    },
     ensureFolderWatchers,
     droppedFilesDeps,
     cliRunner: bundledCliRunner,
@@ -4688,32 +4700,34 @@ function duplicateFile(path: string): Promise<string | undefined> {
   })
 }
 
+/** the save/save-as/print rail, shared by the tab menu and the palette's
+ *  editor-command rows (issue #56 P0 #2) — one code path, one pdf dialog */
+function documentActionDeps(tabs: TabManager): TabDocumentActionDeps {
+  return {
+    tabs,
+    savePdf: (contents) => {
+      void flushPdfSave(contents)
+    },
+    savePdfAs: (target) => {
+      void savePdfAs(target)
+    },
+    printPdf: sendPdfPrintRequest,
+    saveMarkdown: (contents, mode) => {
+      void requestMarkdownSave(contents, mode)
+    },
+    printMarkdown: sendMarkdownPrintRequest,
+    saveHtml: (contents, mode) => {
+      void requestHtmlSave(contents, mode)
+    },
+    printHtml: sendHtmlPrintRequest,
+  }
+}
+
 /** The shell's side of every entry of the tab menu (see tab-menu.ts for what is offered). */
 function tabMenuActions(): TabMenuActions {
   const documentAction = (id: string, action: TabDocumentAction) => {
     if (!tabManager) return
-    runTabDocumentAction(
-      {
-        tabs: tabManager,
-        savePdf: (contents) => {
-          void flushPdfSave(contents)
-        },
-        savePdfAs: (target) => {
-          void savePdfAs(target)
-        },
-        printPdf: sendPdfPrintRequest,
-        saveMarkdown: (contents, mode) => {
-          void requestMarkdownSave(contents, mode)
-        },
-        printMarkdown: sendMarkdownPrintRequest,
-        saveHtml: (contents, mode) => {
-          void requestHtmlSave(contents, mode)
-        },
-        printHtml: sendHtmlPrintRequest,
-      },
-      id,
-      action,
-    )
+    runTabDocumentAction(documentActionDeps(tabManager), id, action)
   }
   return {
     save: (id) => documentAction(id, 'save'),

@@ -174,6 +174,7 @@ export const ar: Dict = {
   searchFilesPlaceholder: 'ابحث في أسماء الملفات والمحتوى…',
   searchIndexing: 'جارٍ فهرسة {n} ملفًا…',
   searchNoResults: 'لا توجد ملفات تطابق "{q}"',
+  searchAskReferral: 'اسأل الذكاء الاصطناعي عن “{q}”',
   searchResultCount: '{n} نتيجة',
   searchResultCountOne: 'نتيجة واحدة ({n})',
   searchClear: 'مسح البحث',
