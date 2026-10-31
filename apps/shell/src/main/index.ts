@@ -71,7 +71,7 @@ import {
 } from './app-settings'
 import { OPEN_DOCUMENTS_FILE, clearOpenDocuments, publishOpenDocuments } from './open-documents'
 import { startControlServer, type ControlServer } from './control-server'
-import { controlHandler } from './control-handlers'
+import { controlHandler, openDocumentAtText } from './control-handlers'
 import { installCliLinkBestEffort } from './cli-link'
 import { registerIntegrationsIpc } from './integrations-ipc'
 import { registerPluginsIpc } from './plugins-ipc'
@@ -3974,6 +3974,20 @@ function openDocumentPath(filePath: string): boolean {
 }
 
 /**
+ * The search deep link's reveal half (issue #56): the file's tab is already
+ * open/focused by openDocumentPath, and this jumps to the first text match —
+ * same tab resolution as the CLI control route, so a detached editor window
+ * showing the file reveals too.
+ */
+function revealDocumentAtText(filePath: string, text: string): void {
+  openDocumentAtText(
+    { findTab: (path) => tabManager?.findTabByPath(path) ?? findDetachedTabByPath(path) },
+    filePath,
+    text,
+  )
+}
+
+/**
  * Open a just-written export. Unlike File > Open, an already-open PDF tab is
  * reloaded from disk so a re-export to the same path shows the new bytes
  * instead of the previous in-memory document (which may also hold unsaved
@@ -4348,6 +4362,7 @@ function registerHomeIpc(): void {
     readFileSearchSettings,
     ensureSearchReranker,
     openDocumentPath,
+    openDocumentAtText: revealDocumentAtText,
     rememberPendingDir,
     newDocTab,
     newSheetTab,

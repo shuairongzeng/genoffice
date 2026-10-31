@@ -205,6 +205,21 @@ export interface FileSearchHit extends RecentEntry {
 }
 
 /**
+ * The hit's deep-link target (issue #56): the exact document text of the
+ * first matched run — the snippet's first `hit` part. Opening the hit with
+ * this as `openPath`'s text lands the reader on the match; undefined when
+ * only the name or folder matched (then the open is a plain path open).
+ * Structural: any hit shape carrying a snippet works, so the palette's
+ * trimmed hit rows share it with Home's.
+ */
+export function hitTargetText(hit: {
+  snippet?: readonly FileSearchSnippetPart[] | null
+}): string | undefined {
+  const text = hit.snippet?.find((part) => part.hit)?.text?.trim()
+  return text ? text : undefined
+}
+
+/**
  * The decision-model routes the app can call. Several vendors publish more
  * than one size or generation behind the same URL, and the difference is only
  * the `model` in the body — but they are listed separately rather than folded
@@ -610,9 +625,10 @@ export interface HomeApi {
   aiGskStatus(): Promise<{ loggedIn: boolean; email?: string }>
   /** open Settings › AI Model (deep link for onboarding's "Set up AI" CTA) */
   openAiModelSettings(): Promise<void>
-  /** open an existing file, routing to the right module by extension */
+  /** open an existing file, routing to the right module by extension; `text` is the
+   * search deep link's target — the main side reveals the first match after the open */
   openHelp(): Promise<void>
-  openPath(path: string): Promise<void>
+  openPath(path: string, opts?: { text?: string }): Promise<void>
   /** file picker accepting every supported extension, then routes */
   browse(): Promise<void>
   /** open a docs window at its start screen; `dir` = folder the first save should land in */

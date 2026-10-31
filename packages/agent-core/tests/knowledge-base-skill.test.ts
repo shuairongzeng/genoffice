@@ -77,6 +77,22 @@ describe('createKnowledgeBaseSkill', () => {
     ).toBe('C:\\Users\\me\\a b.docx')
   })
 
+  it('a search hit with match text cites the matched sentence, not just the file (issue #56)', () => {
+    const href = kbCiteHref('/Users/me/q (2).xlsx', 'the matched sentence (draft)')
+    expect(href).toBe(
+      'filenav:///Users/me/q%20%282%29.xlsx#:~:text=the%20matched%20sentence%20%28draft%29',
+    )
+    // the fragment decodes back to the exact match text, path half intact
+    const hash = href.indexOf('#')
+    expect(decodeURIComponent(href.slice('filenav://'.length, hash))).toBe('/Users/me/q (2).xlsx')
+    expect(decodeURIComponent(href.slice(hash + '#:~:text='.length))).toBe(
+      'the matched sentence (draft)',
+    )
+    // no match text (or blank) keeps the plain path cite the panels always had
+    expect(kbCiteHref('/Users/me/a b.docx', undefined)).toBe('filenav:///Users/me/a%20b.docx')
+    expect(kbCiteHref('/Users/me/a b.docx', '  ')).toBe('filenav:///Users/me/a%20b.docx')
+  })
+
   it('an empty corpus contributes no context', () => {
     const deps = makeDeps()
     deps.listFiles = () => []
@@ -115,6 +131,32 @@ describe('createKnowledgeBaseSkill', () => {
     expect(result.output).toContain('\u5408\u540c/\u79df\u8d41\u5408\u540c.docx')
     expect(result.output).toContain('path: /Users/me/\u5408\u540c/\u79df\u8d41\u5408\u540c.docx')
     expect(result.output).toContain('\u8bd5\u7528\u671f\u8003\u6838\u529e\u6cd5')
+  })
+
+  it('a hit carrying match text hands the model a cite that addresses the match', async () => {
+    // issue #56: the deep link \u2014 the search result's cite line carries the
+    // :~:text= fragment so a citation opens where the match is
+    const deps = makeDeps({
+      search: async () => [
+        {
+          path: CORPUS[0]!.path,
+          name: CORPUS[0]!.name,
+          ext: 'docx',
+          folder: '\u5408\u540c',
+          snippet: '\u2026\u8bd5\u7528\u671f\u8003\u6838\u529e\u6cd5\u2026',
+          matchText: '\u8bd5\u7528\u671f\u8003\u6838\u529e\u6cd5',
+        },
+      ],
+    })
+    const result = await createKnowledgeBaseSkill(deps).executeTool!({
+      id: 't1b',
+      name: 'search_knowledge_base',
+      input: { query: '\u8bd5\u7528\u671f' },
+    })
+    expect(result.isError).toBeFalsy()
+    expect(result.output).toContain(
+      `cite: filenav:///Users/me/%E5%90%88%E5%90%8C/%E7%A7%9F%E8%B5%81%E5%90%88%E5%90%8C.docx#:~:text=${encodeURIComponent('\u8bd5\u7528\u671f\u8003\u6838\u529e\u6cd5')}`,
+    )
   })
 
   it('search teaches the synonym retry instead of dead-ending', async () => {
@@ -176,6 +218,38 @@ describe('createKnowledgeBaseSkill', () => {
     const correction = skill.verifyResponse!(bad, [])
     expect(correction).toContain('not knowledge-base paths')
     expect(correction).toContain('filenav:///tmp/fake.docx')
+  })
+
+  it('verifyResponse judges a fragment-carrying cite by its path half (issue #56)', () => {
+    const skill = createKnowledgeBaseSkill(makeDeps())
+    // a whitelisted file cited WITH its text fragment passes \u2014 the whitelist
+    // vouches for the file, the fragment only names where the match is
+    const good = `see [lease](${kbCiteHref('/Users/me/\u5408\u540c/\u79df\u8d41\u5408\u540c.docx', '\u8bd5\u7528\u671f')})`
+    expect(skill.verifyResponse!(good, [])).toBeNull()
+    // a hand-trimmed or hand-extended fragment on an unknown file still fails
+    const bad = 'cited [fake.docx](filenav:///tmp/fake.docx#:~:text=anything)'
+    expect(skill.verifyResponse!(bad, [])).toContain('not knowledge-base paths')
+    expect(skill.verifyResponse!(bad, [])).toContain('filenav:///tmp/fake.docx#:~:text=anything')
+  })
+
+  it('a hand-written raw # inside a whitelisted cite path survives the fragment strip', () => {
+    // the strip is at the '#:~:text=' marker, not at any '#': a raw (unencoded)
+    // '#' in the path half keeps it. Splitting at any '#' would truncate this
+    // path to '/tmp/a' and veto a whitelisted cite as fabricated.
+    const hashSkill = createKnowledgeBaseSkill({
+      ...makeDeps(),
+      listFiles: () => [
+        {
+          path: '/tmp/a#b.md',
+          folder: 'tmp',
+          name: 'a#b.md',
+          ext: 'md',
+          sizeBytes: 1,
+        },
+      ],
+    })
+    const cite = 'cited [a#b.md](filenav:///tmp/a#b.md#:~:text=needle)'
+    expect(hashSkill.verifyResponse!(cite, [])).toBeNull()
   })
 
   it('verifyResponse lets answers without citations through', () => {

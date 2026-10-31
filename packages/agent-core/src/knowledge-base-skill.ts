@@ -52,6 +52,14 @@ export interface KbSearchHit {
   folder: string
   /** plain text around the first match (marks stripped) */
   snippet: string
+  /**
+   * The exact document text of the first matched run (issue #56: a hit has an
+   * address, not just a path). A cite link built with it carries a text
+   * fragment, so clicking the citation opens the file where the match is.
+   * Absent when only the name or folder matched — then the cite stays a plain
+   * path link and the reader lands at the top, as before.
+   */
+  matchText?: string
 }
 
 export interface KbReadPage {
@@ -113,8 +121,9 @@ absolute path) — the list is not the whole corpus, search reaches all of it.
   reading with offset while it matters.
 - Cite what you used: right after a statement drawn from a file, write
   [file name](cite link) — copy the cite link exactly as the list or a search
-  result gives it (it is already encoded). Cite ONLY links that appear there;
-  never invent or edit one.
+  result gives it (it is already encoded; a link's #text fragment, when
+  present, points at the matched sentence — keep it in the citation). Cite
+  ONLY links that appear there; never invent or edit one.
 - Say so plainly when the knowledge base does not contain the answer.`
 
 /**
@@ -138,13 +147,30 @@ may not be indexed); say so rather than guessing or citing beyond the list.`,
  * Same encoding as @genoffice/ui file-nav (agent-core must not depend on the
  * renderer package): everything the inline-link grammar rejects — spaces, %,
  * CJK, parens, Windows backslashes — is percent-encoded, slashes stay.
+ * A non-empty `text` appends the W3C-style text fragment, so the cite link
+ * addresses the matched sentence, not just the file (issue #56): hosts that
+ * forward the fragment land the reader on the match; the rest open the file
+ * as they always did. Keep the fragment grammar in sync with fileNavHref in
+ * @genoffice/ui's file-nav.
  */
-export function kbCiteHref(path: string): string {
+export function kbCiteHref(path: string, text?: string): string {
   const encoded = encodeURIComponent(path)
     .replace(/%2F/g, '/')
     .replace(/\(/g, '%28')
     .replace(/\)/g, '%29')
-  return FILE_NAV_SCHEME + encoded
+  const target = text?.trim()
+  if (!target) return FILE_NAV_SCHEME + encoded
+  const encodedText = encodeURIComponent(target).replace(/\(/g, '%28').replace(/\)/g, '%29')
+  return `${FILE_NAV_SCHEME}${encoded}#:~:text=${encodedText}`
+}
+
+/** strip a cite link's text fragment: the whitelist knows paths, not matches.
+ * Splits at the fragment marker (not any '#') so a raw hand-written path
+ * containing '#' keeps it — the same rule as @genoffice/ui's file-nav. */
+function kbCitePathOf(href: string): string {
+  const rest = href.slice(FILE_NAV_SCHEME.length)
+  const marker = rest.indexOf('#:~:text=')
+  return marker === -1 ? rest : rest.slice(0, marker)
 }
 
 const KB_EMPTY =
@@ -269,7 +295,7 @@ export function createKnowledgeBaseSkill(deps: KnowledgeBaseDeps): AgentSkill {
         }
         const lines = hits.map(
           (h) =>
-            `${h.folder}/${h.name}\n  path: ${h.path}\n  cite: ${kbCiteHref(h.path)}\n  snippet: ${h.snippet}`,
+            `${h.folder}/${h.name}\n  path: ${h.path}\n  cite: ${kbCiteHref(h.path, h.matchText)}\n  snippet: ${h.snippet}`,
         )
         return { output: lines.join('\n'), summary: `${query} → ${hits.length}` }
       }
@@ -348,7 +374,9 @@ export function createKnowledgeBaseSkill(deps: KnowledgeBaseDeps): AgentSkill {
         ...(deps.alsoCitable?.() ?? []),
       ])
       const unknown = cited.filter((href) => {
-        const raw = href.slice(FILE_NAV_SCHEME.length)
+        // a cite may carry a text fragment (:~:text=…) pointing at the matched
+        // sentence — the whitelist vouches for the file, so compare the path half
+        const raw = kbCitePathOf(href)
         let decoded = raw
         try {
           decoded = decodeURIComponent(raw)

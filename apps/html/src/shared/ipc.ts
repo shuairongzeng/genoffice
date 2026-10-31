@@ -211,7 +211,7 @@ export interface HtmlApi {
   /** Take the md path pending for this view (queued at tab creation); null = new untitled document */
   consumePending(): Promise<string | null>
   /** open any shell-routed document path (an AI answer's filenav citation) */
-  openSourcePath(path: string): Promise<void>
+  openSourcePath(path: string, text?: string): Promise<void>
   /** Headless export mode: the path and format this hidden renderer must export, null in normal use */
   consumeHeadlessExport(): Promise<HeadlessExportTarget | null>
   /** Headless export mode: report the export outcome so the main process can quit */
