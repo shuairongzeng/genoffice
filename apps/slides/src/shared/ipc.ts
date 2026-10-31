@@ -1,4 +1,5 @@
 import type { AiPanelPrefs } from '@genoffice/ui'
+import type { KbFileInfo, KbReadPage, KbSearchHit } from '@genoffice/agent-core'
 /**
  * slides main-process <-> renderer IPC contract (Phase 3: open/save/edit, AI not included yet).
  *
@@ -1756,6 +1757,12 @@ export interface SlidesApi {
   skillsList: () => Promise<UserSkillEntry[]>
   /** one installed skill's body, by name; the main process resolves the path */
   skillText: (name: string) => Promise<string>
+  /** the reader's indexed files as the AI's knowledge base (kb:* handlers live in the shell main) */
+  kbList(): Promise<KbFileInfo[]>
+  /** full-text search over the knowledge base (q capped like the home search box) */
+  kbSearch(query: { q: string; limit?: number }): Promise<KbSearchHit[]>
+  /** one page of a knowledge-base file's parsed text (path must be in kbList) */
+  kbRead(path: string, offset: number): Promise<KbReadPage>
   aiStream: (request: AiStreamRequest) => Promise<void>
   aiStreamCancel: (requestId: string) => Promise<void>
   /** Genspark account status (gsk login state); with withEmail also fetches the email (needs a network request, slower) */

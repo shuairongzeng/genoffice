@@ -1,5 +1,6 @@
 import type { AiPanelPrefs } from '@genoffice/ui'
 import type { Lang } from '@genoffice/i18n'
+import type { KbFileInfo, KbReadPage, KbSearchHit } from '@genoffice/agent-core'
 import type { AiSettings, AiStreamChunk, AiStreamRequest } from '@genoffice/ai-provider'
 import type { PrintDuplex, PrintJobOptions, PrinterInfo } from '@genoffice/electron-utils/print-job'
 export type { PrintDuplex, PrintJobOptions, PrinterInfo }
@@ -1058,6 +1059,12 @@ export interface PdfApi {
   skillText(name: string): Promise<string>
   /** Genspark login state (gsk); gates the cloud-only generate_image tool */
   gskStatus(): Promise<{ loggedIn: boolean }>
+  /** the reader's indexed files as the AI's knowledge base (kb:* handlers live in the shell main) */
+  kbList(): Promise<KbFileInfo[]>
+  /** full-text search over the knowledge base (q capped like the home search box) */
+  kbSearch(query: { q: string; limit?: number }): Promise<KbSearchHit[]>
+  /** one page of a knowledge-base file's parsed text (path must be in kbList) */
+  kbRead(path: string, offset: number): Promise<KbReadPage>
   aiStream(request: AiStreamRequest): Promise<void>
   aiStreamCancel(requestId: string): Promise<void>
   onAiStream(handler: (chunk: AiStreamChunk) => void): () => void

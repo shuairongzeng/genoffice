@@ -149,6 +149,10 @@ const api: MarkdownApi = {
   skillsList: () => ipcRenderer.invoke('ai:skills-list'),
   skillText: (name: string) => ipcRenderer.invoke('ai:skill-text', name),
   aiGskStatus: () => ipcRenderer.invoke(AI_CHANNELS.gskStatus),
+  /** knowledge base: the kb:* handlers are registered once by the shell main (home-ipc) and serve every app's panel */
+  kbList: () => ipcRenderer.invoke('kb:list'),
+  kbSearch: (query: { q: string; limit?: number }) => ipcRenderer.invoke('kb:search', query),
+  kbRead: (path: string, offset: number) => ipcRenderer.invoke('kb:read', { path, offset }),
   aiStream: (request) => ipcRenderer.invoke(AI_CHANNELS.stream, request),
   aiStreamCancel: (requestId) => ipcRenderer.invoke(AI_CHANNELS.streamCancel, requestId),
   onAiStream: (handler) => {

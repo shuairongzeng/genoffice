@@ -59,6 +59,10 @@ const api: HtmlApi = {
   readAttachment: (path, offset, maxChars) =>
     ipcRenderer.invoke(HTML_CHANNELS.filesRead, path, offset, maxChars),
   readAttachmentImage: (path) => ipcRenderer.invoke(HTML_CHANNELS.filesReadImage, path),
+  /** knowledge base: the kb:* handlers are registered once by the shell main (home-ipc) and serve every app's panel */
+  kbList: () => ipcRenderer.invoke('kb:list'),
+  kbSearch: (query: { q: string; limit?: number }) => ipcRenderer.invoke('kb:search', query),
+  kbRead: (path: string, offset: number) => ipcRenderer.invoke('kb:read', { path, offset }),
   getPathForFile: (file) => webUtils.getPathForFile(file),
   onExportRequest: (handler) => {
     const listener = (_e: Electron.IpcRendererEvent, format: ExportFormat) => handler(format)

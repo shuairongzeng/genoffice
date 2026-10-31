@@ -17,8 +17,11 @@ import type {
 } from 'react'
 import {
   AgentLoop,
+  composeSkills,
+  createKnowledgeBaseSkill,
   skillContextVars,
   withAttachedSkills,
+  type KbFileInfo,
   type SkillVars,
 } from '@genoffice/agent-core'
 import {
@@ -344,6 +347,22 @@ export function AiPanel({
   }, [panelWidth])
   const settingsRef = useRef<AiSettings | null>(null)
 
+  // snapshot of the knowledge-base corpus feeding the kb skill; refreshed on
+  // mount and before each send so a freshly indexed file is answerable
+  const kbFilesRef = useRef<KbFileInfo[]>([])
+  const refreshKbFiles = (): Promise<void> => {
+    if (typeof window.pdfApi?.kbList !== 'function') return Promise.resolve()
+    return window.pdfApi
+      .kbList()
+      .then((files) => {
+        kbFilesRef.current = files
+      })
+      .catch(() => undefined)
+  }
+  useEffect(() => {
+    void refreshKbFiles()
+  }, [])
+
   /** gsk login state for the cloud-tools gate (refreshed on mount and window focus) */
   const gskLoggedInRef = useRef(false)
   useEffect(() => {
@@ -526,7 +545,25 @@ export function AiPanel({
           patchLast({ reasoning: segReasoningRef.current })
         },
       ),
-      skill: createPdfSkill(deps),
+      // composed (not a single skill) so the knowledge-base skill can join the
+      // pdf skill; the composed id stays 'pdf' so run records see no change
+      skill: composeSkills('pdf', '', [
+        createPdfSkill(deps),
+        // the user's indexed files (the shell's knowledge base); empty while
+        // nothing is indexed — buildContext then returns '' and the skill
+        // stays out of the way. Mounted only when the bridge carries the kb
+        // channel at all: a test mock or an older preload must not grow tools
+        // that cannot execute.
+        ...(typeof window.pdfApi?.kbList === 'function'
+          ? [
+              createKnowledgeBaseSkill({
+                listFiles: () => kbFilesRef.current,
+                search: (query, limit) => window.pdfApi.kbSearch({ q: query, limit }),
+                read: (path, offset) => window.pdfApi.kbRead(path, offset),
+              }),
+            ]
+          : []),
+      ]),
       // the document-editing tools (risk:'high', see the policy note in
       // tools.ts) stop at the inline allow/deny card; a denial feeds the model
       // a do-not-retry result so it can answer without editing. The
@@ -702,6 +739,7 @@ export function AiPanel({
         // Vision gate: text-only endpoints never collect (zero behavior change)
         const plan = settings && endpointSupportsVision(settings) ? await collectVisionPlan() : null
         visionAttachmentRef.current = plan ? pageImageAnnotation(plan) : null
+        await refreshKbFiles()
         await loop.run(await withSkillBodies(instruction, sentSkills, sentVars), plan?.images)
       } catch (err) {
         patchLast({

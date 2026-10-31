@@ -188,6 +188,21 @@ describe('createKnowledgeBaseSkill', () => {
     ).toBeNull()
   })
 
+  it('an empty session stays silent: no corpus means no whitelist to enforce', () => {
+    // panels mount the skill whenever the bridge carries the kb channel,
+    // including standalone runs where the corpus stays empty \u2014 the skill then
+    // contributes no tools and no prompt, and must not veto a filenav link
+    // the document itself contains (that would cost a corrective turn for
+    // nothing)
+    const skill = createKnowledgeBaseSkill({
+      listFiles: () => [],
+      search: async () => [],
+      read: async () => ({ text: '', totalChars: 0, offset: 0 }),
+    })
+    const echo = 'cited [lease.docx](filenav:///Users/me/kb/lease.docx) from the document'
+    expect(skill.verifyResponse!(echo, [])).toBeNull()
+  })
+
   it('read accepts a search-result path (the indexed corpus reaches past the listing)', async () => {
     const deps = makeDeps()
     const skill = createKnowledgeBaseSkill(deps)
