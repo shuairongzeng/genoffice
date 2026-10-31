@@ -18,7 +18,10 @@ if (args.length > 0) {
   process.exit(2)
 }
 
-const CSS_SCOPE = /^apps\/[^/]+\/src\/renderer\/.+\.css$/
+// Chrome CSS scopes: app renderer stylesheets and the shared packages/ui
+// stylesheets (ai-panel.css and friends live there — the gate must cover the
+// shared copy, not just the per-app ones).
+const CSS_SCOPE = /^(?:apps\/[^/]+\/src\/renderer|packages\/ui\/src)\/.+\.css$/
 const RAW_COLOR = /#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(/
 const TOKEN_DEF = /^\s*--[\w-]+:/
 const COMMENT_LINE = /^\s*(\/\*|\*)/

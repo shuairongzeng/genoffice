@@ -80,6 +80,16 @@
   --color-border-brand: #0f7fff;
   --color-error: #ef4444;
   --color-error-hover: #dc2626;
+  /* AI panel chrome (shared ai-panel.css): focus rings, the "thinking"
+   * shimmer sweep, error ink and the composer box lift — the majority of the
+   * per-app --{app}-* twins these replace shared these values; the outliers'
+   * drift (html's dark shimmer, pdf's error red) is folded in here */
+  --ai-focus-ring: rgb(35 36 37 / 20%);
+  --ai-focus-ring-blue: rgb(74 141 246 / 30%);
+  --ai-shimmer-base: #666666;
+  --ai-shimmer-hi: #d9d9d9;
+  --ai-error: #c62828;
+  --ai-shadow-composer: 0 6px 30px rgb(0 0 0 / 8%);
 
   /* non-color */
   --radius-6: 6px;
@@ -151,6 +161,12 @@
   --color-border-brand: #4a9eff;
   --color-error: #f87171;
   --color-error-hover: #ef4444;
+  --ai-focus-ring: rgb(228 228 228 / 25%);
+  --ai-focus-ring-blue: rgb(74 158 255 / 40%);
+  --ai-shimmer-base: #8a8a8a;
+  --ai-shimmer-hi: #d0d0d0;
+  --ai-error: #f28b82;
+  --ai-shadow-composer: 0 6px 30px rgb(0 0 0 / 30%);
 
   color-scheme: dark;
 }
@@ -212,6 +228,12 @@
     --color-border-brand: #4a9eff;
     --color-error: #f87171;
     --color-error-hover: #ef4444;
+    --ai-focus-ring: rgb(228 228 228 / 25%);
+    --ai-focus-ring-blue: rgb(74 158 255 / 40%);
+    --ai-shimmer-base: #8a8a8a;
+    --ai-shimmer-hi: #d0d0d0;
+    --ai-error: #f28b82;
+    --ai-shadow-composer: 0 6px 30px rgb(0 0 0 / 30%);
 
     color-scheme: dark;
   }

@@ -1,0 +1,897 @@
+/* Shared AI panel chrome — the single copy of the .ai-* rules that every
+ * app's AI panel renders identically (converged from the six per-app forks and
+ * the shell's .kb-ask variant; issue #1 item 13). Loaded by each renderer via
+ * '@genoffice/ui/ai-panel.css' BEFORE the app's own styles.css, so app rules
+ * keep winning at equal specificity for genuinely app-specific shapes.
+ *
+ * Scope rule: only the all-apps intersection lives here. A selector that some
+ * app deliberately styles differently (panel containers, .ai-msg-error's two
+ * DOM contracts, per-app toolbars) stays in that app's stylesheet.
+ *
+ * All colors go through the tokens in tokens.css; the AI-specific ones
+ * (--ai-focus-ring, --ai-focus-ring-blue, --ai-shimmer-base, --ai-shimmer-hi,
+ * --ai-error, --ai-shadow-composer) are defined there with light, dark and
+ * system-dark values. Accent-driven chrome references var(--accent-*) so each
+ * app's brand color flows through untouched (CLAUDE.md rule 3).
+ * The send/stop buttons are SVG icons (IconEnter/IconStop/IconSend) that follow
+ * the theme; the former PNG bitmaps are retired. */
+
+.ai-panel-title .genspark-badge {
+  width: 18px;
+  height: 18px;
+}
+
+.ai-panel-resizer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 20;
+  background: transparent;
+}
+
+/* while dragging: keep the col-resize cursor everywhere, no text selection */
+.ai-panel-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.ai-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 10px 14px;
+  border-bottom: 1px solid var(--color-border-default);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-primary);
+}
+
+.ai-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.ai-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ai-header-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  border-radius: var(--radius-8);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0;
+  transition: all var(--transition-fast);
+}
+
+.ai-header-btn:hover {
+  background: var(--color-bg-subtle);
+  color: var(--color-text-primary);
+}
+
+.ai-chat {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  /* uniform 16px flex gap between blocks, messages carry no margin */
+  gap: 16px;
+  overflow-y: auto;
+  padding: 32px 16px;
+  font-family: var(--gs-font-sans);
+}
+
+.ai-history-sep {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  font-size: 14px;
+  color: var(--color-text-tertiary);
+}
+
+.ai-chat-empty {
+  margin-top: 36px;
+  padding: 0 10px;
+  text-align: center;
+  font-family: var(--gs-font-sans);
+}
+
+.ai-chat-empty-title {
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 8px;
+}
+
+.ai-chat-empty-body {
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.ai-msg {
+  position: relative;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.ai-md p,
+.ai-md ul,
+.ai-md ol {
+  margin: 0 0 16px;
+}
+
+.ai-md :last-child {
+  margin-bottom: 0;
+}
+
+/* blank markdown paragraphs would each eat a 16px margin — the stream never renders them */
+.ai-md p:empty {
+  display: none;
+}
+
+.ai-md ul,
+.ai-md ol {
+  margin-bottom: 20px;
+  padding-left: 20px;
+}
+
+.ai-md li {
+  margin-left: 20px;
+  line-height: 28px;
+}
+
+.ai-md .ai-md-h {
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 20px 0 8px;
+}
+
+.ai-md .ai-md-h:first-child {
+  margin-top: 0;
+}
+
+.ai-md code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--color-bg-subtle);
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.ai-msg-user {
+  align-self: flex-end;
+  background: var(--color-bg-subtle);
+  color: var(--color-text-primary);
+  padding: 8px 16px;
+  border-radius: 14px;
+  max-width: 80%;
+  line-height: 1.5;
+}
+
+.ai-msg-assistant {
+  align-self: stretch;
+  background: none;
+  border: none;
+  padding: 0;
+  max-width: 100%;
+  color: var(--color-text-primary);
+  white-space: normal;
+}
+
+.ai-work-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  /* no margin here: which side gets the 12px depends on where the app renders
+   * the group relative to the reply text, so each app owns its margin rule */
+}
+
+.ai-work-group-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  margin: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  user-select: none;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text-tertiary);
+  transition: color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-work-group-summary:hover {
+  color: var(--color-text-secondary);
+}
+
+.ai-work-group-summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ai-focus-ring);
+  border-radius: 4px;
+}
+
+.ai-work-group-summary.running {
+  color: var(--color-text-secondary);
+}
+
+.ai-work-group-summary.running .ai-work-group-label {
+  animation: ai-summary-pulse 1500ms linear infinite;
+}
+
+@keyframes ai-summary-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.ai-work-group-body {
+  align-self: stretch;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-work-group-body.open {
+  grid-template-rows: 1fr;
+}
+
+.ai-work-group-body-inner {
+  overflow: hidden;
+  min-height: 0;
+  padding: 0 0 0 8px;
+  transition: padding 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-work-group-body.open .ai-work-group-body-inner {
+  padding: 4px 0 8px 8px;
+}
+
+/* Step rows inside the group: 20px icon slot + 1px connector */
+.ai-step-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+  color: var(--color-text-tertiary);
+  animation: ai-row-ease-in 320ms ease-out;
+}
+
+.ai-step-row:not(:last-child) {
+  padding-bottom: 16px;
+}
+
+.ai-step-row:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 9.5px;
+  top: 32px;
+  bottom: -4px;
+  width: 1px;
+  background: var(--color-border-default);
+}
+
+.ai-step-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+}
+
+.ai-step-icon.done {
+  color: var(--color-text-secondary);
+}
+
+.ai-step-icon.error {
+  color: var(--ai-error);
+}
+
+.ai-step-icon.running svg {
+  animation: ai-hourglass-flip 1.8s ease-in-out infinite;
+}
+
+@keyframes ai-hourglass-flip {
+  0%,
+  12% {
+    transform: rotate(0);
+  }
+  44%,
+  56% {
+    transform: rotate(180deg);
+  }
+  88%,
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.ai-step-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 1px;
+}
+
+.ai-step-title {
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--color-text-secondary);
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
+}
+
+.ai-step-title.clickable {
+  cursor: pointer;
+  transition: color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-step-title.clickable:hover {
+  color: var(--color-text-primary);
+}
+
+.ai-step-title.clickable:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ai-focus-ring);
+  border-radius: 4px;
+}
+
+/* Step detail opens instantly, no animation */
+.ai-step-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Running tool row: two grow/shrink brand dots */
+.ai-tool-chip-spinner {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 12px;
+}
+
+.ai-tool-chip-spinner::before,
+.ai-tool-chip-spinner::after {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-brand-secondary);
+}
+
+.ai-tool-chip-spinner::before {
+  animation: ai-tool-dot-grow 2s infinite;
+}
+
+.ai-tool-chip-spinner::after {
+  animation: ai-tool-dot-shrink 2s infinite;
+}
+
+@keyframes ai-tool-dot-grow {
+  0%,
+  100% {
+    transform: scale(0.333);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes ai-tool-dot-shrink {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.333);
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-tool-chip-spinner::before,
+  .ai-tool-chip-spinner::after {
+    animation: none;
+    opacity: 0.65;
+  }
+}
+
+/* caret: text glyph right after the label, always visible, rotates open */
+.ai-tool-chip-caret {
+  margin-left: 4px;
+  opacity: 0.7;
+  display: inline-block;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-tool-chip-caret.open {
+  transform: rotate(90deg);
+}
+
+/* stream rows ease in */
+@keyframes ai-row-ease-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ai-tool-output {
+  background: var(--color-bg-subtle);
+  border: none;
+  border-radius: 12px;
+  font-family:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 14px;
+  color: var(--color-text-primary);
+  max-height: 300px;
+  overflow-y: auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ai-tool-output-pre {
+  padding: 12px 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.ai-typing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 15px;
+}
+
+.ai-typing-label {
+  display: inline-block;
+  position: relative;
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: var(--ai-shimmer-base);
+  -webkit-text-fill-color: transparent;
+  background: var(--ai-shimmer-base)
+    linear-gradient(
+      to left,
+      var(--ai-shimmer-base),
+      var(--ai-shimmer-hi) 50%,
+      var(--ai-shimmer-base)
+    );
+  background-clip: text;
+  -webkit-background-clip: text;
+  background-repeat: no-repeat;
+  background-size: 70% 100%;
+  animation: ai-thinking-shimmer 1.2s infinite alternate linear;
+}
+
+.ai-typing-elapsed {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes ai-thinking-shimmer {
+  0% {
+    background-position: -100% top;
+  }
+  100% {
+    background-position: 250% top;
+  }
+}
+
+.ai-typing-dots {
+  height: 12px;
+  display: flex;
+  gap: 2px;
+}
+
+.ai-typing-dot-slot {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 12px;
+}
+
+.ai-typing-dot-grow,
+.ai-typing-dot-shrink {
+  background: var(--color-brand-secondary);
+  border-radius: 50%;
+}
+
+.ai-typing-dot-grow {
+  animation: ai-dot-grow 2s infinite;
+}
+
+.ai-typing-dot-shrink {
+  animation: ai-dot-shrink 2s infinite;
+}
+
+@keyframes ai-dot-grow {
+  0%,
+  100% {
+    width: 4px;
+    height: 4px;
+    opacity: 0.45;
+  }
+  50% {
+    width: 12px;
+    height: 12px;
+    opacity: 1;
+  }
+}
+
+@keyframes ai-dot-shrink {
+  0%,
+  100% {
+    width: 12px;
+    height: 12px;
+    opacity: 1;
+  }
+  50% {
+    width: 4px;
+    height: 4px;
+    opacity: 0.45;
+  }
+}
+
+/* streaming caret at the tail of streaming assistant text */
+.ai-msg-streaming .ai-md > :last-child::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 1em;
+  margin-left: 2px;
+  border-radius: 1px;
+  background: var(--color-text-secondary);
+  vertical-align: text-bottom;
+  animation: ai-caret-blink 900ms steps(1, end) infinite;
+}
+
+@keyframes ai-caret-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-typing-label,
+  .ai-msg-streaming .ai-md > :last-child::after {
+    animation: none;
+  }
+}
+
+/* hover actions under assistant messages (copy / regenerate):
+ * borderless 30px icon buttons, radius 8, hover = subtle gray fill */
+.ai-msg-toolbar {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.ai-msg-tool-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 30px;
+  min-width: 30px;
+  padding: 5px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-msg-tool-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.ai-msg-tool-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ai-focus-ring-blue);
+}
+
+/* Global press feedback */
+.ai-msg-tool-btn:active {
+  filter: brightness(0.88);
+  transform: scale(0.98);
+}
+
+.ai-composer {
+  border-top: none;
+  padding: 8px 12px 12px;
+  background: var(--color-bg-page);
+  font-family: var(--gs-font-sans);
+}
+
+.ai-scope-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--radius-30);
+  background: var(--accent-soft);
+  color: var(--accent-dark, var(--accent));
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.ai-scope-hint::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.ai-ask-pop {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-12);
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+  font-family: var(--gs-font-sans);
+}
+
+.ai-ask-pop-title {
+  padding-right: 24px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ai-ask-pop-sub {
+  margin-top: -4px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-ask-pop-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-8);
+  background: var(--color-bg-page);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.ai-ask-pop-input:focus {
+  border-color: var(--accent);
+}
+
+.ai-ask-pop-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-ask-chip {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.ai-ask-chip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.ai-ask-pop-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ai-ask-confirm {
+  border: 1px solid transparent;
+  background: var(--color-ai-action);
+  color: var(--color-ai-action-text);
+}
+
+.ai-ask-confirm:hover:not(:disabled) {
+  background: var(--color-ai-action-hover);
+}
+
+.ai-ask-confirm:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ai-input-box {
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-16);
+  background: var(--color-bg-page);
+  box-shadow: var(--ai-shadow-composer);
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.ai-input-box textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  resize: none;
+  border: none;
+  background: none;
+  border-radius: var(--radius-16) var(--radius-16) 0 0;
+  /* vertical gaps live on margin, not padding: textarea padding scrolls away
+   * with the content, so clipped lines would sit flush against chips/footer */
+  padding: 0 14px;
+  margin: 12px 0 4px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 24px;
+  outline: none;
+  color: var(--color-text-primary);
+  min-height: 48px;
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+.ai-input-box textarea::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.ai-input-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px 8px 10px;
+}
+
+.ai-input-hint {
+  font-size: var(--text-caption);
+  color: var(--color-text-tertiary);
+  user-select: none;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-send-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  margin-left: auto;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 35%;
+  background: transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.ai-send-btn svg {
+  display: block;
+}
+
+.ai-send-btn:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.ai-send-btn:active:not(:disabled) {
+  filter: brightness(0.88);
+  transform: scale(0.98);
+}
+
+.ai-send-btn:disabled {
+  cursor: default;
+  /* the icon-only buttons carry SVG art with no encoded disabled state, so the
+   * dim lives here: sheets already had this globally, the other renderers had
+   * nothing but the retired gray-arrow PNG */
+  opacity: 0.48;
+}
+
+/* Stop button while generating: brand-supplied art (white square on black), transparent button chrome */
+.ai-send-btn.ai-stop-btn {
+  background: transparent;
+}
+
+.ai-send-btn.ai-stop-btn:hover {
+  filter: brightness(0.92);
+}
+
+.ai-ask-cancel,
+.ai-ask-confirm {
+  padding: 5px 12px;
+  border-radius: var(--radius-6);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ai-ask-cancel {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.ai-ask-cancel:hover {
+  background: var(--hover);
+}
+
+.ai-ask-cancel:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

@@ -74,13 +74,12 @@ import {
   useAiSlash,
   useChatRunQueue,
   useToolConfirm,
+  IconEnter,
+  IconStop,
   type AiScopeQuoteData,
   type AiTokenUsageView,
 } from '@genoffice/ui'
 import { GensparkMark } from '../components/icons'
-import sendEnterOn from '../assets/send-enter-on.png'
-import sendEnterOff from '../assets/send-enter-off.png'
-import sendStop from '../assets/send-stop.png'
 import filePdfIcon from '../assets/file-pdf.png'
 import fileWordIcon from '../assets/file-word.png'
 import fileExcelIcon from '../assets/file-excel.png'
@@ -2772,7 +2771,7 @@ export function AiPanel({
                   data-tip={t('aiStopGeneration')}
                   aria-label={t('aiStop')}
                 >
-                  <img src={sendStop} alt="" aria-hidden />
+                  <IconStop size={20} />
                 </button>
               ) : (
                 <button
@@ -2782,11 +2781,7 @@ export function AiPanel({
                   data-tip={aiSetupNeeded ? t('aiSetupNeeded') : t('aiSend')}
                   aria-label={t('aiSend')}
                 >
-                  <img
-                    src={input.trim() && !aiSetupNeeded ? sendEnterOn : sendEnterOff}
-                    alt=""
-                    aria-hidden
-                  />
+                  <IconEnter size={20} />
                 </button>
               )}
             </div>

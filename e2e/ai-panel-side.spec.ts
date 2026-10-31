@@ -21,6 +21,9 @@ for (const app of ['docs', 'sheets', 'slides', 'pdf', 'markdown', 'html']) {
       for (const path of [
         'packages/ui/src/tokens.css',
         'packages/ui/src/ai-panel-prefs.css',
+        // the shared .ai-* rules (resizer geometry lives here since the
+        // convergence, not in the per-app stylesheets)
+        'packages/ui/src/ai-panel.css',
         `apps/${app}/src/renderer/styles.css`,
       ]) {
         await page.addStyleTag({ content: await readFile(join(__dirname, '..', path), 'utf8') })

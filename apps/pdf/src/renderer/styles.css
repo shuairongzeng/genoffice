@@ -14,8 +14,6 @@
   --pdf-thumb-border-hover: #a8a6a4;
   --pdf-prop-bg: rgb(0 0 0 / 3%);
   --pdf-focus-ring: rgb(35 36 37 / 20%);
-  --pdf-shimmer-base: #666;
-  --pdf-shimmer-hi: #d9d9d9;
   --pdf-statusbar-bg: #f3f4f6;
   --pdf-statusbar-border: #e1e4e8;
   --pdf-statusbar-hover: rgb(0 0 0 / 8%);
@@ -82,9 +80,7 @@
   --pdf-shadow-page: 0 1px 4px rgb(0 0 0 / 18%);
   --pdf-shadow-pin: 0 1px 4px rgb(0 0 0 / 30%);
   --pdf-shadow-drop: 0 6px 20px rgb(0 0 0 / 14%), 0 1px 3px rgb(0 0 0 / 8%);
-  --pdf-shadow-composer: 0 6px 30px rgb(0 0 0 / 8%);
 }
-
 [data-theme='dark'] {
   --accent: #e8663f;
   --accent-dark: #d4552f;
@@ -97,8 +93,6 @@
   --pdf-thumb-border-hover: #777;
   --pdf-prop-bg: rgb(255 255 255 / 5%);
   --pdf-focus-ring: rgb(255 255 255 / 30%);
-  --pdf-shimmer-base: #8a8a8a;
-  --pdf-shimmer-hi: #d0d0d0;
   --pdf-statusbar-bg: #252525;
   --pdf-statusbar-border: #3a3a3a;
   --pdf-statusbar-hover: rgb(255 255 255 / 10%);
@@ -109,7 +103,6 @@
   --pdf-input-ring: rgb(74 158 255 / 20%);
   --pdf-error-ring: rgb(242 139 130 / 20%);
 }
-
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']):not([data-theme='dark']) {
     --accent: #e8663f;
@@ -123,8 +116,6 @@
     --pdf-thumb-border-hover: #777;
     --pdf-prop-bg: rgb(255 255 255 / 5%);
     --pdf-focus-ring: rgb(255 255 255 / 30%);
-    --pdf-shimmer-base: #8a8a8a;
-    --pdf-shimmer-hi: #d0d0d0;
     --pdf-statusbar-bg: #252525;
     --pdf-statusbar-border: #3a3a3a;
     --pdf-statusbar-hover: rgb(255 255 255 / 10%);
@@ -136,36 +127,29 @@
     --pdf-error-ring: rgb(242 139 130 / 20%);
   }
 }
-
 * {
   box-sizing: border-box;
 }
-
 /* UI CJK fonts per language (documentElement.lang is set at bootstrap and on switch);
  * the zh expansion must keep the historical stack byte-identical */
 :root {
   --ui-cjk: 'PingFang SC', 'Microsoft YaHei';
 }
-
 :root:lang(ja) {
   --ui-cjk: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', 'Meiryo';
 }
-
 :root:lang(ko) {
   --ui-cjk: 'Apple SD Gothic Neo', 'Malgun Gothic';
 }
-
 :root:lang(zh-TW) {
   --ui-cjk: 'PingFang TC', 'Microsoft JhengHei';
 }
-
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
 }
-
 body {
   font-family:
     'Segoe UI',
@@ -179,7 +163,6 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
-
 button {
   font-family: inherit;
 }
@@ -198,9 +181,7 @@ button {
   color: var(--text-dim);
   font-size: 14px;
 }
-
 /* ================= ribbon (aligned with docs/slides chrome) ================= */
-
 .ribbon {
   flex-shrink: 0;
   background: var(--chrome-bg);
@@ -255,7 +236,6 @@ button {
   background: var(--border-strong);
   flex-shrink: 0;
 }
-
 /* ── ribbon tab strip (docs/Word-style: semibold labels, accent underline on the active tab) ── */
 .ribbon-tab {
   position: relative;
@@ -278,7 +258,6 @@ button {
 .ribbon-tab.active {
   color: var(--accent);
 }
-
 /* active underline: exactly the text width (insets = horizontal padding) */
 .ribbon-tab.active::after {
   content: '';
@@ -388,12 +367,10 @@ button {
   opacity: 0.4;
   cursor: default;
 }
-
 /* Active state paints only the gray icon plate — label/ink stays the standard color */
 .rb-big.active .rb-big-icon {
   background: var(--active-bg);
 }
-
 /* AI button: brand logo only — no accent plate behind the icon, label stays black (same as docs) */
 .rb-big.rb-ai {
   font-size: 11px;
@@ -414,7 +391,6 @@ button {
 .rb-big.rb-ai:hover:not(:disabled) .rb-big-icon {
   background: none;
 }
-
 /* The AI entry buttons read as one piece: hover/press tint the whole button
    (icon + label together), unlike the other tall buttons where only the icon
    row is painted. Same treatment as the docs ribbon. */
@@ -480,7 +456,6 @@ button {
 .rb-small:hover:not(:disabled) {
   background: var(--hover);
 }
-
 /* ---- Compact ribbon (⌥⌘K / Ctrl+Alt+K), docs parity, see #362 ----
  * The middle density: the band stays and every command stays reachable, it
  * just drops to icon-only on a shorter band. The band keeps the HARD-fixed
@@ -510,7 +485,6 @@ button {
   padding: 1px 3px;
   margin: 0 -2px;
 }
-
 /* Keep the label in the accessibility tree and in the DOM (Playwright's
  * hasText and getByRole(name) both read it) but take it out of the visual
  * flow. display: none here would strip the accessible name. */
@@ -525,12 +499,10 @@ button {
   white-space: nowrap;
   border: 0;
 }
-
 /* Groups centre on the shorter band. */
 .ribbon-compact .ribbon-group {
   padding: 0 3px;
 }
-
 /* `.rb-col` stacks two rows (the page-number/zoom block) that cannot fit a
  * short band — side by side, exactly the docs treatment of .rb-col. */
 .ribbon-compact .rb-col {
@@ -538,7 +510,6 @@ button {
   align-items: center;
   gap: 4px;
 }
-
 /* the highlight split caret is absolutely placed against the full band's
  * 30px icon plate; recentre it on the shorter one, and keep the gutter its
  * padding carved out of the right edge (the compact .rb-big padding above
@@ -631,9 +602,7 @@ button {
   text-align: center;
   white-space: nowrap;
 }
-
 /* ── Thumbnail context menu ── */
-
 .thumb-menu {
   position: fixed;
   z-index: 60;
@@ -672,9 +641,7 @@ button {
   margin: 4px 0;
   background: var(--border);
 }
-
 /* ── Markup floating bar for selected text ── */
-
 .pdf-sel-popup {
   position: fixed;
   z-index: 30;
@@ -704,7 +671,6 @@ button {
 .pdf-sel-popup button:hover {
   background: var(--hover);
 }
-
 /* Word-style toggle state: the selection already carries this markup; clicking removes it */
 .pdf-sel-popup button.is-active {
   background: var(--accent-soft);
@@ -721,7 +687,6 @@ button {
   font-size: 11px;
   font-weight: 700;
 }
-
 /* Background comes inline from the currently selected highlight color */
 .sel-swatch-hl {
   background: var(--pdf-ink-highlight);
@@ -736,10 +701,7 @@ button {
   color: var(--pdf-ink-strike);
   text-decoration: line-through;
 }
-
-/* ── Unsaved markup overlay ── */
-
-/* pointer-events: none so the text underneath stays selectable (stacking more
+/* ── Unsaved markup overlay ── */ /* pointer-events: none so the text underneath stays selectable (stacking more
    markups on already-marked text); clicks select via hit-testing in App.tsx */
 .pdf-markup {
   position: absolute;
@@ -756,9 +718,7 @@ button {
   background-size: 100% 2px;
   background-position: 0 46%;
 }
-
 /* ── Annotation selection (click selects; deletion via the popup or Delete key) ── */
-
 .pdf-markup-selected,
 .pdf-markup-selected:hover,
 .pdf-stamp-selected,
@@ -821,7 +781,6 @@ button {
   margin: 3px 2px;
   background: var(--border);
 }
-
 /* Transparency presets fold-out under the image selection popup */
 .pdf-opacity-menu {
   position: absolute;
@@ -836,9 +795,7 @@ button {
   border-radius: 8px;
   box-shadow: var(--pdf-shadow-popup);
 }
-
 /* ── Transient toast (deleted annotation + undo) ── */
-
 .pdf-toast {
   position: fixed;
   left: 50%;
@@ -869,16 +826,13 @@ button {
 .pdf-toast button:hover {
   text-decoration: underline;
 }
-
 /* Message toast (save failures, skipped text edits): sits above the delete toast slot
    so the two never overlap, and wraps long reasons instead of spanning the window */
 .pdf-toast-notice {
   bottom: 64px;
   max-width: min(70vw, 560px);
 }
-
 /* ── AcroForm form overlay ── */
-
 .pdf-form-layer {
   position: absolute;
   inset: 0;
@@ -1029,7 +983,6 @@ button {
   background: transparent;
   color: transparent;
 }
-
 /* Choice widget: shared dropdown (@genoffice/ui gs-dd) sized to the AcroForm
  * rect — the wrapper carries the absolute position, the trigger the field look */
 .pdf-form-select {
@@ -1057,9 +1010,7 @@ button {
   border-color: var(--pdf-select);
   background: var(--pdf-paper);
 }
-
 /* ================= Body: thumbnail sidebar + page scroll area ================= */
-
 .pdf-body {
   position: relative;
   display: flex;
@@ -1078,7 +1029,6 @@ button {
   border-right: 1px solid var(--border);
   user-select: none;
 }
-
 /* drag handle between the sidebar and the page area — resize the sidebar
  * horizontally (overlaps the pane's right border; cursor-only affordance),
  * same pattern as slides' .thumb-resizer */
@@ -1112,13 +1062,11 @@ button {
   overflow: hidden;
   line-height: 0;
 }
-
 /* Same live-preview patch as the page canvas, scaled into the thumb (percent coords) */
 .pdf-thumb-livepreview {
   position: absolute;
   pointer-events: none;
 }
-
 /* Read-only mirror of the canvas pending-edit overlays, scaled into the thumb.
    Inner layers set pointer-events: auto on themselves, so the kill must reach
    every descendant or overlay children would eat thumbnail clicks/drags. */
@@ -1155,9 +1103,7 @@ button {
   color: var(--accent);
   font-weight: 600;
 }
-
 /* the page stays ltr under an RTL UI — the chrome mirrors, the content does not */
-
 .pdf-scroll {
   direction: ltr;
   flex: 1;
@@ -1165,7 +1111,6 @@ button {
   padding: 0 24px;
   background: var(--canvas);
 }
-
 /* One row: one page in single-page mode, two side by side in two-page mode.
    `safe` keeps the row left-anchored (scrollable) instead of clipping the page's
    left edge when the comments margin makes the row wider than the viewport. */
@@ -1181,7 +1126,6 @@ button {
 .pdf-row:last-child {
   margin-bottom: 16px;
 }
-
 /* Night reading: invert only the page bitmap; overlays (markup/form/drawing) are separate in the DOM */
 .pdf-night .pdf-page-content canvas {
   filter: invert(1) hue-rotate(180deg);
@@ -1202,7 +1146,6 @@ button {
   cursor: crosshair;
   background: var(--pdf-sign-drop-bg);
 }
-
 /* Translucent preview of the pending signature following the cursor */
 .pdf-sign-ghost {
   position: absolute;
@@ -1240,9 +1183,7 @@ button {
   left: 0;
   top: 0;
 }
-
 /* ── Outline sidebar ── */
-
 .pdf-outline-pane {
   display: flex;
   flex-direction: column;
@@ -1302,13 +1243,8 @@ button {
   font-size: 11px;
   color: var(--text-muted);
 }
-
-/* ── Encrypted document password ── */
-
-/* ---- encrypted-PDF password dialog (Genspark DS form dialog, matching the
-   docs PasswordDialog and mockups/protect-dialogs-genspark.html §1/2) ---- */
-
-/* base .pdf-modal-mask (defined below) top-aligns dialogs; this one centers */
+/* ── Encrypted document password ── */ /* ---- encrypted-PDF password dialog (Genspark DS form dialog, matching the
+   docs PasswordDialog and mockups/protect-dialogs-genspark.html §1/2) ---- */ /* base .pdf-modal-mask (defined below) top-aligns dialogs; this one centers */
 .pdf-modal-mask.pdf-pwd-mask {
   align-items: center;
 }
@@ -1383,12 +1319,10 @@ button {
 .pdf-pwd-wrap input.invalid:focus {
   box-shadow: 0 0 0 3px var(--pdf-error-ring);
 }
-
 /* wrong password: shake the field */
 .pdf-pwd-fld.has-error .pdf-pwd-wrap {
   animation: pdf-pwd-shake 0.4s ease;
 }
-
 @keyframes pdf-pwd-shake {
   0%,
   100% {
@@ -1407,7 +1341,6 @@ button {
     transform: translateX(4px);
   }
 }
-
 /* show/hide toggle inside the field */
 .pdf-pwd-eye {
   position: absolute;
@@ -1452,7 +1385,6 @@ button {
 .pdf-pwd-error svg {
   flex-shrink: 0;
 }
-
 /* mockup g-actions spec: 36px buttons, 12px gap, 24px above the footer */
 .pdf-pwd-dialog .pdf-modal-actions {
   justify-content: flex-end;
@@ -1470,9 +1402,7 @@ button {
   font-size: 12px;
   margin-right: 6px;
 }
-
 /* ── Generic small dialogs (extract range etc.) ── */
-
 .pdf-modal-mask {
   position: absolute;
   inset: 0;
@@ -1507,7 +1437,6 @@ button {
   font-size: 12px;
   color: var(--text-secondary);
 }
-
 /* Label + control rows and check/radio labels in page-operation dialogs */
 .pdf-modal-row {
   display: flex;
@@ -1570,7 +1499,6 @@ button {
   accent-color: var(--accent);
   margin: 0;
 }
-
 /* N-up option buttons fill the row instead of hugging the right edge */
 .pdf-modal-actions.merge-pages-options {
   justify-content: stretch;
@@ -1604,7 +1532,6 @@ button {
   justify-content: flex-end;
   gap: 8px;
 }
-
 /* Genspark DS modal footer buttons: secondary = bg-subtle, primary = black (#232425) */
 .pdf-modal-btn {
   display: inline-flex;
@@ -1653,9 +1580,7 @@ button {
   background: var(--color-btn-primary-hover);
   color: var(--color-btn-primary-text);
 }
-
 /* ── Full-text search ── */
-
 .pdf-search-bar {
   position: absolute;
   top: 8px;
@@ -1713,9 +1638,7 @@ button {
   background: var(--pdf-search-hit-cur-bg);
   outline: 1.5px solid var(--pdf-search-hit-cur-outline);
 }
-
 /* ── Drawing annotation layer ── */
-
 .pdf-draw-layer {
   position: absolute;
   left: 0;
@@ -2006,7 +1929,6 @@ button {
   border: 2px solid var(--pdf-redaction-border);
   pointer-events: none;
 }
-
 /* With a tool active, take over the pointer and disable text selection so dragging doesn't select text */
 .pdf-draw-active {
   pointer-events: auto;
@@ -2044,9 +1966,7 @@ button {
 .pdf-note-pin:hover {
   opacity: 0.75;
 }
-
 /* ── WPS-style comments margin: cards beside the page, leader lines to their pins ── */
-
 .pdf-note-margin {
   position: relative;
   z-index: 6;
@@ -2055,7 +1975,6 @@ button {
   /* Only the cards themselves are interactive; the column must not block page clicks */
   pointer-events: none;
 }
-
 /* 1px viewport with overflow visible: the line draws at negative x, over the page */
 .pdf-note-lead {
   position: absolute;
@@ -2145,7 +2064,6 @@ button {
   gap: 6px;
   padding: 4px 10px 8px;
 }
-
 /* Inline rewrite of an existing comment; sits inside the comment's own padding */
 .pdf-note-edit-box {
   display: flex;
@@ -2210,7 +2128,6 @@ button {
   color: var(--text-muted);
   font-size: 11px;
 }
-
 /* Edit/delete live here; hidden until the pointer is over the comment (or a button
    has keyboard focus) so the thread stays readable */
 .pdf-note-comment-actions {
@@ -2287,11 +2204,7 @@ button {
   border-radius: 8px;
   font-size: 12.5px;
 }
-
-/* ── Text edit (content-stream replacement) ── */
-
-/* Covers the original run with page background; the saved PDF gets the real rewrite */
-/* Blanks the matched run's real ink; the preview/editor boxes only cover the layout rect */
+/* ── Text edit (content-stream replacement) ── */ /* Covers the original run with page background; the saved PDF gets the real rewrite */ /* Blanks the matched run's real ink; the preview/editor boxes only cover the layout rect */
 .pdf-textedit-cover {
   position: absolute;
   z-index: 3;
@@ -2362,7 +2275,6 @@ button {
 .pdf-editing-text .textLayer span:hover {
   cursor: text;
 }
-
 /* Paragraph boxes in edit-text mode (see text-block.ts): a faint outline on every
    block so editable units read at a glance (WPS-style); page-anchored chrome, so
    the ring colors stay unthemed like the rest of the text-edit set */
@@ -2375,14 +2287,15 @@ button {
   border-radius: 2px;
   transition: opacity 0.15s;
 }
+
 .pdf-textblock-box.is-hover {
   outline-color: var(--pdf-textblock-ring-hover);
   background: var(--pdf-textblock-hover-bg);
 }
+
 .pdf-textblock-box.is-faded {
   opacity: 0.2;
 }
-
 /* Border grips of the hovered block (WPS-style move): the frame itself is
    pointer-transparent so clicks inside still reach the text layer; only the
    four edge strips take the pointer and start a drag-to-move */
@@ -2391,37 +2304,41 @@ button {
   z-index: 4;
   pointer-events: none;
 }
+
 .pdf-textblock-grip {
   position: absolute;
   pointer-events: auto;
   cursor: move;
   touch-action: none;
 }
+
 .pdf-textblock-grip.grip-t {
   top: -7px;
   right: -5px;
   left: -5px;
   height: 9px;
 }
+
 .pdf-textblock-grip.grip-b {
   right: -5px;
   bottom: -7px;
   left: -5px;
   height: 9px;
 }
+
 .pdf-textblock-grip.grip-l {
   top: -5px;
   bottom: -5px;
   left: -7px;
   width: 9px;
 }
+
 .pdf-textblock-grip.grip-r {
   top: -5px;
   right: -7px;
   bottom: -5px;
   width: 9px;
 }
-
 /* Live ghost while a block is border-dragged: its text lines ride along on a
    paper backdrop so the block visibly lifts off the page */
 .pdf-textblock-ghost {
@@ -2433,6 +2350,7 @@ button {
   outline: 1px dashed var(--pdf-textblock-ring-hover);
   outline-offset: 2px;
 }
+
 .pdf-textblock-ghost-line {
   position: absolute;
   display: flex;
@@ -2440,7 +2358,6 @@ button {
   white-space: pre;
   color: var(--pdf-textedit-ink);
 }
-
 /* Hover affordance for edit-text mode: one box over the whole merged line
    (see text-line.ts), replacing the per-run span outline */
 .pdf-textline-hover {
@@ -2450,7 +2367,6 @@ button {
   outline: 1px dashed var(--pdf-textedit-ring);
   background: var(--pdf-textedit-hover-bg);
 }
-
 /* Wrapper for the multiline editor: hosts the floating style bar above the textarea */
 .pdf-textedit-editor {
   position: absolute;
@@ -2466,7 +2382,6 @@ button {
   line-height: 1.2;
   resize: none;
 }
-
 /* Block (paragraph) editor: width is locked to the block, so the textarea's own
    soft wrap is the reflow preview — no x-scroll, break anywhere like the committed
    CJK-aware wrap */
@@ -2475,7 +2390,6 @@ button {
   white-space: pre-wrap;
   word-break: break-word;
 }
-
 /* Selection-color mirror: sits exactly over the textarea (same box metrics, border
    kept but transparent) and paints the per-run colors while the textarea's own text
    is transparent — caret and selection highlight stay the textarea's */
@@ -2501,7 +2415,6 @@ button {
   white-space: pre-wrap;
   word-break: break-word;
 }
-
 /* Style bar: font size + text color, floats above the run being edited */
 .pdf-textedit-bar {
   position: absolute;
@@ -2528,7 +2441,6 @@ button {
   color: var(--text);
   font-size: 12px;
 }
-
 /* Font picker: shared dropdown (@genoffice/ui gs-dd) sized to the 22px bar row */
 .pdf-textedit-fontsel {
   max-width: 130px;
@@ -2569,17 +2481,18 @@ button {
   border-color: var(--pdf-textedit-ring);
   color: var(--text);
 }
-
 /* Trash button at the end of the style bar: deletes the whole run */
 .pdf-textedit-trash {
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
+
 .pdf-textedit-trash svg {
   width: 13px;
   height: 13px;
 }
+
 .pdf-textedit-trash:hover {
   color: var(--danger);
 }
@@ -2613,7 +2526,6 @@ button {
   outline: 2px solid var(--pdf-textedit-ring);
   outline-offset: 1px;
 }
-
 /* Style-bar trigger for the shared color picker */
 .pdf-textedit-colorwrap {
   position: relative;
@@ -2637,16 +2549,13 @@ button {
   border: 1px solid var(--border-strong);
   border-radius: 3px;
 }
-
 /* ── Image edit (content-stream image ops) ── */
-
 .pdf-imgedit-layer {
   position: absolute;
   inset: 0;
   z-index: 4;
   pointer-events: none;
 }
-
 /* Below-text previews: multiply with the page raster so existing ink shows
    through, matching how the saved PDF paints text over the image */
 .pdf-imgedit-under {
@@ -2656,7 +2565,6 @@ button {
   pointer-events: none;
   mix-blend-mode: multiply;
 }
-
 /* Night mode inverts the page bitmap (ink becomes light); screen keeps it visible */
 .pdf-night .pdf-imgedit-under {
   mix-blend-mode: screen;
@@ -2671,13 +2579,11 @@ button {
   position: absolute;
   box-sizing: border-box;
 }
-
 /* Covers the old spot of a moved/replaced image until the live page patch erases it */
 .pdf-imgedit-veil {
   background: var(--pdf-imgedit-veil-bg);
   pointer-events: none;
 }
-
 /* Purely visual copy of an existing image while it is dragged/resized; the
    transparent hit box on top keeps the pointer capture */
 .pdf-imgedit-liveghost {
@@ -2690,7 +2596,6 @@ button {
 .pdf-imgedit-handle {
   pointer-events: auto;
 }
-
 /* Another tool owns the pointer (draw/sign/place/text-edit): previews stay visible but inert */
 .pdf-imgedit-passive .pdf-imgedit-img,
 .pdf-imgedit-passive .pdf-imgedit-ghostbox,
@@ -2715,13 +2620,11 @@ button {
 .pdf-imgedit-hit:hover {
   background: var(--pdf-imgedit-hover-bg);
 }
-
 /* Ghost of a moved existing image while its pixels are still loading */
 .pdf-imgedit-ghostbox {
   border: 1.5px dashed var(--pdf-textedit-ring);
   background: var(--pdf-imgedit-ghost-bg);
 }
-
 /* Live-preview patch: the touched region re-rendered by pdfium without the
    moved/resized/deleted images (document content, so it also inverts at night) */
 .pdf-page-livepreview {
@@ -2742,9 +2645,7 @@ button {
   background: var(--pdf-paper);
   touch-action: none;
 }
-
 /* ── Stamp (watermark/header-footer) preview and config ── */
-
 .pdf-stamp-preview {
   position: absolute;
   z-index: 1;
@@ -2780,7 +2681,6 @@ button {
   flex: 1;
   min-width: 0;
 }
-
 /* Shared dropdown (@genoffice/ui gs-dd) in modal field rows: matches the
  * .pdf-modal-input frame (28px, radius 4, 13px) */
 .pdf-field .pdf-modal-dd {
@@ -2862,7 +2762,6 @@ button {
   left: 0;
   z-index: 8;
 }
-
 /* Positioning-only wrapper: the shared @genoffice/ui .gcp-palette inside
    draws the panel chrome (background, border, radius, shadow). */
 .pdf-color-popover {
@@ -2883,9 +2782,7 @@ button {
   font-weight: 600;
   overflow: hidden;
 }
-
 /* ── Read-only document properties area ── */
-
 .pdf-prop-table {
   display: flex;
   flex-direction: column;
@@ -2914,9 +2811,7 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 /* ── Thumbnail drag-to-reorder ── */
-
 .pdf-thumb[draggable='true'] {
   cursor: grab;
 }
@@ -2935,9 +2830,7 @@ button {
   border-radius: 2px;
   background: var(--accent);
 }
-
 /* ── Signature dialog ── */
-
 .pdf-sign-tabs {
   display: flex;
   gap: 4px;
@@ -3047,9 +2940,7 @@ button {
   color: var(--text-dim);
   cursor: default;
 }
-
 /* ── Saved signatures (persisted in userData, reusable across documents) ── */
-
 .pdf-sign-saved-label {
   font-size: 11.5px;
   color: var(--text-dim);
@@ -3127,9 +3018,7 @@ button {
   stroke: var(--accent);
   stroke-width: 1.5;
 }
-
 /* ── Drawing color split button + palette (same pattern as slides' font color) ── */
-
 .rb-caret {
   flex-shrink: 0;
   display: block;
@@ -3139,7 +3028,6 @@ button {
   margin-left: 3px;
   color: var(--text-dim);
 }
-
 /* color strip under the glyph showing the current draw color */
 .rb-big-icon-colored {
   position: relative;
@@ -3213,7 +3101,6 @@ button {
   box-shadow: var(--pdf-shadow-drop);
   padding: 8px;
 }
-
 /* Plain command list inside a ribbon dropdown (converter menu) */
 .rb-menu {
   display: flex;
@@ -3242,7 +3129,6 @@ button {
   opacity: 0.4;
   cursor: default;
 }
-
 /* Dialog color well (stamp dialog): swatch trigger + the shared picker popover.
    The popover is fixed + anchored so it escapes the modal's overflow-y clip. */
 .pdf-color-well-wrap {
@@ -3269,11 +3155,9 @@ button {
   position-visibility: anchors-visible;
   z-index: 60;
 }
-
 /* Shared color picker anchored to a ribbon trigger: the .rb-drop rules give it
    the fixed anchor positioning; drop the popover's own right-pin so the two
-   inset systems don't fight (matters in RTL) */
-/* Ribbon-anchored variant: .rb-drop supplies the anchor positioning; strip its
+   inset systems don't fight (matters in RTL) */ /* Ribbon-anchored variant: .rb-drop supplies the anchor positioning; strip its
    panel chrome so only the shared picker's own chrome shows. */
 .rb-drop.pdf-color-popover {
   right: auto;
@@ -3301,9 +3185,7 @@ button {
   outline: none;
   border-color: var(--accent);
 }
-
 /* ── Link annotation hit areas ── */
-
 .pdf-link-layer {
   position: absolute;
   inset: 0;
@@ -3318,7 +3200,6 @@ button {
   border-radius: 2px;
   pointer-events: auto;
 }
-
 /* Text editing owns page clicks, including text covered by link annotations. */
 .pdf-editing-text .pdf-link {
   pointer-events: none;
@@ -3328,16 +3209,11 @@ button {
   background: var(--pdf-link-hover-bg);
   box-shadow: 0 0 0 1px var(--pdf-link-hover-ring);
 }
-
 /* ── AI tool rows (unified with docs/slides/sheets) ── */
-
-/* Collapsible tool-activity group.
-   Unlike docs/slides, this app renders the group BEFORE the reply text, so the
-   gap to the surrounding content comes from margin-bottom, not margin-top. */
+/* Collapsible tool-activity group. Unlike docs/slides, this app renders the group
+ * BEFORE the reply text, so the gap to the surrounding content comes from
+ * margin-bottom, not margin-top. */
 .ai-work-group {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
   margin-bottom: 12px;
 }
 
@@ -3345,180 +3221,6 @@ button {
 .ai-work-group:only-child {
   margin-bottom: 0;
 }
-
-.ai-work-group-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  margin: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  user-select: none;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--color-text-tertiary);
-  transition: color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-work-group-summary:hover {
-  color: var(--color-text-secondary);
-}
-
-.ai-work-group-summary:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--pdf-focus-ring);
-  border-radius: 4px;
-}
-
-.ai-work-group-summary.running {
-  color: var(--color-text-secondary);
-}
-
-.ai-work-group-summary.running .ai-work-group-label {
-  animation: ai-summary-pulse 1500ms linear infinite;
-}
-
-@keyframes ai-summary-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
-}
-
-.ai-work-group-body {
-  align-self: stretch;
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-work-group-body.open {
-  grid-template-rows: 1fr;
-}
-
-.ai-work-group-body-inner {
-  overflow: hidden;
-  min-height: 0;
-  padding: 0 0 0 8px;
-  transition: padding 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-work-group-body.open .ai-work-group-body-inner {
-  padding: 4px 0 8px 8px;
-}
-
-/* Step rows inside the group: 20px icon slot + 1px connector */
-.ai-step-row {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 8px 0;
-  color: var(--color-text-tertiary);
-  animation: ai-row-ease-in 320ms ease-out;
-}
-
-.ai-step-row:not(:last-child) {
-  padding-bottom: 16px;
-}
-
-.ai-step-row:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  left: 9.5px;
-  top: 32px;
-  bottom: -4px;
-  width: 1px;
-  background: var(--color-border-default);
-}
-
-.ai-step-icon {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-tertiary);
-}
-
-.ai-step-icon.done {
-  color: var(--color-text-secondary);
-}
-
-.ai-step-icon.error {
-  color: var(--pdf-error);
-}
-
-.ai-step-icon.running svg {
-  animation: ai-hourglass-flip 1.8s ease-in-out infinite;
-}
-
-@keyframes ai-hourglass-flip {
-  0%,
-  12% {
-    transform: rotate(0);
-  }
-  44%,
-  56% {
-    transform: rotate(180deg);
-  }
-  88%,
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-.ai-step-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 1px;
-}
-
-.ai-step-title {
-  font-size: 14px;
-  line-height: 1.3;
-  color: var(--color-text-secondary);
-  text-align: left;
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  font-family: inherit;
-}
-
-.ai-step-title.clickable {
-  cursor: pointer;
-  transition: color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-step-title.clickable:hover {
-  color: var(--color-text-primary);
-}
-
-.ai-step-title.clickable:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--pdf-focus-ring);
-  border-radius: 4px;
-}
-
-/* Step detail opens instantly, no animation */
-.ai-step-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .ai-step-row,
   .ai-step-icon.running svg,
@@ -3526,114 +3228,7 @@ button {
     animation: none;
   }
 }
-
-/* Running tool row: two grow/shrink brand dots */
-.ai-tool-chip-spinner {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  height: 12px;
-}
-
-.ai-tool-chip-spinner::before,
-.ai-tool-chip-spinner::after {
-  content: '';
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--color-brand-secondary);
-}
-
-.ai-tool-chip-spinner::before {
-  animation: ai-tool-dot-grow 2s infinite;
-}
-
-.ai-tool-chip-spinner::after {
-  animation: ai-tool-dot-shrink 2s infinite;
-}
-
-@keyframes ai-tool-dot-grow {
-  0%,
-  100% {
-    transform: scale(0.333);
-    opacity: 0.45;
-  }
-  50% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes ai-tool-dot-shrink {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(0.333);
-    opacity: 0.45;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ai-tool-chip-spinner::before,
-  .ai-tool-chip-spinner::after {
-    animation: none;
-    opacity: 0.65;
-  }
-}
-
-/* caret: text glyph right after the label, always visible, rotates open */
-.ai-tool-chip-caret {
-  margin-left: 4px;
-  opacity: 0.7;
-  display: inline-block;
-  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-tool-chip-caret.open {
-  transform: rotate(90deg);
-}
-
-/* stream rows ease in */
-@keyframes ai-row-ease-in {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* expanded step detail: subtle gray card, no border */
-.ai-tool-output {
-  background: var(--color-bg-subtle);
-  border: none;
-  border-radius: 12px;
-  font-family:
-    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-  font-size: 14px;
-  color: var(--color-text-primary);
-  max-height: 300px;
-  overflow-y: auto;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.ai-tool-output-pre {
-  padding: 12px 16px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
-}
-
-/* ── AI reasoning block (model thinking, collapsible like the tool group) ── */
-
-/* Like the tool group, this app renders the block BEFORE the reply text, so the
+/* ── AI reasoning block (model thinking, collapsible like the tool group) ── */ /* Like the tool group, this app renders the block BEFORE the reply text, so the
    gap to the surrounding content comes from margin-bottom, not margin-top. */
 .ai-reasoning {
   display: flex;
@@ -3695,7 +3290,6 @@ button {
 .ai-reasoning-body.open .ai-reasoning-body-inner {
   padding: 4px 0 8px 8px;
 }
-
 /* the streamed thinking text: same quiet gray card as tool output */
 .ai-reasoning-pre {
   background: var(--color-bg-subtle);
@@ -3713,13 +3307,10 @@ button {
   word-break: break-word;
   line-height: 1.5;
 }
-
 /* ── Print container: hidden on screen, the only thing shown when printing ── */
-
 .pdf-print-root {
   display: none;
 }
-
 @media print {
   html,
   body {
@@ -3748,10 +3339,7 @@ button {
     break-before: page;
   }
 }
-
-/* ── AI sidebar (aligned with docs/sheets panel language) ── */
-
-/* dock wrapper: its width animates between the panel and the 34px collapsed rail
+/* ── AI sidebar (aligned with docs/sheets panel language) ── */ /* dock wrapper: its width animates between the panel and the 34px collapsed rail
  * (docs-parity 180ms ease); the panel inside keeps its natural width and is clipped */
 .ai-dock {
   display: flex;
@@ -3765,34 +3353,28 @@ button {
 .ai-dock.collapsed {
   width: 34px;
 }
-
 /* "show the AI sidebar" off and panel closed: no rail, no sliver */
 .ai-dock.collapsed.ai-dock-off {
   width: 0;
 }
-
 /* while dragging the resizer, follow the pointer without easing */
 .ai-dock:has(.ai-panel-resizing) {
   transition: none;
 }
-
 /* the panel stays mounted (chat history survives) but hidden while collapsed */
 .ai-dock.collapsed .copilot {
   display: none;
 }
-
 /* the rail stretches to fill the dock while the width animates */
 .ai-dock .ai-rail {
   flex: 1;
   width: auto;
 }
-
 @media (prefers-reduced-motion: reduce) {
   .ai-dock {
     transition: none;
   }
 }
-
 /* collapsed AI sidebar: thin rail on the left edge (same as docs) */
 .ai-rail {
   display: flex;
@@ -3828,43 +3410,6 @@ button {
   font-family: var(--gs-font-sans);
   color: var(--color-text-primary);
 }
-
-/* drag handle on the panel's right edge — resize the panel horizontally */
-.ai-panel-resizer {
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 6px;
-  cursor: col-resize;
-  z-index: 20;
-  background: transparent;
-}
-
-/* while dragging: keep the col-resize cursor everywhere, no text selection */
-.ai-panel-resizing {
-  cursor: col-resize;
-  user-select: none;
-}
-
-.ai-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px 10px 14px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.ai-panel-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-}
-
 /* Genspark brand logo (shared by the collapsed entry and the AI panel title) */
 .genspark-badge {
   display: block;
@@ -3872,88 +3417,6 @@ button {
   height: 22px;
   border-radius: 50%;
 }
-
-.ai-panel-title .genspark-badge {
-  width: 18px;
-  height: 18px;
-}
-
-.ai-panel-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.ai-header-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  background: none;
-  border-radius: 6px;
-  color: var(--text-dim);
-  padding: 0;
-  cursor: pointer;
-}
-
-.ai-header-btn:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.ai-chat {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  /* uniform 16px flex gap between blocks, messages carry no margin */
-  gap: 16px;
-  overflow-y: auto;
-  padding: 32px 16px;
-  font-family:
-    'Arial',
-    'Inter',
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    'Helvetica Neue',
-    sans-serif;
-}
-
-/* Boundary between the restored transcript and the live turn */
-.ai-history-sep {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 30px;
-  font-size: 14px;
-  color: var(--color-text-tertiary);
-}
-
-.ai-chat-empty {
-  margin-top: 36px;
-  padding: 0 10px;
-  text-align: center;
-  font-family: var(--gs-font-sans);
-}
-
-.ai-chat-empty-title {
-  font-size: var(--text-body-lg);
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin-bottom: 8px;
-}
-
-.ai-chat-empty-body {
-  color: var(--color-text-secondary);
-  font-size: var(--text-small);
-  font-weight: 400;
-  line-height: 1.5;
-}
-
 /* Starter pills: same metrics as the slides .ai-starter list (stacked, centered) */
 .ai-quick-actions {
   display: flex;
@@ -3985,88 +3448,10 @@ button {
   filter: brightness(0.88);
 }
 
-/* Chat messages (scaled to the 14px panel): user = gray pill, AI = plain text without a bubble, no accent colors */
-.ai-msg {
-  position: relative;
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-}
-
-/* User pill: gray, fully rounded (no tail) */
-.ai-msg-user {
-  align-self: flex-end;
-  color: var(--color-text-primary);
-  background: var(--color-bg-subtle);
-  padding: 8px 16px;
-  border-radius: 14px;
-  max-width: 80%;
-  line-height: 1.5;
-}
-
-.ai-msg-assistant {
-  align-self: stretch;
-  border: none;
-  background: none;
-  padding: 0;
-  max-width: 100%;
-  color: var(--color-text-primary);
-  white-space: normal;
-}
-
 .ai-msg-error {
   border-color: var(--pdf-error-border);
   color: var(--pdf-error);
 }
-
-.ai-md p,
-.ai-md ul,
-.ai-md ol {
-  margin: 0 0 16px;
-}
-
-.ai-md :last-child {
-  margin-bottom: 0;
-}
-
-/* blank markdown paragraphs would each eat a 16px margin — the stream never renders them */
-.ai-md p:empty {
-  display: none;
-}
-
-.ai-md .ai-md-h {
-  font-weight: 700;
-  line-height: 1.3;
-  margin: 20px 0 8px;
-}
-
-.ai-md .ai-md-h:first-child {
-  margin-top: 0;
-}
-
-.ai-md ul,
-.ai-md ol {
-  margin-bottom: 20px;
-  padding-left: 20px;
-}
-
-.ai-md li {
-  margin-left: 20px;
-  line-height: 28px;
-}
-
-/* inline code: neutral gray chip (deliberately not red), 2px below body size */
-.ai-md code {
-  border-radius: 4px;
-  padding: 1px 6px;
-  background: var(--color-bg-subtle);
-  color: var(--color-text-secondary);
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 14px;
-}
-
 /* in-answer page citations: click scrolls the reading view to the page */
 .ai-md .ai-md-nav {
   color: var(--accent);
@@ -4079,36 +3464,6 @@ button {
   text-decoration-style: solid;
 }
 
-/* hover actions under assistant messages (copy):
- * borderless 30px icon buttons, radius 8, hover = subtle gray fill (docs parity) */
-.ai-msg-toolbar {
-  display: flex;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.ai-msg-tool-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  height: 30px;
-  min-width: 30px;
-  padding: 5px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background-color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ai-msg-tool-btn svg {
-  width: 20px;
-  height: 20px;
-}
-
 .ai-msg-tool-btn:hover:not(:disabled) {
   background: var(--color-bg-subtle);
 }
@@ -4117,24 +3472,7 @@ button {
   opacity: 0.45;
   cursor: default;
 }
-
-.ai-msg-tool-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--pdf-focus-ring);
-}
-
-.ai-msg-tool-btn {
-  position: relative;
-}
-
-/* Global press feedback */
-.ai-msg-tool-btn:active {
-  filter: brightness(0.88);
-  transform: scale(0.98);
-}
-
 /* ---- OCR text layer on scanned pages: invisible but selectable ---- */
-
 .pdf-ocr-layer {
   position: absolute;
   inset: 0;
@@ -4149,9 +3487,7 @@ button {
   cursor: text;
   transform-origin: 0 0;
 }
-
 /* ---- Ask-AI entry on the markup bar + its anchored popover ---- */
-
 .pdf-sel-popup-sep {
   width: 1px;
   align-self: stretch;
@@ -4166,19 +3502,6 @@ button {
   font-size: 14px;
   font-weight: 500;
   color: var(--color-ai-action);
-}
-
-.ai-ask-pop {
-  position: fixed;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-12);
-  background: var(--surface);
-  box-shadow: var(--pdf-shadow-popup);
 }
 
 .ai-ask-pop-close {
@@ -4207,109 +3530,9 @@ button {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-
-.ai-ask-pop-title {
-  padding-right: 24px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.ai-ask-pop-sub {
-  margin-top: -4px;
-  font-size: 11.5px;
-  color: var(--text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ai-ask-pop-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-8);
-  background: var(--color-bg-page);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 13px;
-  outline: none;
-}
-
-.ai-ask-pop-input:focus {
-  border-color: var(--accent);
-}
-
-.ai-ask-pop-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.ai-ask-chip {
-  padding: 3px 9px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 11.5px;
-  cursor: pointer;
-}
-
-.ai-ask-chip:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.ai-ask-pop-foot {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.ai-ask-confirm {
-  padding: 5px 12px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-6);
-  background: var(--color-ai-action);
-  color: var(--color-ai-action-text);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.ai-ask-confirm:hover:not(:disabled) {
-  background: var(--color-ai-action-hover);
-}
-
-.ai-ask-confirm:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
 /* ---- selection scope chip in the AI composer header (same look as docs/markdown) ---- */
-
 .ai-scope-row {
   margin-bottom: 7px;
-}
-
-.ai-scope-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: var(--radius-30);
-  background: var(--accent-soft);
-  font-size: 11.5px;
-  color: var(--accent-dark);
-  font-weight: 500;
-}
-
-.ai-scope-hint::before {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
 }
 
 .ai-scope-hint .ai-scope-label,
@@ -4346,248 +3569,7 @@ button {
   white-space: pre-wrap;
   word-break: break-word;
 }
-
-/* Thinking indicator: shimmer label above two grow/shrink dots */
-.ai-typing {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 4px 0;
-}
-
-.ai-typing-label {
-  display: inline-block;
-  position: relative;
-  font-size: 14px;
-  line-height: 1;
-  letter-spacing: 0.01em;
-  color: var(--pdf-shimmer-base);
-  -webkit-text-fill-color: transparent;
-  background: var(--pdf-shimmer-base)
-    linear-gradient(
-      to left,
-      var(--pdf-shimmer-base),
-      var(--pdf-shimmer-hi) 50%,
-      var(--pdf-shimmer-base)
-    );
-  background-clip: text;
-  -webkit-background-clip: text;
-  background-repeat: no-repeat;
-  background-size: 70% 100%;
-  animation: ai-thinking-shimmer 1.2s infinite alternate linear;
-}
-
-.ai-typing-elapsed {
-  font-variant-numeric: tabular-nums;
-}
-
-@keyframes ai-thinking-shimmer {
-  0% {
-    background-position: -100% top;
-  }
-  100% {
-    background-position: 250% top;
-  }
-}
-
-.ai-typing-dots {
-  height: 12px;
-  display: flex;
-  gap: 2px;
-}
-
-.ai-typing-dot-slot {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 12px;
-}
-
-.ai-typing-dot-grow,
-.ai-typing-dot-shrink {
-  background: var(--color-brand-secondary);
-  border-radius: 50%;
-}
-
-.ai-typing-dot-grow {
-  animation: ai-dot-grow 2s infinite;
-}
-
-.ai-typing-dot-shrink {
-  animation: ai-dot-shrink 2s infinite;
-}
-
-@keyframes ai-dot-grow {
-  0%,
-  100% {
-    width: 4px;
-    height: 4px;
-    opacity: 0.45;
-  }
-  50% {
-    width: 12px;
-    height: 12px;
-    opacity: 1;
-  }
-}
-
-@keyframes ai-dot-shrink {
-  0%,
-  100% {
-    width: 12px;
-    height: 12px;
-    opacity: 1;
-  }
-  50% {
-    width: 4px;
-    height: 4px;
-    opacity: 0.45;
-  }
-}
-
-/* streaming caret at the tail of streaming assistant text */
-.ai-msg-streaming .ai-md > :last-child::after {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 1em;
-  margin-left: 2px;
-  border-radius: 1px;
-  background: var(--color-text-secondary);
-  vertical-align: text-bottom;
-  animation: ai-caret-blink 900ms steps(1, end) infinite;
-}
-
-@keyframes ai-caret-blink {
-  0%,
-  50% {
-    opacity: 1;
-  }
-  51%,
-  100% {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ai-typing-label,
-  .ai-msg-streaming .ai-md > :last-child::after {
-    animation: none;
-  }
-}
-
-/* Composer floats over the chat scroll area — no top border (agent-shell §4.6) */
-.ai-composer {
-  border-top: none;
-  padding: 8px 12px 12px;
-  background: var(--color-bg-page);
-  font-family: var(--gs-font-sans);
-}
-
-/* composer card — 16px radius, default border, production float shadow */
-.ai-input-box {
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-16);
-  background: var(--color-bg-page);
-  box-shadow: var(--pdf-shadow-composer);
-  transition:
-    border-color var(--transition-fast),
-    box-shadow var(--transition-fast);
-}
-
-/* textarea: 16px / 24px fixed line-height (chat body size), auto-grow band
- * (resting height matches the other AI panels, 25% taller than default) */
-.ai-input-box textarea {
-  display: block;
-  width: 100%;
-  resize: none;
-  border: none;
-  background: none;
-  border-radius: var(--radius-16) var(--radius-16) 0 0;
-  /* vertical gaps live on margin, not padding: textarea padding scrolls away
-   * with the content, so clipped lines would sit flush against chips/footer */
-  padding: 0 14px;
-  margin: 12px 0 4px;
-  font-size: 14px;
-  font-family: inherit;
-  line-height: 24px;
-  outline: none;
-  color: var(--color-text-primary);
-  min-height: 48px;
-  max-height: 168px;
-  overflow-y: auto;
-}
-
-.ai-input-box textarea::placeholder {
-  color: var(--color-text-tertiary);
-}
-
-.ai-input-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px 8px 10px;
-}
-
-.ai-input-hint {
-  font-size: var(--text-caption);
-  color: var(--color-text-tertiary);
-  user-select: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* icon-only enter key: transparent button chrome, visuals come from brand-supplied PNGs
- * (gray arrow = disabled, black arrow = enabled), 36×36, same as the other AI panels */
-.ai-send-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  margin-left: auto;
-  flex-shrink: 0;
-  border: none;
-  border-radius: 35%;
-  background: transparent;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.ai-send-btn img {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.ai-send-btn:hover:not(:disabled) {
-  filter: brightness(0.92);
-}
-
-.ai-send-btn:active:not(:disabled) {
-  filter: brightness(0.88);
-  transform: scale(0.98);
-}
-
-.ai-send-btn:disabled {
-  cursor: default;
-}
-
-/* Stop button while generating: brand-supplied art (white square on black), transparent button chrome */
-.ai-send-btn.ai-stop-btn {
-  background: transparent;
-}
-
-.ai-send-btn.ai-stop-btn:hover {
-  filter: brightness(0.92);
-}
-
-/* ── pdfjs text layer (select/copy); structure requirements per pdfjs TextLayer ── */
-
-/* Matches pdf.js's official text_layer.css: spans laid out in unrotated page space,
+/* ── pdfjs text layer (select/copy); structure requirements per pdfjs TextLayer ── */ /* Matches pdf.js's official text_layer.css: spans laid out in unrotated page space,
    whole layer rotated via data-main-rotation; font size/scale driven by --font-height/--scale-x vars */
 .textLayer {
   --min-font-size: 1;
@@ -4642,7 +3624,6 @@ button {
 .textLayer span::selection {
   background: var(--pdf-text-selection);
 }
-
 /* pdfjs uses endOfContent to carry cross-page selection */
 .textLayer .endOfContent {
   display: block;
@@ -4675,7 +3656,6 @@ button {
 .ai-retry-btn:hover {
   background: var(--pdf-error-bg-hover);
 }
-
 /* File-operation confirmation card: ends the stream while the run waits for the user */
 .ai-confirm-card {
   display: flex;
@@ -4708,9 +3688,7 @@ button {
   gap: 8px;
   margin-top: 4px;
 }
-
 /* ================= status bar (unified chrome shared with docs/sheets/slides) ================= */
-
 .status-bar {
   flex-shrink: 0;
   display: flex;
@@ -4770,7 +3748,6 @@ button {
   min-width: 38px;
   text-align: right;
 }
-
 /* body row (AI dock + content column) — the status bar spans only the content
    column so the dock runs the full height of the window */
 .app-main {
@@ -4785,9 +3762,7 @@ button {
   flex: 1;
   min-width: 0;
 }
-
 /* ── Digital signatures: banner, panel, certificate dialog ── */
-
 .pdf-sig-banner {
   display: flex;
   align-items: center;
