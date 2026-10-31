@@ -470,18 +470,37 @@ async function flushAsync(): Promise<void> {
 
 /** right-click the empty surface: the OS-grade menu with its submenus */
 async function surfaceContextMenu(): Promise<void> {
+  await surfaceContextMenuAt(300, 300)
+}
+
+/** right-click the empty surface at a chosen point (for edge placement) */
+async function surfaceContextMenuAt(x: number, y: number): Promise<void> {
   await act(async () => {
     host.querySelector('.desktop-surface')!.dispatchEvent(
       new MouseEvent('contextmenu', {
         bubbles: true,
         cancelable: true,
-        clientX: 300,
-        clientY: 300,
+        clientX: x,
+        clientY: y,
       }),
     )
     await Promise.resolve()
   })
 }
+
+/** a keydown at whatever the menu currently holds focused, the way a user's
+ *  keystroke arrives (at the focused button, bubbling to the menu) */
+async function menuKey(key: string): Promise<void> {
+  const el = document.activeElement ?? host
+  await act(async () => {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    await Promise.resolve()
+  })
+}
+
+/** the focused menu button's label, for arrow-walk assertions */
+const focusedMenuLabel = () =>
+  document.activeElement instanceof HTMLElement ? document.activeElement.textContent : null
 
 /** open the wallpaper center off the surface menu, thumbnails fetched */
 async function openWallpaperCenter(): Promise<void> {
@@ -936,6 +955,221 @@ describe('DesktopView — context menu', () => {
     expect(saves).toHaveLength(1)
     expect(saves[0]).toEqual({ positions: {} })
   })
+
+  it('a menu that opens is keyboard-reachable at once: focus lands on the first item', async () => {
+    await render()
+    await contextMenu('alpha.docx')
+    expect(focusedMenuLabel()).toBe('Open')
+    // and the arrows walk the items instead of the icon grid behind them
+    await menuKey('ArrowDown')
+    expect(focusedMenuLabel()).toBe('Reveal in folder')
+    await menuKey('End')
+    expect(focusedMenuLabel()).toBe('Reset position')
+    await menuKey('Home')
+    expect(focusedMenuLabel()).toBe('Open')
+    // Enter keeps the browser's own button activation (not swallowed)
+    const el = document.activeElement as HTMLElement
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    el.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+  })
+
+  it('an arrow key pressed in an open menu does not move the icon selection', async () => {
+    await render()
+    await contextMenu('alpha.docx')
+    expect(host.querySelector('.desktop-icon.selected')).toBeTruthy()
+    // assert after each single press: a leaked ArrowDown lands on the next
+    // icon, and a Down+Up pair that cancels out would hide the leak
+    await menuKey('ArrowDown')
+    expect(host.querySelectorAll('.desktop-icon.selected')).toHaveLength(1)
+    expect(iconOf('alpha.docx').closest('li')!.className).toContain('selected')
+    await menuKey('ArrowUp')
+    expect(host.querySelectorAll('.desktop-icon.selected')).toHaveLength(1)
+    expect(iconOf('alpha.docx').closest('li')!.className).toContain('selected')
+    // the horizontal arrows are swallowed too — leaked, they jump the
+    // selection by a whole column (the icon menu has no submenu rows)
+    await menuKey('ArrowRight')
+    expect(host.querySelectorAll('.desktop-icon.selected')).toHaveLength(1)
+    expect(iconOf('alpha.docx').closest('li')!.className).toContain('selected')
+    await menuKey('ArrowLeft')
+    expect(host.querySelectorAll('.desktop-icon.selected')).toHaveLength(1)
+    expect(iconOf('alpha.docx').closest('li')!.className).toContain('selected')
+  })
+
+  it('closing the menu returns focus to the element that had it when the menu opened', async () => {
+    await render()
+    iconOf('alpha.docx').focus()
+    await contextMenu('alpha.docx')
+    expect(focusedMenuLabel()).toBe('Open')
+    await pressKey('Escape')
+    expect(host.querySelector('.folder-menu')).toBeNull()
+    // the unmount of the focused item would strand focus on <body>; the icon
+    // that opened the menu takes it back
+    expect(document.activeElement).toBe(iconOf('alpha.docx'))
+
+    iconOf('beta.xlsx').focus()
+    await surfaceContextMenu()
+    expect(focusedMenuLabel()).toBe('New')
+    await pressKey('Escape')
+    expect(host.querySelector('.desktop-menu')).toBeNull()
+    expect(document.activeElement).toBe(iconOf('beta.xlsx'))
+  })
+
+  it('Tab dismisses the open menu instead of stranding it behind a dead keyboard', async () => {
+    await render()
+    await contextMenu('alpha.docx')
+    expect(focusedMenuLabel()).toBe('Open')
+    await menuKey('Tab')
+    expect(host.querySelector('.folder-menu')).toBeNull()
+    // focus is not restored on the Tab path — the keystroke carries it on
+    expect(document.activeElement).toBe(document.body)
+
+    // focus already outside the menu (a Tab that left it, a press that
+    // blurred it): the window-level Tab still closes it, repairing the
+    // stranded state where every other key is dead
+    await surfaceContextMenu()
+    expect(host.querySelector('.desktop-menu')).toBeTruthy()
+    document.body.focus()
+    await act(async () => {
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+    })
+    expect(host.querySelector('.desktop-menu')).toBeNull()
+  })
+
+  it('letters do not type-ahead into the grid while a menu is open', async () => {
+    await render()
+    await surfaceContextMenu()
+    // 'a' would jump the selection to the first matching icon if the grid
+    // still owned the keys
+    await pressKey('a')
+    expect(host.querySelector('.desktop-icon.selected')).toBeNull()
+    // with the menu closed the desktop owns the keyboard again
+    await pressKey('Escape')
+    await pressKey('a')
+    expect(host.querySelector('.desktop-icon.selected')).toBeTruthy()
+  })
+
+  it('Cmd/Ctrl+A does not select behind an open menu: the menu owns the keyboard', async () => {
+    await render()
+    await contextMenu('alpha.docx')
+    // the menus render inside the surface, so their focused items read as
+    // desktop-owned — without the guard this would select the whole grid
+    await pressKey('a', { metaKey: true })
+    expect(selectedLabels()).toEqual(['alpha.docx'])
+    // the menu closed, the desktop owns the keyboard again: select-all works
+    await pressKey('Escape')
+    await pressKey('a', { metaKey: true })
+    expect(selectedLabels()).toHaveLength(15)
+  })
+
+  it('a right-click that swaps the open surface menu for an icon menu keeps the invoker', async () => {
+    await render()
+    iconOf('beta.xlsx').focus()
+    await surfaceContextMenu()
+    expect(focusedMenuLabel()).toBe('New')
+    // right-click an icon while the surface menu is open: the two menus swap
+    // in one commit, and the swap's open effect finds focus already fallen to
+    // <body> (the closing menu's focused item unmounted). The invoker the
+    // surface menu captured must survive that — overwriting it with <body>
+    // would strand focus there when the icon menu closes
+    await contextMenu('alpha.docx')
+    expect(focusedMenuLabel()).toBe('Open')
+    await pressKey('Escape')
+    expect(host.querySelector('.folder-menu')).toBeNull()
+    expect(document.activeElement).toBe(iconOf('beta.xlsx'))
+  })
+
+  it('the surface menu walks: the inline-end arrow opens the flyout and takes focus into it', async () => {
+    await render()
+    await surfaceContextMenu()
+    expect(focusedMenuLabel()).toBe('New')
+    await menuKey('ArrowRight')
+    expect(submenuButtons()).toEqual(['Docs', 'Sheets', 'Slides', 'PDF', 'Markdown', 'Web Page'])
+    expect(focusedMenuLabel()).toBe('Docs')
+    // ArrowLeft from inside the flyout: it closes, focus returns to its trigger
+    await menuKey('ArrowLeft')
+    expect(host.querySelector('.desktop-submenu')).toBeNull()
+    expect(focusedMenuLabel()).toBe('New')
+    // reopen and walk the whole tree, out of the flyout into the rows below
+    await menuKey('ArrowRight')
+    await menuKey('ArrowDown')
+    expect(focusedMenuLabel()).toBe('Sheets')
+    for (let i = 0; i < 5; i++) await menuKey('ArrowDown')
+    expect(focusedMenuLabel()).toBe('Sort by')
+    // ArrowLeft from outside the flyout still closes it; focus stays put
+    await menuKey('ArrowLeft')
+    expect(host.querySelector('.desktop-submenu')).toBeNull()
+    expect(focusedMenuLabel()).toBe('Sort by')
+    // the wrap can land focus back on a trigger while its flyout is open:
+    // the inline-end arrow steps into it instead of no-oping
+    await menuKey('ArrowRight')
+    await menuKey('Home')
+    expect(focusedMenuLabel()).toBe('New')
+    await menuKey('ArrowRight') // switches the flyout from 'sort' to 'new'
+    expect(focusedMenuLabel()).toBe('Docs')
+    await menuKey('ArrowUp')
+    expect(focusedMenuLabel()).toBe('New')
+    expect(host.querySelector('.desktop-submenu')).toBeTruthy()
+    await menuKey('ArrowRight') // same-value: focus moves in directly
+    expect(focusedMenuLabel()).toBe('Docs')
+  })
+
+  it('Escape tiers: the flyout first, the menu second, the selection after', async () => {
+    await render()
+    await contextMenu('alpha.docx') // selection set by the right-click
+    await pressKey('Escape')
+    expect(host.querySelector('.folder-menu')).toBeNull()
+    expect(iconOf('alpha.docx').closest('li')!.className).toContain('selected')
+    await pressKey('Escape')
+    expect(host.querySelector('.desktop-icon.selected')).toBeNull()
+
+    await surfaceContextMenu()
+    await menuKey('ArrowRight')
+    expect(host.querySelector('.desktop-submenu')).toBeTruthy()
+    await menuKey('Escape')
+    // only the flyout closed; the menu and its focus survive
+    expect(host.querySelector('.desktop-submenu')).toBeNull()
+    expect(host.querySelector('.desktop-menu')).toBeTruthy()
+    expect(focusedMenuLabel()).toBe('New')
+    await menuKey('Escape')
+    expect(host.querySelector('.desktop-menu')).toBeNull()
+  })
+
+  it('the flyout flips only at the edge its opening side runs out of room on', async () => {
+    // jsdom has no layout: give the menu and the viewport fixed sizes
+    const proto = HTMLElement.prototype as { offsetWidth?: number }
+    const origOffset = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')
+    Object.defineProperty(proto, 'offsetWidth', { get: () => 200, configurable: true })
+    Object.defineProperty(document.documentElement, 'clientWidth', {
+      get: () => 1000,
+      configurable: true,
+    })
+    try {
+      await render()
+      // ltr: the flyout opens rightward — room at x=300, none at x=700
+      await surfaceContextMenuAt(300, 300)
+      expect(host.querySelector('.desktop-menu')!.classList.contains('flip-sub')).toBe(false)
+      await pressKey('Escape')
+      await surfaceContextMenuAt(700, 300)
+      expect(host.querySelector('.desktop-menu')!.classList.contains('flip-sub')).toBe(true)
+      await pressKey('Escape')
+
+      // rtl: the flyout opens leftward — none at x=100, room at x=700
+      await render('ar')
+      await surfaceContextMenuAt(100, 300)
+      expect(host.querySelector('.desktop-menu')!.classList.contains('flip-sub')).toBe(true)
+      await pressKey('Escape')
+      await surfaceContextMenuAt(700, 300)
+      expect(host.querySelector('.desktop-menu')!.classList.contains('flip-sub')).toBe(false)
+    } finally {
+      delete (document.documentElement as { clientWidth?: number }).clientWidth
+      if (origOffset) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', origOffset)
+      else delete proto.offsetWidth
+    }
+  })
 })
 
 describe('desktop strings — every UI language', () => {
@@ -998,6 +1232,9 @@ describe('DesktopView — the empty-surface menu', () => {
     await surfaceContextMenu()
     await openSurfaceSubmenu('New')
     expect(submenuButtons()).toEqual(['Docs', 'Sheets', 'Slides', 'PDF', 'Markdown', 'Web Page'])
+    // the click-opened flyout takes focus on its first item too — the same
+    // effect serves the mouse path, not just the inline-end arrow
+    expect(focusedMenuLabel()).toBe('Docs')
     await clickSurfaceButton('Sheets')
     expect(newSheet).toHaveBeenCalledTimes(1)
     expect(host.querySelector('.desktop-menu')).toBeNull()
@@ -2175,6 +2412,28 @@ describe('DesktopView — the multi-selection menu', () => {
     expect(host.querySelector('.desktop-menu-multi')).toBeNull()
     expect(menuButtons()).toEqual(['Open', 'Reveal in folder', 'Properties', 'Reset position'])
     expect(selectedLabels()).toEqual(['gamma.pdf'])
+  })
+
+  it('the batch menu walks by keyboard: the arrows step the rows and skip the disabled', async () => {
+    await render()
+    await cmdClick('alpha.docx')
+    await cmdClick('beta.xlsx')
+    await contextMenu('beta.xlsx')
+    expect(focusedMenuLabel()).toBe('Open')
+    await menuKey('ArrowDown')
+    expect(focusedMenuLabel()).toBe('Star')
+    await menuKey('ArrowDown')
+    expect(focusedMenuLabel()).toBe('Reveal in folder')
+    // recents are not aliases: Remove is disabled, and the walk passes over
+    // it instead of stalling the arrows on the row above
+    await menuKey('ArrowDown')
+    expect(focusedMenuLabel()).toBe('Ask AI')
+    // the wrap skips it too, back to the top
+    await menuKey('ArrowDown')
+    expect(focusedMenuLabel()).toBe('Open')
+    // Tab dismisses the batch menu through its own handler, like the others
+    await menuKey('Tab')
+    expect(host.querySelector('.desktop-menu-multi')).toBeNull()
   })
 
   it('Open runs every selected icon', async () => {

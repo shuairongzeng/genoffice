@@ -688,11 +688,12 @@
 }
 
 /* the flyout chevron rides at the row's far end, out of the label's text
-   content so tests and screen readers see only the words */
+   content so tests and screen readers see only the words. inline-end floats
+   the right in ltr and the left in rtl; the glyph mirrors with the dir */
 .desktop-menu-row > button::after {
   content: '▸';
-  float: right;
-  margin-left: 16px;
+  float: inline-end;
+  margin-inline-start: 16px;
   color: var(--text-tertiary);
 }
 
@@ -700,13 +701,26 @@
   content: '▾';
 }
 
-/* one level of submenu, flying out to the right of its row. It borrows the
-   icon menu's visual language (home.css's .folder-menu) but positions
-   absolutely, nested inside the row; the root's .flip-sub class mirrors it
-   to the left when the parent menu sits at the viewport's right edge. */
+/* rtl mirrors the chevron: the flyout opens to the reading flow's end, which
+   in rtl is the row's left */
+[dir='rtl'] .desktop-menu-row > button::after {
+  content: '◂';
+}
+
+/* ...but the open-state glyph is not mirrored: the expanded '▾' rule and the
+   rtl mirror tie on specificity, so the rtl form restates it — without this,
+   the later rtl rule would win the cascade and hide the open affordance */
+[dir='rtl'] .desktop-menu-row > button[aria-expanded='true']::after {
+  content: '▾';
+}
+
+/* one level of submenu, flying out toward the reading flow's end (right of
+   the row in ltr, left in rtl). It borrows the icon menu's visual language
+   (home.css's .folder-menu) but positions absolutely, nested inside the row;
+   the root's .flip-sub class mirrors it when that side has no room. */
 .desktop-submenu {
   position: absolute;
-  left: calc(100% - 4px);
+  inset-inline-start: calc(100% - 4px);
   top: -5px;
   z-index: 31;
   min-width: 160px;
@@ -719,8 +733,8 @@
 }
 
 .desktop-menu.flip-sub .desktop-submenu {
-  left: auto;
-  right: calc(100% - 4px);
+  inset-inline-start: auto;
+  inset-inline-end: calc(100% - 4px);
 }
 
 .desktop-submenu button {
@@ -732,7 +746,7 @@
   background: none;
   font: inherit;
   font-size: 14px;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   white-space: nowrap;
   color: var(--text);
@@ -747,7 +761,7 @@
   content: '✓';
   display: inline-block;
   width: 18px;
-  margin-left: -6px;
+  margin-inline-start: -6px;
   color: var(--accent);
   font-weight: 600;
 }
