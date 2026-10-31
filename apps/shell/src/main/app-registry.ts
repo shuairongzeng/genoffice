@@ -156,9 +156,14 @@ export interface AppDescriptor {
   /** what the MCP open-documents tool can read/save/discard for this app */
   agentControl?: AgentDocumentIo
   /**
-   * This app ships its own plain Ctrl/Cmd+K binding (docs: Word's hyperlink
-   * dialog) and keeps it: the shell's palette summon yields inside it — the
-   * palette stays reachable through the global hotkey and the tray.
+   * The plain-⌘K chord treaty (issue #56 P0 #3): an app that ships its own
+   * first-class plain Ctrl/Cmd+K binding declares it here, and the shell's
+   * palette summon yields inside that app's views — the palette stays
+   * reachable through the global hotkey, the tray and Home either way. The
+   * declaration is the whole treaty: owners are docs (Word's insert-hyperlink
+   * dialog) and slides (the AI annotation popover on the selection); every
+   * other surface is the palette's. Adding an owner is a deliberate,
+   * census-tested act, not a pairwise exception.
    */
   ownsPlainCtrlK?: boolean
 }
@@ -236,6 +241,11 @@ export const documentApps: readonly AppDescriptor[] = [
     isDirty: (wc) => slidesIsDirty(wc.id),
     requestClose: requestSlidesClose,
     installMenu: installSlidesMenu,
+    // Ctrl/Cmd+K is slides' own shipped binding: the AI annotation popover on
+    // the selection (keyboard-actions.ts). Before the treaty it was dead code —
+    // the shell's palette intercept ran first and swallowed the key — so the
+    // renderer's promise and the shipped behavior now agree
+    ownsPlainCtrlK: true,
     claimActiveTarget: (getActive) => {
       const wc = getActive()
       if (wc) setActiveSlidesWebContents(wc)

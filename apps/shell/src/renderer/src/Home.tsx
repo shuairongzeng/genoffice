@@ -278,7 +278,18 @@ export function Home() {
   const [settingsRequest, setSettingsRequest] = useState<SettingsTarget | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  useEffect(() => window.aiOffice.onPaletteOpen?.(() => setPaletteOpen(true)), [])
+  // the palette's mount mode: 'files' is the Ctrl/Cmd+P quick-open shape, and
+  // the shell's Ctrl/Cmd+K summon (tab views, global hotkey, tray) is always
+  // the full registry — every open path stamps the scope it opened with
+  const [paletteScope, setPaletteScope] = useState<'files' | undefined>(undefined)
+  useEffect(
+    () =>
+      window.aiOffice.onPaletteOpen?.(() => {
+        setPaletteScope(undefined)
+        setPaletteOpen(true)
+      }),
+    [],
+  )
   // a tab was pinned to the desktop: main asks Home to show the surface the
   // widget lives on (the pin action lands the shell on this view)
   useEffect(
@@ -660,12 +671,26 @@ export function Home() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
-      if (event.key !== 'f' && event.key !== 'p') return
-      const input = searchInputRef.current
-      if (!input) return
-      event.preventDefault()
-      input.focus()
-      input.select()
+      // the chord treaty (issue #56 P0 #3): Ctrl/Cmd+F is "find in the active
+      // scope" everywhere, and Home's scope is the file search
+      if (event.key === 'f') {
+        const input = searchInputRef.current
+        if (!input) return
+        event.preventDefault()
+        input.focus()
+        input.select()
+        return
+      }
+      // Ctrl/Cmd+P is print in every editor (their menus carry the
+      // accelerator); Home has nothing to print, so instead of silently
+      // stealing the chord for search focus — the muscle-memory crossfire the
+      // treaty closes — the chord takes VS Code's meaning here: the palette
+      // in its file scope
+      if (event.key === 'p') {
+        event.preventDefault()
+        setPaletteScope('files')
+        setPaletteOpen(true)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -2351,6 +2376,7 @@ export function Home() {
           onClose={() => setPaletteOpen(false)}
           onAskAi={submitAskQuery}
           onOpenSettings={openSettings}
+          scope={paletteScope}
         />
       )}
     </div>

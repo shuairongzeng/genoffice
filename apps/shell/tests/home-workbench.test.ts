@@ -378,3 +378,79 @@ describe('the strip without the push channel', () => {
     window.aiOfficeTabs = undefined as unknown as Window['aiOfficeTabs']
   })
 })
+
+describe('the chord treaty on Home (issue #56 P0 #3)', () => {
+  let paletteHandler: (() => void) | null = null
+
+  beforeEach(async () => {
+    paletteHandler = null
+    await mountHome({
+      ...baseApi(),
+      // the shell's Ctrl/Cmd+K summon arrives over this channel: capture the
+      // handler so a test can fire it the way the main process does
+      onPaletteOpen: (handler: () => void) => {
+        paletteHandler = handler
+        return () => {
+          paletteHandler = null
+        }
+      },
+    } as Partial<HomeApi>)
+  })
+
+  /** dispatch a window keydown the way a real chord arrives */
+  async function pressKey(key: string, init: KeyboardEventInit = {}): Promise<KeyboardEvent> {
+    const event = new KeyboardEvent('keydown', { key, metaKey: true, cancelable: true, ...init })
+    await act(async () => {
+      window.dispatchEvent(event)
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+    return event
+  }
+
+  it('Ctrl/Cmd+P opens the palette in its file scope, not the search box', async () => {
+    // every editor prints on this chord (their menus carry the accelerator);
+    // Home has nothing to print, so instead of silently stealing it for
+    // search focus — the muscle-memory crossfire the treaty closes — the
+    // chord takes VS Code's meaning: the palette as a quick-open
+    const event = await pressKey('p')
+    expect(event.defaultPrevented).toBe(true)
+    const input = container.querySelector<HTMLInputElement>('.cmd-input')
+    expect(input?.placeholder).toBe('Go to file…')
+    // the document sources answer: the palette's own list carries the
+    // stubbed recent row. Scoped to the palette's row titles because the
+    // Home content column behind the overlay also renders brief.docx —
+    // a container-wide assert would stay green with an empty palette
+    const titles = [...container.querySelectorAll('.cmd-row .cmd-row-title')].map(
+      (el) => el.textContent,
+    )
+    expect(titles).toContain('brief.docx')
+    // the command-shaped sources stood down — no create rows in this mount
+    expect(container.textContent).not.toContain('New document')
+  })
+
+  it("the shell's Ctrl/Cmd+K summon opens the full palette and resets a files open", async () => {
+    await pressKey('p')
+    expect(container.querySelector<HTMLInputElement>('.cmd-input')?.placeholder).toBe('Go to file…')
+    // the summon (tab views, global hotkey, tray) is the full registry even
+    // right after a quick-open: every open path stamps the scope it opened with
+    expect(paletteHandler).toBeTypeOf('function')
+    await act(async () => {
+      paletteHandler?.()
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+    expect(container.querySelector<HTMLInputElement>('.cmd-input')?.placeholder).toBe(
+      'Search files, commands, and skills…',
+    )
+    expect(container.textContent).toContain('New document')
+  })
+
+  it('Ctrl/Cmd+F still focuses the file search — find keeps its Home verb', async () => {
+    // the treaty leaves Ctrl/Cmd+F as "find in the active scope"; Home's
+    // scope is the file search, so the focus-and-select behavior is the
+    // deliberate one, not an accident the ⌘P change swept away
+    const event = await pressKey('f')
+    expect(event.defaultPrevented).toBe(true)
+    const input = container.querySelector<HTMLInputElement>('.file-search input[type="search"]')
+    expect(input).toBe(document.activeElement)
+  })
+})

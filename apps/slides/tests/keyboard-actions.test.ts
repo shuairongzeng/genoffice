@@ -1170,3 +1170,57 @@ describe('Enter / F2 on a selected text shape', () => {
     expect(field.setEditing).not.toHaveBeenCalled()
   })
 })
+
+describe('the plain-⌘K chord (the shell yields it under the chord treaty)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    document.body.innerHTML = ''
+  })
+
+  it('opens the AI annotation popover on the selection', () => {
+    // the binding the treaty now honors (issue #56 P0 #3): the shell's
+    // palette intercept used to swallow plain Ctrl/Cmd+K before it reached
+    // this handler, leaving the branch dead code in the shipped app. The
+    // app descriptor declares the chord (ownsPlainCtrlK), the shell yields,
+    // and this handler answers — this test pins the handler's half of the
+    // contract so the yield never hands the key to a binding that rots away
+    const openAskPopover = vi.fn()
+    const ctx = makeCtx({ selectedIds: ['s1'], openAskPopover })
+    const e = keydown('k')
+    handleGlobalKeydown(ctx, e)
+    expect(e.defaultPrevented).toBe(true)
+    expect(openAskPopover).toHaveBeenCalledTimes(1)
+  })
+
+  it('declines while editing, in a field, or with nothing selected — the popover needs a target', () => {
+    const cases: Array<Record<string, unknown>> = [
+      { editing: { sourceId: 's1' }, selectedIds: ['s1'] },
+      { selectedIds: [] },
+    ]
+    for (const over of cases) {
+      const openAskPopover = vi.fn()
+      const ctx = makeCtx({ ...over, openAskPopover })
+      const e = keydown('k')
+      handleGlobalKeydown(ctx, e)
+      expect(openAskPopover).not.toHaveBeenCalled()
+      expect(e.defaultPrevented).toBe(false)
+    }
+    // a focused text field is the third decline
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    const openAskPopover = vi.fn()
+    const ctx = makeCtx({ selectedIds: ['s1'], openAskPopover })
+    handleGlobalKeydown(ctx, keydown('k'))
+    expect(openAskPopover).not.toHaveBeenCalled()
+  })
+
+  it('the shift variant is not the annotation chord', () => {
+    // the treaty gives the shell only the PLAIN chord; the app's binding is
+    // plain-only too, so Ctrl/Cmd+Shift+K belongs to neither surface
+    const openAskPopover = vi.fn()
+    const ctx = makeCtx({ selectedIds: ['s1'], openAskPopover })
+    handleGlobalKeydown(ctx, keydown('k', { shiftKey: true }))
+    expect(openAskPopover).not.toHaveBeenCalled()
+  })
+})

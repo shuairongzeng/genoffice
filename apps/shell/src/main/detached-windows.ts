@@ -920,7 +920,8 @@ export function createDetachedEditorWindow(options: {
   }
   // the same Ctrl/Cmd+K palette summon a tab view carries, so one app behaves
   // the same in its own window: the chord yields for an app that owns it
-  // (docs' hyperlink dialog) and otherwise summons the shell's palette
+  // under the plain-⌘K treaty (docs' hyperlink dialog, slides' AI annotation)
+  // and otherwise summons the shell's palette
   rec.disposePaletteSummon = installPaletteSummon(
     view.webContents,
     () => appForKind(kind)?.ownsPlainCtrlK === true,

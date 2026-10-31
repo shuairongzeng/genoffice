@@ -195,6 +195,7 @@ vi.mock('../../html/src/main/html-main', () => ({
 }))
 
 import { TabManager } from '../src/main/tab-manager'
+import { documentApps } from '../src/main/app-registry'
 import { HOME_CHANNELS } from '../src/shared/home-api'
 import type { TabKind } from '../src/shared/tabs-api'
 import {
@@ -986,6 +987,18 @@ describe('palette summon (Ctrl/Cmd+K)', () => {
     expect(shellWindow.webContents.send).not.toHaveBeenCalled()
   })
 
+  it('yields plain Ctrl/Cmd+K inside slides (the AI annotation popover)', () => {
+    // the treaty's second owner: slides' shipped binding — annotate the
+    // selection with an AI edit — was dead code because this intercept ran
+    // first and swallowed the key; the descriptor now declares the chord, so
+    // the key reaches the renderer's own handler (issue #56 P0 #3)
+    manager.openSlidesTab()
+    const view = lastCreatedView(createSlidesView)
+    const plain = press(view.webContents, { key: 'k' })
+    expect(plain.preventDefault).not.toHaveBeenCalled()
+    expect(shellWindow.webContents.send).not.toHaveBeenCalled()
+  })
+
   it('summons the palette from a non-owner tab and from the Home chrome', () => {
     manager.openSheetsTab()
     const view = lastCreatedView(createSheetsView)
@@ -1019,6 +1032,19 @@ describe('palette summon (Ctrl/Cmd+K)', () => {
     const docked = press(view.webContents, { key: 'k' })
     expect(docked.preventDefault).toHaveBeenCalled()
     expect(shellWindow.webContents.send).toHaveBeenCalledWith(HOME_CHANNELS.paletteOpen)
+  })
+})
+
+describe('the plain-⌘K chord treaty (issue #56 P0 #3)', () => {
+  it('the owner set is exactly docs and slides — a change is a deliberate act', () => {
+    // the treaty table lives on the app descriptors. A stray owner silently
+    // shrinks the palette's surface; a dropped one strands an app's shipped
+    // binding as dead code again (slides' AI annotation was exactly that).
+    // This census makes either drift a test failure rather than a mystery.
+    expect(documentApps.filter((app) => app.ownsPlainCtrlK).map((app) => app.id)).toEqual([
+      'docs',
+      'slides',
+    ])
   })
 })
 

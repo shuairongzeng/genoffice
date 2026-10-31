@@ -58,13 +58,14 @@ const HOME_ID = 'home'
 
 /**
  * The palette's Ctrl/Cmd+K summon, shared by the shell's tab views and the
- * detached editor windows so the same app behaves the same in both. The chord
- * is only claimed plain: shift/alt variants always belong to the app beneath
- * (Word-style dialog shortcuts), and `ownsPlainCtrlK` lets an app that ships
- * its own plain binding (docs: Word's hyperlink dialog) keep it — the palette
- * stays reachable through the global hotkey and the tray either way. Control
- * combos arrive as rawKeyDown on Windows, keyDown elsewhere. Returns the
- * listener's disposer.
+ * detached editor windows so the same app behaves the same in both. The
+ * chord is only claimed plain: shift/alt variants always belong to the app
+ * beneath (Word-style dialog shortcuts), and the plain-⌘K treaty lets an app
+ * that ships its own plain binding declare it on its descriptor
+ * (`ownsPlainCtrlK` — docs: Word's hyperlink dialog, slides: the AI
+ * annotation popover) and keep it — the palette stays reachable through the
+ * global hotkey, the tray and Home either way. Control combos arrive as
+ * rawKeyDown on Windows, keyDown elsewhere. Returns the listener's disposer.
  */
 export function installPaletteSummon(
   wc: WebContents,
