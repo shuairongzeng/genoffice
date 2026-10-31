@@ -338,9 +338,11 @@ const homeApi: HomeApi = {
   async openAiModelSettings() {
     await ipcRenderer.invoke('ai:open-model-settings')
   },
-  async openPath(path) {
+  async openPath(path, opts) {
     if (typeof path !== 'string' || !path) throw new Error('Invalid path.')
-    await ipcRenderer.invoke(HOME_CHANNELS.openPath, path)
+    // the text target is the search deep link's address half (issue #56): the
+    // main side reveals the first match after the file opens
+    await ipcRenderer.invoke(HOME_CHANNELS.openPath, path, opts?.text)
   },
   async browse() {
     await ipcRenderer.invoke(HOME_CHANNELS.browse)

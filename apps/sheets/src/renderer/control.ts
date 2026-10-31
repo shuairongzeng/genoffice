@@ -1,8 +1,11 @@
 import type { FWorkbook, FWorksheet } from '@univerjs/sheets/facade'
 
+import type { TextRevealOutcome } from './ai/workbook-search'
+
 /** Request/reply the shell relays from `genoffice open --range` and `genoffice selection`. */
 export type ControlRequest =
-  { cmd: 'goto'; target: { kind: string; sheet?: string; range?: string } } | { cmd: 'selection' }
+  | { cmd: 'goto'; target: { kind: string; sheet?: string; range?: string; text?: string } }
+  | { cmd: 'selection' }
 
 export type ControlReply =
   | { status: 'ok'; result: Record<string, unknown> }
@@ -24,11 +27,13 @@ export function splitSheetRange(spec: string): { sheet?: string; range: string }
   return sheet ? { sheet, range } : { range }
 }
 
-export function handleSheetsControl(
+export async function handleSheetsControl(
   req: ControlRequest,
   workbook: FWorkbook | null | undefined,
   fileLoaded: boolean,
-): ControlReply {
+  /** the search deep link's reveal (issue #56): find workbook-wide, land on the first match */
+  gotoText?: (text: string) => Promise<TextRevealOutcome>,
+): Promise<ControlReply> {
   // a pre-warmed spare view has a placeholder workbook mounted before the file is in
   if (!workbook || !fileLoaded) return { status: 'not_ready' }
   if (req.cmd === 'selection') {
@@ -50,7 +55,31 @@ export function handleSheetsControl(
       },
     }
   }
-  const { sheet: sheetName, range: rangeSpec } = req.target
+  const { sheet: sheetName, range: rangeSpec, text } = req.target
+  // the search deep link's target (issue #56): reveal the first text match
+  if (req.target.kind === 'text') {
+    if (!text || !text.trim()) {
+      return {
+        status: 'error',
+        error: { reason: 'invalid_argument', message: 'a text target must not be empty' },
+      }
+    }
+    if (!gotoText) return { status: 'not_ready' }
+    // 'not-ready' keeps the shell's ask loop retrying: the text exists, only
+    // the land (sheet activate / render controllers) is not answerable yet —
+    // the boot window Univer's own restore path defends against too. A find
+    // miss is terminal: retrying cannot conjure the text.
+    const outcome = await gotoText(text)
+    if (outcome === 'revealed') return { status: 'ok', result: { text } }
+    if (outcome === 'not-ready') return { status: 'not_ready' }
+    return {
+      status: 'error',
+      error: {
+        reason: 'target_not_found',
+        message: `"${text}" does not occur in the workbook`,
+      },
+    }
+  }
   const parsed = rangeSpec ? splitSheetRange(rangeSpec) : null
   if (!parsed) {
     return {

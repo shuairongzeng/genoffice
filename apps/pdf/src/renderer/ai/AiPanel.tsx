@@ -938,8 +938,8 @@ export function AiPanel({
     },
   }
   // [name](filenav:///abs/path) citations open the cited file in its own app
-  const fileNav = createFileNav((path) => {
-    void window.pdfApi.openSourcePath(path)
+  const fileNav = createFileNav((path, text) => {
+    void window.pdfApi.openSourcePath(path, text)
   })
 
   const copyMessage = (text: string, idx: number) => {

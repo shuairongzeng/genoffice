@@ -1148,8 +1148,8 @@ export function AiPanel({
     },
   }
   // [name](filenav:///abs/path) citations open the cited file in its own app
-  const fileNav = createFileNav((path) => {
-    void window.desktop.openSourcePath(path)
+  const fileNav = createFileNav((path, text) => {
+    void window.desktop.openSourcePath(path, text)
   })
 
   // follow the stream, but stop yanking once the user scrolls up to read;

@@ -268,6 +268,12 @@ export interface KbSearchHit {
   ext: string
   folder: string
   snippet: string
+  /**
+   * The exact document text of the first matched run, for a cite link that
+   * addresses the match (issue #56). Absent when only the name or folder
+   * matched.
+   */
+  matchText?: string
 }
 
 /** text extraction cache, keyed by path, invalidated by mtime+size */
@@ -349,7 +355,15 @@ export async function searchKnowledgeBase(
   search: (
     q: string,
     limit: number,
-  ) => Promise<ReadonlyArray<{ path: string; name: string; ext: string; snippetText?: string }>>,
+  ) => Promise<
+    ReadonlyArray<{
+      path: string
+      name: string
+      ext: string
+      snippetText?: string
+      matchText?: string
+    }>
+  >,
   query: string,
   scope: KbSearchScope,
   limit: number,
@@ -382,6 +396,9 @@ export async function searchKnowledgeBase(
       ext: hit.ext,
       folder: basename(dirname(hit.path)),
       snippet: hit.snippetText ?? '',
+      // the document text of the first matched run, for a cite that addresses
+      // the match (issue #56); undefined when only the name or folder matched
+      ...(hit.matchText !== undefined && hit.matchText !== '' ? { matchText: hit.matchText } : {}),
     })
     if (out.length >= limit) break
   }

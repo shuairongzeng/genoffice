@@ -142,6 +142,9 @@ export interface HomeFileIpcHost {
   ensureSearchReranker: () => SearchReranker | null
   // routing and new-file creation stay owned by index.ts
   openDocumentPath: (path: string) => boolean
+  /** the search deep link's reveal half (issue #56): after openDocumentPath
+   * opens/focuses the file, jump to the first text match in it */
+  openDocumentAtText: (path: string, text: string) => void
   rememberPendingDir: (kind: string, opts?: NewFileOpts) => void
   newDocTab: () => void
   newSheetTab: () => void | Promise<void>
@@ -322,6 +325,15 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
               name: h.name,
               ext: h.ext,
               snippetText: (h.snippet ?? []).map((part) => part.text).join(''),
+              // the exact text of the first matched run, for a cite that
+              // addresses the match (issue #56). It is the index extraction's
+              // text, so it may differ from what the app's find searches:
+              // whitespace is compacted, docx paragraphs are joined, and xlsx
+              // dates/booleans are rendered (ISO dates, TRUE/FALSE) while the
+              // sheets find matches raw values. Such a target can miss in the
+              // editor — the reveal then degrades to today's plain open, never
+              // to an error
+              matchText: (h.snippet ?? []).find((part) => part.hit)?.text,
             })),
           )
           .catch(() => []),
@@ -518,9 +530,15 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     void host.indexNow([path])
   })
 
-  ipcMain.handle(HOME_CHANNELS.openPath, (_event, path: unknown) => {
+  ipcMain.handle(HOME_CHANNELS.openPath, (_event, path: unknown, text: unknown) => {
     if (typeof path !== 'string' || !path || path.length > 4096) return
     host.openDocumentPath(path)
+    // a search hit carries an address, not just a path (issue #56): after the
+    // open lands, reveal the matched sentence — best-effort, fire-and-forget;
+    // an app with no text reveal opens at the top exactly as before
+    if (typeof text === 'string' && text.trim() && text.length <= 500) {
+      host.openDocumentAtText(path, text)
+    }
     // the opened file enters the index now (a first sight outside the roots
     // would wait for the next scan); edits the app makes land through the
     // watcher like any other change

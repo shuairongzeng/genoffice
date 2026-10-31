@@ -177,5 +177,9 @@ function describe(target: ControlTarget): string {
       return target.sheet ? `${target.sheet}!${target.range}` : target.range
     case 'page':
       return `page ${target.page}`
+    // no CLI flag builds a text target (the search deep links produce them);
+    // the case keeps the switch exhaustive over the protocol union
+    case 'text':
+      return `the first match for "${target.text}"`
   }
 }

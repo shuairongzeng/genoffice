@@ -193,6 +193,24 @@ describe('searchKnowledgeBase', () => {
     expect(await searchKnowledgeBase(async () => search(), '  x  ', null, 5)).toHaveLength(2)
     expect(await searchKnowledgeBase(async () => search(), '   ', null, 5)).toEqual([])
   })
+
+  it('threads the match text through for a cite that addresses the match (issue #56)', async () => {
+    const hits = await searchKnowledgeBase(
+      async () => [
+        { ...HIT('/a/1.docx'), matchText: 'the matched sentence' },
+        { ...HIT('/b/2.docx'), matchText: '' },
+        HIT('/c/3.docx'),
+      ],
+      'x',
+      null,
+      5,
+    )
+    expect(hits[0]).toMatchObject({ path: '/a/1.docx', matchText: 'the matched sentence' })
+    // a blank or missing match text (name-only hit) carries no field — the
+    // cite stays a plain path link
+    expect(hits[1]).not.toHaveProperty('matchText')
+    expect(hits[2]).not.toHaveProperty('matchText')
+  })
 })
 
 describe('parseKbOnlyPaths — the round-scope payload', () => {
