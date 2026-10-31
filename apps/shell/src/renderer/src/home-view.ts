@@ -1,11 +1,17 @@
 /**
- * Home's view-mode state machine: the six surfaces that own the content area
- * (desktop / recent / starred / ask / cloud / folder) were five hand-written
- * flags plus a folder path, and every switch function had to remember to clear
- * the other four by hand. This reducer makes the mutual exclusion a single
+ * Home's view-mode state machine: the surfaces that own the content area
+ * (desktop / recent / starred / cloud / folder) were five hand-written flags
+ * plus a folder path, and every switch function had to remember to clear the
+ * other four by hand. This reducer makes the mutual exclusion a single
  * transition: a surface switch is one action, and the old surface's mode
  * state (`list`, `folder`) is either kept or dropped per action exactly the
- * way the hand-written switchers did — zero behavior change.
+ * way the hand-written switchers did.
+ *
+ * The knowledge-base ask panel is no longer a surface: it is the workbench's
+ * docked AI panel, always mounted beside the content area, so the machine
+ * here owns only the content column. A launch preference of 'ask' stored by
+ * an older build maps to the Recent list — the panel it selected is now
+ * present whatever the surface.
  */
 
 // ── Launch view preference ──────────────────────────────
@@ -14,13 +20,16 @@
 // mechanism the folder tree's expansion state uses (Home has no other
 // renderer-writable settings door, and no view pref existed before).
 
-export type LaunchView = 'desktop' | 'recent' | 'starred' | 'ask' | 'cloud'
+export type LaunchView = 'desktop' | 'recent' | 'starred' | 'cloud'
 const VIEW_PREF_KEY = 'home.view'
 
 export function readLaunchView(): LaunchView {
   try {
     const raw = localStorage.getItem(VIEW_PREF_KEY)
-    if (raw === 'recent' || raw === 'starred' || raw === 'ask' || raw === 'cloud') return raw
+    if (raw === 'recent' || raw === 'starred' || raw === 'cloud') return raw
+    // a build before the workbench docked the ask panel could store 'ask':
+    // the panel is always present now, so the closest surface is the list
+    if (raw === 'ask') return 'recent'
   } catch {
     // corrupt or absent: the desktop is the default
   }
@@ -35,8 +44,8 @@ export function writeLaunchView(view: LaunchView): void {
   }
 }
 
-/** which surface owns the content area; exactly one at a time */
-export type HomeSurface = 'desktop' | 'list' | 'folder' | 'ask' | 'cloud'
+/** which surface owns the content column; exactly one at a time */
+export type HomeSurface = 'desktop' | 'list' | 'folder' | 'cloud'
 
 export interface HomeViewState {
   surface: HomeSurface
@@ -59,8 +68,6 @@ export type HomeViewAction =
    * folder surface back to the list, like the old setSelectedFolder(null))
    */
   | { type: 'set-folder'; dir: string | null }
-  /** the Ask AI nav item, the desktop's ask tile, deep links and the palette */
-  | { type: 'show-ask' }
   /** the Cloud nav item */
   | { type: 'show-cloud' }
   /** logout only: the cloud view leaves, everything else stays untouched */
@@ -81,8 +88,6 @@ export function homeViewReducer(state: HomeViewState, action: HomeViewAction): H
         return state.surface === 'folder' ? { ...state, surface: 'list', folder: null } : state
       }
       return { ...state, surface: 'folder', folder: action.dir }
-    case 'show-ask':
-      return { ...state, surface: 'ask', folder: null }
     case 'show-cloud':
       return { ...state, surface: 'cloud', folder: null }
     case 'exit-cloud':
@@ -92,14 +97,7 @@ export function homeViewReducer(state: HomeViewState, action: HomeViewAction): H
 
 export function initialHomeViewState(launch: LaunchView): HomeViewState {
   return {
-    surface:
-      launch === 'desktop'
-        ? 'desktop'
-        : launch === 'ask'
-          ? 'ask'
-          : launch === 'cloud'
-            ? 'cloud'
-            : 'list',
+    surface: launch === 'desktop' ? 'desktop' : launch === 'cloud' ? 'cloud' : 'list',
     list: launch === 'starred' ? 'starred' : 'recent',
     folder: null,
   }

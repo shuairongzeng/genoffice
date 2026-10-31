@@ -9,7 +9,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  * constructors register are what these tests exercise.
  */
 
-const TAB_STRIP_HEIGHT = 40
+const TAB_STRIP_HEIGHT = 44
+/** the default expanded AI dock beside an embedded document (window px) */
+const DOCK_WIDTH = 400
 
 const { FakeWindow, detachedWindows } = vi.hoisted(() => {
   const WINDOW_WIDTH = 800
@@ -315,7 +317,7 @@ describe('shell window restore layout', () => {
     expect(view.setBounds).toHaveBeenCalledWith({
       x: 0,
       y: TAB_STRIP_HEIGHT,
-      width: 1024,
+      width: 1024 - DOCK_WIDTH,
       height: 768 - TAB_STRIP_HEIGHT,
     })
   })
@@ -350,7 +352,7 @@ describe('shell window restore layout', () => {
     expect(view.setBounds).toHaveBeenCalledWith({
       x: 0,
       y: TAB_STRIP_HEIGHT,
-      width: 1200,
+      width: 1200 - DOCK_WIDTH,
       height: 800 - TAB_STRIP_HEIGHT,
     })
   })
@@ -483,11 +485,12 @@ describe('shell window restore layout', () => {
     shell.bounds = { x: 0, y: 0, width: 1000, height: 800 }
     shell.emit('restore')
 
-    const scaledStrip = Math.round(TAB_STRIP_HEIGHT * 1.5) // 60
+    const scaledStrip = Math.round(TAB_STRIP_HEIGHT * 1.5) // 66
+    // the dock's stored CSS width scales like the header: 360 × 1.5 = 540
     expect(view.setBounds).toHaveBeenCalledWith({
       x: 0,
       y: scaledStrip,
-      width: 1000,
+      width: 1000 - Math.round(DOCK_WIDTH * 1.5),
       height: 800 - scaledStrip,
     })
   })
@@ -504,7 +507,7 @@ describe('shell window restore layout', () => {
     expect(view.setBounds).toHaveBeenCalledWith({
       x: 0,
       y: TAB_STRIP_HEIGHT,
-      width: 900,
+      width: 900 - DOCK_WIDTH,
       height: 600 - TAB_STRIP_HEIGHT,
     })
 
@@ -515,7 +518,7 @@ describe('shell window restore layout', () => {
     expect(view.setBounds).toHaveBeenCalledWith({
       x: 0,
       y: TAB_STRIP_HEIGHT,
-      width: 1100,
+      width: 1100 - DOCK_WIDTH,
       height: 700 - TAB_STRIP_HEIGHT,
     })
   })

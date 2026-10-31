@@ -7,7 +7,7 @@
 // text, zh-UI matchers), as are the AI prompt guides (runtime resources that
 // legitimately show CJK examples), translated READMEs under an i18n directory,
 // and the language-switcher line that names those translations.
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
@@ -32,6 +32,9 @@ for (const file of git.stdout.trim().split('\n')) {
     // template center generates from (they are Chinese on purpose)
     !file.startsWith('apps/shell/build/templates/')
   if (!isCode && !isHashCode && !isDoc) continue
+  // a file deleted in the working tree but not yet staged still lists here;
+  // there is no comment left to check in it
+  if (!existsSync(join(root, file))) continue
   const lines = readFileSync(join(root, file), 'utf8').split('\n')
   lines.forEach((line, index) => {
     const text = isDoc

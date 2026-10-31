@@ -15,6 +15,7 @@ import type {
 import type { UpdateChannel, UpdateUiState } from './update-api'
 import type { RunEvent, RunSummary } from '@genoffice/project-store'
 import type { DesktopArrangeMode } from '@genoffice/cli/control-protocol'
+import type { AiDockPrefs } from './desktop-geometry'
 import type {
   AttachmentInfo,
   CliContext,
@@ -32,6 +33,7 @@ export type { ProxiedAppExecuteResult, ProxiedAppManifest } from '@genoffice/age
 export type { RunEvent, RunSummary } from '@genoffice/project-store'
 import type { AiPanelPrefs } from '@genoffice/ui/ai-panel-prefs'
 import type { FoundSkill, ForeignSkillCandidate, InstalledPlugin } from './found-skill'
+import type { TabKind } from './tabs-api'
 
 export interface AttachmentAddResult {
   accepted: AttachmentInfo[]
@@ -367,6 +369,50 @@ export interface DesktopPinRecord {
 }
 
 /**
+ * The desktop's tab strip's view of one open tab: a shell tab or a document
+ * living in its own OS window. The strip lives in the Home renderer (the
+ * persistent base layer), so it reads this push instead of rendering its own
+ * state. Every field is always present — the renderer never branches on
+ * optionality.
+ */
+export interface HomeTabEntry {
+  id: string
+  kind: TabKind
+  title: string
+  /** the shell's active tab, or (for a detached entry) its window has OS focus */
+  active: boolean
+  /** the tab has unsaved changes */
+  dirty: boolean
+  /** the document lives in its own OS window — the id is a `detached:` id, and
+   *  activating it brings that window forward instead of switching the shell's tab */
+  detached: boolean
+}
+
+/**
+ * A full snapshot of the tab state pushed on `home:tabs-changed`: every shell
+ * tab (Home first) plus every detached editor window, and the shell's active
+ * tab id — the tab whose document fills the desktop's content area. A detached
+ * entry may also be `active` (its window has focus); `activeId` always names a
+ * shell tab.
+ */
+export interface HomeTabsState {
+  tabs: HomeTabEntry[]
+  activeId: string
+}
+
+/** runtime guard for {@link HomeTabEntry.kind} — mirrors the TabKind union in tabs-api */
+export const HOME_TAB_KINDS: readonly TabKind[] = [
+  'home',
+  'docs',
+  'sheets',
+  'slides',
+  'pdf',
+  'markdown',
+  'html',
+  'help',
+]
+
+/**
  * The desktop's look-and-feel prefs. `wallpaper`: 'default' (the animated
  * aurora), 'builtin:<id>' (a shipped generated wallpaper), or
  * 'custom:<name>' (a picked image copied under userData/wallpapers).
@@ -387,8 +433,13 @@ export interface DesktopPrefs {
   labelColor: string
 }
 
+// The dock prefs' shape and clamps live in desktop-geometry.ts, shared with
+// the main process (it reserves the same footprint for document views); the
+// type rides along here for the preload's HomeApi bridge.
+export type { AiDockPrefs } from './desktop-geometry'
+
 /**
- * A genoffice:// deep link. `ask` opens Home's Ask AI view (optionally
+ * A genoffice:// deep link. `ask` focuses Home's docked Ask AI panel (optionally
  * carrying the query text the link embedded), `palette` summons the command
  * palette, `open` opens a document by absolute path, and `desktop` shows the
  * desktop surface. `ask` and `desktop` are forwarded to the renderer (they
@@ -512,6 +563,16 @@ export interface HomeApi {
   onShowDesktop(handler: () => void): () => void
   /** the pinned widgets changed in the main process */
   onDesktopPinsChanged(handler: (pins: DesktopPinInfo[]) => void): () => void
+  /** the desktop tab strip's tab state: every shell tab plus detached editor
+   *  windows, pushed on every open/close/activate/title/dirty/detach change;
+   *  a state delivered before this handler attached replays on attach */
+  onTabsChanged(handler: (state: HomeTabsState) => void): () => void
+  /** activate one tab of the pushed state: a shell tab switches the shell's
+   *  active tab, a `detached:` id brings that window forward */
+  tabsActivate(id: string): Promise<void>
+  /** close one tab of the pushed state through the same unsaved-changes guards
+   *  as every other close (a detached id closes its window's own way) */
+  tabsClose(id: string): Promise<void>
   /** the desktop's look prefs (wallpaper, carousel, icon size, sort) */
   desktopPrefs(): Promise<DesktopPrefs>
   /** persist the desktop prefs (whole-object write-through) */
@@ -526,6 +587,23 @@ export interface HomeApi {
   onDeepLink(handler: (payload: DeepLinkPayload) => void): () => void
   /** the desktop prefs were changed outside this renderer (CLI / MCP desktop domain) */
   onDesktopPrefsChanged(handler: (prefs: DesktopPrefs) => void): () => void
+  // ---- the AI dock's prefs (app-settings.json `aiDock`) ----
+  // Optional so partial test stubs (and a preload from before the workbench)
+  // keep typing: the renderer clamps whatever it reads and falls back to a
+  // localStorage copy while a channel is absent (see AiDock.tsx), so the dock
+  // works — and degrades — without them.
+  /** the AI dock's prefs (`home:ai-dock-get`); the renderer clamps what it reads */
+  getAiDock?(): Promise<AiDockPrefs>
+  /** persist a patch of the AI dock's prefs (`home:ai-dock-set`); resolves to the effective prefs */
+  setAiDock?(patch: Partial<AiDockPrefs>): Promise<AiDockPrefs>
+  /**
+   * The content stage's rect in window CSS pixels (measured post-zoom, so
+   * already the interface scale's own pixels), reported on mount and on every
+   * resize: the exact area a document's WebContentsView fills. The main
+   * process treats this as the primary source for embedded document bounds
+   * (see shared/desktop-geometry.ts, whose constants are only the fallback).
+   */
+  homeContentRect?(rect: { x: number; y: number; width: number; height: number }): void
   /** the system-presence prefs: login item, global hotkey and close-to-tray */
   getSystemPresence(): Promise<SystemPresenceSettings>
   /** toggle launch-at-login; resolves to the effective settings */
@@ -991,6 +1069,20 @@ export const HOME_CHANNELS = {
   desktopPinsSetVisible: 'home:desktop-pins-set-visible',
   /** main → renderer: the pinned desktop widgets changed */
   desktopPinsChanged: 'home:desktop-pins-changed',
+  /** main → renderer: the desktop tab strip's tab state changed (a full
+   *  HomeTabsState snapshot: shell tabs + detached editors + activeId) */
+  tabsChanged: 'home:tabs-changed',
+  /** the desktop tab strip asked to activate one tab (shell id or `detached:` id) */
+  tabsActivate: 'home:tabs-activate',
+  /** the desktop tab strip asked to close one tab (unsaved-changes guards run) */
+  tabsClose: 'home:tabs-close',
+  /** read the AI dock's prefs (app-settings.json `aiDock`, defaults on absence) */
+  aiDockGet: 'home:ai-dock-get',
+  /** persist a patch of the AI dock's prefs; answers the effective prefs */
+  aiDockSet: 'home:ai-dock-set',
+  /** the renderer's measured content-stage rect (the exact area an embedded
+   *  document's WebContentsView fills), reported on mount and on resize */
+  contentRect: 'home:content-rect',
   /** main → renderer: a tab was pinned to the desktop, show the surface it lives on */
   showDesktop: 'home:show-desktop',
   desktopPrefs: 'home:desktop-prefs',

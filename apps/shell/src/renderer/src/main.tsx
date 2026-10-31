@@ -13,7 +13,6 @@ import '@genoffice/ui/ai-panel.css'
 import '@genoffice/ui/ai-confirm-card.css'
 import '@genoffice/ui/scrollbar.css'
 import './home.css'
-import './tabbar.css'
 import { applyAiPanelPrefs, installScreenTips } from '@genoffice/ui'
 import { loadStrings } from './strings'
 
@@ -23,7 +22,8 @@ installScreenTips()
 // editor views' translucent regions (e.g. slides thumbnail pane) show it
 const IS_MAC = navigator.platform.toLowerCase().includes('mac')
 if (IS_MAC) document.body.classList.add('vib')
-// non-mac: the tab strip doubles as the title bar (caption buttons overlay it)
+// non-mac: the workbench chrome doubles as the title bar (the caption buttons
+// overlay the window's top-right; home.css keeps the dock head clear of them)
 document.body.classList.add(IS_MAC ? 'mac' : 'overlay-title-bar')
 
 // resolve the persisted language, first-run flag, and theme before first paint

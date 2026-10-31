@@ -6,6 +6,7 @@ import {
   TEAR_OFF_SLACK,
   dockBand,
   insertionIndexForX,
+  intersectRect,
   isBeyondBand,
   pointInRect,
   tabStripHeight,
@@ -56,9 +57,45 @@ describe('dockBand', () => {
   })
 })
 
+describe('intersectRect', () => {
+  it('returns the shared area of two overlapping rects', () => {
+    expect(
+      intersectRect(
+        { x: 0, y: 0, width: 100, height: 100 },
+        { x: 50, y: 50, width: 100, height: 100 },
+      ),
+    ).toEqual({ x: 50, y: 50, width: 50, height: 50 })
+  })
+
+  it('returns null when the rects only touch or miss each other', () => {
+    expect(
+      intersectRect(
+        { x: 0, y: 0, width: 100, height: 100 },
+        { x: 100, y: 0, width: 50, height: 50 },
+      ),
+    ).toBeNull()
+    expect(
+      intersectRect(
+        { x: 0, y: 0, width: 100, height: 100 },
+        { x: 200, y: 200, width: 10, height: 10 },
+      ),
+    ).toBeNull()
+  })
+
+  it('clips a stale stage rect down to the window that holds it', () => {
+    // a stage report from before a window shrink: the overlap keeps the
+    // embedded document view inside the window's live content area
+    expect(
+      intersectRect(
+        { x: 208, y: 44, width: 552, height: 556 },
+        { x: 0, y: 0, width: 500, height: 400 },
+      ),
+    ).toEqual({ x: 208, y: 44, width: 292, height: 356 })
+  })
+})
+
 describe('pointInRect', () => {
   const rect = { x: 10, y: 20, width: 100, height: 40 }
-
   it('includes the top-left edge and excludes the bottom-right edge', () => {
     expect(pointInRect(10, 20, rect)).toBe(true)
     expect(pointInRect(109, 59, rect)).toBe(true)

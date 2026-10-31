@@ -386,12 +386,12 @@ const PIN_MIN_H = 240
 
 /**
  * The strip's four colors in one named table: the tab-strip band values
- * title-bar-overlay.ts pairs over tabbar.css's --tabstrip-bg / text tokens
- * (light #ebebeb on #454746 ink, dark #2a2a2a on #e4e4e4). A data-URL page
- * cannot load tokens.css, so the values are duplicated here on purpose and
- * must stay in sync with title-bar-overlay.ts — the table keeps them from
- * scattering as raw literals through the HTML below, which is as close to
- * token-ization as this page can get.
+ * title-bar-overlay.ts pairs (light #ebebeb on #454746 ink, dark #2a2a2a on
+ * #e4e4e4) — the retired native strip's tabbar.css palette, kept alive for
+ * the widget strip. A data-URL page cannot load tokens.css, so the values are
+ * duplicated here on purpose and must stay in sync with title-bar-overlay.ts —
+ * the table keeps them from scattering as raw literals through the HTML below,
+ * which is as close to token-ization as this page can get.
  */
 const PIN_STRIP_COLORS = {
   light: { background: '#ebebeb', text: '#454746' },
@@ -575,6 +575,19 @@ export function closeDetachedWithoutPrompt(id: string): boolean {
   const rec = recordById(id)
   if (!rec) return false
   rec.closeWithoutPrompt()
+  return true
+}
+
+/**
+ * Close a detached editor the way its own close button would — through the
+ * window's close event, so the unsaved-changes guard runs (and a pinned
+ * widget docks back instead of dying). False when the id names no detached
+ * window. The desktop tab strip's close action goes through this.
+ */
+export function requestDetachedClose(id: string): boolean {
+  const rec = recordById(id)
+  if (!rec) return false
+  rec.window.close()
   return true
 }
 
@@ -974,13 +987,18 @@ export function createDetachedEditorWindow(options: {
   win.on('page-title-updated', (event) => event.preventDefault())
 
   // The focused window owns the process-global menu-command targets; the
-  // shell's tab manager re-claims both on its own window's focus.
+  // shell's tab manager re-claims both on its own window's focus. Focus also
+  // rides the strip's state: a detached entry is `active` exactly while its
+  // window holds OS focus, so each focus/blur trips the change push (the
+  // shell regaining focus blurs this window and pushes its own update).
   win.on('focus', () => {
     appForKind(kind)?.claimActiveTarget?.(() =>
       view.webContents.isDestroyed() ? null : view.webContents,
     )
     applyMenuFor(kind)
+    onChanged()
   })
+  win.on('blur', () => onChanged())
 
   // Dragging the window by its title bar over the shell's tab strip docks the
   // document back. A torn-off window is steered by the shell's held pointer

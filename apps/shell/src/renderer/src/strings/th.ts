@@ -512,6 +512,12 @@ export const th: Dict = {
   tabList: 'แท็บทั้งหมด',
   appMenu: 'เมนู',
   newTab: 'แท็บใหม่',
+  dockExpand: 'เปิดแผง AI',
+  dockCollapse: 'ย่อแผง AI',
+  dockResize: 'ลากเพื่อปรับความกว้างของแผง AI',
+  workTabsAria: 'เอกสารที่เปิดอยู่',
+  workTabDirty: 'การเปลี่ยนแปลงที่ยังไม่ได้บันทึก',
+  workTabDetached: 'เปิดอยู่ในหน้าต่างแยก',
   // First-run onboarding
   onbTitle1: 'ยินดีต้อนรับสู่ GenOffice',
   onbSubtitle1: 'ชุดโปรแกรมออฟฟิศ AI-native โอเพนซอร์สตัวแรก',

@@ -442,6 +442,12 @@ export const cs: Dict = {
   tabList: 'Všechny karty',
   appMenu: 'Nabídka',
   newTab: 'Nová karta',
+  dockExpand: 'Otevřít panel AI',
+  dockCollapse: 'Sbalit panel AI',
+  dockResize: 'Tažením upravte šířku panelu AI',
+  workTabsAria: 'Otevřené dokumenty',
+  workTabDirty: 'Neuložené změny',
+  workTabDetached: 'Otevřeno ve vlastním okně',
   // First-run onboarding
   onbTitle1: 'Vítejte v GenOffice',
   onbSubtitle1: 'První open-source kancelářský balík s nativní AI',

@@ -181,9 +181,9 @@ export interface DesktopViewProps {
   readonly lang: Lang
   /** the Home folder roots, already loaded by the parent */
   readonly roots: readonly FolderRoot[]
-  /** switch Home to the AI ask view */
+  /** expand the docked AI panel and focus its composer (the ask tile) */
   readonly onOpenAsk: () => void
-  /** hand the selected desktop paths to the ask view as its corpus (the Ask AI action) */
+  /** hand the selected desktop paths to the docked AI panel as its corpus (the Ask AI action) */
   readonly onAskAboutPaths: (paths: readonly string[]) => void
   /** open the template gallery overlay */
   readonly onOpenTemplates: () => void
@@ -365,8 +365,8 @@ const EMPTY_POSITIONS: Readonly<Record<string, IconPos>> = {}
  * crossfade layer so a slideshow never disagrees with itself.
  *
  * Everything the icons do goes through `window.aiOffice` or one of the
- * parent's callbacks (ask view, template gallery, settings modal, folder
- * view) — the desktop owns only its own layout. The look lives in
+ * parent's callbacks (the docked AI panel, template gallery, settings modal,
+ * folder view) — the desktop owns only its own layout. The look lives in
  * desktop.css; the context menu reuses Home's `.folder-menu` conventions,
  * carries the menu-keyboard.ts arrow/Home/End model, and its flyout geometry
  * follows the reading direction (`htmlDir(lang)`) so the rtl locales get

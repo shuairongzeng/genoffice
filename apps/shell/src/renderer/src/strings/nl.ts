@@ -523,6 +523,12 @@ export const nl: Dict = {
   tabList: 'Alle tabbladen',
   appMenu: 'Menu',
   newTab: 'Nieuw tabblad',
+  dockExpand: 'AI-paneel openen',
+  dockCollapse: 'AI-paneel samenvouwen',
+  dockResize: 'Slepen om de breedte van het AI-paneel aan te passen',
+  workTabsAria: 'Geopende documenten',
+  workTabDirty: 'Niet-opgeslagen wijzigingen',
+  workTabDetached: 'Geopend in eigen venster',
   // First-run onboarding
   onbTitle1: 'Welkom bij GenOffice',
   onbSubtitle1: 'De eerste open source, AI-native officesuite',

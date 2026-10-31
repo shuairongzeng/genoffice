@@ -6,93 +6,13 @@ import {
   type TabCloseManager,
   type TabCloseTarget,
 } from '../src/main/tab-lifecycle'
-import { formatTabTooltip } from '../src/renderer/src/TabBar'
-import type { TabSummary } from '../src/shared/tabs-api'
 
-describe('tab tooltip formatting and lifecycle updates', () => {
-  it('formats tooltip with title only for untitled documents and Home', () => {
-    const homeTab: TabSummary = {
-      id: 'home',
-      kind: 'home',
-      title: 'Home',
-      active: true,
-      closable: false,
-    }
-    const untitledDoc: TabSummary = {
-      id: 'doc-1',
-      kind: 'docs',
-      title: 'Untitled Document',
-      active: false,
-      closable: true,
-    }
-
-    expect(formatTabTooltip(homeTab)).toBe('Home')
-    expect(formatTabTooltip(untitledDoc)).toBe('Untitled Document')
-  })
-
-  it('formats tooltip with title and absolute path across POSIX, Windows, and Unicode paths', () => {
-    const posixTab: TabSummary = {
-      id: 'doc-2',
-      kind: 'docs',
-      title: 'Notes.docx',
-      filePath: '/home/user/work/Notes.docx',
-      active: true,
-      closable: true,
-    }
-    const winTab: TabSummary = {
-      id: 'sheet-1',
-      kind: 'sheets',
-      title: 'Financials.xlsx',
-      filePath: 'C:\\Users\\Finance\\Documents\\Financials.xlsx',
-      active: false,
-      closable: true,
-    }
-    const vnTab: TabSummary = {
-      id: 'pdf-1',
-      kind: 'pdf',
-      title: 'Hợp đồng chuyển nhượng.pdf',
-      filePath: 'D:\\Hồ sơ\\Hợp đồng chuyển nhượng.pdf',
-      active: false,
-      closable: true,
-    }
-
-    expect(formatTabTooltip(posixTab)).toBe('Notes.docx\n/home/user/work/Notes.docx')
-    expect(formatTabTooltip(winTab)).toBe(
-      'Financials.xlsx\nC:\\Users\\Finance\\Documents\\Financials.xlsx',
-    )
-    expect(formatTabTooltip(vnTab)).toBe(
-      'Hợp đồng chuyển nhượng.pdf\nD:\\Hồ sơ\\Hợp đồng chuyển nhượng.pdf',
-    )
-  })
-
-  it('updates tooltip dynamically after Rename or Save As', () => {
-    let currentTab: TabSummary = {
-      id: 'tab-rename',
-      kind: 'docs',
-      title: 'Draft.docx',
-      filePath: '/work/Draft.docx',
-      active: true,
-      closable: true,
-    }
-    expect(formatTabTooltip(currentTab)).toBe('Draft.docx\n/work/Draft.docx')
-
-    // Simulate Rename
-    currentTab = { ...currentTab, title: 'Final.docx', filePath: '/work/Final.docx' }
-    expect(formatTabTooltip(currentTab)).toBe('Final.docx\n/work/Final.docx')
-
-    // Simulate Save As from untitled to saved
-    let untitled: TabSummary = {
-      id: 'tab-saveas',
-      kind: 'sheets',
-      title: 'Untitled Sheet',
-      active: true,
-      closable: true,
-    }
-    expect(formatTabTooltip(untitled)).toBe('Untitled Sheet')
-    untitled = { ...untitled, title: 'Budget 2027.xlsx', filePath: '/work/Budget 2027.xlsx' }
-    expect(formatTabTooltip(untitled)).toBe('Budget 2027.xlsx\n/work/Budget 2027.xlsx')
-  })
-})
+/**
+ * Tab close ordering and the recently-closed tracker (src/main/tab-lifecycle.ts):
+ * the sequential bulk-close loop stops at a cancelled prompt, and reopening
+ * walks the bounded stack. The native tab strip's tooltip/rename helpers
+ * (formerly in renderer TabBar.tsx) were retired with the strip itself.
+ */
 
 describe('bulk close sequential ordering and prompt cancellation (C1-C8)', () => {
   it('C1: stops closing subsequent tabs when unsaved-changes close confirmation is cancelled', async () => {

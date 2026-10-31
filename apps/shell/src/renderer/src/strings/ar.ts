@@ -516,6 +516,12 @@ export const ar: Dict = {
   tabList: 'كل علامات التبويب',
   appMenu: 'القائمة',
   newTab: 'علامة تبويب جديدة',
+  dockExpand: 'فتح لوحة الذكاء الاصطناعي',
+  dockCollapse: 'طي لوحة الذكاء الاصطناعي',
+  dockResize: 'اسحب لتغيير حجم لوحة الذكاء الاصطناعي',
+  workTabsAria: 'المستندات المفتوحة',
+  workTabDirty: 'تغييرات غير محفوظة',
+  workTabDetached: 'مفتوح في نافذته الخاصة',
   // First-run onboarding
   onbTitle1: 'مرحبًا بك في GenOffice',
   onbSubtitle1: 'أول حزمة مكتبية مفتوحة المصدر وأصيلة في الذكاء الاصطناعي',

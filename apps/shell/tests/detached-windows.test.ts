@@ -374,6 +374,26 @@ describe('focused window as menu target', () => {
     expect(setActiveSlidesWebContents).toHaveBeenCalledWith(view.webContents)
     expect(applyMenuFor).toHaveBeenCalledWith('slides')
   })
+
+  it('trips the change push on focus and blur (a detached entry is active exactly while its window has focus)', () => {
+    detached.createDetachedEditorWindow({
+      view: fakeView(18) as never,
+      kind: 'docs',
+      title: 'a.docx',
+      applyMenuFor: () => {},
+    })
+    const changes = vi.fn()
+    detached.setDetachedChangedListener(changes)
+    try {
+      const win = instances[0]!
+      win.emit('focus')
+      expect(changes).toHaveBeenCalledTimes(1)
+      win.emit('blur')
+      expect(changes).toHaveBeenCalledTimes(2)
+    } finally {
+      detached.setDetachedChangedListener(() => {})
+    }
+  })
 })
 
 describe('tear-off', () => {

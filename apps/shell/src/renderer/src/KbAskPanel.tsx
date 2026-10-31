@@ -57,12 +57,15 @@ import { RunRecorder, runsBridgeOf } from './ask-runs'
 import { RafFlushQueue, sticksToBottom } from './ask-stream'
 
 /**
- * The home screen's knowledge-base ask panel: chat with the reader's starred
- * corpus without opening a document. First app-side consumer of the shell's
- * kb:* gateway — the loop, streaming and rendering reuse what every editor's
- * AI panel uses (AgentLoop + createIpcTransport + Markdown with a filenav
- * nav), so answers cite the folder and file they came from and clicking a
- * citation opens that file in the app that owns it.
+ * The workbench's knowledge-base ask panel: chat with the reader's corpus
+ * without opening a document. It lives in the AI dock beside the content area
+ * (see AiDock.tsx), always mounted — the desktop, the list views and a
+ * document's view are all its neighbors, none of them its replacement. First
+ * app-side consumer of the shell's kb:* gateway — the loop, streaming and
+ * rendering reuse what every editor's AI panel uses (AgentLoop +
+ * createIpcTransport + Markdown with a filenav nav), so answers cite the
+ * folder and file they came from and clicking a citation opens that file in
+ * the app that owns it.
  *
  * The conversation persists through project-store under a fixed chat id, the
  * one place in the app where a conversation belongs to no file: with no
@@ -85,7 +88,7 @@ import { RafFlushQueue, sticksToBottom } from './ask-stream'
  * the selection, and the main process enforces the intersection (reporting
  * the selected paths the index does not cover, which the chip surfaces as a
  * "not indexed" hint — v1 does not index them on the spot). Clearing the chip
- * drops back to the default kbScope; a new thread or a view switch leaves the
+ * drops back to the default kbScope; a new thread leaves the
  * selection behind.
  */
 
@@ -545,6 +548,7 @@ export function KbAskPanel({
   onOpenScopeSettings,
   pendingQuery,
   onPendingQueryConsumed,
+  focusSignal,
 }: {
   onOpenPath: (path: string) => void
   onGoToRecents: () => void
@@ -556,6 +560,10 @@ export function KbAskPanel({
    *  one is submitted as a new message, a deep-link one parks in the composer */
   pendingQuery?: PendingAskQuery | null
   onPendingQueryConsumed?: () => void
+  /** bumped by the workbench whenever something outside the panel asks for
+   *  the composer's focus (the sidebar's Ask AI item, a deep link, the dock
+   *  expanding): each bump focuses the composer once */
+  focusSignal?: number
 }): React.JSX.Element {
   const { t, lang } = useI18n()
   // the in-app replacement for the native confirm on thread delete (and any
@@ -1390,6 +1398,17 @@ export function KbAskPanel({
   /** a failed artifact's retry re-enters askWith with the rebuilt instruction */
   const retryAsk = useCallback((instruction: string) => void askWithRef.current(instruction), [])
   const fileNav = useMemo(() => createFileNav(openPath), [openPath])
+
+  // the workbench's focus request: each bump (a number larger than the last)
+  // lands the caret in the composer — the sidebar's Ask AI item and the dock's
+  // own expansion both route through it, so "focus the AI" is one behavior
+  const lastFocusSignalRef = useRef(focusSignal ?? 0)
+  useEffect(() => {
+    const signal = focusSignal ?? 0
+    if (signal === lastFocusSignalRef.current) return
+    lastFocusSignalRef.current = signal
+    composerRef.current?.focus()
+  }, [focusSignal])
 
   // A question routed in from the palette's Ask AI fallback or a deep link: a
   // palette question (the user's own just-typed text) is submitted through the

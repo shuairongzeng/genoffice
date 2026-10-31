@@ -539,6 +539,12 @@ export const fr: Dict = {
   tabList: 'Tous les onglets',
   appMenu: 'Menu',
   newTab: 'Nouvel onglet',
+  dockExpand: 'Ouvrir le panneau IA',
+  dockCollapse: 'Replier le panneau IA',
+  dockResize: 'Faire glisser pour redimensionner le panneau IA',
+  workTabsAria: 'Documents ouverts',
+  workTabDirty: 'Modifications non enregistrées',
+  workTabDetached: 'Ouvert dans sa propre fenêtre',
   // First-run onboarding
   onbTitle1: 'Bienvenue dans GenOffice',
   onbSubtitle1: 'La première suite bureautique open source et native IA',

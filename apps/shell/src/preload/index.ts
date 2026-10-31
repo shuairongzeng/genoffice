@@ -20,6 +20,8 @@ import type {
   MoveResult,
   AuthorNameSetting,
   HomeApi,
+  HomeTabEntry,
+  HomeTabsState,
   ProxiedAppExecuteResult,
   ProxiedAppManifest,
   RecentEntry,
@@ -41,7 +43,8 @@ import type {
   FileSearchSettings,
 } from '../shared/home-api'
 import type { ProjectApi } from '@genoffice/project-store'
-import { HOME_CHANNELS } from '../shared/home-api'
+import { HOME_CHANNELS, HOME_TAB_KINDS } from '../shared/home-api'
+import { normalizeAiDock } from '../shared/desktop-geometry'
 import { INTEGRATIONS_CHANNELS } from '../shared/integrations-api'
 import type {
   IntegrationsApi,
@@ -145,6 +148,32 @@ function asRendererDeepLink(payload: unknown): DeepLinkPayload | null {
   return { view: 'ask', ...(typeof p.query === 'string' ? { query: p.query } : {}) }
 }
 
+/**
+ * The pushed tab state, validated and entry-filtered: the desktop strip
+ * branches on every field of an entry, so a malformed one (wrong types, an
+ * unknown kind, a forged extra shape) is dropped whole rather than half-kept,
+ * and a payload without a sane activeId never reaches the handler.
+ */
+function asHomeTabsState(payload: unknown): HomeTabsState | null {
+  if (!payload || typeof payload !== 'object') return null
+  const p = payload as Partial<HomeTabsState>
+  if (!Array.isArray(p.tabs) || typeof p.activeId !== 'string' || !p.activeId) return null
+  const tabs = p.tabs.filter(
+    (t): t is HomeTabEntry =>
+      !!t &&
+      typeof t === 'object' &&
+      typeof t.id === 'string' &&
+      !!t.id &&
+      typeof t.title === 'string' &&
+      typeof t.kind === 'string' &&
+      typeof t.active === 'boolean' &&
+      typeof t.dirty === 'boolean' &&
+      typeof t.detached === 'boolean' &&
+      (HOME_TAB_KINDS as readonly string[]).includes(t.kind),
+  )
+  return { tabs, activeId: p.activeId }
+}
+
 // The renderer defers its first render until the locale and a few bootstrap
 // IPC answers land, so a deep link or palette summon delivered right after
 // did-finish-load can beat the renderer handler's own ipcRenderer.on — the
@@ -164,6 +193,16 @@ let paletteOpenPending = false
 ipcRenderer.on(HOME_CHANNELS.paletteOpen, () => {
   if (ipcRenderer.listenerCount(HOME_CHANNELS.paletteOpen) > 1) return
   paletteOpenPending = true
+})
+
+// The tab state is the same early-event problem with a snapshot shape: only
+// the latest pre-attach push needs replaying, not the queue — an older
+// snapshot is always superseded by a newer one.
+let pendingTabsState: HomeTabsState | null = null
+ipcRenderer.on(HOME_CHANNELS.tabsChanged, (_event, payload: unknown) => {
+  if (ipcRenderer.listenerCount(HOME_CHANNELS.tabsChanged) > 1) return
+  const state = asHomeTabsState(payload)
+  if (state) pendingTabsState = state
 })
 
 const homeApi: HomeApi = {
@@ -605,6 +644,39 @@ const homeApi: HomeApi = {
     }
     ipcRenderer.on(HOME_CHANNELS.desktopPinsChanged, listener)
     return () => ipcRenderer.removeListener(HOME_CHANNELS.desktopPinsChanged, listener)
+  },
+  onTabsChanged(handler) {
+    const listener = (_event: IpcRendererEvent, payload: unknown) => {
+      const state = asHomeTabsState(payload)
+      if (state) handler(state)
+    }
+    ipcRenderer.on(HOME_CHANNELS.tabsChanged, listener)
+    // replay the latest state that arrived before this handler attached, one
+    // microtask out so it never runs inside the attach call stack — it is a
+    // full snapshot, so the newest one is all the strip ever needed
+    if (pendingTabsState) {
+      const state = pendingTabsState
+      pendingTabsState = null
+      queueMicrotask(() => handler(state))
+    }
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.tabsChanged, listener)
+  },
+  async tabsActivate(id) {
+    if (typeof id !== 'string' || !id) throw new Error('Invalid id.')
+    await ipcRenderer.invoke(HOME_CHANNELS.tabsActivate, id)
+  },
+  async tabsClose(id) {
+    if (typeof id !== 'string' || !id) throw new Error('Invalid id.')
+    await ipcRenderer.invoke(HOME_CHANNELS.tabsClose, id)
+  },
+  async getAiDock() {
+    return normalizeAiDock(await ipcRenderer.invoke(HOME_CHANNELS.aiDockGet))
+  },
+  async setAiDock(patch) {
+    return normalizeAiDock(await ipcRenderer.invoke(HOME_CHANNELS.aiDockSet, patch))
+  },
+  homeContentRect(rect) {
+    ipcRenderer.send(HOME_CHANNELS.contentRect, rect)
   },
   async desktopPrefs() {
     return (await ipcRenderer.invoke(HOME_CHANNELS.desktopPrefs)) as DesktopPrefs

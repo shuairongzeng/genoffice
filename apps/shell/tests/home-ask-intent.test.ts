@@ -136,8 +136,10 @@ describe('Home ask intent — deep link', () => {
   it('a deep link for another view is ignored', async () => {
     await act(async () => deepLinkHandler!({ view: 'recent' }))
     await flush()
-    expect(container.querySelector('.kb-ask')).toBeNull()
+    // the dock stays mounted whatever the link; nothing parked a question
+    // and the list surface never moved
     expect(container.querySelector('.content')?.textContent).toContain('brief.docx')
+    expect(composerDraft()).toBe('')
   })
 
   it('genoffice://desktop switches Home to the desktop surface and remembers it', async () => {
@@ -146,15 +148,38 @@ describe('Home ask intent — deep link', () => {
     // the icon desktop takes over the content area, and the launch view
     // remembers it the way the nav item does (a relaunch lands back there)
     expect(container.querySelector('.home')!.className).toContain('desktop-mode')
-    expect(container.querySelector('.kb-ask')).toBeNull()
+    expect(container.querySelector('.desktop-surface')).toBeTruthy()
     expect(localStorage.getItem('home.view')).toBe('desktop')
 
-    // leaving through a link works too: the ask view takes the surface back
+    // leaving through a link works too: the ask route focuses the dock — the
+    // desktop surface stays mounted underneath, and the question parks
     await act(async () => deepLinkHandler!({ view: 'ask', query: 'back to ask' }))
     await flush()
-    expect(container.querySelector('.home')!.className).not.toContain('desktop-mode')
-    expect(container.querySelector('.kb-ask')).not.toBeNull()
+    expect(container.querySelector('.home')!.className).toContain('desktop-mode')
+    expect(container.querySelector('.ai-dock')).not.toBeNull()
     expect(composerDraft()).toBe('back to ask')
+  })
+
+  it('an ask deep link expands a collapsed dock before parking the question', async () => {
+    // the mascot state: the dock starts folded to its rail
+    localStorage.setItem('home.aiDock', JSON.stringify({ width: 400, collapsed: true }))
+    await act(async () => root.unmount())
+    container.remove()
+    container = document.createElement('div')
+    document.body.append(container)
+    root = createRoot(container)
+    await act(async () =>
+      root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
+    )
+    expect(container.querySelector('.ai-dock')!.className).toContain('collapsed')
+    await act(async () => deepLinkHandler!({ view: 'ask', query: 'wake up' }))
+    await flush()
+    // the ask route is a dock focus now: the rail gave way to the panel and
+    // the composer holds the question
+    expect(container.querySelector('.ai-dock')!.className).not.toContain('collapsed')
+    expect(container.querySelector('.ai-mascot')).toBeTruthy()
+    expect(composerDraft()).toBe('wake up')
+    expect(document.activeElement).toBe(container.querySelector('.kb-ask textarea'))
   })
 })
 

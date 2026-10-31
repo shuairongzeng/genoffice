@@ -526,6 +526,12 @@ export const it: Dict = {
   tabList: 'Tutte le schede',
   appMenu: 'Menu',
   newTab: 'Nuova scheda',
+  dockExpand: 'Apri il pannello IA',
+  dockCollapse: 'Comprimi il pannello IA',
+  dockResize: 'Trascina per ridimensionare il pannello IA',
+  workTabsAria: 'Documenti aperti',
+  workTabDirty: 'Modifiche non salvate',
+  workTabDetached: 'Aperto nella propria finestra',
   // First-run onboarding
   onbTitle1: 'Benvenuto in GenOffice',
   onbSubtitle1: 'La prima suite per ufficio open source e nativa per l’IA',

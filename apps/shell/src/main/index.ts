@@ -279,6 +279,12 @@ import type { TabKind } from '../shared/tabs-api'
 import { TABS_CHANNELS } from '../shared/tabs-api'
 import { showErrorDialog } from './error-dialog'
 import { startRendererWatchdog } from './renderer-watchdog'
+import { watchAiDock } from './ai-dock'
+import {
+  notifyHomeTabsChanged,
+  registerHomeTabsIpc,
+  registerHomeWorkbenchIpc,
+} from './home-tabs-ipc'
 import { isUserVisibleFile, type FileTargetSources } from './file-targets'
 import { pdfSaveAsTarget } from './rename-validation'
 import { FolderWatcher, isInsideRoot, pathsUnder, rebasePath, uniqueNameIn } from './folder-tree'
@@ -311,6 +317,7 @@ import {
   focusDetachedByPath,
   isDetachedTabId,
   registerDetachedPinsIpc,
+  requestDetachedClose,
   setDesktopPinStore,
   setDetachedChangedListener,
   setDockHost,
@@ -493,7 +500,12 @@ const publishOpenDocumentsIfOwner = (paths: readonly string[]) => {
 function publishAllOpenDocuments(): void {
   publishOpenDocumentsIfOwner([...(tabManager?.openFilePaths() ?? []), ...detachedFilePaths()])
 }
-setDetachedChangedListener(publishAllOpenDocuments)
+// detached windows change outside the TabManager, but their entries ride the
+// desktop tab strip's push too — the strip must see its own window's tabs leave
+setDetachedChangedListener(() => {
+  publishAllOpenDocuments()
+  notifyHomeTabsChanged()
+})
 
 let uiLang: Lang | null = null
 
@@ -5864,6 +5876,28 @@ registerIntegrationsIpc({
     : join(APPS_ROOT, '..', 'skills', 'recommended'),
 })
 registerTabsIpc()
+// the desktop tab strip's two actions (activate/close) route to the shell's
+// tabs or the detached editor windows by id, the same ids home:tabs-changed pushes
+registerHomeTabsIpc({
+  getTabManager: () => tabManager,
+  listDetached: detachedOpenDocuments,
+  isDetachedTab: isDetachedTabId,
+  activateDetachedTab: activateDetached,
+  closeDetachedTab: requestDetachedClose,
+})
+// the workbench's dock and stage channels: the docked AI panel's prefs
+// (app-settings.json `aiDock`) and the renderer's measured content-stage rect
+registerHomeWorkbenchIpc({
+  appSettingsPath: APP_SETTINGS_PATH,
+  getTabManager: () => tabManager,
+  // the live shell content area a stage report is clamped into (0x0 while the
+  // window is minimized/mid-restore, which skips the clamp)
+  contentBounds: () => {
+    if (!shellWindow || shellWindow.isDestroyed()) return { width: 0, height: 0 }
+    const { width, height } = shellWindow.getContentBounds()
+    return { width, height }
+  },
+})
 registerDroppedFilesIpc()
 registerUserSkillsIpc({
   cliRunner: makeUserCliRunner,
@@ -6178,6 +6212,10 @@ app.whenReady().then(async () => {
     console.error('[mcp] failed to start on boot:', error)
   })
   installUiScale()
+  // The desktop's AI dock rides app-settings.json (`aiDock`, renderer-owned
+  // writes): a change must re-fit the embedded document views even when no
+  // resize or activation happens to trigger a layout pass
+  watchAiDock(APP_SETTINGS_PATH(), () => tabManager?.layout())
   createShellWindow()
   // deferred to ready: labels need currentLang(), which reads app.getLocale()
   installBackToHomeItems()

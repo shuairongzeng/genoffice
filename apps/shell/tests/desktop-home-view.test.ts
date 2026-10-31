@@ -112,6 +112,14 @@ describe('Home opens on the desktop', () => {
     expect(container.querySelector('.desktop-surface')).toBeTruthy()
     expect(container.querySelector('.desktop-icons')).toBeTruthy()
     expect(container.querySelector('.recent-table')).toBeNull()
+    // the workbench chrome wraps it: the embedded strip (desktop item first)
+    // and the always-mounted AI dock beside the content column
+    const strip = [...container.querySelectorAll('.work-tab-title')].map(
+      (label) => label.textContent,
+    )
+    expect(strip[0]).toBe('Desktop')
+    expect(container.querySelector('.ai-dock')).not.toBeNull()
+    expect(container.querySelector('.kb-ask')).not.toBeNull()
   })
 
   it('the wallpaper backdrop is lifted to the Home root, glass on the sidebar', () => {
@@ -161,14 +169,20 @@ describe('Home opens on the desktop', () => {
     expect(selected()).toEqual(['Recent'])
     expect(container.querySelector('.desktop-surface')).toBeNull()
     expect(container.querySelector('.recent-table')).toBeTruthy()
+    // the docked ask panel is present on every surface — it is the workbench,
+    // not one of them
+    expect(container.querySelector('.ai-dock')).not.toBeNull()
+    expect(container.querySelector('.kb-ask')).not.toBeNull()
     await click(nav('Desktop'))
     expect(selected()).toEqual(['Desktop'])
     expect(container.querySelector('.desktop-surface')).toBeTruthy()
+    // focusing the AI panel leaves the desktop mounted underneath it
     await click(nav('Ask AI'))
-    expect(selected()).toEqual(['Ask AI'])
+    expect(selected()).toEqual(['Desktop'])
     expect(container.querySelector('.kb-ask')).toBeTruthy()
+    expect(container.querySelector('.desktop-surface')).toBeTruthy()
+    expect(document.activeElement).toBe(container.querySelector('.kb-ask textarea'))
     await click(nav('Desktop'))
-    expect(container.querySelector('.kb-ask')).toBeNull()
     expect(container.querySelector('.desktop-surface')).toBeTruthy()
   })
 })

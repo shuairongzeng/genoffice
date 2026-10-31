@@ -502,6 +502,12 @@ export const he: Dict = {
   tabList: 'כל הכרטיסיות',
   appMenu: 'תפריט',
   newTab: 'כרטיסייה חדשה',
+  dockExpand: 'פתיחת פאנל ה-AI',
+  dockCollapse: 'קיפול פאנל ה-AI',
+  dockResize: 'גרירה לשינוי רוחב פאנל ה-AI',
+  workTabsAria: 'מסמכים פתוחים',
+  workTabDirty: 'שינויים שלא נשמרו',
+  workTabDetached: 'פתוח בחלון משלו',
   // First-run onboarding
   onbTitle1: 'ברוכים הבאים ל-GenOffice',
   onbSubtitle1: 'חבילת המשרד הראשונה בקוד פתוח שהיא AI-נייטיב',

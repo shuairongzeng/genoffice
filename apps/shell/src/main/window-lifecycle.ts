@@ -19,6 +19,7 @@ import {
   createDetachedEditorWindow,
   detachPinnedWidgetsFromShell,
   detachedFilePaths,
+  detachedOpenDocuments,
   detachedSetFileFor,
   detachedSetTitleFor,
   detachedWindowForWebContents,
@@ -59,6 +60,13 @@ import {
   setHtmlDocxExportedHook,
 } from './app-registry'
 import { readDesktopPins } from './desktop-ipc'
+import { readAiDock } from './ai-dock'
+import {
+  collectHomeTabsState,
+  createHomeTabsBroadcaster,
+  installHomeTabsPush,
+  type HomeTabsPush,
+} from './home-tabs-ipc'
 import { HOME_CHANNELS } from '../shared/home-api'
 import { TABS_CHANNELS } from '../shared/tabs-api'
 import type { TabKind } from '../shared/tabs-api'
@@ -168,6 +176,7 @@ export function createShellWindow(deps: ShellWindowDeps): void {
     win,
     () => {
       win.webContents.send(TABS_CHANNELS.changed, manager.list())
+      pushHomeTabs.push()
       deps.publishOpenDocumentsIfOwner([...manager.openFilePaths(), ...detachedFilePaths()])
       // the pinned widgets layer over the Home desktop: another tab covering
       // it hides them until Home is active again
@@ -177,11 +186,27 @@ export function createShellWindow(deps: ShellWindowDeps): void {
     deps.untitledTitle,
     // the tab strip is interface chrome, so its height follows the scale
     deps.uiScale,
+    // the AI dock rides app-settings.json's `aiDock` (renderer-owned writes);
+    // the layout re-reads it each pass, so a change lands on the next layout
+    () => readAiDock(deps.appSettingsPath()),
   )
+  // The desktop's tab strip renders in the Home layer, so it gets the tab
+  // state pushed (docs dirtiness resolved, detached editors flagged) instead
+  // of watching the shell-renderer strip channel: on every TabManager change,
+  // and forced once per load so a fresh (or reloaded) renderer starts with
+  // the full list even when nothing changed since.
+  const pushHomeTabs: HomeTabsPush = createHomeTabsBroadcaster({
+    collect: () => collectHomeTabsState(manager, detachedOpenDocuments),
+    send: (state) => deps.sendToShellRenderer(HOME_CHANNELS.tabsChanged, state),
+  })
+  installHomeTabsPush(pushHomeTabs)
+  win.webContents.on('did-finish-load', () => pushHomeTabs.push(true))
   manager.setClosedListener((closed) => deps.onTabsClosed(closed))
   deps.setTabManager(manager)
   const stopSleepSweeper = manager.startSleepSweeper(deps.tabSleepEnabled)
   win.once('closed', stopSleepSweeper)
+  // the push this window installed stops with it; a recreated shell window installs its own
+  win.once('closed', () => installHomeTabsPush(null))
 
   // Docking: a detached window dragged over this window's tab strip hands its
   // document back. The strip reports the insertion slot for each preview

@@ -7,8 +7,13 @@ import { appForKind, appIsDirty, documentApps, type AppCloseGuard } from './app-
 import type { AiDocContent } from '../../../docs/src/shared/ipc'
 import { rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
 import { HOME_CHANNELS } from '../shared/home-api'
+import {
+  documentContentBounds,
+  normalizeAiDock,
+  type AiDockPrefs,
+} from '../shared/desktop-geometry'
 import type { DocumentTabKind, OpenDocumentTab, TabKind, TabSummary } from '../shared/tabs-api'
-import { isSettledRect, tabStripHeight } from '../shared/tab-drag-geometry'
+import { intersectRect, isSettledRect } from '../shared/tab-drag-geometry'
 import {
   DEFAULT_IDLE_MS,
   defaultMaxLiveTabs,
@@ -89,9 +94,12 @@ export function shellTabManager(): TabManager | null {
 
 /**
  * Owns every open tab (Home + docs + sheets) inside the shell's single
- * BrowserWindow. Docs/sheets tabs are WebContentsView children of that
- * window; only the active one is visible at a time. Home has no view of its
- * own — hiding every other tab reveals the shell window's own content.
+ * BrowserWindow. The shell window's own webContents — the Home desktop — is
+ * the persistent base layer: it is never replaced or hidden. Document tabs
+ * are WebContentsView children laid out inside the desktop's content area
+ * (below its header, left of the AI dock), so the desktop's header, its AI
+ * dock and anything else it renders stay visible around the active document;
+ * only the active view is visible at a time. Home has no view of its own.
  */
 export class TabManager {
   private readonly tabs: TabRecord[] = [
@@ -105,6 +113,12 @@ export class TabManager {
    *  (slides show: the window snaps via simpleFullScreen and asks for the bleed
    *  over IPC, since requestFullscreen would animate the native transition) */
   private readonly bleedWcIds = new Set<number>()
+  /** the content stage's rect as the Home renderer reported it (home:content-rect);
+   *  null until the first report — the computed geometry stands in until then,
+   *  and document views are held hidden: the fallback's x/y approximation would
+   *  cover the desktop's own chrome for the first frames of a file-argument
+   *  launch (see activateTab) */
+  private stageRect: Rectangle | null = null
   /** tabs mid unsaved-changes prompt, so a second close click doesn't stack dialogs */
   private readonly closingIds = new Set<string>()
   private closedListener: ((tab: { kind: TabKind; filePath: string }) => void) | null = null
@@ -172,6 +186,13 @@ export class TabManager {
      * made from the View menu reaches the next layout without rebuilding this.
      */
     private readonly uiScale: () => number = () => 1,
+    /**
+     * The desktop's AI dock state (app-settings.json `aiDock`). A getter so a
+     * renderer write reaches the next layout without rebuilding this — the
+     * reads go through the stat-validated settings cache, so a settled file
+     * costs one stat per layout.
+     */
+    private readonly aiDock: () => AiDockPrefs = () => normalizeAiDock(undefined),
   ) {
     // Layout once synchronously for macOS/Windows (bounds are already correct),
     // then once more on the next tick. On Linux/X11, `resize` fires before the
@@ -252,17 +273,47 @@ export class TabManager {
     if (active?.view && this.bleedWcIds.has(active.view.webContents.id)) {
       return { x: 0, y: 0, width, height }
     }
-    // The strip is `zoom`ed by the interface scale, so its rendered height
-    // grows with it — positioning the view at the unscaled constant would paint
-    // the document underneath a taller tab strip.
-    const strip = tabStripHeight(this.uiScale())
-    return { x: 0, y: strip, width, height: Math.max(0, height - strip) }
+    // The renderer's measured stage rect wins: the desktop's own layout (the
+    // embedded strip, the sidebar, the docked panel) is the truth of where a
+    // document belongs, and it reports the exact numbers. A degenerate report
+    // (a mid-transition rect) is still stored — it shares no area with the
+    // window, so the intersection below rejects it and the computed geometry
+    // stands in until a good one lands.
+    if (this.stageRect) {
+      // A resize fires (twice, on X11) before the renderer's ResizeObserver
+      // reports the new stage rect, so the stored rect can still describe the
+      // pre-resize window: a shrunk window would leave the view spilling past
+      // its edges. Intersect the report with the live content bounds — a
+      // document view never paints outside the window — and fall back to the
+      // computed geometry when the two no longer overlap at all.
+      const clipped = intersectRect(this.stageRect, { x: 0, y: 0, width, height })
+      if (clipped) return clipped
+    }
+    // Fallback until a report arrives: below the desktop header, left of the
+    // dock footprint (both scaled by the interface scale, like the chrome they
+    // stand in for) — an approximation the next report replaces.
+    return documentContentBounds({ width, height }, { scale: this.uiScale(), dock: this.aiDock() })
   }
 
   /** Grow/restore a tab view over the tab strip on request (slides show fullscreen) */
   setContentBleed(wc: WebContents, on: boolean): void {
     if (on) this.bleedWcIds.add(wc.id)
     else this.bleedWcIds.delete(wc.id)
+    this.layout()
+  }
+
+  /**
+   * The content stage's rect as the Home renderer measured it (window px,
+   * reported over `home:content-rect` on mount and on every resize): the exact
+   * area an embedded document view fills, overriding the computed fallback
+   * until the window (and its manager) goes away. A new report always wins —
+   * the renderer's layout is the authority on where the stage sits. The first
+   * report also ends the pre-report hold: the active document view, kept
+   * hidden since its activation because only the fallback geometry was known,
+   * shows here with its true bounds.
+   */
+  setStageRect(rect: Rectangle): void {
+    this.stageRect = { ...rect }
     this.layout()
   }
 
@@ -299,7 +350,12 @@ export class TabManager {
     // after a Windows taskbar restore. Keep the last good layout instead.
     if (!isSettledRect(bounds)) return
     const active = this.tabs.find((t) => t.id === this.activeId)
-    if (active?.view) active.view.setBounds(bounds)
+    if (!active?.view) return
+    active.view.setBounds(bounds)
+    // A view held invisible while no stage report had arrived (activateTab)
+    // shows once a settled rect applies — never before, so the fallback's
+    // approximation is never what the person sees.
+    if (this.stageRect !== null) active.view.setVisible(true)
   }
 
   /**
@@ -320,6 +376,11 @@ export class TabManager {
 
   list(): TabSummary[] {
     return this.tabs.map((t) => this.summaryOf(t))
+  }
+
+  /** the active tab's id — the tab whose document fills the desktop's content area */
+  activeTabId(): string {
+    return this.activeId
   }
 
   /**
@@ -511,7 +572,13 @@ export class TabManager {
     const previous = this.tabs.find((t) => t.id === this.activeId)
     if (previous) previous.lastActiveAt = now
     target.lastActiveAt = now
-    for (const t of this.tabs) t.view?.setVisible(t.id === id)
+    // A document opened before Home's first content-rect report (a launch
+    // with file arguments) is held hidden: the only geometry known is the
+    // computed fallback, whose x/y would cover the desktop's sidebar and
+    // strip for the first frames. Home's own layer shows meanwhile, and the
+    // first report reveals the view at its true bounds (layout()).
+    const ready = this.stageRect !== null
+    for (const t of this.tabs) t.view?.setVisible(ready && t.id === id)
     const bounds = this.contentBounds()
     // a bring-forward while the window is minimized or mid-restore must not
     // zero-size the view being activated (same guard as layout())

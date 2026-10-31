@@ -539,6 +539,12 @@ export const de: Dict = {
   tabList: 'Alle Tabs',
   appMenu: 'Menü',
   newTab: 'Neuer Tab',
+  dockExpand: 'KI-Bereich öffnen',
+  dockCollapse: 'KI-Bereich einklappen',
+  dockResize: 'Ziehen, um die Breite des KI-Bereichs zu ändern',
+  workTabsAria: 'Geöffnete Dokumente',
+  workTabDirty: 'Ungespeicherte Änderungen',
+  workTabDetached: 'In eigenem Fenster geöffnet',
   // First-run onboarding
   onbTitle1: 'Willkommen bei GenOffice',
   onbSubtitle1: 'Die erste quelloffene, KI-native Office-Suite',

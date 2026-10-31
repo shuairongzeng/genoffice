@@ -496,6 +496,12 @@ export const zh = {
   tabList: '全部标签',
   appMenu: '菜单',
   newTab: '新建标签页',
+  dockExpand: '展开 AI 问答',
+  dockCollapse: '收起 AI 问答',
+  dockResize: '拖动调整 AI 面板宽度',
+  workTabsAria: '已打开的文档',
+  workTabDirty: '有未保存的修改',
+  workTabDetached: '已在独立窗口中打开',
   // First-run onboarding
   onbTitle1: '欢迎使用 GenOffice',
   onbSubtitle1: '第一个开源的 AI 原生 Office 套件',

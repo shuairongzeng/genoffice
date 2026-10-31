@@ -519,6 +519,12 @@ export const hi: Dict = {
   tabList: 'सभी टैब',
   appMenu: 'मेनू',
   newTab: 'नया टैब',
+  dockExpand: 'AI पैनल खोलें',
+  dockCollapse: 'AI पैनल छोटा करें',
+  dockResize: 'AI पैनल की चौड़ाई बदलने के लिए खींचें',
+  workTabsAria: 'खुले दस्तावेज़',
+  workTabDirty: 'असहेजे बदलाव',
+  workTabDetached: 'अपनी खुद की विंडो में खुला है',
   // First-run onboarding
   onbTitle1: 'GenOffice में आपका स्वागत है',
   onbSubtitle1: 'पहला ओपन-सोर्स, AI-नेटिव ऑफ़िस सुइट',

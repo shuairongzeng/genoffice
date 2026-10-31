@@ -526,6 +526,12 @@ export const ru: Dict = {
   tabList: 'Все вкладки',
   appMenu: 'Меню',
   newTab: 'Новая вкладка',
+  dockExpand: 'Открыть панель ИИ',
+  dockCollapse: 'Свернуть панель ИИ',
+  dockResize: 'Потяните, чтобы изменить ширину панели ИИ',
+  workTabsAria: 'Открытые документы',
+  workTabDirty: 'Несохранённые изменения',
+  workTabDetached: 'Открыто в отдельном окне',
   // First-run onboarding
   onbTitle1: 'Добро пожаловать в GenOffice',
   onbSubtitle1: 'Первый открытый ИИ-нативный офисный пакет',

@@ -10,10 +10,13 @@ export const TAB_STRIP_HEIGHT = 40
 /**
  * The strip's rendered height at an interface scale.
  *
- * The main process positions every editor view at `y = tabStripHeight()` so it
- * starts below the strip. When the strip is scaled but that number is not, a
- * 150% strip paints 20px down into the document — the exact clipping genoffice#1913
- * asks to avoid, and invisible until someone looks at the seam.
+ * This is the native strip's height — the Windows/Linux title-bar overlay's
+ * caption band, and the dock band a detached window hovers to re-attach. The
+ * desktop's own header (the embedded strip of the desktop-host model) is a
+ * separate number: see desktopHeaderHeight in shared/desktop-geometry.ts.
+ * When a strip is scaled but its height constant is not, a 150% strip paints
+ * 20px down into the document — the exact clipping genoffice#1913 asks to
+ * avoid, and invisible until someone looks at the seam.
  */
 export function tabStripHeight(scale = 1): number {
   return Math.round(TAB_STRIP_HEIGHT * scale)
@@ -66,6 +69,15 @@ export function isBeyondBand(y: number, top: number, bottom: number, slack: numb
 
 export function pointInRect(x: number, y: number, rect: Rect): boolean {
   return x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
+}
+
+/** the overlap of two rects, or null when they share no area */
+export function intersectRect(a: Rect, b: Rect): Rect | null {
+  const x = Math.max(a.x, b.x)
+  const y = Math.max(a.y, b.y)
+  const width = Math.min(a.x + a.width, b.x + b.width) - x
+  const height = Math.min(a.y + a.height, b.y + b.height) - y
+  return width > 0 && height > 0 ? { x, y, width, height } : null
 }
 
 /**

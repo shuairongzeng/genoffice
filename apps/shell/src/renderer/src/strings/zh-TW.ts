@@ -491,6 +491,12 @@ export const zhTW: Dict = {
   tabList: '全部分頁',
   appMenu: '選單',
   newTab: '新分頁',
+  dockExpand: '展開 AI 問答',
+  dockCollapse: '收合 AI 問答',
+  dockResize: '拖曳調整 AI 面板寬度',
+  workTabsAria: '已開啟的文件',
+  workTabDirty: '有未儲存的變更',
+  workTabDetached: '已在獨立視窗中開啟',
   // First-run onboarding
   onbTitle1: '歡迎使用 GenOffice',
   onbSubtitle1: '第一個開源的 AI 原生 Office 套件',

@@ -520,6 +520,12 @@ export const pl: Dict = {
   tabList: 'Wszystkie karty',
   appMenu: 'Menu',
   newTab: 'Nowa karta',
+  dockExpand: 'Otwórz panel AI',
+  dockCollapse: 'Zwiń panel AI',
+  dockResize: 'Przeciągnij, aby zmienić szerokość panelu AI',
+  workTabsAria: 'Otwarte dokumenty',
+  workTabDirty: 'Niezapisane zmiany',
+  workTabDetached: 'Otwarte we własnym oknie',
   // First-run onboarding
   onbTitle1: 'Witamy w GenOffice',
   onbSubtitle1: 'Pierwszy otwartoźródłowy, natywnie oparty na AI pakiet biurowy',

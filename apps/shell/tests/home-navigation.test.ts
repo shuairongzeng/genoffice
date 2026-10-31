@@ -43,6 +43,7 @@ const page = (starred: boolean) =>
 beforeEach(async () => {
   HTMLElement.prototype.scrollTo = vi.fn()
   // this suite exercises the list views: land on Recent instead of the desktop
+  localStorage.clear()
   localStorage.setItem('home.view', 'recent')
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   vi.stubGlobal(
@@ -93,25 +94,30 @@ function selected(): string[] {
 }
 
 describe('Home sidebar navigation', () => {
-  it.each(['Recent', 'Starred'])('shows only Ask AI as selected after leaving %s', async (from) => {
-    await click(nav(from))
-    expect(selected()).toEqual([from])
-    await click(nav('Ask AI'))
-    expect(container.querySelector('.kb-ask')).not.toBeNull()
-    expect(selected()).toEqual(['Ask AI'])
-    expect(nav('Ask AI').getAttribute('aria-current')).toBe('page')
-    expect(nav(from).hasAttribute('aria-current')).toBe(false)
-    expect(fetch).not.toHaveBeenCalled()
-    await click(nav(from))
-    expect(selected()).toEqual([from])
-    expect(nav(from).getAttribute('aria-current')).toBe('page')
-    expect(container.querySelector('.kb-ask')).toBeNull()
-    expect(container.querySelector('.content')?.textContent).toContain('brief.docx')
-    if (from === 'Starred')
-      expect(container.querySelector('.content')?.textContent).not.toContain('budget.xlsx')
-  })
+  it.each(['Recent', 'Starred'])(
+    'Ask AI focuses the docked panel without leaving %s',
+    async (from) => {
+      await click(nav(from))
+      expect(selected()).toEqual([from])
+      await click(nav('Ask AI'))
+      // the ask panel is the workbench's dock, not a surface: the list stays
+      // selected, the panel is present from launch, and the composer focused
+      expect(container.querySelector('.ai-dock')).not.toBeNull()
+      expect(container.querySelector('.kb-ask')).not.toBeNull()
+      expect(selected()).toEqual([from])
+      expect(document.activeElement).toBe(container.querySelector('.kb-ask textarea'))
+      expect(nav('Ask AI').hasAttribute('aria-current')).toBe(false)
+      expect(fetch).not.toHaveBeenCalled()
+      await click(nav(from))
+      expect(selected()).toEqual([from])
+      expect(nav(from).getAttribute('aria-current')).toBe('page')
+      expect(container.querySelector('.content')?.textContent).toContain('brief.docx')
+      if (from === 'Starred')
+        expect(container.querySelector('.content')?.textContent).not.toContain('budget.xlsx')
+    },
+  )
 
-  it('keeps the file-type filter when returning from Ask AI', async () => {
+  it('keeps the file-type filter across an Ask AI focus', async () => {
     const docs = [...container.querySelectorAll<HTMLButtonElement>('.filter-pill')].find(
       (button) => button.textContent === 'Docs',
     )!
@@ -119,7 +125,7 @@ describe('Home sidebar navigation', () => {
     expect(container.querySelector('.content')?.textContent).toContain('brief.docx')
     expect(container.querySelector('.content')?.textContent).not.toContain('budget.xlsx')
     await click(nav('Ask AI'))
-    expect(selected()).toEqual(['Ask AI'])
+    // no view switch happened, so the list never re-queried either
     await click(nav('Recent'))
     expect(container.querySelector('.filter-pill.active')?.textContent).toBe('Docs')
     expect(container.querySelector('.content')?.textContent).toContain('brief.docx')
@@ -130,13 +136,20 @@ describe('Home sidebar navigation', () => {
   })
 
   it("the folders-scope ask panel's CTA opens settings on the General pane", async () => {
-    // the panel reads the scope through the bridge; the composer gate needs a
-    // logged-in status so the empty-corpus teaching (with its CTA) renders
+    // the panel reads the scope through the bridge on mount; the dock mounts
+    // with Home, so the bridge carries the folders scope before the render
     const bridge = window.aiOffice as unknown as Record<string, unknown>
     bridge.getKbScope = async () => 'folders'
     bridge.setKbScope = async () => 'folders'
     bridge.aiGskStatus = async () => ({ loggedIn: true })
-    await click(nav('Ask AI'))
+    await act(async () => root.unmount())
+    container.remove()
+    container = document.createElement('div')
+    document.body.append(container)
+    root = createRoot(container)
+    await act(async () =>
+      root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
+    )
     await act(async () => {
       for (let i = 0; i < 6; i++) await Promise.resolve()
     })

@@ -188,10 +188,28 @@ vi.mock('../../html/src/main/html-main', () => ({
 import { TabManager } from '../src/main/tab-manager'
 import { HOME_CHANNELS } from '../src/shared/home-api'
 import type { TabKind } from '../src/shared/tabs-api'
+import {
+  AI_DOCK_RAIL_WIDTH,
+  AI_DOCK_WIDTH_DEFAULT,
+  DESKTOP_HEADER_HEIGHT,
+} from '../src/shared/desktop-geometry'
 
-const TAB_STRIP_HEIGHT = 40
 const WINDOW_WIDTH = 800
 const WINDOW_HEIGHT = 600
+/** the default expanded AI dock occupies this many window px beside a document */
+const DOCK_WIDTH = AI_DOCK_WIDTH_DEFAULT
+/** the desktop header band above an embedded document (the fallback geometry) */
+const HEADER = DESKTOP_HEADER_HEIGHT
+
+/** the fallback rect an embedded document view gets at scale 1 with the default dock */
+function embeddedBounds(width = WINDOW_WIDTH, height = WINDOW_HEIGHT) {
+  return {
+    x: 0,
+    y: HEADER,
+    width: width - DOCK_WIDTH,
+    height: height - HEADER,
+  }
+}
 
 interface FakeShellWindow {
   on: ReturnType<typeof vi.fn>
@@ -417,6 +435,7 @@ describe('spare sheets view', () => {
   it('warms a spare while Sheets is active and hands it to the next open', () => {
     vi.useFakeTimers()
     try {
+      manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
       manager.openSheetsTab('/tmp/first.xlsx')
       expect(createSheetsView).toHaveBeenCalledTimes(1)
       vi.advanceTimersByTime(3000)
@@ -517,7 +536,10 @@ describe('spare sheets view', () => {
 })
 
 describe('activation', () => {
-  it('shows only the activated tab view and lays it out below the tab strip', () => {
+  it('shows only the activated tab view and embeds it beside the AI dock', () => {
+    // the boot sequence: the desktop reports its stage before the first
+    // document activates (the pre-report hold test below covers the gap)
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
     const docsId = manager.openDocsTab()
     const docsView = lastCreatedView(createDocsView)
     manager.openSheetsTab()
@@ -526,11 +548,12 @@ describe('activation', () => {
     manager.activateTab(docsId)
     expect(docsView.setVisible).toHaveBeenLastCalledWith(true)
     expect(sheetsView.setVisible).toHaveBeenLastCalledWith(false)
+    // the document fills the desktop's reported content area exactly
     expect(docsView.setBounds).toHaveBeenLastCalledWith({
-      x: 0,
-      y: TAB_STRIP_HEIGHT,
-      width: WINDOW_WIDTH,
-      height: WINDOW_HEIGHT - TAB_STRIP_HEIGHT,
+      x: 208,
+      y: 44,
+      width: 552,
+      height: 556,
     })
     expect(manager.list().find((t) => t.id === docsId)?.active).toBe(true)
   })
@@ -587,12 +610,212 @@ describe('activation', () => {
       height: WINDOW_HEIGHT,
     })
     view.webContents.listeners.get('leave-html-full-screen')!()
+    expect(view.setBounds).toHaveBeenLastCalledWith(embeddedBounds())
+  })
+})
+
+describe('desktop content-area geometry (embedded document views)', () => {
+  function managerWithDock(
+    dock: () => { width: number; collapsed: boolean },
+    scale: () => number = () => 1,
+  ): TabManager {
+    return new TabManager(
+      shellWindow as never,
+      () => onChanged(),
+      (kind) => applyMenuFor(kind),
+      undefined,
+      scale,
+      dock,
+    )
+  }
+
+  it('reserves the mascot rail while the dock is collapsed', () => {
+    const docked = managerWithDock(() => ({ width: 480, collapsed: true }))
+    docked.openDocsTab()
+    const view = lastCreatedView(createDocsView)
+    // the collapsed dock is the corner pet's rail, not zero width: the pet
+    // stays visible and clickable beside the document
     expect(view.setBounds).toHaveBeenLastCalledWith({
       x: 0,
-      y: TAB_STRIP_HEIGHT,
-      width: WINDOW_WIDTH,
-      height: WINDOW_HEIGHT - TAB_STRIP_HEIGHT,
+      y: HEADER,
+      width: WINDOW_WIDTH - AI_DOCK_RAIL_WIDTH,
+      height: WINDOW_HEIGHT - HEADER,
     })
+  })
+
+  it('re-fits the active document when the dock pref changes between layouts', () => {
+    let dock = { width: 480, collapsed: false }
+    const docked = managerWithDock(() => dock)
+    docked.openDocsTab()
+    const view = lastCreatedView(createDocsView)
+    expect(view.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: HEADER,
+      width: WINDOW_WIDTH - 480,
+      height: WINDOW_HEIGHT - HEADER,
+    })
+    // the renderer wrote `aiDock`: the next layout reads the new state
+    dock = { width: 480, collapsed: true }
+    docked.layout()
+    expect(view.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: HEADER,
+      width: WINDOW_WIDTH - AI_DOCK_RAIL_WIDTH,
+      height: WINDOW_HEIGHT - HEADER,
+    })
+  })
+
+  it('clamps an oversized dock to the shared max, like the renderer drag does', () => {
+    const docked = managerWithDock(() => ({ width: 2000, collapsed: false }))
+    docked.openDocsTab()
+    const view = lastCreatedView(createDocsView)
+    expect(view.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: HEADER,
+      width: WINDOW_WIDTH - 560,
+      height: WINDOW_HEIGHT - HEADER,
+    })
+  })
+
+  it('scales the header and the dock footprint with the interface scale', () => {
+    const docked = managerWithDock(
+      () => ({ width: 400, collapsed: false }),
+      () => 1.5,
+    )
+    docked.openDocsTab()
+    const view = lastCreatedView(createDocsView)
+    // header 44 × 1.5 = 66; a 400 CSS px dock occupies 600 window px at 150%
+    expect(view.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 66,
+      width: WINDOW_WIDTH - 600,
+      height: WINDOW_HEIGHT - 66,
+    })
+  })
+
+  it('uses the renderer-reported stage rect exactly, and a newer report wins', () => {
+    manager.openDocsTab()
+    const view = lastCreatedView(createDocsView)
+    // the desktop's own layout reports where its stage sits — the sidebar and
+    // the embedded strip live in those numbers, not in the fallback constants
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    expect(view.setBounds).toHaveBeenLastCalledWith({
+      x: 208,
+      y: 44,
+      width: 552,
+      height: 556,
+    })
+    manager.setStageRect({ x: 208, y: 44, width: 452, height: 556 })
+    expect(view.setBounds).toHaveBeenLastCalledWith({
+      x: 208,
+      y: 44,
+      width: 452,
+      height: 556,
+    })
+  })
+
+  it('a degenerate stage report never zero-sizes the view; the next good one applies', () => {
+    manager.openDocsTab()
+    const view = lastCreatedView(createDocsView)
+    view.setBounds.mockClear()
+    manager.setStageRect({ x: 0, y: 44, width: 0, height: 0 })
+    // the degenerate rect shares no area with the window: the intersection is
+    // empty, so the computed geometry stands in — never a zero-sized view
+    expect(view.setBounds).toHaveBeenLastCalledWith(embeddedBounds())
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    expect(view.setBounds).toHaveBeenLastCalledWith({
+      x: 208,
+      y: 44,
+      width: 552,
+      height: 556,
+    })
+  })
+
+  it('holds a document hidden until the first stage report, then embeds it at the reported rect', () => {
+    // a launch with file arguments: the tab activates before Home has
+    // measured its stage, and the only geometry known is the fallback whose
+    // x/y would cover the desktop's own chrome — so the view stays hidden
+    // (the desktop shows) until the report arrives
+    manager.openDocsTab('/tmp/report.docx')
+    const view = lastCreatedView(createDocsView)
+    expect(view.setVisible).not.toHaveBeenCalledWith(true)
+    expect(view.setBounds).toHaveBeenLastCalledWith(embeddedBounds())
+
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    expect(view.setBounds).toHaveBeenLastCalledWith({
+      x: 208,
+      y: 44,
+      width: 552,
+      height: 556,
+    })
+    expect(view.setVisible).toHaveBeenLastCalledWith(true)
+  })
+
+  it('clips a stale stage rect to the shrunk window between reports', () => {
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    manager.openDocsTab()
+    const view = lastCreatedView(createDocsView)
+    view.setBounds.mockClear()
+    // the resize layout runs before the renderer's ResizeObserver reports the
+    // new stage: the stored rect still describes the pre-shrink window
+    shellWindow.getContentBounds = () => ({ x: 0, y: 0, width: 500, height: 400 })
+    manager.layout()
+    // never past the window's edges — the dock rail and the strip stay clear
+    // of the document instead of being spilled over
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 208, y: 44, width: 292, height: 356 })
+  })
+
+  it('falls back to the computed geometry once the shrunk window no longer overlaps the stage', () => {
+    manager.setStageRect({ x: 700, y: 44, width: 100, height: 556 })
+    manager.openDocsTab()
+    const view = lastCreatedView(createDocsView)
+    view.setBounds.mockClear()
+    // the stored stage sits past the shrunk window's right edge: no overlap
+    shellWindow.getContentBounds = () => ({ x: 0, y: 0, width: 650, height: 600 })
+    manager.layout()
+    expect(view.setBounds).toHaveBeenLastCalledWith(embeddedBounds(650, 600))
+  })
+
+  it('keeps HTML fullscreen covering the whole window even with a stage rect on file', () => {
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    manager.openSlidesTab()
+    const view = lastCreatedView(createSlidesView)
+    view.webContents.listeners.get('enter-html-full-screen')!()
+    expect(view.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: WINDOW_WIDTH,
+      height: WINDOW_HEIGHT,
+    })
+  })
+
+  it('keeps the content-bleed path (slides show) covering the whole window, then embeds again', () => {
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    manager.openSlidesTab()
+    const view = lastCreatedView(createSlidesView)
+    manager.setContentBleed(view.webContents, true)
+    expect(view.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: WINDOW_WIDTH,
+      height: WINDOW_HEIGHT,
+    })
+    manager.setContentBleed(view.webContents, false)
+    expect(view.setBounds).toHaveBeenLastCalledWith({
+      x: 208,
+      y: 44,
+      width: 552,
+      height: 556,
+    })
+  })
+
+  it('skips a degenerate (minimized/mid-restore) rect instead of zero-sizing the view', () => {
+    manager.openDocsTab()
+    const view = lastCreatedView(createDocsView)
+    view.setBounds.mockClear()
+    shellWindow.getContentBounds = () => ({ x: 0, y: 0, width: 0, height: 0 })
+    manager.layout()
+    expect(view.setBounds).not.toHaveBeenCalled()
   })
 })
 
@@ -690,24 +913,14 @@ describe('window resize layout', () => {
     shellWindow.getContentBounds = () => ({ x: 0, y: 0, width, height })
 
     resizeHandler()()
-    expect(view.setBounds).toHaveBeenLastCalledWith({
-      x: 0,
-      y: TAB_STRIP_HEIGHT,
-      width: WINDOW_WIDTH,
-      height: WINDOW_HEIGHT - TAB_STRIP_HEIGHT,
-    })
+    expect(view.setBounds).toHaveBeenLastCalledWith(embeddedBounds())
 
     // Bounds update after the synchronous layout, as on X11 maximize.
     width = 1920
     height = 1080
     await new Promise<void>((resolve) => setImmediate(resolve))
 
-    expect(view.setBounds).toHaveBeenLastCalledWith({
-      x: 0,
-      y: TAB_STRIP_HEIGHT,
-      width: 1920,
-      height: 1080 - TAB_STRIP_HEIGHT,
-    })
+    expect(view.setBounds).toHaveBeenLastCalledWith(embeddedBounds(1920, 1080))
     expect(view.setBounds).toHaveBeenCalledTimes(2)
   })
 
@@ -737,6 +950,7 @@ describe('closing tabs', () => {
   })
 
   it('removes a clean tab and falls back to the previous tab', async () => {
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
     manager.openSheetsTab()
     const sheetsView = lastCreatedView(createSheetsView)
     const slidesId = manager.openSlidesTab()
@@ -1103,6 +1317,7 @@ describe('detach / attach (Open in New Window, tear-off, dock)', () => {
   })
 
   it('attaches a view back as a new, active tab at the requested slot', () => {
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
     manager.openDocsTab('/tmp/a.docx')
     manager.openDocsTab('/tmp/b.docx')
     const id = manager.openSlidesTab('/tmp/deck.pptx')
@@ -1114,10 +1329,10 @@ describe('detach / attach (Open in New Window, tear-off, dock)', () => {
     expect(shellWindow.contentView.addChildView).toHaveBeenCalledWith(record.view)
     expect(record.view.setVisible).toHaveBeenLastCalledWith(true)
     expect(record.view.setBounds).toHaveBeenLastCalledWith({
-      x: 0,
-      y: TAB_STRIP_HEIGHT,
-      width: WINDOW_WIDTH,
-      height: WINDOW_HEIGHT - TAB_STRIP_HEIGHT,
+      x: 208,
+      y: 44,
+      width: 552,
+      height: 556,
     })
     expect(manager.list().map((t) => [t.id, t.title, t.active])).toEqual([
       ['home', 'GenOffice', false],
@@ -1180,12 +1395,7 @@ describe('detach / attach (Open in New Window, tear-off, dock)', () => {
       height: WINDOW_HEIGHT,
     })
     view.webContents.listeners.get('leave-html-full-screen')!()
-    expect(view.setBounds).toHaveBeenLastCalledWith({
-      x: 0,
-      y: TAB_STRIP_HEIGHT,
-      width: WINDOW_WIDTH,
-      height: WINDOW_HEIGHT - TAB_STRIP_HEIGHT,
-    })
+    expect(view.setBounds).toHaveBeenLastCalledWith(embeddedBounds())
     expect(manager.list()[1].id).toBe(newId)
   })
 
@@ -1259,6 +1469,7 @@ describe('tab sleep (background renderers released to free memory)', () => {
   })
 
   it('activating a sleeping tab rebuilds its view from the file, in place', async () => {
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
     const a = openDocs('/a.docx')
     openDocs('/b.docx')
     openDocs('/c.docx')

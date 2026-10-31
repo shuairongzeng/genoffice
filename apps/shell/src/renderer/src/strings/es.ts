@@ -537,6 +537,12 @@ export const es: Dict = {
   tabList: 'Todas las pestañas',
   appMenu: 'Menú',
   newTab: 'Nueva pestaña',
+  dockExpand: 'Abrir el panel de IA',
+  dockCollapse: 'Plegar el panel de IA',
+  dockResize: 'Arrastra para cambiar el tamaño del panel de IA',
+  workTabsAria: 'Documentos abiertos',
+  workTabDirty: 'Cambios sin guardar',
+  workTabDetached: 'Abierto en su propia ventana',
   // First-run onboarding
   onbTitle1: 'Bienvenido a GenOffice',
   onbSubtitle1: 'La primera suite ofimática de código abierto y nativa de IA',

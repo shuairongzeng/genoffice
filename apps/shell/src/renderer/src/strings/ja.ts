@@ -531,6 +531,12 @@ export const ja: Dict = {
   tabList: 'すべてのタブ',
   appMenu: 'メニュー',
   newTab: '新しいタブ',
+  dockExpand: 'AI パネルを開く',
+  dockCollapse: 'AI パネルを折りたたむ',
+  dockResize: 'ドラッグして AI パネルの幅を調整',
+  workTabsAria: '開いているドキュメント',
+  workTabDirty: '未保存の変更',
+  workTabDetached: '別のウィンドウで開いています',
   // First-run onboarding
   onbTitle1: 'GenOffice へようこそ',
   onbSubtitle1: '初のオープンソース AI ネイティブ Office スイート',

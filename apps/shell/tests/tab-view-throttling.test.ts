@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -60,6 +60,9 @@ function flagSitesByFile(): Record<string, number> {
     // this test's own title and matching regex spell the flag out; it is the
     // census taker, not a window site
     .filter((file) => file !== 'apps/shell/tests/tab-view-throttling.test.ts')
+    // a file deleted in the working tree but not yet staged still lists here;
+    // it no longer exists to carry a flag site
+    .filter((file) => existsSync(join(REPO_ROOT, file)))
   const sites: Record<string, number> = {}
   for (const file of files) {
     const src = readFileSync(join(REPO_ROOT, file), 'utf8')

@@ -310,8 +310,9 @@
 
 /* the sidebar's glass pane in desktop mode. A sibling *under* the sidebar,
  * never a property of it: backdrop-filter would make the sidebar a
- * containing block for its fixed-positioned folder menus (40px off), while
- * the sibling blurs exactly the wallpaper both share a parent with. */
+ * containing block for its fixed-positioned folder menus (offset by the
+ * sidebar's own box), while the sibling blurs exactly the wallpaper both
+ * share a parent with. */
 .home.desktop-mode .sidebar-glass {
   position: absolute;
   top: 0;

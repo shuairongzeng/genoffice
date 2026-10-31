@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent, ReactElement } from 'react'
 import logoLockup from './assets/genoffice-logo.svg'
+import { AiDock, normalizeAiDockPrefs, readLocalAiDockPrefs, writeLocalAiDockPrefs } from './AiDock'
+import { HomeTabs } from './HomeTabs'
 import { KbAskPanel } from './KbAskPanel'
 import { FileBadge } from './file-badge'
 import { placeFolderMenu } from './folder-menu-position'
 import type {
   AccountStatus,
+  AiDockPrefs,
   FolderRoot,
   HomeApi,
+  HomeTabEntry,
   MoveConflictPolicy,
   RecentEntry,
   FileSearchPage,
   FileSearchRerank,
 } from '../../shared/home-api'
+import type { TabsApi } from '../../shared/tabs-api'
 import type { IntegrationsApi } from '../../shared/integrations-api'
 import { useDismissablePopover } from '@genoffice/ui'
 import { fileCountLabel, visiblePageCount } from './counts'
@@ -117,10 +122,12 @@ export function Home() {
   const [navCounts, setNavCounts] = useState({ recent: 0, starred: 0 })
   const [loadingMore, setLoadingMore] = useState(false)
   // ── view-mode state machine ──
-  // One reducer owns the six mutually exclusive surfaces (see home-view.ts);
-  // the old five hand-written flags each switch function had to clear are the
-  // reducer's single transition now. The `view`/`desktopMode`/… locals below
-  // are the derived names the rest of this component was written against.
+  // One reducer owns the four mutually exclusive content surfaces (see
+  // home-view.ts); the old hand-written flags each switch function had to
+  // clear are the reducer's single transition now. The `view`/`desktopMode`/
+  // `cloudMode` locals below are the derived names the rest of this component
+  // was written against. The ask panel is no longer among them: it is the AI
+  // dock beside the content column, always mounted (see the dock state below).
   const [viewState, dispatchView] = useReducer(homeViewReducer, undefined, () =>
     initialHomeViewState(readLaunchView()),
   )
@@ -128,11 +135,127 @@ export function Home() {
   const desktopMode = surface === 'desktop'
   // Genspark web projects take over the content area (like a selected folder)
   const cloudMode = surface === 'cloud'
-  // the knowledge-base ask panel takes over the content area the same way
-  const askMode = surface === 'ask'
   // non-null only while the folder surface is up, exactly like the old flag set
   const selectedFolder = surface === 'folder' ? viewState.folder : null
   const [filter, setFilter] = useState('all')
+
+  // ── the workbench: the docked AI panel and the embedded tab strip ──
+  // The dock's prefs persist in app-settings.json through the `aiDock`
+  // channels; while a channel is absent (a partial test stub, a preload from
+  // before the workbench), the localStorage copy stands in — written only
+  // then, so it never shadows the real store once the channels exist. The
+  // panel itself is mounted below whatever the prefs say — collapse hides
+  // it, it never unmounts it.
+  const [dock, setDock] = useState<AiDockPrefs>(() => readLocalAiDockPrefs())
+  const dockRef = useRef(dock)
+  dockRef.current = dock
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    if (typeof api.getAiDock !== 'function') return
+    let alive = true
+    void api
+      .getAiDock()
+      .then((prefs) => {
+        if (alive) setDock(normalizeAiDockPrefs(prefs))
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
+  /** the dock prefs' one writer: state, ref, then the store — the same order
+   *  the ask thread's ref-then-state writers keep, so a read right after the
+   *  write sees the new value even before the paint */
+  const applyDockPrefs = useCallback((patch: Partial<AiDockPrefs>) => {
+    const next = normalizeAiDockPrefs({ ...dockRef.current, ...patch })
+    dockRef.current = next
+    setDock(next)
+    const api = window.aiOffice as Partial<HomeApi>
+    if (typeof api.setAiDock === 'function') {
+      void api.setAiDock(patch).catch(() => undefined)
+    } else {
+      writeLocalAiDockPrefs(next)
+    }
+  }, [])
+
+  // The open document tabs, and which one is active: the main process pushes
+  // them over the `onTabsChanged` contract (docs dirtiness resolved, detached
+  // windows flagged, Home always first); a preload that predates it falls
+  // back to the tab strip's own bridge (no dirty flags on that face — the
+  // dots simply stay off until the contract is live). Home never edits the
+  // list; every click rides back through `tabsActivate` / `tabsClose`.
+  const [workTabs, setWorkTabs] = useState<readonly HomeTabEntry[]>([])
+  const [workActiveId, setWorkActiveId] = useState<string | null>(null)
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    const stripBridge = window.aiOfficeTabs as Partial<TabsApi> | undefined
+    if (typeof api.onTabsChanged === 'function') {
+      return api.onTabsChanged((state) => {
+        // the push includes Home itself; the strip renders its own desktop
+        // item, so that entry never doubles up here
+        setWorkTabs(state.tabs.filter((tab) => tab.kind !== 'home'))
+        setWorkActiveId(state.activeId)
+      })
+    }
+    if (typeof stripBridge?.list !== 'function' || !stripBridge.onChanged) return
+    const apply = (
+      tabs: { id: string; kind: string; title: string; active: boolean; dirty?: boolean }[],
+    ) => {
+      setWorkTabs(
+        tabs
+          .filter((tab) => tab.kind !== 'home')
+          .map((tab) => ({
+            id: tab.id,
+            kind: tab.kind as HomeTabEntry['kind'],
+            title: tab.title,
+            active: tab.active,
+            dirty: tab.dirty === true,
+            detached: false,
+          })),
+      )
+      setWorkActiveId(tabs.find((tab) => tab.active)?.id ?? null)
+    }
+    void stripBridge.list().then(apply, () => undefined)
+    return stripBridge.onChanged(apply)
+  }, [])
+  /** a document tab is the active tab right now (the desktop item is not) */
+  const docTabActive = workActiveId !== null && workActiveId !== 'home'
+  const activateWorkTab = useCallback((id: string) => {
+    const api = window.aiOffice as Partial<HomeApi>
+    if (typeof api.tabsActivate === 'function') void api.tabsActivate(id).catch(() => undefined)
+    else window.aiOfficeTabs?.activate(id)
+  }, [])
+  const closeWorkTab = useCallback((id: string) => {
+    const api = window.aiOffice as Partial<HomeApi>
+    if (typeof api.tabsClose === 'function') void api.tabsClose(id).catch(() => undefined)
+    else window.aiOfficeTabs?.close(id)
+  }, [])
+
+  // The content stage's rect, pushed to the main process on mount and on
+  // every resize: the active document's WebContentsView is bounded to exactly
+  // this area there, so the dock and the embedded strip keep their margins
+  // around a document. Softened to a no-op wherever the channel is absent.
+  const stageRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    const stage = stageRef.current
+    if (typeof api.homeContentRect !== 'function' || !stage) return
+    const report = () => {
+      const rect = stage.getBoundingClientRect()
+      api.homeContentRect?.({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
+    }
+    report()
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(report) : null
+    observer?.observe(stage)
+    window.addEventListener('resize', report)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', report)
+    }
+  }, [])
+
+  /** the ask panel's focus request channel: each bump focuses its composer */
+  const [focusComposerSeq, setFocusComposerSeq] = useState(0)
   // ── the desktop's lifted wallpaper ──
   // Home mounts the backdrop host at its root while the desktop view is
   // active; DesktopView portals its wallpaper layers in, so the whole window
@@ -760,33 +883,38 @@ export function Home() {
     setFolderMenu(null)
   }, [])
 
-  /** the desktop's AI-ask tile: same switch the sidebar's Ask AI nav performs */
-  const openAskView = useCallback(() => {
-    dispatchView({ type: 'show-ask' })
-    writeLaunchView('ask')
-    setSelected(new Set())
+  /**
+   * The dock's one focus verb — everything that used to switch to the ask
+   * surface now performs it: the sidebar's Ask AI item, the desktop's ask
+   * tile, the palette's fallback and the ask deep link. Expanding is a prefs
+   * write, the composer focus is a seq bump the panel consumes, and no
+   * surface moves — the content column stays exactly where it was.
+   */
+  const openAskDock = useCallback(() => {
+    if (dockRef.current.collapsed) applyDockPrefs({ collapsed: false })
+    setFocusComposerSeq((n) => n + 1)
     setRowMenu(null)
-  }, [])
-  /** the ask-intent handoff's shared core: bump the seq and switch to the ask view */
+  }, [applyDockPrefs])
+  /** the ask-intent handoff's shared core: bump the seq and hand the question over */
   const handAskQuery = useCallback(
     (query: string, origin: AskQueryOrigin) => {
       const text = query.trim()
       if (!text) return
       setPendingAskQuery((prev) => ({ text, seq: (prev?.seq ?? 0) + 1, origin }))
-      openAskView()
+      openAskDock()
     },
-    [openAskView],
+    [openAskDock],
   )
-  /** the intent bus's fallback route: switch to the ask view and hand it the question */
+  /** the intent bus's fallback route: hand the question to the docked panel */
   const submitAskQuery = useCallback(
     (query: string) => handAskQuery(query, 'palette'),
     [handAskQuery],
   )
   /**
-   * The desktop's Ask AI action: switch to the ask view with the selected
-   * paths parked as the question's corpus — a blank palette-origin query
-   * carrying `scopePaths`, the shape the panel consumes as its round scope.
-   * No text is injected; the person asks in their own words.
+   * The desktop's Ask AI action: expand the dock and park the selected paths
+   * as the question's corpus — a blank palette-origin query carrying
+   * `scopePaths`, the shape the panel consumes as its round scope. No text is
+   * injected; the person asks in their own words.
    */
   const askAboutPaths = useCallback(
     (paths: readonly string[]) => {
@@ -797,9 +925,9 @@ export function Home() {
         origin: 'palette',
         scopePaths: [...paths],
       }))
-      openAskView()
+      openAskDock()
     },
-    [openAskView],
+    [openAskDock],
   )
   // genoffice://ask?q=… and friends: the main process forwards deep links over
   // the home:deep-link channel. Softened because a preload from before the
@@ -818,9 +946,9 @@ export function Home() {
       const link = normalizeAskDeepLink(payload)
       if (!link) return
       if (link.query.trim()) handAskQuery(link.query, 'deep-link')
-      else openAskView()
+      else openAskDock()
     })
-  }, [handAskQuery, openAskView, showDesktop])
+  }, [handAskQuery, openAskDock, showDesktop])
   const openTemplates = useCallback(() => setTemplatesOpen(true), [])
   const openSettings = useCallback((target: SettingsTarget) => setSettingsRequest(target), [])
   const openFolderView = useCallback((root: FolderRoot) => selectFolder(root.path), [selectFolder])
@@ -1903,13 +2031,15 @@ export function Home() {
       return parent?.folders.some((f) => f.path === p) ?? false
     })
 
-  const activeNav = desktopMode
-    ? 'desktop'
-    : !selectedFolder && !cloudMode
-      ? askMode
-        ? 'ask'
-        : view
-      : null
+  const activeNav = desktopMode ? 'desktop' : !selectedFolder && !cloudMode ? view : null
+
+  /** the embedded strip's desktop item: the same surface switch the sidebar's
+   *  Desktop item performs, plus the home tab rising in the main process's
+   *  strip — an active document yields the stage back to the desktop */
+  const showDesktopTab = useCallback(() => {
+    showDesktop()
+    activateWorkTab('home')
+  }, [showDesktop, activateWorkTab])
 
   return (
     <div className={`home${desktopMode ? ' desktop-mode' : ''}`}>
@@ -2000,11 +2130,7 @@ export function Home() {
             <span className="nav-label">{t('navStarred')}</span>
             <span className="nav-count">{navCounts.starred}</span>
           </button>
-          <button
-            className={`nav-item${activeNav === 'ask' ? ' active' : ''}`}
-            aria-current={activeNav === 'ask' ? 'page' : undefined}
-            onClick={openAskView}
-          >
+          <button className="nav-item nav-item-ask" onClick={openAskDock} title={t('dockExpand')}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path
                 d="M14 10.5c0 .9-.7 1.6-1.6 1.6H5.4L2 14.5V3.6C2 2.7 2.7 2 3.6 2h8.8c.9 0 1.6.7 1.6 1.6z"
@@ -2068,20 +2194,48 @@ export function Home() {
           openRequest={settingsRequest}
         />
       </aside>
-      {desktopMode ? (
-        <DesktopView
+      <div className="home-body">
+        <HomeTabs
           lang={lang}
-          roots={roots}
-          onOpenAsk={openAskView}
-          onAskAboutPaths={askAboutPaths}
-          onOpenTemplates={openTemplates}
-          onOpenSettings={openSettings}
-          onOpenFolder={openFolderView}
-          backdropHost={backdropHost}
+          tabs={workTabs}
+          desktopActive={!docTabActive}
+          onShowDesktop={showDesktopTab}
+          onActivate={activateWorkTab}
+          onClose={closeWorkTab}
         />
-      ) : selectedFolder && rootOf(selectedFolder, roots)?.readable ? (
-        renderFolderContent()
-      ) : askMode ? (
+        {/* the content stage: the desktop or a list view while nothing else
+         *  owns it, and the exact rect the main process bounds the active
+         *  document's WebContentsView to (reported through homeContentRect)
+         *  when a document tab is up — the dock and the strip keep their
+         *  margins around whatever lands here */}
+        <div className="home-stage" ref={stageRef}>
+          {desktopMode ? (
+            <DesktopView
+              lang={lang}
+              roots={roots}
+              onOpenAsk={openAskDock}
+              onAskAboutPaths={askAboutPaths}
+              onOpenTemplates={openTemplates}
+              onOpenSettings={openSettings}
+              onOpenFolder={openFolderView}
+              backdropHost={backdropHost}
+            />
+          ) : selectedFolder && rootOf(selectedFolder, roots)?.readable ? (
+            renderFolderContent()
+          ) : cloudMode ? (
+            <CloudProjectsView />
+          ) : (
+            renderGlobalContent()
+          )}
+        </div>
+      </div>
+      <AiDock
+        collapsed={dock.collapsed}
+        width={dock.width}
+        onCollapse={() => applyDockPrefs({ collapsed: true })}
+        onExpand={() => applyDockPrefs({ collapsed: false })}
+        onWidthCommit={(width) => applyDockPrefs({ width })}
+      >
         <KbAskPanel
           onOpenPath={(path) => void window.aiOffice.openPath(path)}
           onGoToRecents={() => changeView('recent')}
@@ -2089,12 +2243,9 @@ export function Home() {
           onOpenScopeSettings={() => setSettingsRequest({ section: 'general' })}
           pendingQuery={pendingAskQuery}
           onPendingQueryConsumed={() => setPendingAskQuery(null)}
+          focusSignal={focusComposerSeq}
         />
-      ) : cloudMode ? (
-        <CloudProjectsView />
-      ) : (
-        renderGlobalContent()
-      )}
+      </AiDock>
       {confirmDialog}
       {confirmDelete && (
         <ConfirmDialog

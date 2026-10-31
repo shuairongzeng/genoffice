@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Home } from './Home'
 import { Onboarding } from './Onboarding'
 import { StarPromptCard } from './StarPromptCard'
-import { TabBar } from './TabBar'
 
 interface AppFrameProps {
   /** resolved before first paint (main.tsx) so home never flashes under the overlay */
@@ -21,6 +20,14 @@ export function AppFrame({ initialOnboardingSeen }: AppFrameProps) {
     }
     void window.aiOfficeTabs.list().then(applyTabs)
     return window.aiOfficeTabs.onChanged(applyTabs)
+  }, [])
+
+  // document tabs are sibling WebContentsViews: they see neither this press
+  // nor a focus change, so relay it for them to dismiss open popovers
+  useEffect(() => {
+    const notify = (): void => window.aiOfficeTabs.notifyChromePressed?.()
+    document.addEventListener('pointerdown', notify, true)
+    return () => document.removeEventListener('pointerdown', notify, true)
   }, [])
 
   // The "star us" invitation is decided (and counted as shown) by the main
@@ -50,12 +57,17 @@ export function AppFrame({ initialOnboardingSeen }: AppFrameProps) {
 
   return (
     <div className="app-frame">
-      <TabBar />
-      {/* docs/sheets tabs render as WebContentsView children of this window, positioned
-       * by the main process to cover this area — only Home paints its own content here. */}
-      <div className="app-frame-content" style={{ visibility: homeActive ? 'visible' : 'hidden' }}>
-        <Home />
-      </div>
+      {/* Home is the persistent workbench: it stays mounted and visible
+       * whatever tab is active. Document tabs are WebContentsViews the main
+       * process bounds to Home's content stage, so the docked AI panel and
+       * the embedded tab strip keep their margins around a document — the
+       * stage itself is what yields. The native tab strip is retired: the
+       * window's drag surface is the workbench chrome itself (work-tabs
+       * track, dock head, sidebar logo), and the OS window controls live in
+       * the main process's title-bar overlay / native traffic lights. Only
+       * the first-run overlays below still wait for the home tab, since a
+       * document's view paints above them. */}
+      <Home />
       {/* editor WebContentsViews paint above ALL shell DOM, so the overlay only
        * renders while the home tab is active — it comes back when home does */}
       {showOnboarding && homeActive && <Onboarding onDone={finishOnboarding} />}

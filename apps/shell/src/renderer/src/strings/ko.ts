@@ -521,6 +521,12 @@ export const ko: Dict = {
   tabList: '모든 탭',
   appMenu: '메뉴',
   newTab: '새 탭',
+  dockExpand: 'AI 패널 열기',
+  dockCollapse: 'AI 패널 접기',
+  dockResize: '드래그하여 AI 패널 너비 조절',
+  workTabsAria: '열린 문서',
+  workTabDirty: '저장되지 않은 변경 사항',
+  workTabDetached: '별도 창에서 열림',
   // First-run onboarding
   onbTitle1: 'GenOffice에 오신 것을 환영합니다',
   onbSubtitle1: '최초의 오픈소스 AI 네이티브 오피스 제품군',

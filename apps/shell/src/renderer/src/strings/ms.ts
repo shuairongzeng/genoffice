@@ -525,6 +525,12 @@ export const ms: Dict = {
   tabList: 'Semua tab',
   appMenu: 'Menu',
   newTab: 'Tab baharu',
+  dockExpand: 'Buka panel AI',
+  dockCollapse: 'Kuncupkan panel AI',
+  dockResize: 'Seret untuk ubah lebar panel AI',
+  workTabsAria: 'Dokumen terbuka',
+  workTabDirty: 'Perubahan belum disimpan',
+  workTabDetached: 'Terbuka dalam tetingkap sendiri',
   // First-run onboarding
   onbTitle1: 'Selamat datang ke GenOffice',
   onbSubtitle1: 'Suite pejabat sumber terbuka natif AI yang pertama',

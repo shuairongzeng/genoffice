@@ -513,6 +513,12 @@ export const en: Dict = {
   tabList: 'All tabs',
   appMenu: 'Menu',
   newTab: 'New tab',
+  dockExpand: 'Open the AI panel',
+  dockCollapse: 'Collapse the AI panel',
+  dockResize: 'Drag to resize the AI panel',
+  workTabsAria: 'Open documents',
+  workTabDirty: 'Unsaved changes',
+  workTabDetached: 'Open in its own window',
   // First-run onboarding
   onbTitle1: 'Welcome to GenOffice',
   onbSubtitle1: 'The first open-source, AI-native office suite',

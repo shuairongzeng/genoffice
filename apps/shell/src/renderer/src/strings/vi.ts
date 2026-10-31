@@ -517,6 +517,12 @@ export const vi: Dict = {
   tabList: 'Tất cả các tab',
   appMenu: 'Menu',
   newTab: 'Tab mới',
+  dockExpand: 'Mở bảng điều khiển AI',
+  dockCollapse: 'Thu gọn bảng điều khiển AI',
+  dockResize: 'Kéo để đổi kích thước bảng điều khiển AI',
+  workTabsAria: 'Tài liệu đang mở',
+  workTabDirty: 'Thay đổi chưa lưu',
+  workTabDetached: 'Đang mở trong cửa sổ riêng',
   // First-run onboarding
   onbTitle1: 'Chào mừng đến với GenOffice',
   onbSubtitle1: 'Bộ ứng dụng văn phòng AI nguồn mở đầu tiên',

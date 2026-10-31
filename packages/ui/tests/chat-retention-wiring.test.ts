@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -39,6 +39,8 @@ function importersOfSharedBound(): string[] {
     .filter((file) => /\.(ts|tsx)$/.test(file))
     // this test's own prose names the import path; it is the census taker
     .filter((file) => !file.includes('/tests/'))
+    // tracked-but-deleted (mid-refactor worktree) or tarball checkouts have no file to read
+    .filter((file) => existsSync(join(REPO_ROOT, file)))
   const importers: string[] = []
   for (const file of files) {
     const src = readFileSync(join(REPO_ROOT, file), 'utf8')
