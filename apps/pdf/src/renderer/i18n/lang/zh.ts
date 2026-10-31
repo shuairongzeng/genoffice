@@ -121,6 +121,8 @@ export const zh = {
   pageOf: '共 {total} 页',
   appPageOf: '第 {current} 页,共 {total} 页',
   search: '搜索',
+  searchCase: '区分大小写',
+  searchWholeWord: '全字匹配',
   searchPrev: '上一个',
   searchNext: '下一个',
   searchCount: '{current} / {total}',

@@ -124,6 +124,8 @@ export const vi = {
   pageOf: 'trên {total}',
   appPageOf: 'Trang {current} trên {total}',
   search: 'Tìm kiếm',
+  searchCase: 'Phân biệt chữ hoa/chữ thường',
+  searchWholeWord: 'Chỉ từ hoàn chỉnh',
   searchPrev: 'Trước',
   searchNext: 'Tiếp',
   searchCount: '{current} / {total}',

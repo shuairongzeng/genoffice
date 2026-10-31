@@ -348,3 +348,56 @@ describe('kb:read — the gate', () => {
     ).rejects.toThrow(/at most 50/)
   })
 })
+
+describe('kb:search rerank wiring (issue #56 P1 #4)', () => {
+  /** both indexed files match the query, so the pool has two candidates to order */
+  const bothHits = async (): Promise<unknown> => invoke('kb:search', { q: '/idx/', limit: 8 })
+
+  it('a judged pool reaches the model with the candidates and orders the hits like the search panels', async () => {
+    // gate 5: with reranking on, the citations the model reads rank exactly
+    // like the Home results list — the same reranker, the same ordering rule
+    const rerank = vi.fn(async (q: string, paths: readonly string[], settings: unknown) => ({
+      order: ['/idx/other.pdf', '/idx/contract.docx'],
+      settings,
+      q,
+      paths,
+    }))
+    handles.clear()
+    registerHomeFileIpc({
+      ...host,
+      readFileSearchSettings: () => ({ rerank: true }) as never,
+      ensureSearchReranker: () => ({ rerank }) as never,
+    })
+    const answer = (await bothHits()) as { path: string }[]
+    expect(answer.map((h) => h.path)).toEqual(['/idx/other.pdf', '/idx/contract.docx'])
+    expect(rerank).toHaveBeenCalledWith(
+      '/idx/',
+      ['/idx/contract.docx', '/idx/other.pdf'],
+      expect.objectContaining({ rerank: true }),
+    )
+  })
+
+  it('rerank off never builds the reranker and keeps the store order', async () => {
+    const ensureSearchReranker = vi.fn(() => null)
+    handles.clear()
+    registerHomeFileIpc({
+      ...host,
+      readFileSearchSettings: () => ({ rerank: false }) as never,
+      ensureSearchReranker: ensureSearchReranker as never,
+    })
+    const answer = (await bothHits()) as { path: string }[]
+    expect(answer.map((h) => h.path)).toEqual(['/idx/contract.docx', '/idx/other.pdf'])
+    expect(ensureSearchReranker).not.toHaveBeenCalled()
+  })
+
+  it('settings on but no reranker available degrades to the store order', async () => {
+    handles.clear()
+    registerHomeFileIpc({
+      ...host,
+      readFileSearchSettings: () => ({ rerank: true }) as never,
+      ensureSearchReranker: () => null,
+    })
+    const answer = (await bothHits()) as { path: string }[]
+    expect(answer.map((h) => h.path)).toEqual(['/idx/contract.docx', '/idx/other.pdf'])
+  })
+})

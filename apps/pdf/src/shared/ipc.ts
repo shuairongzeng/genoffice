@@ -52,6 +52,7 @@ export const PDF_CHANNELS = {
   saveAsResult: 'pdf:save-as-result',
   saveAsFlow: 'pdf:save-as-flow',
   printRequest: 'pdf:print-request',
+  findRequest: 'pdf:find-request',
   print: 'pdf:print',
   printers: 'pdf:printers',
   fileRenamed: 'pdf:file-renamed',
@@ -1027,6 +1028,8 @@ export interface PdfApi {
   onSaveAsFlow(handler: (inFlight: boolean) => void): () => void
   /** Shell menu Print → renderer runs its print flow (save, rasterize, system dialog) */
   onPrintRequest(handler: () => void): () => void
+  /** Shell menu Find → renderer opens its find bar (the ⌘F accelerator rides the menu item) */
+  onFindRequest(handler: () => void): () => void
   /** print this window's print stylesheet output on a named printer ('' = OS default)
    *  without the system dialog; ok=false without error = canceled */
   print(job: PrintJobOptions): Promise<{ ok: boolean; error?: string }>

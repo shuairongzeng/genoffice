@@ -447,3 +447,134 @@ describe('FileIndexStore.has / recentFiles (the indexed-scope gates)', () => {
     expect(store.recentFiles(2)).toHaveLength(2)
   })
 })
+
+describe('searchKnowledgeBase rerank (issue #56 P1 #4)', () => {
+  const poolOf = (paths: string[]) => paths.map(HIT)
+
+  it('a judged order replaces the local one: judged hits first in the model order, the unjudged rest after', async () => {
+    // the citations the model reads rank like the search panels — Home's
+    // ordering rule exactly (palette-providers.ts applies the same merge)
+    const hits = await searchKnowledgeBase(
+      async () => poolOf(['/a/1.docx', '/a/2.docx', '/a/3.docx', '/a/4.docx']),
+      'report',
+      null,
+      8,
+      async () => ({ order: ['/a/3.docx', '/a/1.docx'] }),
+    )
+    // 3 and 1 judged (in that order); 2 and 4 unjudged keep local order after
+    expect(hits.map((h) => h.path)).toEqual(['/a/3.docx', '/a/1.docx', '/a/2.docx', '/a/4.docx'])
+  })
+
+  it('a null or throwing rail keeps the local order — the answer never fails on the model', async () => {
+    for (const rail of [
+      async () => null,
+      async (): Promise<{ order: readonly string[] } | null> => {
+        throw new Error('model down')
+      },
+    ]) {
+      const hits = await searchKnowledgeBase(
+        async () => poolOf(['/a/1.docx', '/a/2.docx']),
+        'report',
+        null,
+        8,
+        rail,
+      )
+      expect(hits.map((h) => h.path)).toEqual(['/a/1.docx', '/a/2.docx'])
+    }
+  })
+
+  it('the rail is not consulted when there is nothing to order', async () => {
+    let asked = 0
+    const hits = await searchKnowledgeBase(
+      async () => poolOf(['/a/1.docx']),
+      'report',
+      null,
+      8,
+      async () => {
+        asked += 1
+        return { order: ['/a/1.docx'] }
+      },
+    )
+    expect(asked).toBe(0)
+    expect(hits.map((h) => h.path)).toEqual(['/a/1.docx'])
+  })
+
+  it('with a rail the indexed scope fetches the judge depth, so a promoted hit can pass the caller limit', async () => {
+    // the model may rank a hit the store put at BM25 #12 as the best answer;
+    // it must be in the pool to be promoted into the caller's top-8
+    const requested: number[] = []
+    const pool = poolOf(Array.from({ length: 12 }, (_, i) => `/a/${i + 1}.docx`))
+    const hits = await searchKnowledgeBase(
+      async (q, limit) => {
+        requested.push(limit)
+        return pool.slice(0, limit)
+      },
+      'report',
+      null,
+      8,
+      async () => ({ order: ['/a/12.docx'] }),
+    )
+    expect(requested).toEqual([20])
+    expect(hits.map((h) => h.path)[0]).toBe('/a/12.docx')
+    expect(hits).toHaveLength(8)
+  })
+
+  it('the rail judges at most the top 20 candidates — the unjudged tail rides behind in local order', async () => {
+    // a narrowing scope can dedup to hundreds of in-scope candidates; the
+    // judging window stays the 20-path rail budget whatever the pool size,
+    // and candidates outside it are never sent to the model
+    const judged: string[] = []
+    const pool = poolOf(Array.from({ length: 25 }, (_, i) => `/a/${i + 1}.docx`))
+    const hits = await searchKnowledgeBase(
+      async (q, limit) => pool.slice(0, limit),
+      'report',
+      null,
+      25,
+      async (q, paths) => {
+        judged.push(...paths)
+        return { order: [...paths].reverse() }
+      },
+    )
+    // exactly the first 20 in local order — not the whole 25-hit pool
+    expect(judged).toEqual(Array.from({ length: 20 }, (_, i) => `/a/${i + 1}.docx`))
+    // reversed judged block first, then the never-judged 21..25 in local order
+    expect(hits.map((h) => h.path)).toEqual([
+      ...Array.from({ length: 20 }, (_, i) => `/a/${20 - i}.docx`),
+      '/a/21.docx',
+      '/a/22.docx',
+      '/a/23.docx',
+      '/a/24.docx',
+      '/a/25.docx',
+    ])
+  })
+
+  it('without a rail the fetch keeps its exact old shape (top-limit, no extra rows)', async () => {
+    const requested: number[] = []
+    await searchKnowledgeBase(
+      async (q, limit) => {
+        requested.push(limit)
+        return poolOf(['/a/1.docx'])
+      },
+      'report',
+      null,
+      8,
+    )
+    expect(requested).toEqual([8])
+  })
+
+  it('a narrowing scope keeps its 200 pool under the rail', async () => {
+    const requested: number[] = []
+    const hits = await searchKnowledgeBase(
+      async (q, limit) => {
+        requested.push(limit)
+        return poolOf(['/a/starred.docx', '/b/other.docx'])
+      },
+      'report',
+      { paths: ['/a/starred.docx'] },
+      8,
+      async () => ({ order: ['/a/starred.docx'] }),
+    )
+    expect(requested).toEqual([200])
+    expect(hits.map((h) => h.path)).toEqual(['/a/starred.docx'])
+  })
+})

@@ -342,8 +342,28 @@ export function listIndexedKnowledgeFiles(
 export type KbSearchScope = null | { paths: readonly string[] } | { roots: readonly string[] }
 
 /**
+ * The decision model's ordering rail (issue #56 P1 #4): given the query and
+ * the candidate paths, the model's ranked order — or null when reranking is
+ * off, the model is unavailable, or the call fails, in which case the
+ * caller's local (BM25) order stands. Same rail Home's results and the
+ * command palette's files source ride, so all three surfaces order one query
+ * identically.
+ */
+export type KbRerank = (
+  q: string,
+  paths: readonly string[],
+) => Promise<{ order: readonly string[] } | null>
+
+/** the candidate depth the decision model judges (Home's own judge depth) */
+const KB_RERANK_POOL = 20
+
+/**
  * Fetch + trim one search page; pure so it is unit-testable. Async because
- * the search runs in the store worker.
+ * the search runs in the store worker. With a `rerank` rail, the model's
+ * ordering replaces the local one before the trim — the citations the model
+ * reads then rank exactly like the search panels' results (issue #56 P1 #4),
+ * and the pool widens to the judge depth so a hit the model would promote
+ * from beyond the caller's limit still reaches it.
  */
 export async function searchKnowledgeBase(
   search: (
@@ -353,6 +373,7 @@ export async function searchKnowledgeBase(
   query: string,
   scope: KbSearchScope,
   limit: number,
+  rerank?: KbRerank,
 ): Promise<KbSearchHit[]> {
   const q = query.trim().slice(0, KB_QUERY_MAX_CHARS)
   if (!q) return []
@@ -368,24 +389,42 @@ export async function searchKnowledgeBase(
   // the answer as "globally top-N ∩ in-scope", silently empty when out-of-
   // scope files outrank the in-scope matches (the starred scope's own reason
   // for the 200 pool; the indexed scope applies no post-filter and keeps the
-  // store's page as the answer)
-  const pool = await search(q, scope === null ? limit : KB_SEARCH_POOL)
+  // store's page as the answer). With a rerank rail the indexed scope also
+  // fetches the judge depth: the model orders the candidates before the
+  // trim, so a hit it would rank first must be in the pool to be promoted.
+  // Without the rail the fetch is exactly the old shape (top-limit), so the
+  // no-rerank answer and its search call are byte-identical to before.
+  const pool = await search(
+    q,
+    scope === null ? (rerank ? Math.max(limit, KB_RERANK_POOL) : limit) : KB_SEARCH_POOL,
+  )
   const seen = new Set<string>()
-  const out: KbSearchHit[] = []
+  const candidates: KbSearchHit[] = []
   for (const hit of pool) {
     if (!inScope(hit.path)) continue
     if (seen.has(hit.path)) continue
     seen.add(hit.path)
-    out.push({
+    candidates.push({
       path: hit.path,
       name: hit.name,
       ext: hit.ext,
       folder: basename(dirname(hit.path)),
       snippet: hit.snippetText ?? '',
     })
-    if (out.length >= limit) break
   }
-  return out
+  if (rerank && candidates.length >= 2) {
+    const judged = await rerank(
+      q,
+      candidates.slice(0, KB_RERANK_POOL).map((hit) => hit.path),
+    ).catch(() => null)
+    if (judged) {
+      // Home's ordering rule exactly: judged hits in the model's order, then
+      // the unjudged rest in local order (a stable sort keeps them there)
+      const rank = new Map(judged.order.map((path, i) => [path, i]))
+      candidates.sort((a, b) => (rank.get(a.path) ?? Infinity) - (rank.get(b.path) ?? Infinity))
+    }
+  }
+  return candidates.slice(0, limit)
 }
 
 /** parsed text of one corpus file; throws with a plain message the panel can

@@ -118,6 +118,9 @@ describe('home-ipc kb channels — the folders scope', () => {
       appSettingsPath: () => join(userData, 'app-settings.json'),
       indexStore: () => store,
       ensureFileIndexer: () => null,
+      // rerank stays off in this suite: the scope rail's pool shape is the
+      // behavior under test (the rerank rail has its own suite)
+      readFileSearchSettings: () => ({ rerank: false }),
     } as unknown as Parameters<typeof registerHomeFileIpc>[0]
     registerHomeFileIpc(host)
   })
@@ -153,6 +156,7 @@ describe('home-ipc kb channels — the folders scope', () => {
       appSettingsPath: () => join(userData, 'app-settings.json'),
       indexStore: () => null,
       ensureFileIndexer: () => null,
+      readFileSearchSettings: () => ({ rerank: false }),
     } as unknown as Parameters<typeof registerHomeFileIpc>[0]
     registerHomeFileIpc(host)
 

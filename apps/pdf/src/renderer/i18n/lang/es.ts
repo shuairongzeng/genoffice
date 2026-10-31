@@ -124,6 +124,8 @@ export const es = {
   pageOf: 'de {total}',
   appPageOf: 'Página {current} de {total}',
   search: 'Buscar',
+  searchCase: 'Coincidir mayúsculas y minúsculas',
+  searchWholeWord: 'Solo palabras completas',
   searchPrev: 'Anterior',
   searchNext: 'Siguiente',
   searchCount: '{current} / {total}',

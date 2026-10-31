@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist'
-import { foldCase } from '@genoffice/ui'
+import { foldCase, isWordChar } from '@genoffice/ui'
 
 /** One hit: original page + PDF user-space rects (multiple when spanning several text items) */
 export interface SearchMatch {
@@ -103,18 +103,46 @@ export function createSearchIndexCache(): SearchIndexCache {
   }
 }
 
-/** Case-insensitive full-text search; rects linearly interpolated within items by char ratio (approximate; bounding box for rotated glyphs) */
-export function searchInIndex(index: SearchIndex, query: string): SearchMatch[] {
-  const q = foldCase(query)
+/** How the query matches text (issue #56 P1 #6): the default is the
+ *  case-insensitive substring the viewer always had; the two options are the
+ *  editor-grade refinements a contract PDF needs. */
+export interface SearchOptions {
+  /** match the query's exact case instead of folding */
+  caseSensitive?: boolean
+  /** the hit must sit at word boundaries — a letter or digit directly beside
+   *  it disqualifies (the boundary alphabet is script-agnostic: CJK text is
+   *  all letters, so whole-word rarely fires there, exactly as in Word) */
+  wholeWord?: boolean
+}
+
+/** Full-text search over the built index; rects linearly interpolated within items by char ratio (approximate; bounding box for rotated glyphs) */
+export function searchInIndex(
+  index: SearchIndex,
+  query: string,
+  options: SearchOptions = {},
+): SearchMatch[] {
+  const q = options.caseSensitive ? query : foldCase(query)
   if (!q) return []
   const matches: SearchMatch[] = []
   for (let pageIndex = 0; pageIndex < index.length; pageIndex++) {
-    const { lower, items } = index[pageIndex]!
+    const entry = index[pageIndex]!
+    const { items } = entry
+    // exact-case matching searches the original text; the folded default
+    // searches the folded twin. The item ranges are the same either way, so
+    // the rect math is shared.
+    const hay = options.caseSensitive ? entry.text : entry.lower
     let from = 0
     while (matches.length < MAX_MATCHES) {
-      const s = lower.indexOf(q, from)
+      const s = hay.indexOf(q, from)
       if (s < 0) break
       const e = s + q.length
+      if (options.wholeWord && (isWordChar(hay[s - 1]) || isWordChar(hay[e]))) {
+        // a rejected candidate can overlap a valid one ('a.a' in 'xa.a.a'):
+        // step one char past its start, as the shared findInText does,
+        // instead of past the whole occurrence
+        from = s + 1
+        continue
+      }
       from = e
       const rects: [number, number, number, number][] = []
       for (const it of items) {

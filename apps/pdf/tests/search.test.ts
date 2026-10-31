@@ -175,4 +175,64 @@ describe('searchInIndex', () => {
     expect(matches).toHaveLength(0)
     expect(searchInIndex(index, 'İ')).toHaveLength(1)
   })
+
+  // issue #56 P1 #6: case-sensitive + whole-word find options
+  const page = (text: string): SearchIndex[number] =>
+    entry(text, [{ start: 0, end: text.length, x: 0, y: 0, w: text.length * 10, h: 10 }])
+
+  it('defaults keep the folded substring behavior with no options argument', () => {
+    const index = [page('Contract contract CONTRACT')]
+    expect(searchInIndex(index, 'contract')).toHaveLength(3)
+    expect(searchInIndex(index, 'CONTRACT')).toHaveLength(3) // the query folds too
+    expect(searchInIndex(index, 'contract', {})).toHaveLength(3) // empty options object
+  })
+
+  it('caseSensitive matches only the exact case and still emits rects', () => {
+    const index = [page('Contract contract CONTRACT')]
+    const hits = searchInIndex(index, 'Contract', { caseSensitive: true })
+    expect(hits).toHaveLength(1)
+    // the surviving hit goes through the same shared item/rect math
+    expect(hits[0]!.rects).toHaveLength(1)
+    expect(searchInIndex(index, 'contract', { caseSensitive: true })).toHaveLength(1)
+    expect(searchInIndex(index, 'CONTRACT', { caseSensitive: true })).toHaveLength(1)
+    expect(searchInIndex(index, 'Missing', { caseSensitive: true })).toHaveLength(0)
+  })
+
+  it('wholeWord rejects hits with letter/digit neighbors and accepts real boundaries', () => {
+    // 'cat' as a whole word: at start of text, before '.', and at end of text;
+    // word-internal inside 'catalog', 'scat', 'concat'
+    const index = [page('cat catalog scat cat. concat cat')]
+    expect(searchInIndex(index, 'cat', { wholeWord: true })).toHaveLength(3)
+    expect(searchInIndex(index, 'cat')).toHaveLength(6)
+  })
+
+  it('wholeWord rejects digit neighbors too, not just letters', () => {
+    // '9cat' (digit before) and 'cat7' (digit after) are not whole words
+    const index = [page('cat 9cat cat7')]
+    expect(searchInIndex(index, 'cat', { wholeWord: true })).toHaveLength(1)
+  })
+
+  it('wholeWord steps one char past a rejected hit so an overlapping valid hit still lands', () => {
+    // 'a.a' at offset 1 is rejected ('x' before it) and overlaps the
+    // boundary-valid occurrence at offset 3 ('.' before, end after) —
+    // advancing past the whole rejected occurrence would skip it
+    const index = [page('xa.a.a')]
+    expect(searchInIndex(index, 'a.a', { wholeWord: true })).toHaveLength(1)
+    const versions = [page('v1.1.1')]
+    expect(searchInIndex(versions, '1.1', { wholeWord: true })).toHaveLength(1)
+  })
+
+  it('wholeWord treats underscore as a word character (Word-style boundary)', () => {
+    const index = [page('cat_')]
+    expect(searchInIndex(index, 'cat', { wholeWord: true })).toHaveLength(0)
+    expect(searchInIndex(index, 'cat')).toHaveLength(1)
+  })
+
+  it('caseSensitive and wholeWord compose', () => {
+    const index = [page('Cat cat CAT catcat')]
+    expect(searchInIndex(index, 'cat', { caseSensitive: true, wholeWord: true })).toHaveLength(1)
+    expect(searchInIndex(index, 'Cat', { caseSensitive: true, wholeWord: true })).toHaveLength(1)
+    // folded query, whole-word only: Cat/cat/CAT stand alone, catcat does not
+    expect(searchInIndex(index, 'cat', { wholeWord: true })).toHaveLength(3)
+  })
 })

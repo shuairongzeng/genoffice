@@ -125,6 +125,8 @@ export const de = {
   pageOf: 'von {total}',
   appPageOf: 'Seite {current} von {total}',
   search: 'Suchen',
+  searchCase: 'Groß-/Kleinschreibung beachten',
+  searchWholeWord: 'Ganzes Wort suchen',
   searchPrev: 'Zurück',
   searchNext: 'Weiter',
   searchCount: '{current} / {total}',

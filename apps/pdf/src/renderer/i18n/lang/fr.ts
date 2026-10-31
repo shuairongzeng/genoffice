@@ -126,6 +126,8 @@ export const fr = {
   pageOf: 'sur {total}',
   appPageOf: 'Page {current} sur {total}',
   search: 'Rechercher',
+  searchCase: 'Respecter la casse',
+  searchWholeWord: 'Mot entier uniquement',
   searchPrev: 'Précédent',
   searchNext: 'Suivant',
   searchCount: '{current} / {total}',
