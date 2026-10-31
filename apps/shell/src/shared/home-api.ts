@@ -312,8 +312,11 @@ export interface DesktopLayout {
   readonly aliases: readonly string[]
 }
 
-/** the Ask AI corpus scope (app-settings.json `kbScope`); default: the whole index */
-export type KbScope = 'indexed' | 'starred'
+/**
+ * The Ask AI corpus scope (app-settings.json `kbScope`); default: the whole
+ * index. `'folders'` narrows the corpus to the roots in `kbScopeFolders`.
+ */
+export type KbScope = 'indexed' | 'starred' | 'folders'
 
 /**
  * The `kb:search` answer when the query carried `onlyPaths` (the round scope:
@@ -533,6 +536,14 @@ export interface HomeApi {
   getKbScope(): Promise<KbScope>
   /** switch the Ask AI corpus scope; resolves to the effective scope */
   setKbScope(scope: KbScope): Promise<KbScope>
+  /** the 'folders' scope's roots (app-settings.json `kbScopeFolders`) */
+  getKbScopeFolders(): Promise<string[]>
+  /** open the OS folder picker and add the picked folder to the scope's list; resolves to the added realpath, or null when cancelled or unusable */
+  addKbScopeFolder(): Promise<string | null>
+  /** take one folder out of the scope's list; resolves to the remaining list */
+  removeKbScopeFolder(path: string): Promise<string[]>
+  /** the corpus scope changed in the main process — the panel re-reads its scope and corpus */
+  onKbScopeChanged(handler: () => void): () => void
   /** toggle the global hotkey and/or change its accelerator; resolves to the effective settings */
   setGlobalHotkey(patch: {
     enabled?: boolean
@@ -540,19 +551,21 @@ export interface HomeApi {
   }): Promise<SystemPresenceSettings>
   /** open Settings › Integrations (the skills list) */
   openSkillsSettings(): Promise<void>
-  /** full-text search over the corpus. `onlyPaths` attaches the round scope —
-   *  an explicit file selection as this conversation's corpus — and changes the
-   *  answer's shape to {@link KbScopedSearchResult}; without it the answer
-   *  stays a bare hit array (kbScope in app-settings: index-wide by default,
-   *  or starred-only) */
+  /** full-text search over the corpus (scope `kbScope` in app-settings:
+   *  index-wide by default, starred-only, or the folders list). `onlyPaths`
+   *  attaches the round scope — an explicit file selection as this
+   *  conversation's corpus — and outranks the settings for the call; it also
+   *  changes the answer's shape to {@link KbScopedSearchResult}, while
+   *  without it the answer stays a bare hit array */
   kbSearch(query: {
     q: string
     limit?: number
     onlyPaths?: readonly string[]
   }): Promise<KbSearchHit[] | KbScopedSearchResult>
-  /** one page of a corpus file's parsed text. `onlyPaths` (the round scope)
-   *  widens the gate to a selected file the index missed, when it exists and
-   *  is a readable office type */
+  /** one page of a corpus file's parsed text (path must be in the corpus
+   *  scope). `onlyPaths` (the round scope) replaces the settings scope for
+   *  the call and widens the gate to a selected file the index missed, when
+   *  it exists and is a readable office type */
   kbRead(path: string, offset: number, onlyPaths?: readonly string[]): Promise<KbReadPage>
   /** write the AI's markdown as a new .md / .docx in the save folder; resolves to its path */
   kbCreateDocument(request: {
@@ -995,6 +1008,10 @@ export const HOME_CHANNELS = {
   systemPresenceSetHotkey: 'home:system-presence-set-hotkey',
   kbGetScope: 'kb:get-scope',
   kbSetScope: 'kb:set-scope',
+  kbGetScopeFolders: 'kb:get-scope-folders',
+  kbAddScopeFolder: 'kb:add-scope-folder',
+  kbRemoveScopeFolder: 'kb:remove-scope-folder',
+  kbScopeChanged: 'kb:scope-changed',
   removeRecent: 'home:remove-recent',
   revealPath: 'home:reveal-path',
   renameFile: 'home:rename-file',

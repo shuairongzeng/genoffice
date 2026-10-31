@@ -7,19 +7,23 @@
 ///
 /// The corpus is a scope: 'indexed' (the default) is every file the local
 /// index covers — the save folder, the added folder roots, recents and the
-/// starred set — while 'starred' is the original hand-picked set. kb:list
-/// stays a bounded prompt window either way (starred first, then the most
-/// recently touched indexed files); search and read are what reach the whole
-/// corpus.
+/// starred set — 'starred' is the original hand-picked set, and 'folders'
+/// narrows the index to the folders in `kbScopeFolders` (an empty list is an
+/// empty corpus: the settings page and the panel's empty state both say so).
+/// kb:list stays a bounded prompt window either way (starred first, then the
+/// most recently touched indexed files); search and read are what reach the
+/// whole corpus.
 ///
 /// On top of that sits the round scope: an explicit file selection (the
 /// desktop's multi-select → Ask AI) handed over as one conversation's corpus.
-/// While a request carries `onlyPaths`, search intersects the index with that
-/// list and reports the paths the index does not cover (`notIndexed`), and
-/// read narrows the same way — a selected path is the only thing readable
-/// that call, corpus or not. A selected file the index missed still reads
-/// when its location is one a desktop selection can genuinely come from
-/// (inside a folder root, on the stored alias list, or a recent/starred
+/// The scopes stack by priority — onlyPaths (this round's selection) >
+/// 'starred' > 'folders' > 'indexed' — so while a request carries `onlyPaths`,
+/// it replaces whatever the settings say for that call: search intersects the
+/// index with that list and reports the paths the index does not cover
+/// (`notIndexed`), and read narrows the same way — a selected path is the only
+/// thing readable that call, corpus or not. A selected file the index missed
+/// still reads when its location is one a desktop selection can genuinely come
+/// from (inside a folder root, on the stored alias list, or a recent/starred
 /// file — the caller's verdict) and it exists as a readable office type: an
 /// office-named file anywhere else on disk is refused, so the scope cannot
 /// turn the read channel into an arbitrary-file reader. No ad-hoc indexing
@@ -34,7 +38,7 @@
 /// by real path is the cheap, correct filter. The indexed scope needs no
 /// post-filter at all, so it takes the store's own ranked page directly.
 
-import { statSync } from 'node:fs'
+import { realpathSync, statSync } from 'node:fs'
 import { basename, dirname, isAbsolute } from 'node:path'
 import { parseFileToText } from '@genoffice/file-parse'
 import { isSupportedTreeFile } from './folder-tree'
@@ -64,11 +68,81 @@ const KB_SEARCH_POOL = 200
  */
 export const KB_LIST_CAP = 100
 
-/** the knowledge-base corpus scope (app-settings.json `kbScope`); default: the whole index */
-export type KbScope = 'indexed' | 'starred'
+/**
+ * The knowledge-base corpus scope (app-settings.json `kbScope`); default: the
+ * whole index. `'folders'` narrows to the folders in `kbScopeFolders` — the
+ * corpus is then the indexed (and starred) files under those roots.
+ */
+export type KbScope = 'indexed' | 'starred' | 'folders'
+
+/** how many distinct roots the 'folders' scope accepts, matching the round
+ *  scope's KB_ONLY_PATHS_MAX: both bound the corpus one settings field or one
+ *  request can define, so neither can grow into an unbounded read surface */
+export const KB_SCOPE_FOLDERS_MAX = 50
 
 export function normalizeKbScope(raw: unknown): KbScope {
-  return raw === 'starred' ? 'starred' : 'indexed'
+  return raw === 'starred' || raw === 'folders' ? raw : 'indexed'
+}
+
+/**
+ * The `kbScopeFolders` list, normalized: string entries only, de-duplicated,
+ * sorted (so the settings file and the UI see one stable shape regardless of
+ * the order the folders were picked in). More than KB_SCOPE_FOLDERS_MAX
+ * distinct entries is refused outright rather than trimmed: a hand-edited
+ * settings file cannot widen the corpus roots this way, and the add channel
+ * inherits the same refusal for the pick that would exceed the cap.
+ */
+export function normalizeKbScopeFolders(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const out = new Set<string>()
+  for (const entry of raw) {
+    if (typeof entry === 'string' && entry.length > 0) out.add(entry)
+  }
+  if (out.size > KB_SCOPE_FOLDERS_MAX) {
+    throw new Error(`kbScopeFolders accepts at most ${KB_SCOPE_FOLDERS_MAX} folders`)
+  }
+  return [...out].sort()
+}
+
+/**
+ * Real-path prefix membership: `path` is under `roots` when it equals a root
+ * or sits below it (either separator, matching the renderer's isUnder in
+ * home-shared.tsx). A root may arrive with a trailing separator — hand-edited
+ * settings values, windows dialogs — so both spellings of the same root
+ * match; the filesystem root stays a lone separator, and its children must
+ * not double it.
+ *
+ * The scope roots are realpath'd (kb:add-scope-folder), but the index and the
+ * starred list keep the spelling they were picked with — a symlinked or
+ * junctioned folder can therefore appear under its alias on one side and its
+ * target on the other. When the raw prefix test fails, the candidate is
+ * retried through its own realpath so a file physically under a scope folder
+ * matches regardless of the spelling it was recorded under. Raw-first keeps
+ * the no-symlink common case syscall-free.
+ */
+export function isUnderAnyRoot(path: string, roots: readonly string[]): boolean {
+  if (underAnyRootRaw(path, roots)) return true
+  try {
+    return underAnyRootRaw(realpathSync(path), roots)
+  } catch {
+    // a path that does not exist (or cannot be resolved) is simply not under
+    return false
+  }
+}
+
+/** the pure string test isUnderAnyRoot falls back from */
+function underAnyRootRaw(path: string, roots: readonly string[]): boolean {
+  for (const raw of roots) {
+    if (raw === '') continue
+    const root = raw.replace(/[\\/]+$/, '')
+    if (root === '') {
+      // the filesystem root ("/" or "\\"): everything absolute is under it
+      if (path.startsWith('/') || path.startsWith('\\')) return true
+      continue
+    }
+    if (path === root || path.startsWith(`${root}/`) || path.startsWith(`${root}\\`)) return true
+  }
+  return false
 }
 
 // ── the round scope: an explicit file selection as one conversation's corpus ──
@@ -131,13 +205,13 @@ export function isReadableScopePath(
 
 /**
  * The kb:read gate, pure so it is unit-testable. Without a round scope the
- * kbScope corpus verdict is the whole gate (starred, or in the index) — the
- * read surface the channel always had. With a round scope attached the scope
- * narrows instead of widening: only a selected path is readable that call
- * (search already intersects with the selection; read must too, or a corpus
- * file outside the chip would still leak through), and a selected path the
- * corpus does not cover reads when its location is whitelisted and it is a
- * readable office type.
+ * kbScope corpus verdict is the whole gate (starred, under the folders
+ * scope's roots, or in the index) — the read surface the channel always had.
+ * With a round scope attached the scope narrows instead of widening: only a
+ * selected path is readable that call (search already intersects with the
+ * selection; read must too, or a corpus file outside the chip would still
+ * leak through), and a selected path the corpus does not cover reads when
+ * its location is whitelisted and it is a readable office type.
  */
 export function kbReadAllows(
   path: string,
@@ -235,18 +309,22 @@ export function listKnowledgeFiles(starredPaths: readonly string[]): KbFile[] {
  * The prompt's listing window for the indexed scope: the starred files first
  * (the user's deliberate picks), then the most recently touched indexed files
  * that are not already listed, capped at KB_LIST_CAP. Discovery past the
- * window goes through search — the skill's prompt says exactly that.
+ * window goes through search — the skill's prompt says exactly that. With
+ * `roots` (the 'folders' scope) both halves narrow to files under them.
  */
 export function listIndexedKnowledgeFiles(
   starredPaths: readonly string[],
   recentIndexed: readonly IndexedFile[],
   cap: number = KB_LIST_CAP,
+  roots?: readonly string[],
 ): KbFile[] {
-  const out = listKnowledgeFiles(starredPaths)
+  const underRoots =
+    roots === undefined ? () => true : (path: string) => isUnderAnyRoot(path, roots)
+  const out = listKnowledgeFiles(starredPaths.filter(underRoots))
   const listed = new Set(out.map((f) => f.path))
   for (const entry of recentIndexed) {
     if (out.length >= cap) break
-    if (listed.has(entry.path)) continue
+    if (listed.has(entry.path) || !underRoots(entry.path)) continue
     out.push(kbFileOf(entry.path, entry.sizeBytes))
     listed.add(entry.path)
   }
@@ -254,11 +332,18 @@ export function listIndexedKnowledgeFiles(
 }
 
 /**
- * Fetch + trim one search page; pure so it is unit-testable. `scopePaths` null
- * means the indexed scope: no post-filter, so the store's own ranked page is
- * the answer (the SQL pushdown the starred scope cannot express). A real path
- * set keeps the starred behavior: a bounded pool, JS-filtered by membership.
- * Async because the search runs in the store worker.
+ * What the search filters by: `null` is the indexed scope (no post-filter —
+ * the store's own ranked page is the answer), a real path set keeps the
+ * starred behavior, and roots narrow to files under them. Both narrowing
+ * scopes fetch the widened KB_SEARCH_POOL before filtering, because the
+ * store's ranking spans the whole index and a scope-restricted "top limit"
+ * would silently drop in-scope matches that out-of-scope files outrank.
+ */
+export type KbSearchScope = null | { paths: readonly string[] } | { roots: readonly string[] }
+
+/**
+ * Fetch + trim one search page; pure so it is unit-testable. Async because
+ * the search runs in the store worker.
  */
 export async function searchKnowledgeBase(
   search: (
@@ -266,17 +351,29 @@ export async function searchKnowledgeBase(
     limit: number,
   ) => Promise<ReadonlyArray<{ path: string; name: string; ext: string; snippetText?: string }>>,
   query: string,
-  scopePaths: readonly string[] | null,
+  scope: KbSearchScope,
   limit: number,
 ): Promise<KbSearchHit[]> {
   const q = query.trim().slice(0, KB_QUERY_MAX_CHARS)
   if (!q) return []
-  const scoped = scopePaths === null ? null : new Set(scopePaths)
-  const pool = await search(q, scoped === null ? limit : KB_SEARCH_POOL)
+  const scopedPaths = scope !== null && 'paths' in scope ? new Set(scope.paths) : null
+  const scopedRoots = scope !== null && 'roots' in scope ? scope.roots : null
+  const inScope = (path: string): boolean => {
+    if (scopedPaths !== null) return scopedPaths.has(path)
+    if (scopedRoots !== null) return isUnderAnyRoot(path, scopedRoots)
+    return true
+  }
+  // the store ranks over the whole index, so a narrowing scope must fetch a
+  // widened pool before filtering — the caller's limit would otherwise leave
+  // the answer as "globally top-N ∩ in-scope", silently empty when out-of-
+  // scope files outrank the in-scope matches (the starred scope's own reason
+  // for the 200 pool; the indexed scope applies no post-filter and keeps the
+  // store's page as the answer)
+  const pool = await search(q, scope === null ? limit : KB_SEARCH_POOL)
   const seen = new Set<string>()
   const out: KbSearchHit[] = []
   for (const hit of pool) {
-    if (scoped !== null && !scoped.has(hit.path)) continue
+    if (!inScope(hit.path)) continue
     if (seen.has(hit.path)) continue
     seen.add(hit.path)
     out.push({

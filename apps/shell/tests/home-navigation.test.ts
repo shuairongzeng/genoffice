@@ -128,4 +128,29 @@ describe('Home sidebar navigation', () => {
       expect.objectContaining({ ext: 'docx' }),
     )
   })
+
+  it("the folders-scope ask panel's CTA opens settings on the General pane", async () => {
+    // the panel reads the scope through the bridge; the composer gate needs a
+    // logged-in status so the empty-corpus teaching (with its CTA) renders
+    const bridge = window.aiOffice as unknown as Record<string, unknown>
+    bridge.getKbScope = async () => 'folders'
+    bridge.setKbScope = async () => 'folders'
+    bridge.aiGskStatus = async () => ({ loggedIn: true })
+    await click(nav('Ask AI'))
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    const cta = container.querySelector<HTMLButtonElement>('.kb-ask-cta')!
+    expect(cta).toBeTruthy()
+    expect(cta.textContent).toBe('Pick folders in Settings')
+    await click(cta)
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    // the settings modal opened on the pane that holds the scope group, not
+    // the account default or the AI panes
+    const active = container.querySelector('.set-nav-item.active')
+    expect(active?.textContent).toContain('General')
+    expect(container.querySelector('[aria-label="Ask AI corpus scope"]')).not.toBeNull()
+  })
 })

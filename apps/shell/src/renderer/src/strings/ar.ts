@@ -16,7 +16,7 @@ export const ar: Dict = {
   askTitle: 'اسأل قاعدة معارفك',
   askEmptyCorpusHint:
     'لا توجد ملفات مفضلة بعد — ضع نجمة على بعض الملفات أولاً ليتمكن الذكاء الاصطناعي من قراءتها.',
-  askCorpusCount: 'قاعدة المعارف: {n} ملف مفضل',
+  askCorpusCount: 'قاعدة المعارف: {n} ملف',
   askScopeChip: 'المدونة: {n} ملفات محددة',
   askScopeNotIndexed: '{n} غير مفهرس',
   askScopeClear: 'إزالة التحديد',
@@ -33,6 +33,16 @@ export const ar: Dict = {
   askSavedAs: 'تم الحفظ: {name}',
   askSaveFailed: 'تعذر الحفظ: {error}',
   askEmptyCorpus: 'قاعدة المعارف فارغة: ضع نجمة على بعض الملفات أولاً ثم اسأل.',
+  askEmptyCorpusFolders:
+    'لم يتم اختيار مجلدات لقاعدة المعارف بعد: اخترها من الإعدادات أولاً ثم اسأل.',
+  askEmptyCorpusFoldersEmpty:
+    'المجلدات المختارة لا تحتوي بعد على ملفات لقاعدة المعارف: قد يكون الفهرس لا يزال يفحصها، أو لا تحتوي على ملفات قابلة للقراءة.',
+  askIntroFolders: 'الأسئلة تبحث في المجلدات المختارة فقط، والإجابات تستشهد بمصادرها — انقر للفتح.',
+  askHeroFoldersTagline:
+    'يبحث Ask AI فقط في المجلدات التي اخترتها في الإعدادات ويستشهد بالملف المصدر — انقر على الاستشهاد لفتحه.',
+  askFoldersStep1Title: 'اختر المجلدات',
+  askFoldersStep1Desc: 'أضف مجلدات قاعدة المعارف من الإعدادات › عام',
+  askCtaScopeSettings: 'اختر المجلدات من الإعدادات',
   askNeedsLogin: 'سجّل الدخول إلى Genspark لاستخدام محادثة الذكاء الاصطناعي.',
   askPlaceholder: 'اسأل عن ملفاتك المفضلة…',
   askHintIdle: 'Enter للإرسال',
@@ -258,9 +268,14 @@ export const ar: Dict = {
   setGlobalHotkeyRetry: 'إعادة محاولة التسجيل',
   setKbScope: 'نطاق مدونة Ask AI',
   setKbScopeDesc:
-    'الملفات التي يمكن لـ Ask AI البحث فيها والاستشهاد بها: كل ما يغطيه الفهرس المحلي، أو الملفات المميزة بنجمة فقط.',
+    'الملفات التي يمكن لـ Ask AI البحث فيها والاستشهاد بها: كل ما يغطيه الفهرس المحلي، أو الملفات المميزة بنجمة فقط، أو المجلدات المختارة أدناه.',
   setKbScopeIndexed: 'كل الملفات المفهرسة',
   setKbScopeStarred: 'المميزة بنجمة فقط',
+  setKbScopeFolders: 'المجلدات المختارة',
+  setKbScopeFolderList: 'قائمة المجلدات',
+  setKbScopeFoldersEmpty: 'لم يتم اختيار مجلدات بعد — أضف واحداً وسيبحث Ask AI داخلها فقط.',
+  setKbScopeFoldersAdd: 'إضافة مجلد…',
+  setKbScopeFolderRemove: 'إزالة',
   setSearchRerank: 'إعادة ترتيب Jev',
   setSearchRerankDesc:
     'يرسل مقتطفات أفضل 20 نتيجة محلية إلى نموذج Jev من TypeSafe ويعيد ترتيبها حسب الصلة. معطّل افتراضيًا؛ عند التفعيل تخرج المقتطفات من هذا الجهاز.',

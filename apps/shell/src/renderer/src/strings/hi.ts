@@ -15,7 +15,7 @@ export const hi: Dict = {
   askTitle: 'अपने नॉलेज बेस से पूछें',
   askEmptyCorpusHint:
     'अभी कोई स्टार की गई फ़ाइल नहीं है — पहले फ़ाइलों को स्टार करें ताकि AI उन्हें पढ़ सके।',
-  askCorpusCount: 'नॉलेज बेस: {n} स्टार की गई फ़ाइलें',
+  askCorpusCount: 'नॉलेज बेस: {n} फ़ाइलें',
   askScopeChip: 'कॉर्पस: {n} चुनी गई फ़ाइलें',
   askScopeNotIndexed: '{n} अनुक्रमित नहीं',
   askScopeClear: 'चयन हटाएँ',
@@ -33,6 +33,17 @@ export const hi: Dict = {
   askSavedAs: 'सहेजा गया: {name}',
   askSaveFailed: 'सहेज नहीं सका: {error}',
   askEmptyCorpus: 'नॉलेज बेस खाली है: पहले फ़ाइलें स्टार करें, फिर पूछें।',
+  askEmptyCorpusFolders:
+    'नॉलेज बेस के लिए कोई फ़ोल्डर चुना नहीं गया: पहले सेटिंग में चुनें, फिर पूछें।',
+  askEmptyCorpusFoldersEmpty:
+    'चुने गए फ़ोल्डर में अभी नॉलेज बेस की कोई फ़ाइल नहीं है: हो सकता है इंडेक्स अभी भी उन्हें स्कैन कर रहा हो, या उनमें कोई पठनीय फ़ाइल न हो।',
+  askIntroFolders:
+    'प्रश्न केवल आपके चुने फ़ोल्डर में खोजते हैं; उत्तर अपने स्रोत बताते हैं — खोलने के लिए क्लिक करें।',
+  askHeroFoldersTagline:
+    'Ask AI केवल सेटिंग में आपके चुने फ़ोल्डर में खोजता है और स्रोत फ़ाइल उद्धृत करता है — उद्धरण पर क्लिक करके खोलें।',
+  askFoldersStep1Title: 'फ़ोल्डर चुनें',
+  askFoldersStep1Desc: 'सेटिंग › सामान्य में नॉलेज बेस फ़ोल्डर जोड़ें',
+  askCtaScopeSettings: 'सेटिंग में फ़ोल्डर चुनें',
   askNeedsLogin: 'AI चैट के लिए Genspark में साइन इन करें।',
   askPlaceholder: 'अपनी फ़ाइलों के बारे में पूछें…',
   askHintIdle: 'भेजने के लिए Enter',
@@ -254,9 +265,15 @@ export const hi: Dict = {
   setGlobalHotkeyRetry: 'पंजीकरण फिर से आज़माएँ',
   setKbScope: 'Ask AI कोष का दायरा',
   setKbScopeDesc:
-    'Ask AI कौन सी फ़ाइलें खोज और उद्धृत कर सकता है: स्थानीय अनुक्रमणिका की सभी फ़ाइलें, या केवल तारांकित फ़ाइलें।',
+    'Ask AI कौन सी फ़ाइलें खोज और उद्धृत कर सकता है: स्थानीय अनुक्रमणिका की सभी फ़ाइलें, केवल तारांकित फ़ाइलें, या नीचे चुने गए फ़ोल्डर।',
   setKbScopeIndexed: 'सभी अनुक्रमित फ़ाइलें',
   setKbScopeStarred: 'केवल तारांकित',
+  setKbScopeFolders: 'चुने गए फ़ोल्डर',
+  setKbScopeFolderList: 'फ़ोल्डर सूची',
+  setKbScopeFoldersEmpty:
+    'अभी कोई फ़ोल्डर नहीं चुना गया — एक जोड़ें और Ask AI केवल उनके भीतर खोजेगा।',
+  setKbScopeFoldersAdd: 'फ़ोल्डर जोड़ें…',
+  setKbScopeFolderRemove: 'हटाएँ',
   setSearchRerank: 'Jev खोज पुनर्क्रमण',
   setSearchRerankDesc:
     'स्थानीय खोज के शीर्ष 20 परिणामों के अंश TypeSafe के Jev मॉडल को भेजता है और उन्हें प्रासंगिकता के अनुसार पुनः क्रमित करता है। डिफ़ॉल्ट रूप से बंद; चालू होने पर अंश इस डिवाइस से बाहर जाते हैं।',

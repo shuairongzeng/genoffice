@@ -15,7 +15,7 @@ export const cs: Dict = {
   askTitle: 'Ptejte se své znalostní databáze',
   askEmptyCorpusHint:
     'Zatím nejsou žádné oblíbené soubory — nejprve je označte hvězdičkou, aby je AI mohla číst.',
-  askCorpusCount: 'Znalostní databáze: {n} oblíbených souborů',
+  askCorpusCount: 'Znalostní databáze: {n} souborů',
   askScopeChip: 'Korpus: {n} vybraných souborů',
   askScopeNotIndexed: '{n} neindexováno',
   askScopeClear: 'Zrušit vybraný korpus',
@@ -32,6 +32,17 @@ export const cs: Dict = {
   askSavedAs: 'Uloženo: {name}',
   askSaveFailed: 'Uložení se nezdařilo: {error}',
   askEmptyCorpus: 'Znalostní databáze je prázdná: nejprve označte soubory a pak se ptejte.',
+  askEmptyCorpusFolders:
+    'Znalostní databáze nemá vybrané žádné složky: nejprve je vyberte v Nastavení a pak se ptejte.',
+  askEmptyCorpusFoldersEmpty:
+    'Vybrané složky zatím neobsahují žádné soubory znalostní databáze: index je možná ještě skenuje, nebo v nich nejsou žádné čitelné soubory.',
+  askIntroFolders:
+    'Otázky prohledávají jen vybrané složky; odpovědi citují své zdroje — kliknutím otevřete.',
+  askHeroFoldersTagline:
+    'Ask AI prohledává jen složky vybrané v Nastavení a cituje zdrojový soubor — kliknutím na citaci ji otevřete.',
+  askFoldersStep1Title: 'Vybrat složky',
+  askFoldersStep1Desc: 'Přidejte složky znalostní databáze v Nastavení › Obecné',
+  askCtaScopeSettings: 'Vybrat složky v Nastavení',
   askNeedsLogin: 'Pro používí AI chatu se přihlaste do Genspark.',
   askPlaceholder: 'Zeptejte se na své soubory…',
   askHintIdle: 'Enter odesílá',
@@ -479,9 +490,15 @@ export const cs: Dict = {
   setGlobalHotkeyRetry: 'Zkusit znovu zaregistrovat',
   setKbScope: 'Rozsah korpusu Ask AI',
   setKbScopeDesc:
-    'Které soubory může Ask AI prohledávat a citovat: vše, co pokrývá místní index, nebo jen oblíbené.',
+    'Které soubory může Ask AI prohledávat a citovat: vše, co pokrývá místní index, jen oblíbené, nebo níže vybrané složky.',
   setKbScopeIndexed: 'Všechny indexované soubory',
   setKbScopeStarred: 'Jen oblíbené',
+  setKbScopeFolders: 'Vybrané složky',
+  setKbScopeFolderList: 'Seznam složek',
+  setKbScopeFoldersEmpty:
+    'Zatím nejsou vybrány žádné složky — přidejte jednu a Ask AI bude hledat jen uvnitř nich.',
+  setKbScopeFoldersAdd: 'Přidat složku…',
+  setKbScopeFolderRemove: 'Odebrat',
   setSearchRerank: 'Přeřazení Jev',
   setSearchRerankDesc:
     'Odešle výňatky 20 nejlepších místních výsledků modelu Jev od TypeSafe a seřadí je podle relevance. Ve výchozím stavu vypnuto; po zapnutí výňatky opouštějí toto zařízení.',

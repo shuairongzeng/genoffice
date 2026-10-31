@@ -15,7 +15,7 @@ export const pl: Dict = {
   askTitle: 'Zapytaj swoją bazę wiedzy',
   askEmptyCorpusHint:
     'Nie ma jeszcze ulubionych plików — najpierw oznacz je gwiazdką, aby AI mogło je czytać.',
-  askCorpusCount: 'Baza wiedzy: {n} ulubionych plików',
+  askCorpusCount: 'Baza wiedzy: {n} plików',
   askScopeChip: 'Korpus: {n} wybranych plików',
   askScopeNotIndexed: '{n} niezaindeksowanych',
   askScopeClear: 'Wyczyść wybór',
@@ -32,6 +32,17 @@ export const pl: Dict = {
   askSavedAs: 'Zapisano: {name}',
   askSaveFailed: 'Nie udało się zapisać: {error}',
   askEmptyCorpus: 'Baza wiedzy jest pusta: najpierw oznacz pliki, potem pytaj.',
+  askEmptyCorpusFolders:
+    'Baza wiedzy nie ma jeszcze wybranych folderów: najpierw wybierz je w Ustawieniach, potem pytaj.',
+  askEmptyCorpusFoldersEmpty:
+    'Wybrane foldery nie zawierają jeszcze plików bazy wiedzy: indeks może je jeszcze skanować albo nie ma w nich plików do odczytu.',
+  askIntroFolders:
+    'Pytania szukają tylko w wybranych folderach; odpowiedzi cytują źródła — kliknij, aby otworzyć.',
+  askHeroFoldersTagline:
+    'Ask AI szuka tylko w folderach wybranych w Ustawieniach i cytuje plik źródłowy — kliknij cytat, aby otworzyć.',
+  askFoldersStep1Title: 'Wybierz foldery',
+  askFoldersStep1Desc: 'Dodaj foldery bazy wiedzy w Ustawienia › Ogólne',
+  askCtaScopeSettings: 'Wybierz foldery w Ustawieniach',
   askNeedsLogin: 'Zaloguj się do Genspark, aby korzystać z czatu AI.',
   askPlaceholder: 'Zapytaj o swoje pliki…',
   askHintIdle: 'Enter wysyła',
@@ -254,9 +265,15 @@ export const pl: Dict = {
   setGlobalHotkeyRetry: 'Spróbuj ponownie zarejestrować',
   setKbScope: 'Zakres korpusu Ask AI',
   setKbScopeDesc:
-    'Które pliki Ask AI może przeszukiwać i cytować: wszystko objęte indeksem lokalnym lub tylko oznaczone gwiazdką.',
+    'Które pliki Ask AI może przeszukiwać i cytować: wszystko objęte indeksem lokalnym, tylko oznaczone gwiazdką, lub foldery wybrane poniżej.',
   setKbScopeIndexed: 'Wszystkie zindeksowane pliki',
   setKbScopeStarred: 'Tylko oznaczone',
+  setKbScopeFolders: 'Wybrane foldery',
+  setKbScopeFolderList: 'Lista folderów',
+  setKbScopeFoldersEmpty:
+    'Nie wybrano jeszcze folderów — dodaj jeden, a Ask AI będzie szukać tylko wewnątrz.',
+  setKbScopeFoldersAdd: 'Dodaj folder…',
+  setKbScopeFolderRemove: 'Usuń',
   setSearchRerank: 'Ponowne sortowanie Jev',
   setSearchRerankDesc:
     'Wysyła fragmenty 20 najlepszych lokalnych wyników do modelu Jev firmy TypeSafe i sortuje je według trafności. Domyślnie wyłączone; po włączeniu fragmenty opuszczają to urządzenie.',

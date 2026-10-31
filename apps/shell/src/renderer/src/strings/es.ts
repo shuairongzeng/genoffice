@@ -16,7 +16,7 @@ export const es: Dict = {
   askTitle: 'Consulta tu base de conocimientos',
   askEmptyCorpusHint:
     'Aún no hay archivos favoritos: marca algunos primero para que la IA pueda leerlos.',
-  askCorpusCount: 'Base de conocimientos: {n} archivos favoritos',
+  askCorpusCount: 'Base de conocimientos: {n} archivos',
   askScopeChip: 'Corpus: {n} archivos seleccionados',
   askScopeNotIndexed: '{n} sin indexar',
   askScopeClear: 'Quitar la selección',
@@ -34,6 +34,17 @@ export const es: Dict = {
   askSavedAs: 'Guardado: {name}',
   askSaveFailed: 'No se pudo guardar: {error}',
   askEmptyCorpus: 'La base de conocimientos está vacía: marca archivos primero y luego pregunta.',
+  askEmptyCorpusFolders:
+    'Aún no hay carpetas elegidas para la base de conocimientos: elige primero en Ajustes y luego pregunta.',
+  askEmptyCorpusFoldersEmpty:
+    'Las carpetas elegidas aún no contienen archivos de la base de conocimientos: puede que el índice aún las esté escaneando o que no tengan archivos legibles.',
+  askIntroFolders:
+    'Las preguntas buscan solo en tus carpetas elegidas; las respuestas citan sus fuentes — haz clic para abrir.',
+  askHeroFoldersTagline:
+    'Ask AI busca solo en las carpetas que elegiste en Ajustes y cita el archivo de origen — haz clic en la cita para abrirlo.',
+  askFoldersStep1Title: 'Elige carpetas',
+  askFoldersStep1Desc: 'Añade carpetas de la base de conocimientos en Ajustes › General',
+  askCtaScopeSettings: 'Elegir carpetas en Ajustes',
   askNeedsLogin: 'Inicia sesión en Genspark para usar el chat de IA.',
   askPlaceholder: 'Pregunta sobre tus archivos favoritos…',
   askHintIdle: 'Enter para enviar',
@@ -268,9 +279,15 @@ export const es: Dict = {
   setGlobalHotkeyRetry: 'Reintentar el registro',
   setKbScope: 'Ámbito del corpus de Ask AI',
   setKbScopeDesc:
-    'Qué archivos puede buscar y citar Ask AI: todo lo que cubre el índice local, o solo los destacados.',
+    'Qué archivos puede buscar y citar Ask AI: todo lo que cubre el índice local, solo los destacados, o las carpetas elegidas abajo.',
   setKbScopeIndexed: 'Todos los archivos indexados',
   setKbScopeStarred: 'Solo destacados',
+  setKbScopeFolders: 'Carpetas elegidas',
+  setKbScopeFolderList: 'Lista de carpetas',
+  setKbScopeFoldersEmpty:
+    'Aún no hay carpetas elegidas — añade una y Ask AI buscará solo dentro de ellas.',
+  setKbScopeFoldersAdd: 'Añadir carpeta…',
+  setKbScopeFolderRemove: 'Quitar',
   setSearchRerank: 'Reordenación con Jev',
   setSearchRerankDesc:
     'Envía los extractos de los 20 mejores resultados locales al modelo Jev de TypeSafe y los reordena por relevancia. Desactivado por defecto; al activarlo, los extractos salen de este dispositivo.',

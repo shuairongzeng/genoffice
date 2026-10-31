@@ -14,7 +14,7 @@ export const nl: Dict = {
   askThreadNew: 'Nieuw gesprek',
   askTitle: 'Vraag je kennisbank',
   askEmptyCorpusHint: 'Nog geen favorieten — markeer eerst bestanden zodat de AI ze kan lezen.',
-  askCorpusCount: 'Kennisbank: {n} favoriete bestanden',
+  askCorpusCount: 'Kennisbank: {n} bestanden',
   askScopeChip: 'Corpus: {n} geselecteerde bestanden',
   askScopeNotIndexed: '{n} niet geïndexeerd',
   askScopeClear: 'Selectie wissen',
@@ -31,6 +31,17 @@ export const nl: Dict = {
   askSavedAs: 'Opgeslagen: {name}',
   askSaveFailed: 'Opslaan mislukt: {error}',
   askEmptyCorpus: 'De kennisbank is leeg: markeer eerst bestanden en stel dan je vraag.',
+  askEmptyCorpusFolders:
+    'Er zijn nog geen mappen gekozen voor de kennisbank: kies ze eerst in Instellingen en stel dan je vraag.',
+  askEmptyCorpusFoldersEmpty:
+    'De gekozen mappen bevatten nog geen kennisbankbestanden — de index is ze misschien nog aan het scannen, of ze bevatten geen leesbare bestanden.',
+  askIntroFolders:
+    'Vragen zoeken alleen in je gekozen mappen; antwoorden citeren hun bron — klik om te openen.',
+  askHeroFoldersTagline:
+    'Ask AI zoekt alleen in de mappen die je in Instellingen koos en citeert het bronbestand — klik een citaat om te openen.',
+  askFoldersStep1Title: 'Mappen kiezen',
+  askFoldersStep1Desc: 'Voeg kennisbank-mappen toe via Instellingen › Algemeen',
+  askCtaScopeSettings: 'Mappen kiezen in Instellingen',
   askNeedsLogin: 'Log in bij Genspark om AI-chat te gebruiken.',
   askPlaceholder: 'Vraag naar je favoriete bestanden…',
   askHintIdle: 'Enter om te verzenden',
@@ -256,9 +267,15 @@ export const nl: Dict = {
   setGlobalHotkeyRetry: 'Opnieuw registreren',
   setKbScope: 'Bereik van Ask AI-corpus',
   setKbScopeDesc:
-    'Welke bestanden Ask AI mag doorzoeken en citeren: alles in de lokale index, of alleen favoriete bestanden.',
+    'Welke bestanden Ask AI mag doorzoeken en citeren: alles in de lokale index, alleen favoriete bestanden, of de hieronder gekozen mappen.',
   setKbScopeIndexed: 'Alle geïndexeerde bestanden',
   setKbScopeStarred: 'Alleen favorieten',
+  setKbScopeFolders: 'Gekozen mappen',
+  setKbScopeFolderList: 'Mappenlijst',
+  setKbScopeFoldersEmpty:
+    'Nog geen mappen gekozen — voeg er een toe en Ask AI zoekt er alleen binnen.',
+  setKbScopeFoldersAdd: 'Map toevoegen…',
+  setKbScopeFolderRemove: 'Verwijderen',
   setSearchRerank: 'Jev-herordening',
   setSearchRerankDesc:
     'Stuurt de fragmenten van de 20 beste lokale resultaten naar het Jev-model van TypeSafe en sorteert ze op relevantie. Standaard uit; indien aan verlaten fragmenten dit apparaat.',

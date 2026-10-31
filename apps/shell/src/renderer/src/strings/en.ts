@@ -31,6 +31,17 @@ export const en: Dict = {
   askSavedAs: 'Saved: {name}',
   askSaveFailed: 'Could not save: {error}',
   askEmptyCorpus: 'The knowledge base is empty: star some files first, then ask.',
+  askEmptyCorpusFolders:
+    'The knowledge base has no folders chosen yet — pick some in Settings, then ask.',
+  askEmptyCorpusFoldersEmpty:
+    'The chosen folders hold no knowledge base files yet — the index may still be scanning them, or they have no readable files.',
+  askIntroFolders:
+    'Questions search only your chosen folders; answers cite their sources — click one to open it.',
+  askHeroFoldersTagline:
+    'Ask AI searches only the folders you picked in Settings and cites the source file — click a citation to open it.',
+  askFoldersStep1Title: 'Pick folders',
+  askFoldersStep1Desc: 'Add knowledge base folders in Settings › General',
+  askCtaScopeSettings: 'Pick folders in Settings',
   askNeedsLogin: 'Sign in to Genspark to use AI chat.',
   askPlaceholder: 'Ask a question about your files…',
   askHintIdle: 'Enter to send',
@@ -252,9 +263,14 @@ export const en: Dict = {
   setGlobalHotkeyRetry: 'Retry registration',
   setKbScope: 'Ask AI corpus scope',
   setKbScopeDesc:
-    'Which files Ask AI may search and cite: everything the local index covers, or the starred files only.',
+    'Which files Ask AI may search and cite: everything the local index covers, the starred files only, or the folders chosen below.',
   setKbScopeIndexed: 'All indexed files',
   setKbScopeStarred: 'Starred only',
+  setKbScopeFolders: 'Chosen folders',
+  setKbScopeFolderList: 'Folder list',
+  setKbScopeFoldersEmpty: 'No folders chosen yet — add one and Ask AI searches only inside them.',
+  setKbScopeFoldersAdd: 'Add folder…',
+  setKbScopeFolderRemove: 'Remove',
   setSearchRerank: 'Jev search reranking',
   setSearchRerankDesc:
     "Sends the top 20 local hits' excerpts to TypeSafe's Jev model and reorders them by relevance. Off by default; when on, excerpts leave this device.",

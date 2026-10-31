@@ -16,7 +16,7 @@ export const de: Dict = {
   askTitle: 'Ihre Wissensbasis befragen',
   askEmptyCorpusHint:
     'Noch keine Favoriten — markieren Sie zuerst Dateien, damit die KI sie lesen kann.',
-  askCorpusCount: 'Wissensbasis: {n} favorisierte Dateien',
+  askCorpusCount: 'Wissensbasis: {n} Dateien',
   askScopeChip: 'Korpus: {n} ausgewählte Dateien',
   askScopeNotIndexed: '{n} nicht indiziert',
   askScopeClear: 'Auswahl aufheben',
@@ -34,6 +34,17 @@ export const de: Dict = {
   askSavedAs: 'Gespeichert: {name}',
   askSaveFailed: 'Speichern fehlgeschlagen: {error}',
   askEmptyCorpus: 'Die Wissensbasis ist leer: markieren Sie zuerst Dateien, dann fragen Sie.',
+  askEmptyCorpusFolders:
+    'Für die Wissensbasis sind noch keine Ordner gewählt: wählen Sie sie zuerst in den Einstellungen, dann fragen Sie.',
+  askEmptyCorpusFoldersEmpty:
+    'Die gewählten Ordner enthalten noch keine Wissensbasis-Dateien — der Index scannt sie möglicherweise noch, oder sie enthalten keine lesbaren Dateien.',
+  askIntroFolders:
+    'Fragen durchsuchen nur die gewählten Ordner; Antworten zitieren ihre Quellen — zum Öffnen klicken.',
+  askHeroFoldersTagline:
+    'Ask AI durchsucht nur die in den Einstellungen gewählten Ordner und zitiert die Quelldatei — Zitat anklicken zum Öffnen.',
+  askFoldersStep1Title: 'Ordner wählen',
+  askFoldersStep1Desc: 'Wissensbasis-Ordner unter Einstellungen › Allgemein hinzufügen',
+  askCtaScopeSettings: 'Ordner in den Einstellungen wählen',
   askNeedsLogin: 'Melden Sie sich bei Genspark an, um den KI-Chat zu nutzen.',
   askPlaceholder: 'Fragen Sie zu Ihren Favoriten…',
   askHintIdle: 'Enter zum Senden',
@@ -269,9 +280,15 @@ export const de: Dict = {
   setGlobalHotkeyRetry: 'Erneut registrieren',
   setKbScope: 'Ask-AI-Korpus-Umfang',
   setKbScopeDesc:
-    'Welche Dateien Ask AI durchsuchen und zitieren darf: alles im lokalen Index oder nur die Favoriten.',
+    'Welche Dateien Ask AI durchsuchen und zitieren darf: alles im lokalen Index, nur die Favoriten oder die unten gewählten Ordner.',
   setKbScopeIndexed: 'Alle indexierten Dateien',
   setKbScopeStarred: 'Nur Favoriten',
+  setKbScopeFolders: 'Gewählte Ordner',
+  setKbScopeFolderList: 'Ordnerliste',
+  setKbScopeFoldersEmpty:
+    'Noch keine Ordner gewählt — fügen Sie einen hinzu, dann durchsucht Ask AI nur diesen.',
+  setKbScopeFoldersAdd: 'Ordner hinzufügen…',
+  setKbScopeFolderRemove: 'Entfernen',
   setSearchRerank: 'Jev-Neusortierung',
   setSearchRerankDesc:
     'Sendet die Auszüge der 20 besten lokalen Treffer an das Jev-Modell von TypeSafe und sortiert sie nach Relevanz. Standardmäßig aus; wenn aktiv, verlassen Auszüge dieses Gerät.',

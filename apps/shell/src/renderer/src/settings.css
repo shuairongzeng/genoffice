@@ -1729,3 +1729,32 @@
 .tg-state-action:hover {
   background: var(--bg-hover);
 }
+
+/* ── Ask AI corpus scope: the 'folders' scope's root list ──
+   One row per chosen folder: the path ellipsized to one line with the full
+   path on hover (realpaths are long), the remove button beside it. */
+.set-kb-folders {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.set-kb-folders li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.set-kb-folder-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text-secondary);
+}

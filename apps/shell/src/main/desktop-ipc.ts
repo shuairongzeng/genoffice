@@ -1,13 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, extname, isAbsolute, join } from 'node:path'
 import { DESKTOP_ARRANGE_MODES } from '@genoffice/cli/control-protocol'
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, webContents } from 'electron'
 import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron'
 import { atomicCopyFile } from './atomic-write'
 import { createJsonStore } from './json-store'
 import { readAppSettings, writeAppSetting } from './app-settings'
 import { isProgramFile } from './tab-menu'
-import { normalizeKbScope, type KbScope } from './knowledge-base'
+import {
+  KB_SCOPE_FOLDERS_MAX,
+  normalizeKbScope,
+  normalizeKbScopeFolders,
+  type KbScope,
+} from './knowledge-base'
 import {
   HOME_CHANNELS,
   type DesktopLayout,
@@ -375,6 +380,12 @@ function wallpaperDataUrl(path: string): string {
 /** the image extensions the picker, the custom dir and the CLI wallpaper path accept */
 export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp']
 
+/** the OS folder picker for the knowledge base scope's folder list */
+const PICK_SCOPE_FOLDER_OPTS: OpenDialogOptions = {
+  title: 'Add a knowledge base folder',
+  properties: ['openDirectory'],
+}
+
 /**
  * The custom wallpaper's file name: `<timestamp>-<sanitized name>` — the
  * timestamp keeps two picks of the same image distinct, the sanitization (the
@@ -455,12 +466,13 @@ async function nativePickImage(event: IpcMainInvokeEvent): Promise<string | null
  * a user-facing refusal. Registered from index.ts like the other feature IPC
  * modules.
  *
- * One non-desktop pair rides along here because this module's register call
+ * One non-desktop family rides along here because this module's register call
  * is already wired from index.ts: the Ask AI corpus scope (app-settings.json
- * `kbScope`) get/set channels, same raw-string kb: family the kb:list /
- * kb:search handlers use. They persist through the shared app-settings
- * helpers, so the scope the kb: readers pick up per call and the scope the
- * settings UI writes are one value on disk.
+ * `kbScope`, plus the 'folders' scope's `kbScopeFolders` list) channels, same
+ * raw-string kb: family the kb:list / kb:search handlers use. They persist
+ * through the shared app-settings helpers, so the scope the kb: readers pick
+ * up per call and the scope the settings UI writes are one value on disk, and
+ * every mutation broadcasts kb:scope-changed so the panel re-reads its corpus.
  */
 export function registerDesktopIpc(deps: DesktopIpcDeps = {}): void {
   const userDataDir = deps.userDataDir ?? (() => app.getPath('userData'))
@@ -678,14 +690,80 @@ export function registerDesktopIpc(deps: DesktopIpcDeps = {}): void {
     normalizeKbScope(readAppSettings(appSettingsPath()).kbScope),
   )
 
-  /** set the corpus scope; anything but the two known values is refused so a
+  /** the scope's folder list, normalized (the 'folders' scope's roots) */
+  ipcMain.handle('kb:get-scope-folders', async (): Promise<string[]> =>
+    normalizeKbScopeFolders(readAppSettings(appSettingsPath()).kbScopeFolders),
+  )
+
+  /**
+   * Every scope mutation tells the renderers, so the Ask AI panel re-reads
+   * its corpus instead of showing the scope it was mounted with.
+   */
+  const notifyScopeChanged = (): void => {
+    for (const wc of webContents.getAllWebContents()) {
+      if (!wc.isDestroyed()) wc.send('kb:scope-changed')
+    }
+  }
+
+  /** set the corpus scope; anything but the three known values is refused so a
    * junk write can never land in the file the kb: readers trust */
   ipcMain.handle('kb:set-scope', async (_event, raw: unknown): Promise<KbScope> => {
-    if (raw !== 'indexed' && raw !== 'starred') {
-      throw new Error("the corpus scope must be 'indexed' or 'starred'")
+    if (raw !== 'indexed' && raw !== 'starred' && raw !== 'folders') {
+      throw new Error("the corpus scope must be 'indexed', 'starred' or 'folders'")
     }
     writeAppSetting(appSettingsPath(), 'kbScope', raw)
+    notifyScopeChanged()
     return raw
+  })
+
+  /**
+   * Add one folder to the 'folders' scope via the native picker. The path is
+   * realpath'd (the canonical spelling for the stored root; the corpus filter
+   * also retries candidates through their own realpath, so index or starred
+   * entries recorded under a symlinked spelling still match) and must be an
+   * existing directory — anything else is refused so the settings file only
+   * ever holds usable roots. The list is capped at KB_SCOPE_FOLDERS_MAX
+   * (normalizeKbScopeFolders refuses a longer one): the pick that would
+   * exceed the cap is refused before the dialog even opens.
+   */
+  ipcMain.handle(
+    'kb:add-scope-folder',
+    async (event: IpcMainInvokeEvent): Promise<string | null> => {
+      const current = normalizeKbScopeFolders(readAppSettings(appSettingsPath()).kbScopeFolders)
+      if (current.length >= KB_SCOPE_FOLDERS_MAX) {
+        throw new Error(`the folders scope accepts at most ${KB_SCOPE_FOLDERS_MAX} folders`)
+      }
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const result = await (win
+        ? dialog.showOpenDialog(win, PICK_SCOPE_FOLDER_OPTS)
+        : dialog.showOpenDialog(PICK_SCOPE_FOLDER_OPTS))
+      const picked = result.filePaths[0]
+      if (result.canceled || !picked) return null
+      let real: string
+      try {
+        const st = statSync(picked)
+        if (!st.isDirectory()) return null
+        real = realpathSync(picked)
+      } catch {
+        return null
+      }
+      const next = normalizeKbScopeFolders([...current, real])
+      writeAppSetting(appSettingsPath(), 'kbScopeFolders', next)
+      notifyScopeChanged()
+      return real
+    },
+  )
+
+  /** take one folder out of the 'folders' scope's list */
+  ipcMain.handle('kb:remove-scope-folder', async (_event, raw: unknown): Promise<string[]> => {
+    const path = typeof raw === 'string' ? raw : ''
+    const current = normalizeKbScopeFolders(readAppSettings(appSettingsPath()).kbScopeFolders)
+    const next = current.filter((entry) => entry !== path)
+    if (next.length !== current.length) {
+      writeAppSetting(appSettingsPath(), 'kbScopeFolders', next)
+      notifyScopeChanged()
+    }
+    return next
   })
 }
 

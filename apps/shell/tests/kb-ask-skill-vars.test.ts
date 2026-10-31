@@ -101,6 +101,7 @@ function render(lang: 'en' | 'zh'): void {
           onOpenPath: () => {},
           onGoToRecents: () => {},
           onOpenModelSettings: () => {},
+          onOpenScopeSettings: () => {},
         }),
       ),
     ),

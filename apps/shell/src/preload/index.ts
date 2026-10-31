@@ -513,8 +513,26 @@ const homeApi: HomeApi = {
     return (await ipcRenderer.invoke(HOME_CHANNELS.kbGetScope)) as KbScope
   },
   async setKbScope(scope) {
-    if (scope !== 'indexed' && scope !== 'starred') throw new Error(`invalid kb scope: ${scope}`)
+    if (scope !== 'indexed' && scope !== 'starred' && scope !== 'folders') {
+      throw new Error(`invalid kb scope: ${scope}`)
+    }
     return (await ipcRenderer.invoke(HOME_CHANNELS.kbSetScope, scope)) as KbScope
+  },
+  async getKbScopeFolders() {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.kbGetScopeFolders)) as string[]
+  },
+  async addKbScopeFolder() {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.kbAddScopeFolder)) as string | null
+  },
+  async removeKbScopeFolder(path) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.kbRemoveScopeFolder, path)) as string[]
+  },
+  onKbScopeChanged(handler: () => void) {
+    const listener = () => handler()
+    ipcRenderer.on(HOME_CHANNELS.kbScopeChanged, listener)
+    return () => {
+      ipcRenderer.removeListener(HOME_CHANNELS.kbScopeChanged, listener)
+    }
   },
   async setLoginItemEnabled(enabled) {
     return (await ipcRenderer.invoke(

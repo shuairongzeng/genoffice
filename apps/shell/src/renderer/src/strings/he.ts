@@ -15,7 +15,7 @@ export const he: Dict = {
   askTitle: 'שאל את בסיס הידע שלך',
   askEmptyCorpusHint:
     'אין עדיין קבצים מסומנים — סמן קבצים בכוכבית תחילה כדי שה-AI יוכל לקרוא אותם.',
-  askCorpusCount: 'בסיס ידע: {n} קבצים מסומנים',
+  askCorpusCount: 'בסיס ידע: {n} קבצים',
   askScopeChip: 'גוף ידע: {n} קבצים נבחרים',
   askScopeNotIndexed: '{n} לא נכללו באינדקס',
   askScopeClear: 'ניקוי הבחירה',
@@ -32,6 +32,15 @@ export const he: Dict = {
   askSavedAs: 'נשמר: {name}',
   askSaveFailed: 'השמירה נכשלה: {error}',
   askEmptyCorpus: 'בסיס הידע ריק: סמן קבצים תחילה ואז שאל.',
+  askEmptyCorpusFolders: 'לא נבחרו תיקיות לבסיס הידע: בחרו אותן בהגדרות תחילה ואז שאלו.',
+  askEmptyCorpusFoldersEmpty:
+    'התיקיות שנבחרו עדיין אינן מכילות קבצים לבסיס הידע: ייתכן שהאינדקס עדיין סורק אותן, או שאין בהן קבצים קריאים.',
+  askIntroFolders: 'השאלות מחפשות רק בתיקיות שנבחרו; התשובות מצטטות את המקור — לחצו לפתיחה.',
+  askHeroFoldersTagline:
+    'Ask AI מחפש רק בתיקיות שנבחרו בהגדרות ומצטט את קובץ המקור — לחצו על הציטוט לפתיחה.',
+  askFoldersStep1Title: 'בחירת תיקיות',
+  askFoldersStep1Desc: 'הוסיפו תיקיות לבסיס הידע בהגדרות › כללי',
+  askCtaScopeSettings: 'בחירת תיקיות בהגדרות',
   askNeedsLogin: 'התחבר ל-Genspark כדי להשתמש בצ׳אט AI.',
   askPlaceholder: 'שאל על הקבצים המסומנים שלך…',
   askHintIdle: 'Enter לשליחה',
@@ -250,9 +259,14 @@ export const he: Dict = {
   setGlobalHotkeyRetry: 'נסה שוב',
   setKbScope: 'היקף הגוף של Ask AI',
   setKbScopeDesc:
-    'אילו קבצים Ask AI רשאי לחפש ולצטט: כל מה שהאינדקס המקומי מכסה, או רק קבצים מסומנים בכוכב.',
+    'אילו קבצים Ask AI רשאי לחפש ולצטט: כל מה שהאינדקס המקומי מכסה, רק קבצים מסומנים בכוכב, או התיקיות שנבחרו למטה.',
   setKbScopeIndexed: 'כל הקבצים באינדקס',
   setKbScopeStarred: 'רק מסומנים בכוכב',
+  setKbScopeFolders: 'תיקיות שנבחרו',
+  setKbScopeFolderList: 'רשימת תיקיות',
+  setKbScopeFoldersEmpty: 'טרם נבחרו תיקיות — הוסיפו אחת ו־Ask AI יחפש רק בתוכן.',
+  setKbScopeFoldersAdd: 'הוספת תיקייה…',
+  setKbScopeFolderRemove: 'הסרה',
   setSearchRerank: 'סידור מחדש עם Jev',
   setSearchRerankDesc:
     'שולח את הקטעים של 20 התוצאות המקומיות המובילות למודל Jev של TypeSafe ומסדר אותן מחדש לפי רלוונטיות. כבוי כברירת מחדל; כשמופעל, הקטעים יוצאים מהמכשיר הזה.',
