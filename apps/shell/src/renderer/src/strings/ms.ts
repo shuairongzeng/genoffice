@@ -172,6 +172,7 @@ export const ms: Dict = {
   searchFilesPlaceholder: 'Cari nama dan kandungan fail…',
   searchIndexing: 'Mengindeks {n} fail…',
   searchNoResults: 'Tiada fail sepadan dengan “{q}”',
+  searchAskReferral: 'Tanya AI tentang “{q}”',
   searchResultCount: '{n} hasil',
   searchResultCountOne: '{n} hasil',
   searchClear: 'Kosongkan carian',

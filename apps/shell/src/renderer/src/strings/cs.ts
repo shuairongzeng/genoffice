@@ -171,6 +171,7 @@ export const cs: Dict = {
   searchFilesPlaceholder: 'Hledat v názvech a obsahu…',
   searchIndexing: 'Indexuje se {n} souborů…',
   searchNoResults: 'Žádné soubory neodpovídají „{q}“',
+  searchAskReferral: 'Zeptat se AI na „{q}“',
   searchResultCount: '{n} výsledků',
   searchResultCountOne: '{n} výsledek',
   searchClear: 'Vymazat hledání',

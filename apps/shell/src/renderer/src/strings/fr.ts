@@ -180,6 +180,7 @@ export const fr: Dict = {
   searchFilesPlaceholder: 'Rechercher dans les noms et le contenu…',
   searchIndexing: 'Indexation de {n} fichiers…',
   searchNoResults: 'Aucun fichier ne correspond à « {q} »',
+  searchAskReferral: 'Demander à l’IA à propos de « {q} »',
   searchResultCount: '{n} résultats',
   searchResultCountOne: '{n} résultat',
   searchClear: 'Effacer la recherche',

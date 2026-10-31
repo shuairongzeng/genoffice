@@ -181,6 +181,7 @@ export const de: Dict = {
   searchFilesPlaceholder: 'Dateinamen und Inhalte durchsuchen…',
   searchIndexing: '{n} Dateien werden indexiert…',
   searchNoResults: 'Keine Dateien passen zu „{q}“',
+  searchAskReferral: 'Mit KI nach „{q}“ suchen',
   searchResultCount: '{n} Ergebnisse',
   searchResultCountOne: '{n} Ergebnis',
   searchClear: 'Suche löschen',

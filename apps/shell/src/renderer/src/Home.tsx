@@ -1684,7 +1684,13 @@ export function Home() {
   )
 
   const renderSearchResults = () => (
-    <FileSearchResults searchPage={searchPage} q={q} rerankApplied={rerankApplied} roots={roots} />
+    <FileSearchResults
+      searchPage={searchPage}
+      q={q}
+      rerankApplied={rerankApplied}
+      roots={roots}
+      onAskAi={submitAskQuery}
+    />
   )
 
   const renderSearchHeading = () => (
@@ -2344,6 +2350,7 @@ export function Home() {
           lang={lang}
           onClose={() => setPaletteOpen(false)}
           onAskAi={submitAskQuery}
+          onOpenSettings={openSettings}
         />
       )}
     </div>

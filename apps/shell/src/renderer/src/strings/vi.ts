@@ -170,6 +170,7 @@ export const vi: Dict = {
   searchFilesPlaceholder: 'Tìm kiếm tên tệp và nội dung…',
   searchIndexing: 'Đang lập chỉ mục {n} tệp…',
   searchNoResults: 'Không có tệp nào khớp với “{q}”',
+  searchAskReferral: 'Hỏi AI về “{q}”',
   searchResultCount: '{n} kết quả',
   searchResultCountOne: '{n} kết quả',
   searchClear: 'Xóa tìm kiếm',

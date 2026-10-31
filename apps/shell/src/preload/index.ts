@@ -59,6 +59,8 @@ import type {
 } from '../shared/found-skill'
 import type { TabsApi, TabSummary } from '../shared/tabs-api'
 import { TABS_CHANNELS } from '../shared/tabs-api'
+import type { DocumentTabKind } from '../shared/tabs-api'
+import type { EditorCommandId } from '../shared/editor-commands'
 
 const UI_LANGUAGES: readonly UiLanguage[] = [
   'zh',
@@ -205,6 +207,16 @@ ipcRenderer.on(HOME_CHANNELS.tabsChanged, (_event, payload: unknown) => {
   if (state) pendingTabsState = state
 })
 
+// same shape, one slot instead of a queue: a help topic picked in the palette
+// while the manual tab exists but its renderer is still bootstrapping (first
+// open, lazy HelpScreen chunk) would otherwise fire-and-forget into no
+// listener. Last write wins — the newest pick is the one the reader wants.
+let helpTopicPending: string | undefined
+ipcRenderer.on(HOME_CHANNELS.helpTopic, (_event, topic: unknown) => {
+  if (ipcRenderer.listenerCount(HOME_CHANNELS.helpTopic) > 1) return
+  if (typeof topic === 'string') helpTopicPending = topic
+})
+
 const homeApi: HomeApi = {
   async recents(query) {
     return asRecentPage(await ipcRenderer.invoke(HOME_CHANNELS.recents, query))
@@ -254,8 +266,23 @@ const homeApi: HomeApi = {
     if (typeof path !== 'string' || !path) throw new Error('Invalid path.')
     await ipcRenderer.invoke(HOME_CHANNELS.toggleStar, path)
   },
-  async openHelp() {
-    await ipcRenderer.invoke(HOME_CHANNELS.openHelp)
+  async openHelp(topic?: string) {
+    await ipcRenderer.invoke(HOME_CHANNELS.openHelp, topic)
+  },
+  async runEditorCommand(kind: DocumentTabKind, command: EditorCommandId, tabId?: string) {
+    await ipcRenderer.invoke(HOME_CHANNELS.runCommand, kind, command, tabId)
+  },
+  onHelpTopic(handler: (topic: string) => void) {
+    const listener = (_event: IpcRendererEvent, topic: string) => handler(topic)
+    // replay a topic that arrived before this handler attached, one microtask
+    // out so it never runs inside the attach call stack
+    if (helpTopicPending !== undefined) {
+      const buffered = helpTopicPending
+      helpTopicPending = undefined
+      queueMicrotask(() => handler(buffered))
+    }
+    ipcRenderer.on(HOME_CHANNELS.helpTopic, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.helpTopic, listener)
   },
   // knowledge-base ask panel (handlers live in the shell main, same process
   // that owns the index and the shared ai:stream registration)

@@ -43,6 +43,11 @@ interface TabRecord {
   present?: boolean
   /** when the tab last became or stopped being the active one */
   lastActiveAt: number
+  /** when a sleeping tab was last woken in the background (agents, CLI,
+   *  menus): a liveness lease for the sleep clock, not user attention — the
+   *  palette's MRU ranks by visits, so a background wake must not stamp
+   *  lastActiveAt and steal the "editor the user was last in" answer */
+  lastWokenAt?: number
   /** never put to sleep (tab context menu) */
   pinned?: boolean
   /** renderer destroyed to free memory; `view` is null until the tab is shown again */
@@ -406,6 +411,8 @@ export class TabManager {
       ...(tab.filePath ? { filePath: tab.filePath } : {}),
       ...(tab.dormant ? { dormant: true } : {}),
       ...(tab.pinned ? { pinned: true } : {}),
+      ...(tab.present ? { present: true } : {}),
+      lastActiveAt: tab.lastActiveAt,
     }
   }
 
@@ -447,17 +454,20 @@ export class TabManager {
 
   /** The in-app user manual (issue #1520): a closable tab showing the shell
       renderer's help mode — the same bundle, branched on ?mode=help, so no
-      second renderer build is needed. */
-  openHelpTab(): string {
+      second renderer build is needed. A topic (issue #56 P0 #2) deep-links
+      the manual to that article: it rides the URL on first open, or the
+      home:help-topic event when the manual is already open. */
+  openHelpTab(topic?: string): string {
     // F1 again, or the Help menu while the manual is already open, focuses it
     // instead of stacking a second copy: the tab is closable (only Home is
     // not), so "press F1 again" is an ordinary thing to do
     const existing = this.tabs.find((t) => t.kind === 'help')
     if (existing) {
       this.activateTab(existing.id)
+      if (topic) existing.view?.webContents.send(HOME_CHANNELS.helpTopic, topic)
       return existing.id
     }
-    const view = createHelpView()
+    const view = createHelpView(topic)
     const id = `t${this.nextId++}`
     this.shellWindow.contentView.addChildView(view)
     view.setVisible(false)
@@ -872,7 +882,10 @@ export class TabManager {
     this.trackHtmlFullScreen(view)
     tab.view = view
     tab.dormant = false
-    tab.lastActiveAt = Date.now()
+    // the wake is a lease for the sleep clock, not user attention: the
+    // palette's MRU must keep ranking by visits, so this never touches
+    // lastActiveAt (a background agent's read is not the user's editor)
+    tab.lastWokenAt = Date.now()
   }
 
   /** a sleeping tab asked for by its webContents (agents, CLI, menus) wakes in the background */
@@ -901,7 +914,13 @@ export class TabManager {
     // every sweep, starving the clean tabs behind it
     for (const t of live) {
       if (this.canSleep(t) && !(await this.tabIsDirty(t)))
-        candidates.push({ id: t.id, lastActiveAt: t.lastActiveAt })
+        // the idle clock counts the newest of the user's last visit and the
+        // renderer's last wake: a background-woken tab keeps its lease
+        // without pretending the user looked at it
+        candidates.push({
+          id: t.id,
+          lastActiveAt: Math.max(t.lastActiveAt, t.lastWokenAt ?? 0),
+        })
     }
     const slept: string[] = []
     for (const id of pickTabsToSleep(candidates, live.length, policy, now, overBudget)) {
@@ -1120,7 +1139,7 @@ export function canonicalPath(path: string | undefined): string | undefined {
 /** The manual shares the shell's renderer bundle and preload: the view is just
     the shell renderer at ?mode=help. Dev serves it from the dev server, the
     packaged app from the `help` scheme root registered in shell main. */
-function createHelpView(): WebContentsView {
+function createHelpView(topic?: string): WebContentsView {
   const view = new WebContentsView({
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -1137,7 +1156,10 @@ function createHelpView(): WebContentsView {
     return { action: 'deny' }
   })
   void view.webContents.loadURL(
-    rendererUrl(process.env.ELECTRON_RENDERER_URL, 'help', { mode: 'help' }),
+    rendererUrl(process.env.ELECTRON_RENDERER_URL, 'help', {
+      mode: 'help',
+      ...(topic ? { topic } : {}),
+    }),
   )
   return view
 }

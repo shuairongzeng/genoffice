@@ -170,6 +170,7 @@ export const en: Dict = {
   searchFilesPlaceholder: 'Search file names and contents…',
   searchIndexing: 'Indexing {n} files…',
   searchNoResults: 'No files match “{q}”',
+  searchAskReferral: 'Ask AI about “{q}”',
   searchResultCount: '{n} results',
   searchResultCountOne: '{n} result',
   searchClear: 'Clear search',

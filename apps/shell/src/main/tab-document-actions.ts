@@ -20,12 +20,15 @@ export interface TabDocumentActionDeps {
   printHtml(contents: WebContents): void
 }
 
-/** Resolve the clicked tab, then use its editor's existing save and print workflows. */
+/** Resolve the clicked tab, then use its editor's existing save and print
+ *  workflows. Returns whether a workflow ran: a tab mid-close or a dead
+ *  renderer answers "not run" so callers (the palette's dispatch) can report
+ *  it instead of implying success. */
 export function runTabDocumentAction(
   deps: TabDocumentActionDeps,
   id: string,
   action: TabDocumentAction,
-): void {
+): boolean {
   const tab = deps.tabs.list().find((item) => item.id === id)
   const contents = deps.tabs.webContentsForTab(id)
   if (
@@ -36,7 +39,7 @@ export function runTabDocumentAction(
     !contents ||
     contents.isDestroyed()
   )
-    return
+    return false
   deps.tabs.activateTab(id)
   const command = action === 'saveAs' ? 'save-as' : action
   switch (tab.kind) {
@@ -64,4 +67,5 @@ export function runTabDocumentAction(
       else deps.saveHtml(contents, action)
       break
   }
+  return true
 }

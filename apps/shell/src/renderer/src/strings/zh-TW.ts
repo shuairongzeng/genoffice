@@ -163,6 +163,7 @@ export const zhTW: Dict = {
   searchFilesPlaceholder: '搜尋檔案名稱與內容…',
   searchIndexing: '正在索引 {n} 個檔案…',
   searchNoResults: '沒有符合「{q}」的檔案',
+  searchAskReferral: '用 AI 搜尋「{q}」',
   searchResultCount: '{n} 個結果',
   searchResultCountOne: '{n} 個結果',
   searchClear: '清除搜尋',

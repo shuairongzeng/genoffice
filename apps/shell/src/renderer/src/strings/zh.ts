@@ -165,6 +165,7 @@ export const zh = {
   searchFilesPlaceholder: '搜索文件名和内容…',
   searchIndexing: '正在索引 {n} 个文件…',
   searchNoResults: '没有匹配「{q}」的文件',
+  searchAskReferral: '用 AI 搜「{q}」',
   searchResultCount: '{n} 个结果',
   searchResultCountOne: '{n} 个结果',
   searchClear: '清除搜索',

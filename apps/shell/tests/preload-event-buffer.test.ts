@@ -184,3 +184,53 @@ describe('onPaletteOpen buffering', () => {
     off2()
   })
 })
+
+describe('onHelpTopic buffering', () => {
+  it('buffers a topic that arrives before the manual attaches and replays it', async () => {
+    // the palette's help row picks a topic while the manual tab's renderer is
+    // still bootstrapping: the fire-and-forget send would land on no listener
+    electronMocks.emit(HOME_CHANNELS.helpTopic, 'pdf')
+    const seen: string[] = []
+    const off = homeApi.onHelpTopic((topic) => seen.push(topic))
+    expect(seen).toEqual([]) // asynchronous, never inside the attach call stack
+    await flushMicrotasks()
+    expect(seen).toEqual(['pdf'])
+    off()
+  })
+
+  it('keeps only the newest topic while no handler is attached (last write wins)', async () => {
+    electronMocks.emit(HOME_CHANNELS.helpTopic, 'pdf')
+    electronMocks.emit(HOME_CHANNELS.helpTopic, 'shortcuts')
+    const seen: string[] = []
+    const off = homeApi.onHelpTopic((topic) => seen.push(topic))
+    await flushMicrotasks()
+    expect(seen).toEqual(['shortcuts'])
+    off()
+  })
+
+  it('delivers directly while attached and buffers again after detach', async () => {
+    const seen: string[] = []
+    const off = homeApi.onHelpTopic((topic) => seen.push(topic))
+    await flushMicrotasks()
+    electronMocks.emit(HOME_CHANNELS.helpTopic, 'pdf')
+    expect(seen).toEqual(['pdf'])
+    off()
+    expect(electronMocks.listenerCount(HOME_CHANNELS.helpTopic)).toBe(1)
+    electronMocks.emit(HOME_CHANNELS.helpTopic, 'slides')
+    const seen2: string[] = []
+    const off2 = homeApi.onHelpTopic((topic) => seen2.push(topic))
+    await flushMicrotasks()
+    expect(seen2).toEqual(['slides'])
+    expect(seen).toEqual(['pdf']) // no double delivery
+    off2()
+  })
+
+  it('ignores a non-string topic payload rather than replaying garbage', async () => {
+    electronMocks.emit(HOME_CHANNELS.helpTopic, 42)
+    const seen: string[] = []
+    const off = homeApi.onHelpTopic((topic) => seen.push(topic))
+    await flushMicrotasks()
+    expect(seen).toEqual([])
+    off()
+  })
+})

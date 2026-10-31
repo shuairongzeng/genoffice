@@ -7,6 +7,7 @@ import type { Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
   FileSearchHit,
+  FileSearchRerank,
   HomeApi,
   InstalledPlugin,
   RecentEntry,
@@ -16,7 +17,11 @@ import type { PluginComponents } from '../src/shared/found-skill'
 import { CommandPalette, folderOf, scoreMatch } from '../src/renderer/src/CommandPalette'
 import {
   createAskAiProvider,
+  createEditorCommandsProvider,
   createFilesProvider,
+  createHelpTopicsProvider,
+  createSettingsProvider,
+  createTabsProvider,
   defaultPaletteProviders,
   mergePaletteRows,
   type PaletteContext,
@@ -24,6 +29,9 @@ import {
   type PaletteRow,
 } from '../src/renderer/src/palette-providers'
 import { COMMAND_PALETTE_STRINGS } from '../src/renderer/src/command-palette-strings'
+import { loadStrings } from '../src/renderer/src/strings'
+import type { SettingsTarget } from '../src/renderer/src/SettingsModal'
+import type { TabSummary } from '../src/shared/tabs-api'
 
 /**
  * The Ctrl/Cmd+K launcher. Everything it does goes through window.aiOffice:
@@ -43,6 +51,11 @@ let skillsSettingsOpened: number
 let modelSettingsOpened: number
 let pluginToggles: Array<[string, boolean]>
 let askedQueries: string[]
+/** settings rows route through the host instead of the bridge (issue #56) */
+let settingsTargets: SettingsTarget[]
+let openedHelpTopics: string[]
+let editorCommandsRun: Array<[string, string, string | undefined]>
+let tabActivations: string[]
 
 const recent = (over: Partial<RecentEntry>): RecentEntry => ({
   path: 'C:\\Docs\\report.docx',
@@ -69,10 +82,12 @@ const hit = (over: Partial<FileSearchHit>): FileSearchHit => ({
 /** a provider context for driving the registry without mounting the palette */
 const ctx = (over: Partial<PaletteContext> = {}): PaletteContext => ({
   strings: COMMAND_PALETTE_STRINGS.en,
+  lang: 'en',
   recents: [],
   skills: [],
   plugins: [],
   onAskAi: () => {},
+  openSettings: () => {},
   ...over,
 })
 
@@ -107,6 +122,15 @@ beforeEach(() => {
   modelSettingsOpened = 0
   pluginToggles = []
   askedQueries = []
+  settingsTargets = []
+  openedHelpTopics = []
+  editorCommandsRun = []
+  tabActivations = []
+  // the tabs/commands providers must degrade when the bridge face is absent
+  // — and no test may inherit the face the previous one installed: coverage
+  // that depends on file order passes today and rots silently tomorrow
+  ;(window as { aiOfficeTabs?: typeof window.aiOfficeTabs }).aiOfficeTabs = undefined
+  ;(window as { aiOffice?: typeof window.aiOffice }).aiOffice = undefined
 })
 
 afterEach(async () => {
@@ -170,10 +194,35 @@ function mountApi(
     openAiModelSettings: async () => {
       modelSettingsOpened += 1
     },
+    openHelp: async (topic?: string) => {
+      if (topic) openedHelpTopics.push(topic)
+    },
+    runEditorCommand: async (kind: string, command: string, tabId?: string) => {
+      editorCommandsRun.push([kind, command, tabId])
+    },
     pluginsSetEnabled: async (name: string, enabled: boolean) => {
       pluginToggles.push([name, enabled])
     },
   } as unknown as HomeApi
+}
+
+/** the open-tab strip the tabs and commands providers read */
+const tabSummary = (
+  over: Partial<TabSummary> & { id: string; kind: TabSummary['kind'] },
+): TabSummary => ({
+  title: 'A tab',
+  closable: true,
+  active: false,
+  ...over,
+})
+
+function mountTabs(list: TabSummary[]): void {
+  window.aiOfficeTabs = {
+    list: async () => list,
+    activate: async (id: string) => {
+      tabActivations.push(id)
+    },
+  } as unknown as NonNullable<typeof window.aiOfficeTabs>
 }
 
 async function render(providers?: PaletteProvider[]): Promise<void> {
@@ -183,6 +232,7 @@ async function render(providers?: PaletteProvider[]): Promise<void> {
         lang: 'en',
         onClose: () => (closed += 1),
         onAskAi: (q) => askedQueries.push(q),
+        onOpenSettings: (target) => settingsTargets.push(target),
         ...(providers ? { providers } : {}),
       }),
     )
@@ -405,15 +455,20 @@ describe('CommandPalette', () => {
   })
 
   it('lists installed skills and plugin components under Skills & commands', async () => {
+    // the skill's name stays clear of the help vocabulary on purpose: this
+    // is an exact row-list assertion, and the lazy help group contributes
+    // whatever rows its matcher finds whenever its import lands — "outline"
+    // matches no help title or keyword, so the list is stable whichever way
+    // that race resolves
     mountApi(
       [],
-      [skill({ name: 'notes-report', description: 'Turn notes into a report' })],
+      [skill({ name: 'brief-outline', description: 'Turn a brief into slide outlines' })],
       [plugin({ name: 'deck-tools', components: { skills: ['builder'], commands: ['deploy'] } })],
     )
     await render()
-    await actType('notes')
+    await actType('outline')
     expect(host.textContent).toContain('Skills & commands')
-    expect(rowTitles()).toEqual(['notes-report', 'Ask AI: notes'])
+    expect(rowTitles()).toEqual(['brief-outline', 'Ask AI: outline'])
     // a plugin's components surface as plugin:name entries, searched by name
     await actType('deck-tools:deploy')
     expect(rowTitles()).toEqual(['deck-tools:deploy', 'Ask AI: deck-tools:deploy'])
@@ -421,9 +476,9 @@ describe('CommandPalette', () => {
   })
 
   it('picking a skill opens the skills settings page (the ask view is not bridge-reachable)', async () => {
-    mountApi([], [skill({ name: 'notes-report' })])
+    mountApi([], [skill({ name: 'brief-outline' })])
     await render()
-    await actType('notes')
+    await actType('outline')
     await press('Enter')
     expect(skillsSettingsOpened).toBe(1)
     expect(closed).toBe(1)
@@ -441,15 +496,42 @@ describe('CommandPalette', () => {
     expect(closed).toBe(1)
   })
 
-  it('jumping to the AI model settings goes through the bridge', async () => {
+  it('jumping to the AI model settings routes through the host modal', async () => {
+    // the settings group is a catalog now (issue #56 P0 #2), and every row
+    // routes through onOpenSettings — the modal is a Home internal, not a
+    // bridge call
     mountApi([])
     await render()
     await actType('model')
     expect(rowTitles()).toContain('AI model settings')
     await press('Enter')
-    expect(modelSettingsOpened).toBe(1)
+    expect(settingsTargets).toEqual([{ section: 'aiModel' }])
     expect(closed).toBe(1)
-    expect(skillsSettingsOpened).toBe(0)
+    expect(modelSettingsOpened).toBe(0)
+  })
+
+  it('typing a setting by its own words lands on its settings row', async () => {
+    // the issue's acceptance gate: Cmd+K typed with the localized word for
+    // auto-save must reach the settings row — here in the en shard, "auto"
+    // must reach the auto-save row and
+    // Enter must open the general section it lives in
+    await loadStrings('en')
+    mountApi([])
+    await render()
+    await actType('auto')
+    expect(rowTitles()).toContain('Auto-save all documents')
+    await clickRow('Auto-save all documents')
+    expect(settingsTargets).toEqual([{ section: 'general' }])
+  })
+
+  it('the settings catalog covers every section by its nav label', async () => {
+    await loadStrings('en')
+    mountApi([])
+    await render()
+    await actType('general')
+    expect(rowTitles()).toContain('General')
+    await clickRow('General')
+    expect(settingsTargets).toEqual([{ section: 'general' }])
   })
 
   it('plugins list with a Disable chip, and Enter toggles them through the bridge', async () => {
@@ -527,6 +609,129 @@ describe('CommandPalette', () => {
     expect(rowTitles().includes('num-skill')).toBe(false)
   })
 
+  it('a late-landing source must not blank the tabs group the reader is in', async () => {
+    // the query effect re-runs whenever any dependency changes — recents
+    // landing after the tabs answered is one such re-run. The tabs slot seeds
+    // with what it answered for this same query, so the group survives even
+    // when the refetch cannot land (a bridge that has gone quiet mid-overlay)
+    mountApi([])
+    let releaseRecents: ((value: RecentEntry[]) => void) | undefined
+    window.aiOffice.recents = (async () => {
+      const entries = await new Promise<RecentEntry[]>((resolve) => {
+        releaseRecents = resolve
+      })
+      return { entries, total: entries.length, totalAll: entries.length }
+    }) as HomeApi['recents']
+    let tabsBridgeQuiet = false
+    const openTabs = [tabSummary({ id: 'd1', kind: 'docs', title: 'letter.docx', lastActiveAt: 1 })]
+    window.aiOfficeTabs = {
+      list: async () => (tabsBridgeQuiet ? await new Promise<typeof openTabs>(() => {}) : openTabs),
+      activate: async () => {},
+    } as unknown as NonNullable<typeof window.aiOfficeTabs>
+    await render()
+    await actType('letter')
+    expect(rowTitles()).toContain('letter.docx')
+    // the recents answer lands late, re-running the effect for the same query
+    // — and the tabs refetch now hangs forever
+    tabsBridgeQuiet = true
+    await act(async () => {
+      releaseRecents?.([])
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(rowTitles()).toContain('letter.docx')
+  })
+
+  it('a stale answer from an older run cannot poison the seeded rows', async () => {
+    // two runs of the same query can both have promises in flight (recents
+    // landing re-runs the effect). The older run's late resolution is
+    // seq-discarded from the screen — and it must stay out of the seeding
+    // cache too, or the next re-run would regress the rows to a stale
+    // snapshot (a closed tab reappearing in the switcher). Only the tabs
+    // provider is mounted, so the deferred slots below are its own calls —
+    // the commands provider would issue its own listTabs per run
+    const onlyTabs = [createTabsProvider()]
+    mountApi([])
+    // every async source is held so the effect runs exactly when the test
+    // says so: recents release once, skills and plugins never land
+    let releaseRecents: ((value: RecentEntry[]) => void) | undefined
+    window.aiOffice.recents = (async () => {
+      const entries = await new Promise<RecentEntry[]>((resolve) => {
+        releaseRecents = resolve
+      })
+      return { entries, total: entries.length, totalAll: entries.length }
+    }) as HomeApi['recents']
+    window.aiOffice.skillsList = (() => new Promise<never>(() => {})) as HomeApi['skillsList']
+    window.aiOffice.pluginsList = (() => new Promise<never>(() => {})) as HomeApi['pluginsList']
+    const deferred: Array<(value: TabSummary[]) => void> = []
+    window.aiOfficeTabs = {
+      list: () => new Promise<TabSummary[]>((resolve) => deferred.push(resolve)),
+      activate: async () => {},
+    } as unknown as NonNullable<typeof window.aiOfficeTabs>
+    const letterTab = [
+      tabSummary({ id: 'd1', kind: 'docs', title: 'letter.docx', lastActiveAt: 1 }),
+    ]
+    await render(onlyTabs)
+    // the mount-run answer for the empty query
+    deferred[0]!(letterTab)
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await actType('letter')
+    // the 'letter' run's request is slow; recents landing re-runs the effect,
+    // and the newer run's own answer lands first
+    await act(async () => {
+      releaseRecents?.([])
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    // the run count is pinned before indexing by it: if React's act ever
+    // stopped draining the recents re-run inside the block above, the last
+    // slot would be run 2's and the "stale" resolution below would silently
+    // land on an already-settled promise — the test would pass vacuously
+    expect(deferred).toHaveLength(3)
+    deferred[deferred.length - 1]!(letterTab)
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(rowTitles()).toContain('letter.docx')
+    // now the older run resolves — late, with an out-of-date tab list
+    deferred[1]!([tabSummary({ id: 'd0', kind: 'docs', title: 'old.docx', lastActiveAt: 1 })])
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(rowTitles()).toContain('letter.docx')
+    // a re-render with fresh prop identities re-runs the effect once more;
+    // what it seeds must be the current answer, never the stale one
+    await render(onlyTabs)
+    expect(rowTitles()).toContain('letter.docx')
+    expect(rowTitles()).not.toContain('old.docx')
+  })
+
+  it('a whitespace-only edit re-seeds the landed group instead of blanking it', async () => {
+    // "letter" -> "letter " is not a new question: the effect re-runs (the
+    // raw query is a dependency) and the tabs slot must seed from the
+    // trimmed-key cache while the refetch is still in flight
+    mountApi([])
+    let tabsBridgeQuiet = false
+    const openTabs = [tabSummary({ id: 'd1', kind: 'docs', title: 'letter.docx', lastActiveAt: 1 })]
+    window.aiOfficeTabs = {
+      list: async () => (tabsBridgeQuiet ? await new Promise<typeof openTabs>(() => {}) : openTabs),
+      activate: async () => {},
+    } as unknown as NonNullable<typeof window.aiOfficeTabs>
+    await render()
+    await actType('letter')
+    expect(rowTitles()).toContain('letter.docx')
+    // the trailing space is question grammar, not content — and the refetch
+    // now hangs forever
+    tabsBridgeQuiet = true
+    await actType('letter ')
+    expect(rowTitles()).toContain('letter.docx')
+  })
+
   it('survives a preload without the palette read methods', async () => {
     window.aiOffice = {} as unknown as HomeApi
     await render()
@@ -565,10 +770,13 @@ describe('defaultPaletteProviders', () => {
     const providers = defaultPaletteProviders()
     expect(providers.map((p) => p.id)).toEqual([
       'create',
+      'tabs',
       'recent',
       'files',
       'skills',
+      'commands',
       'settings',
+      'help',
       'plugins',
       'ask',
     ])
@@ -576,15 +784,19 @@ describe('defaultPaletteProviders', () => {
     expect([...priorities].sort((a, b) => a - b)).toEqual(priorities)
   })
 
-  it('reproduces the legacy empty-query list: the create actions plus the five newest recents', () => {
+  it('reproduces the legacy empty-query list: the create actions plus the five newest recents', async () => {
     const recents = Array.from({ length: 8 }, (_, i) =>
       recent({ path: `C:\\Docs\\file-${i}.docx`, name: `file-${i}.docx` }),
     )
     const context = ctx({ recents })
-    const parts = defaultPaletteProviders().map((p) => ({
-      priority: p.priority,
-      rows: p.getRows('', context) as PaletteRow[],
-    }))
+    // every source answers, sync and async alike — an async provider that
+    // never settles would hang the palette on its first keystroke
+    const parts = await Promise.all(
+      defaultPaletteProviders().map(async (p) => ({
+        priority: p.priority,
+        rows: await p.getRows('', context),
+      })),
+    )
     const rows = mergePaletteRows(parts)
     expect(rows.map((r) => r.group)).toEqual([
       ...Array(7).fill('create'),
@@ -611,6 +823,266 @@ describe('createAskAiProvider', () => {
     const rows = provider.getRows('hello', ctx({ onAskAi: (q) => asked.push(q) })) as PaletteRow[]
     rows[0]!.run()
     expect(asked).toEqual(['hello'])
+  })
+})
+
+describe('createTabsProvider', () => {
+  it('lists the open tabs most-recently-used first, minus Home', async () => {
+    // the palette is summoned on Home, so the Home row would always point at
+    // where you already are; the rest of the strip is the switcher
+    mountTabs([
+      tabSummary({
+        id: 'home',
+        kind: 'home',
+        title: 'GenOffice',
+        closable: false,
+        active: true,
+        lastActiveAt: 900,
+      }),
+      tabSummary({
+        id: 'd1',
+        kind: 'docs',
+        title: 'older.docx',
+        lastActiveAt: 100,
+        filePath: 'C:\\Docs\\older.docx',
+      }),
+      tabSummary({
+        id: 's1',
+        kind: 'sheets',
+        title: 'newer.xlsx',
+        lastActiveAt: 800,
+        filePath: 'C:\\Docs\\newer.xlsx',
+      }),
+    ])
+    const rows = (await createTabsProvider().getRows('', ctx())) as PaletteRow[]
+    expect(rows.map((r) => r.title)).toEqual(['newer.xlsx', 'older.docx'])
+    expect(rows.every((r) => r.group === 'tabs')).toBe(true)
+    // rows carry their file path so the files source can shadow them
+    expect(rows[0]!.path).toBe('C:\\Docs\\newer.xlsx')
+  })
+
+  it('activates the picked tab through the bridge', async () => {
+    mountTabs([tabSummary({ id: 'd1', kind: 'docs', title: 'report.docx', lastActiveAt: 1 })])
+    const rows = (await createTabsProvider().getRows('report', ctx())) as PaletteRow[]
+    expect(rows).toHaveLength(1)
+    rows[0]!.run()
+    expect(tabActivations).toEqual(['d1'])
+  })
+
+  it('answers [] when the bridge face is absent (an older preload)', async () => {
+    ;(window as { aiOfficeTabs?: typeof window.aiOfficeTabs }).aiOfficeTabs = undefined
+    expect(await createTabsProvider().getRows('', ctx())).toEqual([])
+  })
+})
+
+describe('createEditorCommandsProvider', () => {
+  it('offers the most recently used editor family only, with its title as the detail', async () => {
+    mountApi([])
+    // Home holds the active slot while the palette is open; the commands are
+    // for the editor the user was last in, and the row says which one that is
+    mountTabs([
+      tabSummary({ id: 'd1', kind: 'docs', title: 'letter.docx', lastActiveAt: 100 }),
+      tabSummary({ id: 's1', kind: 'sheets', title: 'budget.xlsx', lastActiveAt: 900 }),
+    ])
+    const rows = (await createEditorCommandsProvider().getRows('save', ctx())) as PaletteRow[]
+    expect(rows.map((r) => r.title).sort()).toEqual(['Save', 'Save as'])
+    expect(rows.every((r) => r.detail === 'budget.xlsx')).toBe(true)
+    // sheets has no find or zoom verbs — the shared table is the contract
+    expect(await createEditorCommandsProvider().getRows('zoom', ctx())).toEqual([])
+    expect(await createEditorCommandsProvider().getRows('find', ctx())).toEqual([])
+  })
+
+  it('runs the picked command through the bridge for that family', async () => {
+    mountApi([])
+    mountTabs([tabSummary({ id: 'd1', kind: 'docs', title: 'letter.docx', lastActiveAt: 1 })])
+    const rows = (await createEditorCommandsProvider().getRows('zoom', ctx())) as PaletteRow[]
+    expect(rows.map((r) => r.title).sort()).toEqual(['Reset zoom', 'Zoom in', 'Zoom out'])
+    const reset = rows.find((r) => r.title === 'Reset zoom')!
+    reset.run()
+    // the run pins the tab the row named, so Enter executes on that document
+    expect(editorCommandsRun).toEqual([['docs', 'zoom-reset', 'd1']])
+  })
+
+  it('presents no rows when the preload predates the runEditorCommand rail', async () => {
+    // the tabs bridge is older than the command rail, so tabs can be listed
+    // while the run cannot — listing would be a promise the shell cannot keep
+    window.aiOffice = {} as unknown as HomeApi
+    mountTabs([tabSummary({ id: 'd1', kind: 'docs', title: 'letter.docx', lastActiveAt: 1 })])
+    expect(await createEditorCommandsProvider().getRows('save', ctx())).toEqual([])
+  })
+
+  it('skips chrome-free presentation views: the owning editor answers', async () => {
+    mountApi([])
+    // html Present renders a document but owns no editor surface; the rows
+    // must name the owner tab, never the presentation
+    mountTabs([
+      tabSummary({ id: 'h1', kind: 'html', title: 'page.html', lastActiveAt: 100 }),
+      tabSummary({
+        id: 'present',
+        kind: 'html',
+        title: 'page.html',
+        lastActiveAt: 900,
+        present: true,
+      }),
+    ])
+    const rows = (await createEditorCommandsProvider().getRows('save', ctx())) as PaletteRow[]
+    // both save verbs are listed for html now, each naming the owner tab
+    expect(rows.map((r) => [r.title, r.detail])).toEqual([
+      ['Save', 'page.html'],
+      ['Save as', 'page.html'],
+    ])
+    // the switcher still lists the presentation itself — switching to it is real
+    const switchRows = (await createTabsProvider().getRows('page', ctx())) as PaletteRow[]
+    expect(switchRows.map((r) => r.id)).toContain('tab:present')
+  })
+
+  it('offers nothing with no editor open', async () => {
+    mountApi([])
+    mountTabs([
+      tabSummary({
+        id: 'home',
+        kind: 'home',
+        title: 'GenOffice',
+        closable: false,
+        lastActiveAt: 1,
+      }),
+    ])
+    expect(await createEditorCommandsProvider().getRows('save', ctx())).toEqual([])
+  })
+})
+
+describe('createHelpTopicsProvider', () => {
+  it('matches a question-shaped query through the topic keywords', async () => {
+    mountApi([])
+    // the issue's acceptance gate: a Chinese "merge PDFs" question must land
+    // on the PDF topic; here in en, "merge pdf" must — the registry's
+    // keywords welcome both languages
+    const rows = (await createHelpTopicsProvider().getRows('merge pdf', ctx())) as PaletteRow[]
+    expect(rows.map((r) => r.title)).toContain('PDF: reading, annotating and redacting')
+  })
+
+  it('matches an unsegmented CJK question: the token contains the keyword, not the reverse', async () => {
+    mountApi([])
+    // CJK questions are typed without spaces, so the whole question is one
+    // token; it must still land on the topic whose keyword it contains
+    const rows = (await createHelpTopicsProvider().getRows('怎么合并PDF', ctx())) as PaletteRow[]
+    expect(rows.map((r) => r.title)).toContain('PDF: reading, annotating and redacting')
+  })
+
+  it('a spaced-language word that merely contains a topic word is not a match', async () => {
+    mountApi([])
+    // the reverse probe exists for unsegmented CJK; a segmented word like
+    // "outline" containing the title word "line" must not surface that topic
+    const rows = await createHelpTopicsProvider().getRows('outline', ctx())
+    expect(rows).toEqual([])
+  })
+
+  it('ranks a title hit above a keyword-only hit', async () => {
+    mountApi([])
+    const rows = (await createHelpTopicsProvider().getRows('pdf', ctx())) as PaletteRow[]
+    expect(rows[0]!.title).toBe('PDF: reading, annotating and redacting')
+  })
+
+  it('offers no rows when the preload predates the openHelp bridge', async () => {
+    // a help row's whole point is the deep link; an older rail cannot keep
+    // that promise, so the provider offers nothing to run
+    window.aiOffice = {} as unknown as HomeApi
+    expect(await createHelpTopicsProvider().getRows('merge pdf', ctx())).toEqual([])
+  })
+
+  it('runs by opening the manual deep-linked to the topic', async () => {
+    mountApi([])
+    const rows = (await createHelpTopicsProvider().getRows('merge', ctx())) as PaletteRow[]
+    rows[0]!.run()
+    expect(openedHelpTopics).toEqual(['pdf'])
+  })
+
+  it('is empty for a blank query and for gibberish', async () => {
+    // the bridge face is mounted by the test itself, not inherited from the
+    // previous one: this arm is about the matcher, not the absent guard
+    mountApi([])
+    const provider = createHelpTopicsProvider()
+    expect(await provider.getRows('', ctx())).toEqual([])
+    expect(await provider.getRows('zzzqx', ctx())).toEqual([])
+  })
+
+  it('a two-letter Latin keyword embedded in a CJK question is not the question word', async () => {
+    // "ai" is a keyword of the assistant-panel topic; a Chinese question
+    // whose Latin run merely contains it ("airdrop") must not surface that
+    // topic — a Latin keyword only matches as one of the token's whole Latin
+    // runs, so "form" is not "format" either
+    mountApi([])
+    const provider = createHelpTopicsProvider()
+    expect(await provider.getRows('如何维修airdrop', ctx())).toEqual([])
+    expect(await provider.getRows('如何format化', ctx())).toEqual([])
+    // the bounded run is the question's own word, and it still matches
+    const hits = (await provider.getRows('怎么用AI写作', ctx())) as PaletteRow[]
+    expect(hits.map((r) => r.title)).toContain('The AI assistant panel')
+  })
+
+  it('the probe serves every space-less script, digit glue, and hyphenated keywords', async () => {
+    // the probe is the acceptance gate's engine and must not assume Han: a
+    // Korean question glued to "pdf", digits glued to the keyword (space-less
+    // scripts glue digits too), and a hyphenated keyword matched as its run
+    // sequence all have to land on their topic. The digit-glue query carries
+    // no Han keyword of the topic, so its only match path is the digit-split
+    // run — the one mechanism this arm exists to pin
+    mountApi([])
+    const provider = createHelpTopicsProvider()
+    const korean = (await provider.getRows('pdf병합방법', ctx())) as PaletteRow[]
+    expect(korean.map((r) => r.title)).toContain('PDF: reading, annotating and redacting')
+    const glued = (await provider.getRows('怎么2024pdf', ctx())) as PaletteRow[]
+    expect(glued.map((r) => r.title)).toContain('PDF: reading, annotating and redacting')
+    const hyphen = (await provider.getRows('怎么double-click', ctx())) as PaletteRow[]
+    expect(hyphen.map((r) => r.title)).toContain('Tabs and window management')
+  })
+})
+
+describe('createSettingsProvider catalog', () => {
+  it('searches the settings pane by its own words, from the same dictionaries', async () => {
+    await loadStrings('en')
+    const rows = createSettingsProvider().getRows('auto', ctx()) as PaletteRow[]
+    expect(rows.map((r) => r.title)).toContain('Auto-save all documents')
+    // the detail line says which section the setting lives in
+    const autoSave = rows.find((r) => r.title === 'Auto-save all documents')!
+    expect(autoSave.detail).toBe('General')
+  })
+
+  it('routes every row through the host modal with its section', async () => {
+    await loadStrings('en')
+    const rows = createSettingsProvider().getRows(
+      'api key',
+      ctx({ openSettings: (target) => settingsTargets.push(target) }),
+    ) as PaletteRow[]
+    expect(rows.map((r) => r.title)).toContain('API Key')
+    rows.find((r) => r.title === 'API Key')!.run()
+    expect(settingsTargets).toEqual([{ section: 'aiModel' }])
+  })
+})
+
+describe('mergePaletteRows tab shadowing', () => {
+  it('a file-index hit shadows the open-tab row of the same path, like it shadows the recent', () => {
+    const files = [
+      { priority: 30, rows: [stubRow('files', 'file:C:\\Docs\\a.docx', 'C:\\Docs\\a.docx')] },
+    ]
+    const tabs = [
+      {
+        priority: 15,
+        rows: [
+          stubRow('tabs', 'tab:d1', 'C:\\Docs\\a.docx'),
+          stubRow('tabs', 'tab:d2', 'C:\\Docs\\b.docx'),
+        ],
+      },
+    ]
+    const merged = mergePaletteRows([...tabs, ...files])
+    expect(merged.map((r) => r.id)).toEqual(['tab:d2', 'file:C:\\Docs\\a.docx'])
+  })
+
+  it('an open tab shadows the recents row of the same path — an open document is by definition recent', () => {
+    const tabs = [{ priority: 15, rows: [stubRow('tabs', 'tab:d1', 'C:\\Docs\\a.docx')] }]
+    const recents = [{ priority: 20, rows: [stubRow('recent', 'recent:a', 'C:\\Docs\\a.docx')] }]
+    const merged = mergePaletteRows([...tabs, ...recents])
+    expect(merged.map((r) => r.id)).toEqual(['tab:d1'])
   })
 })
 

@@ -173,6 +173,7 @@ export const nl: Dict = {
   searchFilesPlaceholder: 'Zoek in bestandsnamen en inhoud…',
   searchIndexing: '{n} bestanden indexeren…',
   searchNoResults: 'Geen bestanden komen overeen met “{q}”',
+  searchAskReferral: 'Vraag AI over “{q}”',
   searchResultCount: '{n} resultaten',
   searchResultCountOne: '{n} resultaat',
   searchClear: 'Zoekopdracht wissen',

@@ -178,6 +178,7 @@ export const ja: Dict = {
   searchFilesPlaceholder: 'ファイル名と内容を検索…',
   searchIndexing: '{n} 件のファイルをインデックス中…',
   searchNoResults: '「{q}」に一致するファイルはありません',
+  searchAskReferral: '「{q}」を AI に聞く',
   searchResultCount: '{n} 件の結果',
   searchResultCountOne: '{n} 件の結果',
   searchClear: '検索をクリア',

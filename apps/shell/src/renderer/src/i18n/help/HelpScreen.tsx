@@ -4,6 +4,7 @@ import { Markdown } from '@genoffice/ui'
 import { HELP_GROUPS, HELP_TOPICS, helpBody, helpImage, searchTopics } from './help-registry'
 import { useI18n } from '../../locale'
 import { groupTitle, topicTitle } from './help-titles'
+import type { HomeApi } from '../../../../shared/home-api'
 // travels with the lazy chunk: this screen's styles are only wanted on this tab
 import './help.css'
 
@@ -30,7 +31,14 @@ export function HelpScreen(): React.ReactElement {
   // codes silently misses every row, so the screen showed English titles over a
   // body in whatever language matched `startsWith('zh')`.
   const [query, setQuery] = useState('')
-  const [activeId, setActiveId] = useState(HELP_TOPICS[0]!.id)
+  // a palette help row (issue #56 P0 #2) deep-links its topic: the topic rode
+  // the ?mode=help URL on first open, or arrives later as a home:help-topic
+  // event while the tab already exists — both funnel through the same
+  // known-topic guard the in-body help:// links use
+  const [activeId, setActiveId] = useState(() => {
+    const topic = new URLSearchParams(window.location.search).get('topic')
+    return topic && HELP_TOPICS.some((t) => t.id === topic) ? topic : HELP_TOPICS[0]!.id
+  })
   // Bodies are separate chunks, so both the article and the search results are
   // state that arrives rather than values computed during render. Each load
   // carries a generation so a slower one cannot land over a newer answer.
@@ -69,6 +77,21 @@ export function HelpScreen(): React.ReactElement {
       clearTimeout(handle)
     }
   }, [query, lang])
+
+  // main → renderer (issue #56 P0 #2): the palette's help rows call
+  // openHelp(topic); when the manual tab is already open the topic arrives as
+  // a home:help-topic event instead of the URL, so the subscription lives for
+  // the tab's whole lifetime. Unknown ids (the main-side guard already
+  // regex-checked the string) fall through like a bad help:// link would. A
+  // bridge face without the event keeps the manual alive — the URL route
+  // still deep-links on open.
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi> | undefined
+    const off = api?.onHelpTopic?.((topic) => {
+      if (HELP_TOPICS.some((t) => t.id === topic)) setActiveId(topic)
+    })
+    return off
+  }, [])
 
   /** topics in sidebar order that match the current query */
   const visibleTopics = useMemo(

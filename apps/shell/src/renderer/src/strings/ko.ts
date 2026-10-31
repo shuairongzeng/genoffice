@@ -176,6 +176,7 @@ export const ko: Dict = {
   searchFilesPlaceholder: '파일 이름과 내용 검색…',
   searchIndexing: '파일 {n}개 색인 중…',
   searchNoResults: '“{q}”과 일치하는 파일이 없습니다',
+  searchAskReferral: 'AI에게 “{q}” 물어보기',
   searchResultCount: '결과 {n}개',
   searchResultCountOne: '결과 {n}개',
   searchClear: '검색 지우기',
