@@ -6652,7 +6652,10 @@ export function createDocsView(openPath?: string): WebContentsView {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      backgroundThrottling: false,
+      // no backgroundThrottling: false here: a hidden tab's timers must sleep
+      // instead of running all day (issue #27 item 1). The flag's home is the
+      // hidden export windows, where a throttled timer would stall the
+      // export settle wait.
     },
   })
 

@@ -222,7 +222,7 @@ export function installGridGrowth(runtime: UniverRuntime): () => void {
 
   // Backstop: a viewport move the command stream does not carry, and the
   // window between install and the render unit existing.
-  const timer = window.setInterval(() => {
+  const tick = (): void => {
     if (disposed) return
     const worksheet = runtime.univerAPI.getActiveWorkbook()?.getActiveSheet()
     const manager = currentSkeletonManager()
@@ -237,10 +237,28 @@ export function installGridGrowth(runtime: UniverRuntime): () => void {
     if (lastColumn + COLUMN_LOOKAHEAD < columnCount) return
     const walked = firstVisibleColumn(skeleton, columnCount)
     growIfNearEdge(walked, lastRow)
-  }, 250)
+  }
+  // A hidden tab cannot scroll, so the backstop has nothing to watch: suspend
+  // the interval instead of letting it wake the renderer four times a second
+  // for the whole session (issue #27 item 1). Default background throttling
+  // would clamp the wakes to one per minute after five minutes hidden;
+  // suspending makes them zero, and the first visible tick re-covers the
+  // window the tab spent hidden.
+  let timer = 0
+  const arm = (): void => {
+    window.clearInterval(timer)
+    timer = window.setInterval(tick, 250)
+  }
+  if (!document.hidden) arm()
+  const onVisibility = (): void => {
+    if (document.hidden) window.clearInterval(timer)
+    else if (!disposed) arm()
+  }
+  document.addEventListener('visibilitychange', onVisibility)
 
   return () => {
     disposed = true
+    document.removeEventListener('visibilitychange', onVisibility)
     window.clearInterval(timer)
     onCommand?.dispose?.()
   }

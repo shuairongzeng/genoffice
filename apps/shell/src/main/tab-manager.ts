@@ -1043,7 +1043,8 @@ function createHelpView(): WebContentsView {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      backgroundThrottling: false,
+      // the help tab throttles like every other tab view: a hidden manual
+      // must not keep its renderer awake (issue #27 item 1)
     },
   })
   view.webContents.setWindowOpenHandler(({ url }) => {

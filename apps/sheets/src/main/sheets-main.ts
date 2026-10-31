@@ -2503,7 +2503,10 @@ export function createSheetsView(
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      backgroundThrottling: false,
+      // no backgroundThrottling: false: tab views throttle like the other
+      // editors' tabs, so a hidden sheets tab's timers sleep instead of
+      // running all day (issue #27 item 1) — the 250ms grid backstop also
+      // suspends itself on visibility (grid-growth.ts)
     },
   })
   registerSheetsIpc()

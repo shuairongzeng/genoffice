@@ -68,12 +68,33 @@ export function cancelPhasedContent(): void {
 
 /**
  * Double-rAF: the browser paints the previous mount between the two callbacks.
- * A timer races the frames: a background tab (a hidden shell view keeps
- * document.hidden false but is handed about one frame a second) would
- * otherwise stretch a long open into hours, one chunk per second.
+ * A timer races the frames so a slow frame source — a busy GPU, a
+ * frame-eating debugger — cannot stretch a long open: the timer keeps the
+ * chunk cadence alive at PAINTED_FRAME_FALLBACK_MS when frames do not come.
  */
 export const PAINTED_FRAME_FALLBACK_MS = 80
 const nextPaintedFrame = (cb: () => void): void => {
+  // A hidden tab is the degenerate case: rAF suspends entirely and the timer
+  // fallback is a chained timer, which Chromium's background throttling clamps
+  // (1 wake a second, one a minute after five minutes hidden) — the tail would
+  // crawl exactly while nobody watches the tab, and the open gates saves
+  // (waitForFullContent) and print behind it. MessagePort delivery is a plain
+  // task, not a timer task, so throttling does not touch it: while hidden the
+  // chunks ride a port lane at full cadence, and the first visible chunk
+  // returns to the frame lane on its own (issue #27 item 1 — tab views now
+  // keep default throttling; background work must not pay for it). Each
+  // schedule gets its own port pair, so a cancelled chain's pending task can
+  // never deliver into the next chain's callback.
+  if (typeof document !== 'undefined' && document.hidden) {
+    if (typeof MessageChannel !== 'undefined') {
+      const { port1, port2 } = new MessageChannel()
+      port1.onmessage = () => cb()
+      port2.postMessage(null)
+      return
+    }
+    cb()
+    return
+  }
   let done = false
   let raf2 = 0
   const fire = (): void => {

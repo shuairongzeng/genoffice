@@ -3,7 +3,7 @@ import { CommandType, ICommandService, IUndoRedoService, LogLevel, Univer } from
 import { UniverSheetsPlugin } from '@univerjs/sheets'
 import '@univerjs/sheets/facade'
 import { FUniver } from '@univerjs/core/lib/facade'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { installGridGrowth, nextGridGrowth } from '../src/renderer/grid-growth'
 import type { UniverRuntime } from '../src/renderer/univer-state'
@@ -215,5 +215,92 @@ describe('grid growth and the undo stack', () => {
     worksheet.setColumnCount(52)
     expect(worksheet.getMaxColumns()).toBe(52)
     expect(undoStackLength(undoRedoService)).toBe(1)
+  })
+
+  it('suspends the backstop interval while the tab is hidden', () => {
+    // issue #27 item 1: the backstop is a battery line. A hidden tab cannot
+    // scroll, so it has nothing to watch — the interval must be GONE, not
+    // merely early-returning inside its callback (a hidden tab whose interval
+    // still fires wakes the renderer 4x/sec forever). getTimerCount pins the
+    // timer registry itself; the getActiveWorkbook spy (the tick's first
+    // call) pins that no work runs either way.
+    const { univer, univerAPI } = bootBlankWorkbook()
+    const getActiveWorkbook = vi.fn(() => univerAPI.getActiveWorkbook())
+    // Object.create keeps the prototype methods (onCommandExecuted) live
+    // while the own-property spy replaces the one call being counted
+    const api = Object.create(univerAPI) as typeof univerAPI
+    Object.defineProperty(api, 'getActiveWorkbook', { value: getActiveWorkbook })
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    let hidden = false
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    const dispose = installGridGrowth({ univer, univerAPI: api } as unknown as UniverRuntime)
+    try {
+      // visible: exactly one interval armed, and it is doing its work
+      expect(vi.getTimerCount()).toBe(1)
+      vi.advanceTimersByTime(1_000)
+      expect(getActiveWorkbook.mock.calls.length).toBeGreaterThan(0)
+      getActiveWorkbook.mockClear()
+
+      // hidden: cleared, and an hour at the old cadence (14,400 wakes) does
+      // nothing — not even a throttled callback
+      hidden = true
+      document.dispatchEvent(new Event('visibilitychange'))
+      expect(vi.getTimerCount()).toBe(0)
+      vi.advanceTimersByTime(3_600_000)
+      expect(getActiveWorkbook).not.toHaveBeenCalled()
+
+      // repeated hide/show cycles never accumulate intervals (an arm() that
+      // forgot its clearInterval would leak one live timer per show)
+      for (let cycle = 0; cycle < 3; cycle++) {
+        hidden = false
+        document.dispatchEvent(new Event('visibilitychange'))
+        expect(vi.getTimerCount()).toBe(1)
+        hidden = true
+        document.dispatchEvent(new Event('visibilitychange'))
+        expect(vi.getTimerCount()).toBe(0)
+      }
+
+      // visible again: re-armed and back at work
+      hidden = false
+      document.dispatchEvent(new Event('visibilitychange'))
+      vi.advanceTimersByTime(750)
+      expect(getActiveWorkbook.mock.calls.length).toBeGreaterThan(0)
+    } finally {
+      dispose()
+      // dispose removed the listener: a visibility flip after dispose must
+      // not resurrect the interval
+      hidden = true
+      document.dispatchEvent(new Event('visibilitychange'))
+      expect(vi.getTimerCount()).toBe(0)
+      hidden = false
+      document.dispatchEvent(new Event('visibilitychange'))
+      expect(vi.getTimerCount()).toBe(0)
+      vi.useRealTimers()
+      // hand jsdom its own hidden back; the synthetic getter served only
+      // this test, and a later test in the file must not inherit it
+      Reflect.deleteProperty(document, 'hidden')
+    }
+  })
+
+  it('does not arm at all when installed while the tab is hidden', () => {
+    // a tab restored while hidden (or a view created before its first
+    // activation) must stay silent until the first show — arming at install
+    // would wake a hidden renderer for however long it stays hidden
+    const { univer, univerAPI } = bootBlankWorkbook()
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    let hidden = true
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    const dispose = installGridGrowth({ univer, univerAPI } as unknown as UniverRuntime)
+    try {
+      expect(vi.getTimerCount()).toBe(0)
+      vi.advanceTimersByTime(60_000)
+      hidden = false
+      document.dispatchEvent(new Event('visibilitychange'))
+      expect(vi.getTimerCount()).toBe(1)
+    } finally {
+      dispose()
+      vi.useRealTimers()
+      Reflect.deleteProperty(document, 'hidden')
+    }
   })
 })

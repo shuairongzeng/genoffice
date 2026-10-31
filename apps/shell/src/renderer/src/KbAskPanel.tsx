@@ -216,7 +216,11 @@ export async function claimThread(
   stillCurrent: () => boolean,
 ): Promise<{ projectId: string; chatId: string }> {
   const ids = await api.resolveChat({ filePath: null, tempChatId: chatId })
-  const stored = await api.loadChat({ ...ids, limit: 200 })
+  // the retained window: what comes back feeds both the DOM rows and the
+  // loop's restored history (which trims its own context to 40 turns), so a
+  // 60-turn read loses the model nothing while capping the remount's parse
+  // work — the load-side half of the transcript bound (issue #27 item 3)
+  const stored = await api.loadChat({ ...ids, limit: MAX_ASK_ENTRIES })
   if (!stillCurrent()) return ids
   if (stored.length > 0) show(restoreAskMessages(stored))
   for (const entry of queued.splice(0)) {
@@ -304,6 +308,29 @@ export function shownCorpusCount(
   corpusCount: number | null,
 ): number | null {
   return scopePaths.length > 0 ? scopePaths.length : corpusCount
+}
+
+/**
+ * Entries the panel keeps in its live transcript. The model's context is the
+ * loop's own budget (trimHistory caps it at 40 turns) and the JSONL on disk
+ * is the store's business; this bounds only the array the DOM renders, which
+ * an all-day Ask session would otherwise grow without limit (issue #27 item
+ * 3). The docs editor panel caps its own transcript at the same 60
+ * (MAX_CHAT_ENTRIES in chat-retention.ts); the other editor panels are still
+ * unbounded — extending the bound to them is future work, not a convention
+ * this follows.
+ */
+export const MAX_ASK_ENTRIES = 60
+
+/**
+ * Drop the oldest messages past {@link MAX_ASK_ENTRIES}. Returns the input
+ * array itself when nothing needed trimming, so a patch on a bounded
+ * transcript keeps its reference and the memoized rows keep their props.
+ */
+export function boundAskTranscript(entries: AskMessage[]): AskMessage[] {
+  return entries.length > MAX_ASK_ENTRIES
+    ? entries.slice(entries.length - MAX_ASK_ENTRIES)
+    : entries
 }
 
 /**
@@ -592,9 +619,14 @@ export function KbAskPanel({
    */
   const messagesRef = useRef<AskMessage[]>([])
 
-  /** the one writer of the thread: ref first, then state, in that order */
+  /**
+   * The one writer of the thread: ref first, then state, in that order — and
+   * the transcript's single growth valve: every append and the restore both
+   * pass through here, so the bound holds no matter which path grew the
+   * array (issue #27 item 3).
+   */
   const mutateMessages = useCallback((next: (prev: AskMessage[]) => AskMessage[]): void => {
-    messagesRef.current = next(messagesRef.current)
+    messagesRef.current = boundAskTranscript(next(messagesRef.current))
     setMessages(messagesRef.current)
   }, [])
 
@@ -1341,8 +1373,13 @@ export function KbAskPanel({
         .reverse()
         .find((m) => m.role === 'user')
       const title = (question?.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 60)
+      // patch by identity, not by the captured index: the transcript bound
+      // can trim the array while the create-document IPC is in flight (the
+      // user may ask a new question during the save — busy is not held), and
+      // a stale index would stamp the saved badge onto whichever message
+      // slid into that slot while the clicked row stayed stuck on 'saving'
       const patchAt = (saved: AskMessage['saved']): void =>
-        mutateMessages((prev) => prev.map((m, i) => (i === index ? { ...m, saved } : m)))
+        mutateMessages((prev) => prev.map((m) => (m === answer ? { ...m, saved } : m)))
       patchAt('saving')
       try {
         const { path } = await window.aiOffice.kbCreateDocument({

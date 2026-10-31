@@ -1,11 +1,15 @@
+import { readFileSync } from 'node:fs'
+
 import { describe, expect, it } from 'vitest'
 
 import type { ChatMessage, ChatMeta, ProjectApi } from '@genoffice/project-store'
 
 import {
+  boundAskTranscript,
   claimThread,
   firstQuestionOf,
   listThreads,
+  MAX_ASK_ENTRIES,
   panelThreads,
   restoreAskMessages,
   type AskMessage,
@@ -296,5 +300,94 @@ describe('claiming the thread the panel switched to', () => {
       method: 'resolveChat',
       args: { filePath: null, tempChatId: 'kb-ask-1731' },
     })
+  })
+})
+
+describe('bounding the live transcript (issue 27 item 3)', () => {
+  it('drops the oldest messages past the cap, keeping the newest order', () => {
+    // An all-day Ask session appends two entries per turn; the bound keeps
+    // the DOM list the size the docs editor panel keeps its own transcript.
+    const entries = Array.from({ length: MAX_ASK_ENTRIES + 5 }, (_, i): AskMessage => ({
+      role: i % 2 === 0 ? 'user' : 'assistant',
+      text: `turn ${i}`,
+      toolNotes: [],
+      artifacts: [],
+    }))
+    const bounded = boundAskTranscript(entries)
+    expect(bounded).toHaveLength(MAX_ASK_ENTRIES)
+    expect(bounded[0]?.text).toBe('turn 5')
+    expect(bounded[bounded.length - 1]?.text).toBe(`turn ${MAX_ASK_ENTRIES + 4}`)
+  })
+
+  it('keeps the array reference when at or under the cap', () => {
+    // The common case is a patch or an append on a small transcript; a fresh
+    // array would churn every memoized row's props for nothing.
+    const entries: AskMessage[] = [{ role: 'user', text: 'q', toolNotes: [], artifacts: [] }]
+    expect(boundAskTranscript(entries)).toBe(entries)
+  })
+
+  it('restores exactly the retained window, not the old store-side 200', async () => {
+    // The load is the other half of the bound: reading 200 turns made the
+    // remount parse 200 rows (and feed the loop a history it trims to 40
+    // anyway). The claim must ask for exactly what the panel keeps.
+    const { api, calls } = recorder([])
+    await claimThread(
+      api,
+      'kb-ask',
+      [],
+      () => undefined,
+      () => true,
+    )
+    const load = calls.find((c) => c.method === 'loadChat')
+    expect(load?.args).toMatchObject({ limit: MAX_ASK_ENTRIES })
+  })
+
+  it('keeps the cap at sixty, in lockstep with the docs editor panel', () => {
+    // Every other bound assertion is relative to the constant, so raising it
+    // silently would leave the whole suite green while the transcript grows
+    // again. The docs editor panel already lives at 60 (MAX_CHAT_ENTRIES);
+    // the parity is pinned from its source so the two caps cannot drift.
+    expect(MAX_ASK_ENTRIES).toBe(60)
+    const docsRetention = readFileSync(
+      new URL('../../docs/src/renderer/ai/chat-retention.ts', import.meta.url),
+      'utf8',
+    )
+    expect(docsRetention).toContain('export const MAX_CHAT_ENTRIES = 60')
+  })
+
+  it('bounds a restore prepended in front of live turns from the restored end', () => {
+    // The mount path prepends stored history in front of a question asked
+    // while the claim was in flight: the bound must drop the oldest RESTORED
+    // rows, never the live question.
+    const live: AskMessage = {
+      role: 'user',
+      text: 'asked while loading',
+      toolNotes: [],
+      artifacts: [],
+    }
+    const restored = Array.from({ length: MAX_ASK_ENTRIES }, (_, i): AskMessage => ({
+      role: 'user',
+      text: `stored ${i}`,
+      toolNotes: [],
+      artifacts: [],
+    }))
+    const bounded = boundAskTranscript([...restored, live])
+    expect(bounded).toHaveLength(MAX_ASK_ENTRIES)
+    expect(bounded[bounded.length - 1]).toBe(live)
+    expect(bounded[0]?.text).toBe('stored 1')
+  })
+
+  it('the writer of the thread still bounds every growth (source pins)', () => {
+    // Two load-bearing lines of the bound have no runtime surface a DOM-less
+    // test can reach: the valve inside mutateMessages (a growth path that
+    // bypasses the writer regresses to unbounded and nothing above goes red),
+    // and the restore's prepend order (history lands in front of live turns,
+    // so the bound trims stored rows, not the live question). jsdom does not
+    // render arrays, so both are pinned in the source; the single-writer
+    // property itself stays a review concern — a pin can prove these two
+    // lines, not that no future line grows the ref.
+    const src = readFileSync(new URL('../src/renderer/src/KbAskPanel.tsx', import.meta.url), 'utf8')
+    expect(src).toContain('messagesRef.current = boundAskTranscript(next(messagesRef.current))')
+    expect(src).toContain('mutateMessages((prev) => [...restored, ...prev])')
   })
 })
