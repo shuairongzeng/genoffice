@@ -5,6 +5,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { defaultRegistry } from '../src/cli'
 import { DECK_TOOLS } from '../src/mcp/deck'
+import { DESKTOP_ARRANGE_MODES } from '../src/control-protocol'
 import { loadCatalog } from '../src/commands/guide'
 import type { GuideDomain } from '../src/op-catalog'
 import { forbiddenConstructs } from '../src/mcp/op-schemas'
@@ -94,6 +95,8 @@ describe('mcp tool table', () => {
 
     const guide = buildArgv(tools.get('guide')!, { domain: 'slides' })
     expect(guide.argv).toEqual(['guide', 'slides'])
+    const arrange = buildArgv(tools.get('desktop_arrange')!, { mode: 'name' })
+    expect(arrange.argv).toEqual(['desktop', 'arrange', 'name'])
     expect(() => buildArgv(tools.get('info')!, {})).toThrow('missing file')
   })
 
@@ -120,6 +123,7 @@ describe('mcp tool table', () => {
   it('marks the GUI-driving tools as stdio-only', () => {
     const local = TOOLS.filter((t) => t.localOnly).map((t) => t.name)
     expect(local.sort()).toEqual([
+      'desktop_arrange',
       'desktop_get_state',
       'desktop_set_wallpaper',
       'desktop_todo_add',
@@ -186,6 +190,10 @@ describe('mcp server', () => {
     const selection = tools.find((t) => t.name === 'selection')!
     expect(selection.annotations?.readOnlyHint).toBe(true)
     expect(selection.inputSchema.required).toEqual(['file'])
+    const arrange = tools.find((t) => t.name === 'desktop_arrange')!
+    const arrangeProps = arrange.inputSchema.properties as Record<string, Schema>
+    expect(arrangeProps.mode.enum).toEqual([...DESKTOP_ARRANGE_MODES])
+    expect(arrange.inputSchema.required).toEqual(['mode'])
     const slides = tools.find((t) => t.name === 'slides_apply')!
     const slidesProps = slides.inputSchema.properties as Record<string, { type?: unknown }>
     expect(slidesProps.best_effort?.type).toBe('boolean')

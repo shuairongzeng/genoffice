@@ -14,6 +14,7 @@ import type {
 } from '@genoffice/ai-provider'
 import type { UpdateChannel, UpdateUiState } from './update-api'
 import type { RunEvent, RunSummary } from '@genoffice/project-store'
+import type { DesktopArrangeMode } from '@genoffice/cli/control-protocol'
 import type {
   AttachmentInfo,
   CliContext,
@@ -362,8 +363,9 @@ export interface DesktopPrefs {
   wallpaper: string
   carouselMinutes: number
   iconSize: 'sm' | 'md' | 'lg'
-  /** custom = free drag placement; the others are read-only sorted flows */
-  sortMode: 'custom' | 'name' | 'kind' | 'mtime'
+  /** custom = free drag placement; the others are read-only sorted flows —
+   *  the control protocol's arrange-mode tuple is the one runtime source */
+  sortMode: DesktopArrangeMode
   /** how a wallpaper image fills the surface */
   wallpaperFit: 'cover' | 'contain' | 'stretch' | 'tile' | 'center'
   /** desktop label color, hex (#rgb/#rrggbb); '' = automatic */

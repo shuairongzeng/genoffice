@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { CommandRegistry, OptionDef } from '../registry'
 import type { McpMode } from './run'
 import { READ_UNITS } from '../length-units'
+import { DESKTOP_ARRANGE_MODES } from '../control-protocol'
 import type { JsonSchema } from '../op-catalog'
 import type { TypedKey, TypedSchemas } from './op-schemas'
 
@@ -31,6 +32,8 @@ export interface PositionalSpec {
   key: string
   description: string
   optional?: boolean
+  /** closed set of string values; the schema becomes an enum */
+  choices?: readonly string[]
 }
 
 export interface ToolSpec {
@@ -543,6 +546,21 @@ export const TOOLS: ToolSpec[] = [
     ],
   },
   {
+    name: 'desktop_arrange',
+    command: 'desktop',
+    fixed: ['arrange'],
+    localOnly: true,
+    description:
+      "Set how the running GenOffice app's Home desktop icons are arranged: name, kind or mtime reflows them in that order, custom hands them back to the saved drag layout.",
+    positionals: [
+      {
+        key: 'mode',
+        description: 'how the icons are laid out (the desktop sort menu)',
+        choices: DESKTOP_ARRANGE_MODES,
+      },
+    ],
+  },
+  {
     name: 'desktop_todo_add',
     command: 'desktop',
     fixed: ['todo', 'add'],
@@ -630,7 +648,8 @@ export function toolShape(
   const shape: ZodShape = {}
   for (const p of tool.positionals ?? []) {
     const note = remote && PATH_KEYS.has(p.key) ? REMOTE_PATH_NOTE : ''
-    const s = z.string().describe(p.description + note)
+    const base = p.choices ? z.enum(p.choices) : z.string()
+    const s = base.describe(p.description + note)
     shape[p.key] = p.optional ? s.optional() : s
   }
   for (const p of tool.params) {
