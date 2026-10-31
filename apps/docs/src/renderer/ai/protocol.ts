@@ -160,6 +160,12 @@ export const AGENT_SYSTEM_PROMPT = [
   '- view "first" / "even" writes the different-first-page or even-page variant and switches the corresponding Word setting on automatically; omit view for the normal header/footer.',
   '- Existing per-line alignment and styling are preserved; logos and images in the part are untouched. Headers/footers are not document blocks — never try to reach them via block indexes.',
   '',
+  '# Watermark, styles & page layout',
+  '- Watermark: set_watermark puts a gray text like DRAFT or CONFIDENTIAL (or a washed-out picture, e.g. a logo) behind the body on every page; text null or image null removes the current watermark. It lives in the page header, not in a block — do not try to build one with blocks.',
+  '- Named styles: list_styles lists the catalog (ids, types, parents, heading levels); define_style creates or updates a style by id (paragraph/character/table, base formatting, optional inheritance, quick-gallery flag) and paragraphs already using it pick changes up automatically; put a style on paragraphs with the apply_ops op applyStyle { op: "applyStyle", target, styleId } — restyling whole blocks through one named style beats restyling them one by one.',
+  '- insert_text_box places a floating text box (a positioned callout/sidebar: text, size, offsets, wrap, fill/border) anchored after a block — never fake one with spaces or a table.',
+  '- Page layout: insert_section_break starts a new section after a block (type nextPage/continuous/evenPage/oddPage); set_page_setup changes paper size, margins, columns, different-first-page and page numbering of one section — address the section by index, by any block it contains (blockIndex), or omit the address to hit every section. These are section settings, not blocks; the tool output reports the section map (block ranges) to use afterwards.',
+  '',
   '# Answer citations',
   '- When an answer draws on specific parts of the document, cite them as markdown links: [heading text or a short label](docnav://block/N), where N is a block index from the current block list. The user can click these to jump to the passage.',
   '- Only cite block indexes that exist in the block list — never guess; prefer heading blocks as citation anchors. Whole-document answers may omit citations.',
@@ -728,7 +734,10 @@ export function buildDocumentContext(
       if (!deleted && !live.trim()) {
         const pictures = inlineImagesOf(node).length
         if (pictures > 0)
-          preview = picturePreview(index, `(${pictures} picture${pictures === 1 ? '' : 's'}, no text)`)
+          preview = picturePreview(
+            index,
+            `(${pictures} picture${pictures === 1 ? '' : 's'}, no text)`,
+          )
       } else if (!deleted) {
         // mixed paragraph: text previews normally, but the model still cannot see an
         // attached picture's placement unless the line says so

@@ -1173,6 +1173,34 @@ function notesForModel(slide: RenderSlide, notes: string): string {
   return notes
 }
 
+/**
+ * The deck outline's char budget (issue #40 item 3): the outline rides in the
+ * run message and is re-sent every turn, so an unbounded per-element listing
+ * made long multi-turn deck pipelines cost and compress linearly with deck
+ * size (40 pages × 15 elements ≈ 600+ lines). Docs-style layers, each tried
+ * only while the previous still overflows:
+ *   1. at most OUTLINE_ELEMENTS_PER_PAGE element lines per page — a busy
+ *      page gets a "read_slide lists them all" pointer. Elements carrying a
+ *      picture-attachment note are EXEMPT from the cap, not merely
+ *      prioritized: the note is the only image-ordinal → element mapping the
+ *      model gets (read_slide prints no ordinals), so cutting it would
+ *      orphan attached pixels. A deck whose every page fits the cap stays
+ *      byte-identical to the old form — the cap itself is unconditional, so
+ *      a small deck with one busy page is not;
+ *   2. at most OUTLINE_ELEMENTS_TIGHT element lines with shorter previews;
+ *   3. page skeletons only (one line per page with the element count) plus a
+ *      one-line attached-picture map in the footer (skeletons drop the
+ *      inline notes; the map keeps the vision contract) — every page line
+ *      survives layers 1-3: page numbering is the model's addressing
+ *      surface;
+ *   4. elide middle page lines themselves (giant decks), keeping both ends.
+ */
+const OUTLINE_MAX_CHARS = 8_000
+const OUTLINE_ELEMENTS_PER_PAGE = 10
+const OUTLINE_ELEMENTS_TIGHT = 5
+/** How many selected-element refs the outline lists before pointing at read_slide */
+const OUTLINE_SELECTED_REFS = 50
+
 function buildDeckOutline(slides: RenderSlide[], current: number, selectedIds: string[]): string {
   const canvas = slides[0] ? `Canvas ${slides[0].widthPx}×${slides[0].heightPx}px.` : ''
   const lines: string[] = [
@@ -1185,10 +1213,23 @@ function buildDeckOutline(slides: RenderSlide[], current: number, selectedIds: s
       const node = currentSlide ? findNodeById(currentSlide.nodes, id) : undefined
       return node?.durableId ?? node?.sourceId ?? id
     })
-    lines.push(`User selected elements: ${selectedRefs.join(', ')}`)
+    // Bound the line: layers 3-4 can only shrink page lines, so an unbounded
+    // selection list (hundreds of refs) would make the budget unenforceable —
+    // and a 1-2 page deck would then elide its ONLY page lines, the
+    // addressing surface itself.
+    const shown = selectedRefs.slice(0, OUTLINE_SELECTED_REFS)
+    const extra = selectedRefs.length - shown.length
+    lines.push(
+      `User selected elements: ${shown.join(', ')}${extra > 0 ? ` … (+${extra} more selected; read_slide lists this page)` : ''}`,
+    )
   }
-  slides.forEach((slide, i) => {
-    lines.push(`Page ${i + 1} (slideIndex=${i}):`)
+  const footer = [
+    ...(deckImageSkippedNote() ? [deckImageSkippedNote()] : []),
+    '(Use read_slide to see element positions/sizes/colors)',
+  ]
+
+  const pageGroup = (slide: RenderSlide, i: number, elementCap: number, previewMax: number) => {
+    const group: string[] = [`Page ${i + 1} (slideIndex=${i}):`]
     const infos = collectNodeInfos(slide.nodes)
     const fillCount = new Map<string, number>()
     for (const n of infos) {
@@ -1198,16 +1239,88 @@ function buildDeckOutline(slides: RenderSlide[], current: number, selectedIds: s
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
       .map(([c, count]) => (count > 1 ? `${c}×${count}` : c))
-    if (mainFills.length > 0) lines.push(`  main fills: ${mainFills.join(' ')}`)
+    if (mainFills.length > 0) group.push(`  main fills: ${mainFills.join(' ')}`)
+    // Attached elements are exempt from the cap, one line per distinct
+    // ordinal (duplicate copies of one bitmap share the ordinal; the first
+    // copy carries the mapping). read_slide prints no ordinals, so this note
+    // is the only image #K → element address — bounded per page by the
+    // send's image budget, so the exemption cannot blow the outline.
+    const attached = new Map<string, (typeof infos)[number]>()
     for (const n of infos) {
-      lines.push(
-        `  - ${n.id} | ${n.type}${n.text ? ` | "${preview(n.text)}"` : ''}${deckImageNote(i, n.id)}`,
+      const note = deckImageNote(i, n.id)
+      if (note && !attached.has(note)) attached.set(note, n)
+    }
+    const chosen =
+      infos.length <= elementCap
+        ? infos
+        : [
+            ...attached.values(),
+            ...infos
+              .filter((n) => !deckImageNote(i, n.id))
+              .slice(0, Math.max(0, elementCap - attached.size)),
+          ]
+    for (const n of chosen) {
+      group.push(
+        `  - ${n.id} | ${n.type}${n.text ? ` | "${preview(n.text, previewMax)}"` : ''}${deckImageNote(i, n.id)}`,
       )
     }
-  })
-  const skippedNote = deckImageSkippedNote()
-  if (skippedNote) lines.push(skippedNote)
-  lines.push('(Use read_slide to see element positions/sizes/colors)')
+    if (infos.length > elementCap)
+      group.push(
+        `  … ${infos.length - chosen.length} more element(s) on this page; read_slide lists them all`,
+      )
+    return group
+  }
+
+  const sizeOf = (pageLines: string[]) => [...lines, ...pageLines, ...footer].join('\n').length
+  const fullPages = slides.map((slide, i) => pageGroup(slide, i, OUTLINE_ELEMENTS_PER_PAGE, 50))
+  let pageLines = fullPages.flat()
+  if (sizeOf(pageLines) > OUTLINE_MAX_CHARS) {
+    pageLines = slides.map((slide, i) => pageGroup(slide, i, OUTLINE_ELEMENTS_TIGHT, 25)).flat()
+  }
+  if (sizeOf(pageLines) > OUTLINE_MAX_CHARS) {
+    // page skeletons: keep every page's one line (the addressing surface),
+    // drop per-page detail. The inline attachment notes die with the element
+    // lines, so the footer gains the ordinal → element map (bounded by the
+    // send's image budget) — the vision contract survives this layer.
+    pageLines = slides.map((slide, i) => {
+      const count = collectNodeInfos(slide.nodes).length
+      return `Page ${i + 1} (slideIndex=${i}): ${count} element(s) (elided; read_slide lists this page)`
+    })
+    const map = attachedMapNote()
+    if (map) footer.splice(footer.length - 1, 0, map)
+  }
+  if (sizeOf(pageLines) > OUTLINE_MAX_CHARS && pageLines.length > 2) {
+    // giant decks: elide middle page lines themselves, keep both ends —
+    // numbering stays continuous and verifiable. The measurement includes
+    // the marker line the splice inserts (its width changes as the window
+    // moves), so the returned outline actually fits the budget. A 1-2 page
+    // deck has no middle to drop — eliding its only page lines would destroy
+    // the addressing surface, so it is returned over budget instead.
+    const elidedSize = (ds: number, de: number) =>
+      [
+        ...lines,
+        ...pageLines.slice(0, ds),
+        `… (${de - ds} pages elided here; numbering and slideIndex are continuous)…`,
+        ...pageLines.slice(de),
+        ...footer,
+      ].join('\n').length
+    let dropStart = Math.floor(pageLines.length / 3)
+    let dropEnd = pageLines.length - Math.floor(pageLines.length / 3)
+    while (
+      dropStart > 1 &&
+      dropEnd < pageLines.length - 1 &&
+      elidedSize(dropStart, dropEnd) > OUTLINE_MAX_CHARS
+    ) {
+      dropStart = Math.max(1, dropStart - 10)
+      dropEnd = Math.min(pageLines.length - 1, dropEnd + 10)
+    }
+    pageLines = [
+      ...pageLines.slice(0, dropStart),
+      `… (${dropEnd - dropStart} pages elided here; numbering and slideIndex are continuous)…`,
+      ...pageLines.slice(dropEnd),
+    ]
+  }
+  lines.push(...pageLines, ...footer)
   return lines.join('\n')
 }
 
@@ -1245,6 +1358,25 @@ function deckImageNote(slideIndex: number, elementId: string): string {
   if (!list) return ''
   const hit = list.find((e) => e.elementId === elementId)
   return hit ? ` — attached as image #${hit.ordinal}` : ''
+}
+
+/**
+ * One-line map of every attached picture ("Attached pictures: image #4 =
+ * Page 5 e13, …"), for outline layers that drop the per-element lines
+ * carrying the inline notes. First element per ordinal (duplicate copies
+ * share it); bounded by the send's image budget. '' when nothing is attached.
+ */
+function attachedMapNote(): string {
+  const parts: string[] = []
+  const seenOrdinals = new Set<number>()
+  for (const [slideIndex, list] of deckImageAttachment?.ordinals ?? []) {
+    for (const e of list) {
+      if (seenOrdinals.has(e.ordinal)) continue
+      seenOrdinals.add(e.ordinal)
+      parts.push(`image #${e.ordinal} = Page ${slideIndex + 1} ${e.elementId}`)
+    }
+  }
+  return parts.length > 0 ? `Attached pictures: ${parts.join(', ')}` : ''
 }
 
 /** Tail note counting pictures that exceeded the attachment budget, '' when none */

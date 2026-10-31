@@ -102,16 +102,41 @@ export function buildDocContext(editor: Editor): string {
     return ['## Document state', 'The document is currently blank.'].join('\n')
   }
   const lines: string[] = ['## Document state', `${blockCount} top-level blocks:`, '']
-  let used = 0
+  // Render every block line first, then fit the budget by eliding the MIDDLE
+  // (issue #40 item 8): stopping at the first overflow keeps only the head,
+  // so the tail — what "continue writing" needs — and the insertion point
+  // went blind on long documents. Both ends stay visible and numbering stays
+  // continuous and verifiable; read_blocks covers any elided range. The
+  // measurement includes the header lines and the marker the elision will
+  // actually insert (the marker's width changes as the window moves); the
+  // selection/cursor section added below stays unmeasured slack, same as
+  // docs' protocol.
+  const all: string[] = []
   for (let i = 0; i < blockCount; i++) {
     const node = doc.child(i)
-    const line = `${i} | ${blockLabel(node)} | ${blockPreview(node)}`
-    used += line.length + 1
-    if (used > CONTEXT_MAX_CHARS) {
-      lines.push(`… (${blockCount - i} more blocks; use read_blocks to view them)`)
-      break
+    all.push(`${i} | ${blockLabel(node)} | ${blockPreview(node)}`)
+  }
+  const elisionMarker = (ds: number, de: number) =>
+    `… (${de - ds} blocks elided here; numbering is continuous — read_blocks any range)…`
+  const sizeOf = (blocks: string[]) => [...lines, ...blocks].join('\n').length
+  if (sizeOf(all) <= CONTEXT_MAX_CHARS) {
+    lines.push(...all)
+  } else {
+    let dropStart = Math.floor(all.length / 3)
+    let dropEnd = all.length - Math.floor(all.length / 3)
+    while (
+      dropStart > 1 &&
+      dropEnd < all.length - 1 &&
+      sizeOf([
+        ...all.slice(0, dropStart),
+        elisionMarker(dropStart, dropEnd),
+        ...all.slice(dropEnd),
+      ]) > CONTEXT_MAX_CHARS
+    ) {
+      dropStart = Math.max(1, dropStart - 10)
+      dropEnd = Math.min(all.length - 1, dropEnd + 10)
     }
-    lines.push(line)
+    lines.push(...all.slice(0, dropStart), elisionMarker(dropStart, dropEnd), ...all.slice(dropEnd))
   }
   // report by range, not by text: a selected image/table has no text but the
   // model still needs to know which block the request targets
@@ -124,6 +149,20 @@ export function buildDocContext(editor: Editor): string {
       selectionMarkdown(editor) ||
       `(a non-text block is selected: ${blockLabel(doc.child(startIndex))})`
     lines.push('', `## User selection (${where})`, selection)
+  } else {
+    // collapsed selection: insertContent anchors by block index, so "here"
+    // still needs a block number. First block whose [offset, offset +
+    // nodeSize] span contains the position — docs' getSelectionScope rule —
+    // which makes a caret at a top-level boundary (a gap cursor between two
+    // atom blocks) count as the block BEFORE it, where an after:N insert
+    // lands. (NOT doc.resolve(from).index(): at depth 1 that is the INLINE
+    // index inside the textblock; NOT blockIndexRange's fallback: a gap
+    // position intersects no node range and would report the LAST block.)
+    let block = -1
+    doc.forEach((node, offset, index) => {
+      if (block === -1 && selFrom >= offset && selFrom <= offset + node.nodeSize) block = index
+    })
+    lines.push('', `Cursor is in block ${block === -1 ? doc.childCount - 1 : block}`)
   }
   return lines.join('\n')
 }

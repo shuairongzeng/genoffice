@@ -406,6 +406,64 @@ describe('blank/selection edge cases (Bugbot #871)', () => {
   })
 })
 
+describe('document context budget (issue #40 item 8)', () => {
+  const longDoc = (blocks: number): string =>
+    Array.from({ length: blocks }, (_, i) => `paragraph ${i} ${'filler words '.repeat(4)}`).join(
+      '\n\n',
+    )
+
+  it('a long document keeps BOTH ends — the tail is what "continue writing" needs', () => {
+    // 200 blocks ≈ 16KB: the initial thirds are still over budget, so the
+    // shrink loop itself iterates (120 blocks only ever took the initial
+    // split, leaving the loop untested)
+    const editor = createEditor(longDoc(200))
+    const ctx = buildDocContext(editor)
+    // head and tail survive; the middle is elided with continuous numbering
+    expect(ctx).toContain('0 | paragraph | paragraph 0 ')
+    expect(ctx).toContain('199 | paragraph | paragraph 199 ')
+    expect(ctx).toContain('blocks elided here; numbering is continuous')
+    expect(ctx).not.toContain('100 | paragraph | paragraph 100 ')
+    // bounded: the elision measures header + marker (the cursor line below is
+    // the only unmeasured slack, ~23 chars — same loose end docs has)
+    expect(ctx.length).toBeLessThanOrEqual(8_050)
+  })
+
+  it('a short document lists every block with no elision marker', () => {
+    const editor = createEditor(longDoc(10))
+    const ctx = buildDocContext(editor)
+    expect(ctx).toContain('9 | paragraph | paragraph 9 ')
+    expect(ctx).not.toContain('elided')
+  })
+
+  it('the cursor block is reported when nothing is selected (insertContent anchors)', () => {
+    const editor = createEditor('# Title\n\nsecond block\n\nthird block')
+    // put the cursor inside "third block"
+    const pos = editor.state.doc.content.size - 3
+    editor.commands.setTextSelection(pos)
+    const ctx = buildDocContext(editor)
+    expect(ctx).toContain('Cursor is in block 2')
+    expect(ctx).not.toContain('## User selection')
+  })
+
+  it('a gap cursor between atom blocks reports the block before it, not the last block', async () => {
+    const { GapCursor } = await import('@tiptap/pm/gapcursor')
+    const editor = createEditor('intro\n\n---\n\n---\n\noutro')
+    const hrPositions: number[] = []
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'horizontalRule') hrPositions.push(pos)
+    })
+    expect(hrPositions.length).toBe(2)
+    // the caret sits at the top-level boundary between the two rules: no node
+    // range strictly contains it, so a range-intersect fallback would name the
+    // LAST block — the block before the boundary is where after:N lands
+    editor.view.dispatch(
+      editor.state.tr.setSelection(new GapCursor(editor.state.doc.resolve(hrPositions[1]!))),
+    )
+    const ctx = buildDocContext(editor)
+    expect(ctx).toContain('Cursor is in block 1')
+  })
+})
+
 describe('review follow-ups (#871)', () => {
   it('a queued anchor over an image resolves with a type placeholder, not orphaned', async () => {
     const { addQueueAnchor } = await import('../src/renderer/editor/aiQueueAnchors')
