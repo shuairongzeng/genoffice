@@ -10,7 +10,8 @@ import {
   AiSkillsMenu,
   useAiPanelPrefs,
 } from '@genoffice/ui'
-import { useEffect, useRef, useState } from 'react'
+import { boundChatHistory, MAX_CHAT_ENTRIES } from '@genoffice/ui/chat-retention'
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react'
 import {
   AgentLoop,
@@ -236,6 +237,10 @@ interface ToolActivity {
 }
 
 interface ChatEntry {
+  /** stable per-panel message id: receipts (clarify/brief) anchor to it —
+   * an array index is NOT stable, it shifts whenever the 60-entry bound trims
+   * the chat's head */
+  id: number
   role: 'user' | 'assistant'
   text: string
   streaming?: boolean
@@ -344,7 +349,17 @@ export function AiPanel({
   // loop callbacks are built once; they read the live prefs through this ref
   const prefsRef = useRef(prefs)
   prefsRef.current = prefs
-  const [chat, setChat] = useState<ChatEntry[]>([])
+  /** monotonic per-panel message id source for ChatEntry.id */
+  const chatIdRef = useRef(0)
+  const [chat, setChatRaw] = useState<ChatEntry[]>([])
+  // single growth valve (issue #51 P1): every append/delta below routes
+  // through setChat, which bounds the transcript at MAX_CHAT_ENTRIES — the
+  // panel otherwise grew without limit over a long session
+  const setChat = useCallback(
+    (update: SetStateAction<ChatEntry[]>) =>
+      setChatRaw((prev) => boundChatHistory(typeof update === 'function' ? update(prev) : update)),
+    [],
+  )
   /** the approval gate for the source-editing tools (risk:'high' in tools.ts) */
   const confirm = useToolConfirm()
   const [prompt, setPrompt] = useState('')
@@ -373,7 +388,7 @@ export function AiPanel({
   const partialResolverRef = useRef<((keep: boolean) => void) | null>(null)
   /** answered receipts rendered after the user message they belong to (view-only, not chat data) */
   const [receipts, setReceipts] = useState<
-    Array<{ afterIdx: number; qa?: Array<{ q: string; a: string }>; brief?: Brief }>
+    Array<{ afterId: number; qa?: Array<{ q: string; a: string }>; brief?: Brief }>
   >([])
   const chatRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -927,7 +942,10 @@ export function AiPanel({
         },
         onTurnEnd: () => {
           patchLast({ streaming: false })
-          setChat((prev) => [...prev, { role: 'assistant', text: '', streaming: true }])
+          setChat((prev) => [
+            ...prev,
+            { id: ++chatIdRef.current, role: 'assistant', text: '', streaming: true },
+          ])
         },
         onUsage: (usage) => {
           runUsageRef.current = addTokenUsage(runUsageRef.current, usage)
@@ -1011,7 +1029,13 @@ export function AiPanel({
         for (const msg of pendingPersistRef.current.splice(0)) {
           persistMessage(msg.role, msg.text, msg.tools, msg.attachments, msg.scope)
         }
-        return api.loadChat({ projectId: ids.projectId, chatId: ids.chatId, limit: 200 })
+        // restore exactly what the 60-entry bound can keep: loading more would
+        // feed loop.restore a transcript the panel cannot display (silent divergence)
+        return api.loadChat({
+          projectId: ids.projectId,
+          chatId: ids.chatId,
+          limit: MAX_CHAT_ENTRIES,
+        })
       })
       .then((msgs) => {
         if (msgs.length === 0) return
@@ -1032,6 +1056,7 @@ export function AiPanel({
           if (prev.length > 0) return prev
           applied = true
           return msgs.map((m) => ({
+            id: ++chatIdRef.current,
             role: m.role,
             text: m.text,
             tools: m.tools?.map((tool) => ({
@@ -1134,6 +1159,7 @@ export function AiPanel({
     setChat((prev) => [
       ...prev,
       {
+        id: ++chatIdRef.current,
         role: 'user',
         text: displayText ?? instruction,
         instruction: displayText ? instruction : undefined,
@@ -1142,7 +1168,7 @@ export function AiPanel({
         skills: sentSkills.length > 0 ? sentSkills : undefined,
         scope,
       },
-      { role: 'assistant', text: '', streaming: true },
+      { id: ++chatIdRef.current, role: 'assistant', text: '', streaming: true },
     ])
     setPrompt('')
     setBusy(true)
@@ -1465,7 +1491,7 @@ export function AiPanel({
         )}
         {chat.map((entry, i) => {
           if (entry.role === 'user') {
-            const own = receipts.filter((r) => r.afterIdx === i)
+            const own = receipts.filter((r) => r.afterId === entry.id)
             return (
               <div key={i} className="ai-msg ai-msg-user">
                 {entry.scope && <AiScopeQuote scope={entry.scope} />}
@@ -1651,7 +1677,7 @@ export function AiPanel({
               clarifyResolverRef.current?.({ answers })
               clarifyResolverRef.current = null
               setActiveClarify(null)
-              setReceipts((prev) => [...prev, { afterIdx: idx, qa }])
+              setReceipts((prev) => [...prev, { afterId: chat[idx]?.id ?? -1, qa }])
             }}
             onSkip={() => {
               clarifyResolverRef.current?.({ answers: '', cancelled: true })
@@ -1670,7 +1696,10 @@ export function AiPanel({
               const idx = chat.map((c) => c.role).lastIndexOf('user')
               if (decision.kind === 'confirmed') {
                 depsRef.current.onBriefConfirmed(decision.brief)
-                setReceipts((prev) => [...prev, { afterIdx: idx, brief: decision.brief }])
+                setReceipts((prev) => [
+                  ...prev,
+                  { afterId: chat[idx]?.id ?? -1, brief: decision.brief },
+                ])
               }
               briefResolverRef.current?.(decision)
               briefResolverRef.current = null

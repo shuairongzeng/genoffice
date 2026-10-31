@@ -12,7 +12,8 @@ import {
   useAiSlash,
   useToolConfirm,
 } from '@genoffice/ui'
-import { useEffect, useRef, useState } from 'react'
+import { boundChatHistory, MAX_CHAT_ENTRIES } from '@genoffice/ui/chat-retention'
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from 'react'
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
@@ -207,7 +208,15 @@ export function AiPanel({
   const [attachedSkills, setAttachedSkills] = useState<string[]>([])
   const attachedSkillsRef = useRef(attachedSkills)
   attachedSkillsRef.current = attachedSkills
-  const [chat, setChat] = useState<ChatEntry[]>([])
+  const [chat, setChatRaw] = useState<ChatEntry[]>([])
+  // single growth valve (issue #51 P1): every append/delta below routes
+  // through setChat, which bounds the transcript at MAX_CHAT_ENTRIES — the
+  // panel otherwise grew without limit over a long session
+  const setChat = useCallback(
+    (update: SetStateAction<ChatEntry[]>) =>
+      setChatRaw((prev) => boundChatHistory(typeof update === 'function' ? update(prev) : update)),
+    [],
+  )
   /** the approval gate for the document-writing tools (risk:'high' in tools.ts) */
   const confirm = useToolConfirm()
   /** a streamed write stopped early: the draft stays in the document until the user keeps or discards it */
@@ -658,7 +667,13 @@ export function AiPanel({
         for (const msg of pendingPersistRef.current.splice(0)) {
           persistMessage(msg.role, msg.text, msg.tools, msg.scope)
         }
-        return api.loadChat({ projectId: ids.projectId, chatId: ids.chatId, limit: 200 })
+        // restore exactly what the 60-entry bound can keep: loading more would
+        // feed loop.restore a transcript the panel cannot display (silent divergence)
+        return api.loadChat({
+          projectId: ids.projectId,
+          chatId: ids.chatId,
+          limit: MAX_CHAT_ENTRIES,
+        })
       })
       .then((msgs) => {
         if (msgs.length === 0) return

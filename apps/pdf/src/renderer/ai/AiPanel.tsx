@@ -9,7 +9,8 @@ import {
   type AiModelPickerBridge,
   useAiPanelPrefs,
 } from '@genoffice/ui'
-import { useEffect, useRef, useState } from 'react'
+import { boundChatHistory, MAX_CHAT_ENTRIES } from '@genoffice/ui/chat-retention'
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from 'react'
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
@@ -163,7 +164,15 @@ export function AiPanel({
   const { showStreaming, showThinking, showToolCalls } = useAiPanelPrefs()
   const showStreamingRef = useRef(showStreaming)
   showStreamingRef.current = showStreaming
-  const [chat, setChat] = useState<ChatEntry[]>([])
+  const [chat, setChatRaw] = useState<ChatEntry[]>([])
+  // single growth valve (issue #51 P1): every append/delta below routes
+  // through setChat, which bounds the transcript at MAX_CHAT_ENTRIES — the
+  // panel otherwise grew without limit over a long session
+  const setChat = useCallback(
+    (update: SetStateAction<ChatEntry[]>) =>
+      setChatRaw((prev) => boundChatHistory(typeof update === 'function' ? update(prev) : update)),
+    [],
+  )
   const [prompt, setPrompt] = useState('')
   /** the composer textarea; the slash palette anchors above it */
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -288,7 +297,13 @@ export function AiPanel({
       .resolveChat({ filePath: filePath || null, tempChatId })
       .then((ids) => {
         chatIdsRef.current = ids
-        return store.loadChat({ projectId: ids.projectId, chatId: ids.chatId, limit: 200 })
+        // restore exactly what the 60-entry bound can keep: loading more would
+        // feed loop.restore a transcript the panel cannot display (silent divergence)
+        return store.loadChat({
+          projectId: ids.projectId,
+          chatId: ids.chatId,
+          limit: MAX_CHAT_ENTRIES,
+        })
       })
       .then((msgs) => {
         if (msgs.length === 0) return

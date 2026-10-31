@@ -8,7 +8,8 @@ import {
   AiSkillChips,
   AiSkillsMenu,
 } from '@genoffice/ui'
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import { boundChatHistory } from '@genoffice/ui/chat-retention'
+import React, { useEffect, useRef, useState, useCallback, type SetStateAction } from 'react'
 import {
   AgentLoop,
   composeSkills,
@@ -251,6 +252,10 @@ function safeJsonInput(input: unknown): string | undefined {
 }
 
 interface ChatEntry {
+  /** stable per-panel message id: receipts (clarify answers) anchor to it —
+   * an array index is NOT stable, it shifts whenever the 60-entry bound trims
+   * the chat's head */
+  id: number
   role: 'user' | 'assistant'
   text: string
   error?: string
@@ -509,7 +514,17 @@ export function AiPanel({
       return true
     },
   })
-  const [chat, setChat] = useState<ChatEntry[]>([])
+  /** monotonic per-panel message id source for ChatEntry.id */
+  const chatIdRef = useRef(0)
+  const [chat, setChatRaw] = useState<ChatEntry[]>([])
+  // single growth valve (issue #51 P1): every append/delta below routes
+  // through setChat, which bounds the transcript at MAX_CHAT_ENTRIES — the
+  // panel otherwise grew without limit over a long session
+  const setChat = useCallback(
+    (update: SetStateAction<ChatEntry[]>) =>
+      setChatRaw((prev) => boundChatHistory(typeof update === 'function' ? update(prev) : update)),
+    [],
+  )
   /** the approval gate for the deck-editing tools (risk:'high' in slides-skill.ts) */
   const confirm = useToolConfirm()
   /** Past conversation restored from JSONL (read-only transcript, not fed to the model) */
@@ -604,7 +619,7 @@ export function AiPanel({
   }, [])
   /* Answered clarify receipts (answered-state card): view-only record, not chat data */
   const [clarifyAnswers, setClarifyAnswers] = useState<
-    Array<{ afterIdx: number; qa: Array<{ q: string; a: string }> }>
+    Array<{ afterId: number; qa: Array<{ q: string; a: string }> }>
   >([])
   const logRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -735,6 +750,7 @@ export function AiPanel({
         if (msgs.length === 0) return
         setHistoricChat(
           msgs.map((m) => ({
+            id: ++chatIdRef.current,
             role: m.role,
             text: m.text,
             tools: m.tools?.map((t) => ({
@@ -1566,7 +1582,10 @@ export function AiPanel({
         onTurnEnd: () => {
           lastTurnToolsRef.current = []
           patchLastAssistant({ streaming: false })
-          setChat((prev) => [...prev, { role: 'assistant', text: '', streaming: true }])
+          setChat((prev) => [
+            ...prev,
+            { id: ++chatIdRef.current, role: 'assistant', text: '', streaming: true },
+          ])
         },
         onUsage: (usage) => {
           runUsageRef.current = addTokenUsage(runUsageRef.current, usage)
@@ -1866,13 +1885,14 @@ export function AiPanel({
       // Fallback: clear leftover streaming flags on history entries, avoiding orphan "thinking" placeholders
       ...prev.map((e) => (e.role === 'assistant' && e.streaming ? { ...e, streaming: false } : e)),
       {
+        id: ++chatIdRef.current,
         role: 'user',
         text: shown,
         ...(sentAtts.length > 0 ? { attachments: sentAtts } : {}),
         ...(sentSkills.length > 0 ? { skills: sentSkills } : {}),
         ...(scope ? { scope } : {}),
       },
-      { role: 'assistant', text: '', streaming: true },
+      { id: ++chatIdRef.current, role: 'assistant', text: '', streaming: true },
     ])
     runStartedAtRef.current = Date.now()
     setBusy(true)
@@ -2009,7 +2029,7 @@ export function AiPanel({
         ...prev.map((e) =>
           e.role === 'assistant' && e.streaming ? { ...e, streaming: false } : e,
         ),
-        { role: 'assistant', text: '', streaming: true },
+        { id: ++chatIdRef.current, role: 'assistant', text: '', streaming: true },
       ])
       runStartedAtRef.current = Date.now()
       setBusy(true)
@@ -2079,7 +2099,7 @@ export function AiPanel({
     stickToBottomRef.current = true
     setChat((prev) => [
       ...prev.map((e) => (e.role === 'assistant' && e.streaming ? { ...e, streaming: false } : e)),
-      { role: 'user', text: shown },
+      { id: ++chatIdRef.current, role: 'user', text: shown },
     ])
     persistMessage('user', shown)
 
@@ -2123,7 +2143,7 @@ export function AiPanel({
       ...prev.map((e, i) =>
         i === prev.length - 1 && e.snapshotId != null ? { ...e, snapshotId: undefined } : e,
       ),
-      { role: 'assistant', text: header, streaming: true },
+      { id: ++chatIdRef.current, role: 'assistant', text: header, streaming: true },
     ])
     // First kept QC batch — the run's own batch takes precedence (it is earlier,
     // so restoring it rewinds past the QC edits too)
@@ -2241,9 +2261,8 @@ export function AiPanel({
     // Same as docs (#195): the restored transcript is painted above the live
     // turn, so it must clear too — otherwise the old conversation survives.
     setHistoricChat([])
-    // Answered clarifications are transcript too: they render under their
-    // original message index, so stale entries would re-attach to unrelated
-    // new messages after an index collision.
+    // Answered clarifications are transcript too: their afterId anchors would
+    // reference dead entry ids of the cleared conversation.
     setClarifyAnswers([])
     // Unsent composer attachments would otherwise ride into the next chat's
     // file context (availableAttachments merges sent + live), mirroring docs.
@@ -2624,7 +2643,7 @@ export function AiPanel({
                 </div>
               )}
               {clarifyAnswers
-                .filter((c) => c.afterIdx === i)
+                .filter((c) => c.afterId === entry.id)
                 .map((c, k) => (
                   <div key={`ca${k}`} className="ai-clarify-answered">
                     {c.qa.map((pair, m) => (
@@ -2657,7 +2676,10 @@ export function AiPanel({
               clarifyResolverRef.current?.({ answers })
               clarifyResolverRef.current = null
               setActiveClarify(null)
-              setClarifyAnswers((prev) => [...prev, { afterIdx: chat.length - 1, qa }])
+              setClarifyAnswers((prev) => [
+                ...prev,
+                { afterId: chat[chat.length - 1]?.id ?? -1, qa },
+              ])
             }}
             onSkip={() => {
               clarifyResolverRef.current?.({ answers: '', cancelled: true })

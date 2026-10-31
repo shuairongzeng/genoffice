@@ -68,7 +68,15 @@ import {
 import { isNumericIdentifierText } from './cell-warning'
 import { consumePendingUndoCarry, undoStackDepth } from './undo-carry'
 import { createSaveGate, shouldRunSaveTick } from './save-scheduler'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type SetStateAction,
+} from 'react'
 import {
   useAutoSavePref,
   addTokenUsage,
@@ -78,6 +86,7 @@ import {
   type AiTokenUsageView,
   type AiScopeQuoteData,
 } from '@genoffice/ui'
+import { boundChatHistory } from '@genoffice/ui/chat-retention'
 
 import {
   CellValueType,
@@ -1191,7 +1200,15 @@ export function App({
   showStreamingRef.current = aiPanelPrefs.showStreaming
   // Display history survives restarts via localStorage; the AgentLoop's model
   // context does not, so restored turns are read-only transcript.
-  const [chat, setChat] = useState<readonly AiChatMessage[]>([])
+  const [chat, setChatRaw] = useState<readonly AiChatMessage[]>([])
+  // single growth valve (issue #51 P1): every append/delta below routes
+  // through setChat, which bounds the transcript at MAX_CHAT_ENTRIES — the
+  // panel otherwise grew without limit over a long session
+  const setChat = useCallback(
+    (update: SetStateAction<readonly AiChatMessage[]>) =>
+      setChatRaw((prev) => boundChatHistory(typeof update === 'function' ? update(prev) : update)),
+    [],
+  )
   /** History loaded from project-store (read-only transcript, not fed to the model) */
   const [historicChat, setHistoricChat] = useState<readonly AiChatMessage[]>([])
   // ── Chat attachments (same structure as docs/slides: text types go through the
