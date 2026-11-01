@@ -6160,6 +6160,12 @@ registerHomeWorkbenchIpc({
       tabManager.deliverToDrawerOverlay(BROWSER_CHANNELS.askAbout, note)
     }
   },
+  // the overlay's panel copy finished booting: only its own renderer's ping
+  // (checked by identity inside the overlay) releases the messages buffered
+  // for it — a flush keyed on the load alone would beat the panel's listeners
+  markDrawerOverlayReadyFor: (sender) => {
+    tabManager?.markDrawerOverlayReadyFor(sender)
+  },
 })
 registerDroppedFilesIpc()
 registerUserSkillsIpc({
@@ -6438,10 +6444,17 @@ app.whenReady().then(async () => {
     ],
     webContentsFor: (tabId) =>
       tabManager?.webContentsForTab(tabId) ?? detachedWebContentsFor(tabId),
-    // the one sender the channel serves: the shell window's own renderer
-    // (the dock's home), never an app tab, a detached window or a page view
-    shellWebContents: () =>
-      shellWindow && !shellWindow.isDestroyed() ? shellWindow.webContents : undefined,
+    // the senders the channel serves: the shell window's own renderer (the
+    // dock's home) and the drawer overlay's panel copy — the standalone panel
+    // a document tab leaves visible, whose AgentLoop calls the same tools and
+    // whose annotation reads need the same channel — never an app tab, a
+    // detached window or a page view
+    panelWebContents: () => {
+      const shellWc =
+        shellWindow && !shellWindow.isDestroyed() ? shellWindow.webContents : undefined
+      const overlayWc = tabManager?.drawerOverlayWebContents()
+      return [shellWc, overlayWc].filter((wc): wc is WebContents => !!wc && !wc.isDestroyed())
+    },
     confirmPageAction: (request) => confirmBrowserPageAction(request),
   })
   configureMcpRuntime({

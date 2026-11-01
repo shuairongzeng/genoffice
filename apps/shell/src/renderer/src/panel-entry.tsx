@@ -31,8 +31,11 @@ import { KbAskPanel } from './KbAskPanel'
  * Home's copy keeps `kb-ask`; sharing it made the two AgentLoops cross-read
  * one transcript), the ask-intent handoffs Home forwards through the main
  * process (P0-2 — a palette/deep-link question asked while this view is the
- * visible drawer lands here with the same pending-query semantics), and the
- * keyboard's Esc ladder (P1-4): the document owns the keydown below the
+ * visible drawer lands here with the same pending-query semantics, and the
+ * browser annotations routed the same way), the ready signal that releases
+ * them (main buffers this view's messages until the panel's listeners are
+ * armed — see the handshake in main/ai-drawer-view.ts), and the keyboard's
+ * Esc ladder (P1-4): the document owns the keydown below the
  * overlay, so the drawer itself answers Esc — clearing a non-empty draft
  * first, then collapsing through the same `home:ai-dock-set` write the pet
  * makes.
@@ -77,6 +80,7 @@ const REQUIRED_API = [
   'aiGskStatus',
   'onAiSettingsChanged',
   'setAiDock',
+  'onBrowserAskAbout',
 ] as const satisfies readonly (keyof HomeApi)[]
 
 /** the aiOffice face carries every method the panel needs at mount */
@@ -90,6 +94,11 @@ export function AskPanelEntry(): React.JSX.Element {
   const apiReady = panelApiReady(window.aiOffice as Partial<HomeApi> | undefined)
   // a missing dictionary translates a key to itself (see strings.ts)
   const stringsReady = t('navAsk') !== 'navAsk'
+  // the entry is worth signaling only once it actually renders the panel: an
+  // error-state mount (a partial aiOffice face, a dictionary that never
+  // loaded) has no listeners, and arming the flush there would drop the
+  // buffered messages into a renderer with no panel in it
+  const entryReady = apiReady && stringsReady
   // the ask-intent handoffs Home forwards while a document is active (P0-2):
   // main pushes them over home:ask-forwarded and this view consumes them
   // exactly the way Home's own panel consumes a local handoff
@@ -104,7 +113,22 @@ export function AskPanelEntry(): React.JSX.Element {
       setFocusSeq((n) => n + 1)
     })
   }, [])
-  if (!apiReady || !stringsReady) {
+  useEffect(() => {
+    if (!entryReady) return
+    // the ready handshake: main holds the messages routed to this view (the
+    // forwarded asks, the browser annotations) until the panel's listeners
+    // exist, because a flush at the view's did-finish-load would beat the
+    // panel's own subscriptions — the panel entry boots after an await chain
+    // (language, theme, dictionary), so "loaded" and "listening" are different
+    // moments. React runs child effects before parent ones, so by the time
+    // this fires, KbAskPanel's subscriptions are armed; the dependency keeps
+    // it from firing out of the error state, whose mount has no listeners to
+    // flush into. Guarded: a stale preload without the channel keeps the
+    // messages buffered, never a crash.
+    const api = window.aiOffice as Partial<HomeApi> | undefined
+    api?.askPanelReady?.()
+  }, [entryReady])
+  if (!entryReady) {
     return <div className="ask-panel-entry ask-panel-entry-error">{t('panelApiMissing')}</div>
   }
   return (

@@ -249,4 +249,11 @@ describe('getAiDock / setAiDock / homeContentRect', () => {
       height: 556,
     })
   })
+
+  it('sends the panel ready ping fire-and-forget, no payload to validate', () => {
+    // the ping carries no data: the sender's identity (main's own event) is
+    // the whole message, so there is nothing to guard here
+    homeApi.askPanelReady?.()
+    expect(electronMocks.send).toHaveBeenCalledWith(HOME_CHANNELS.askPanelReady)
+  })
 })

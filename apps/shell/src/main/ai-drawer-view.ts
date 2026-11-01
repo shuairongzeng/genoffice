@@ -17,6 +17,12 @@ import { applyUiScaleTo } from './ui-scale'
  * entry renders the panel plus the floating pet — the overlay's only click
  * affordance, since the drawer head and scrim belong to the Home surface the
  * document is covering (the keyboard's Esc answers inside the panel itself).
+ * The entry also answers a ready handshake: the panel's subscriptions arm
+ * only after the renderer's own boot (an await chain of language, theme and
+ * dictionary before the first render), so a message flushed at the load
+ * event alone would reach a renderer with no listener for it and vanish —
+ * the panel signals `home:ask-panel-ready` once its listeners exist, and
+ * nothing buffered here moves before that (markPanelReadyFor).
  *
  * Z-order: the view sits above every document/browser view of the window's
  * contentView — addChildView re-adds an existing child as the topmost
@@ -78,12 +84,31 @@ export interface AiDrawerOverlay {
   destroy(): void
   /**
    * Push one message to the panel copy's renderer (P0-2 — the ask-intent
-   * forward). Buffered until the view exists and its renderer finished
-   * loading: a forwarded ask can beat the very prefs write that mounts this
-   * view (Home's openAskDock hands off in the same breath), and dropping it
-   * would route the question nowhere.
+   * forward). Buffered until the view exists and its panel copy signaled
+   * itself ready (markPanelReadyFor): a forwarded ask can beat the very prefs
+   * write that mounts this view (Home's openAskDock hands off in the same
+   * breath), and a flush keyed on the load alone would beat the panel's own
+   * listeners — the entry boots behind an await chain (language, theme,
+   * dictionary) before its first render — so the question would land in a
+   * renderer nobody is listening in and be dropped.
    */
   deliverToPanel(channel: string, payload: unknown): void
+  /**
+   * The panel copy's ready signal arrived over `home:ask-panel-ready` with
+   * `sender` as its webContents: flush the buffer, but only when the sender
+   * is this view's own live webContents — the channel is fire-and-forget and
+   * any renderer sharing the shell preload can send it, so identity, not the
+   * arrival, vouches the claim (another renderer's ready ping must never arm
+   * the overlay's flush). A reload (did-start-navigation) clears the armed
+   * flag again: the renderer that replaces the old one has to re-signal.
+   */
+  markPanelReadyFor(sender: WebContents): void
+  /**
+   * The overlay view's live webContents, or undefined while it is not
+   * mounted (or already gone). The sender gates that must accept the panel
+   * copy — browserskill:execute among them (browser-agent.ts) — read it.
+   */
+  panelWebContents(): WebContents | undefined
 }
 
 /**
@@ -113,10 +138,17 @@ export function createAiDrawerOverlay(
   let appliedScale = 1
   /** whether the last sync left the view showing — the hide path's guard */
   let shown = false
-  /** messages waiting for the panel's renderer to load (deliverToPanel) */
+  /** messages waiting for the panel's renderer to be ready (deliverToPanel) */
   const pendingPanelMessages: Array<{ channel: string; payload: unknown }> = []
-  /** whether the view's renderer finished a load — deliveries go direct then */
+  /**
+   * Whether the view's renderer finished a load — the load-failure report's
+   * baseline (a failure after a good load is not a dead surface), and no
+   * longer the delivery trigger: the panel's listeners arm later than the
+   * load, so the ready flag below owns the flush.
+   */
   let panelLoaded = false
+  /** whether the panel copy signaled itself ready (markPanelReadyFor) */
+  let panelReady = false
 
   const applyScale = (wc: WebContents, scale: number): void => {
     appliedScale = scale
@@ -139,6 +171,15 @@ export function createAiDrawerOverlay(
       if (target) void shell.openExternal(target)
       return { action: 'deny' }
     })
+    // the view's URL is main-authored and constant — the panel entry is a
+    // mounted React tree, not a page of links — so nothing legitimate
+    // navigates it. Denying will-navigate keeps a renderer that turned
+    // hostile from walking itself somewhere else, which is what lets the
+    // widened browserskill gate trust this webContents by identity; the
+    // window-open deny above covers the other direction.
+    view.webContents.on('will-navigate', (event) => {
+      event.preventDefault()
+    })
     // The shared ui-scale boot (installUiScale) does reach this view's
     // webContents — `web-contents-created` fires for WebContentsView
     // renderers too — but the sync path here cannot rely on its timing: the
@@ -150,8 +191,34 @@ export function createAiDrawerOverlay(
     // application with the shared boot is harmless.
     view.webContents.once('did-finish-load', () => {
       applyScale(view.webContents, scale)
+      // the load only proves the bundle painted, not that the panel's
+      // listeners exist (the entry boots behind an await chain before its
+      // first render), so the buffered messages keep waiting for the ready
+      // handshake; this flag stays what the failure report below keys on
       panelLoaded = true
-      deliverPending()
+    })
+    // a navigation (a reload, a retry) means a renderer that must re-signal
+    // before anything buffered here flushes into it — but only a main-frame
+    // document swap does that: an in-place hop (a fragment, a pushState)
+    // keeps the very React app that already signaled, and resetting there
+    // would strand the buffer with no second ping ever coming
+    view.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+      if (isInPlace || !isMainFrame) return
+      panelReady = false
+    })
+    // a crashed renderer leaves the armed handshake and the buffered messages
+    // pointing at a process that no longer exists: reset the flag and retry
+    // the panel load once — the did-fail-load shape, never a loop — so the
+    // replacement renderer gets its own boot and must re-signal before
+    // anything moves. A clean exit is our own teardown (destroy, the window's
+    // close): there is nothing to recover and the view is on its way out.
+    let crashRetried = false
+    view.webContents.on('render-process-gone', (_event, details) => {
+      if (details?.reason === 'clean-exit') return
+      panelReady = false
+      if (crashRetried || view.webContents.isDestroyed()) return
+      crashRetried = true
+      loadPanelUrl(view.webContents)
     })
     // a failed load leaves a dead surface floating over the document — and
     // the pet that could dismiss it lives inside the very renderer that did
@@ -191,7 +258,7 @@ export function createAiDrawerOverlay(
 
   const deliverPending = (): void => {
     const wc = view?.webContents
-    if (!wc || wc.isDestroyed() || !panelLoaded) return
+    if (!wc || wc.isDestroyed() || !panelReady) return
     for (const message of pendingPanelMessages.splice(0)) wc.send(message.channel, message.payload)
   }
 
@@ -200,6 +267,7 @@ export function createAiDrawerOverlay(
   // a late sync would act on a dead view.
   shellWindow.once('closed', () => {
     view = null
+    panelReady = false
     pendingPanelMessages.length = 0
   })
 
@@ -244,9 +312,23 @@ export function createAiDrawerOverlay(
       }
       deliverPending()
     },
+    markPanelReadyFor(sender: WebContents): void {
+      // identity, not the arrival, vouches the sender: the ready channel is
+      // fire-and-forget and any renderer sharing the shell preload can send
+      // it, so only this view's live webContents may arm the flush
+      const wc = view?.webContents
+      if (!wc || wc.isDestroyed() || sender !== wc) return
+      panelReady = true
+      deliverPending()
+    },
+    panelWebContents(): WebContents | undefined {
+      const wc = view?.webContents
+      return wc && !wc.isDestroyed() ? wc : undefined
+    },
     destroy(): void {
       const live = view
       view = null
+      panelReady = false
       pendingPanelMessages.length = 0
       if (!live) return
       if (!shellWindow.isDestroyed()) shellWindow.contentView.removeChildView(live)

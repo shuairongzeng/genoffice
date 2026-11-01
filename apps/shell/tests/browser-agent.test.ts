@@ -8,7 +8,8 @@ import type { WebContents } from 'electron'
  * creation order, the tool routing (read / screenshot / fill / click), the
  * structured error paths (no tab, unreachable page, timeout), the read
  * budget, the defensive consumption of W2a's `readAnnotationsFor` contract,
- * and the channel's IPC gate: only the shell window's renderer may call, and
+ * and the channel's IPC gate: only the panel-hosting renderers (the shell
+ * window's drawer and the drawer overlay's standalone panel) may call, and
  * fill/click additionally need the main-side confirmation. Electron and the
  * browser app's module are faked. (The page script itself — including the
  * password redaction — runs in browser-agent-read-page.test.ts under jsdom.)
@@ -736,7 +737,7 @@ describe('registerBrowserSkillIpc', () => {
         tabId === 't1'
           ? ({ id: 101, isDestroyed: () => false } as unknown as WebContents)
           : undefined,
-      shellWebContents: () => shellWc,
+      panelWebContents: () => [shellWc],
       confirmPageAction: async () => true,
     })
     // the pairing watcher registered
@@ -771,7 +772,7 @@ describe('registerBrowserSkillIpc', () => {
     registerBrowserSkillIpc({
       listBrowserTabs: () => [],
       webContentsFor: () => undefined,
-      shellWebContents: () => shellWc,
+      panelWebContents: () => [shellWc],
       confirmPageAction: async () => true,
     })
     const handler = ipcHandlers.get(BROWSER_SKILL_CHANNEL)!
@@ -789,11 +790,13 @@ describe('the browserskill:execute gate (P1-4)', () => {
   /**
    * One registered channel with the pairing already established: a chrome
    * view, its nested page view (paired by the mocked session identity), and
-   * the shell window's webContents the sender check compares against.
+   * the two panel-hosting webContents the sender check compares against —
+   * the shell window's renderer and the drawer overlay's standalone panel.
    */
   function setupChannel(over: Partial<BrowserAgentIpcDeps> = {}): {
     page: FakeWc
     shellWc: FakeWc
+    overlayWc: FakeWc
     handler: (event: unknown, call: unknown) => Promise<unknown>
     event: { sender: FakeWc }
   } {
@@ -805,11 +808,12 @@ describe('the browserskill:execute gate (P1-4)', () => {
       executeJavaScriptInIsolatedWorld: vi.fn(async () => ({ ok: true, detail: 'done' })),
     })
     const shellWc = makeWc({ id: 201 })
+    const overlayWc = makeWc({ id: 202 })
     webContentsById.set(102, page)
     registerBrowserSkillIpc({
       listBrowserTabs: () => [TAB],
       webContentsFor: (tabId) => (tabId === 't1' ? asWc(chrome) : undefined),
-      shellWebContents: () => asWc(shellWc),
+      panelWebContents: () => [asWc(shellWc), asWc(overlayWc)],
       confirmPageAction: async () => true,
       ...over,
     })
@@ -822,6 +826,7 @@ describe('the browserskill:execute gate (P1-4)', () => {
     return {
       page,
       shellWc,
+      overlayWc,
       handler: ipcHandlers.get(BROWSER_SKILL_CHANNEL)!,
       event: { sender: shellWc },
     }
@@ -835,23 +840,43 @@ describe('the browserskill:execute gate (P1-4)', () => {
     browserExports.readAnnotationsFor = undefined
   })
 
-  it('refuses a sender that is not the shell window webContents, before parsing the call', async () => {
+  it('refuses a sender that is neither panel-hosting webContents, before parsing the call', async () => {
     const { handler } = setupChannel()
     const other = makeWc()
     await expect(
       handler({ sender: other }, { tool: BROWSER_READ_PAGE_TOOL, input: {} }),
     ).rejects.toThrow(/not callable from this sender/)
-    // a missing or destroyed shell window fails closed the same way
+    // a destroyed or missing panel host fails closed the same way
     const destroyed = setupChannel({
-      shellWebContents: () => ({ isDestroyed: () => true }) as unknown as WebContents,
+      panelWebContents: () => [{ isDestroyed: () => true } as unknown as WebContents],
     })
     await expect(
       destroyed.handler({ sender: destroyed.shellWc }, { tool: BROWSER_READ_PAGE_TOOL }),
     ).rejects.toThrow(/not callable from this sender/)
-    const gone = setupChannel({ shellWebContents: () => undefined })
+    const gone = setupChannel({ panelWebContents: () => [] })
     await expect(
       gone.handler({ sender: gone.shellWc }, { tool: BROWSER_READ_PAGE_TOOL }),
     ).rejects.toThrow(/not callable from this sender/)
+  })
+
+  it('accepts the drawer overlay panel webContents as a sender', async () => {
+    // the drawer over a document is its own WebContentsView: its AgentLoop
+    // calls the same tools, and the parked annotation card's pin-time shot
+    // (read_annotation_shot) needs this acceptance above all
+    const { overlayWc, page, handler } = setupChannel()
+    const result = (await handler(
+      { sender: overlayWc },
+      {
+        tool: BROWSER_CLICK_TOOL,
+        input: { selector: '#q' },
+      },
+    )) as { ok: boolean; detail: string }
+    expect(result).toEqual({ ok: true, detail: 'done' })
+    expect(page.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(
+      42,
+      [{ code: expect.any(String) }],
+      true,
+    )
   })
 
   it('refuses a fill whose main-side confirmation was not granted', async () => {

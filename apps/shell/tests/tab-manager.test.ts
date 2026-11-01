@@ -1668,6 +1668,8 @@ describe('the AI drawer overlay (W2: the drawer over an active document)', () =>
     sync: ReturnType<typeof vi.fn>
     destroy: ReturnType<typeof vi.fn>
     deliverToPanel: ReturnType<typeof vi.fn>
+    markPanelReadyFor: ReturnType<typeof vi.fn>
+    panelWebContents: ReturnType<typeof vi.fn>
   }
 
   function managerWithOverlay(
@@ -1682,6 +1684,8 @@ describe('the AI drawer overlay (W2: the drawer over an active document)', () =>
       sync: vi.fn(),
       destroy: vi.fn(),
       deliverToPanel: vi.fn(),
+      markPanelReadyFor: vi.fn(),
+      panelWebContents: vi.fn(),
     }
     const m = new TabManager(
       shellWindow as never,
@@ -1844,6 +1848,26 @@ describe('the AI drawer overlay (W2: the drawer over an active document)', () =>
       // no host: a no-op, not a crash
       m.setDrawerOverlay(null)
       expect(() => m.deliverToDrawerOverlay('home:ask-forwarded', handoff)).not.toThrow()
+    })
+
+    it('hands the ready ping to the overlay host for its identity check', () => {
+      const { m, spy } = managerWithOverlay()
+      const sender = { id: 900001 } as never
+      m.markDrawerOverlayReadyFor(sender)
+      expect(spy.markPanelReadyFor).toHaveBeenCalledWith(sender)
+      // no host: a no-op, not a crash
+      m.setDrawerOverlay(null)
+      expect(() => m.markDrawerOverlayReadyFor(sender)).not.toThrow()
+    })
+
+    it('exposes the overlay host webContents for the sender gates', () => {
+      const { m, spy } = managerWithOverlay()
+      const wc = { id: 900001 } as never
+      spy.panelWebContents.mockReturnValue(wc)
+      expect(m.drawerOverlayWebContents()).toBe(wc)
+      // no host: nothing to expose
+      m.setDrawerOverlay(null)
+      expect(m.drawerOverlayWebContents()).toBeUndefined()
     })
   })
 })

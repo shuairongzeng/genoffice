@@ -355,11 +355,32 @@ export class TabManager {
 
   /**
    * Deliver one message to the overlay view's panel copy (P0-2 — the
-   * ask-intent forward). The overlay buffers it until its renderer finished
-   * loading, so a forward that beats the view's own mounting still lands.
+   * ask-intent forward). The overlay buffers it until the panel copy
+   * signaled itself ready, so a forward that beats the view's own mounting
+   * or boot still lands.
    */
   deliverToDrawerOverlay(channel: string, payload: unknown): void {
     this.drawerOverlay?.deliverToPanel(channel, payload)
+  }
+
+  /**
+   * The panel copy's ready signal arrived over `home:ask-panel-ready` with
+   * this webContents as its sender: hand it to the overlay, which decides by
+   * identity whether that sender is its own live view before arming the
+   * buffered flush (the channel is open to any renderer sharing the shell
+   * preload, so another renderer's ping is not the overlay's).
+   */
+  markDrawerOverlayReadyFor(wc: WebContents): void {
+    this.drawerOverlay?.markPanelReadyFor(wc)
+  }
+
+  /**
+   * The overlay view's live webContents, or undefined while it is not
+   * mounted. The IPC gates that must accept the drawer's panel copy (the
+   * browser skill's sender gate among them) read it.
+   */
+  drawerOverlayWebContents(): WebContents | undefined {
+    return this.drawerOverlay?.panelWebContents()
   }
 
   /**

@@ -652,6 +652,19 @@ export interface HomeApi {
    */
   onForwardedAskQuery?(handler: (query: PendingAskQuery) => void): () => void
   /**
+   * Tell main this surface's panel finished booting and its subscriptions are
+   * armed (`home:ask-panel-ready`): the native overlay's standalone mount is
+   * the caller today, and only then does main flush the messages it buffered
+   * for that view (the ready handshake — a flush at the view's
+   * did-finish-load would beat the panel's own listeners and lose the
+   * messages silently). Any renderer sharing this preload could send the
+   * channel, which is why main checks the sender's identity before the flush
+   * has any effect. Optional and guard-checked at the call site: a stale
+   * preload without it keeps the pre-handshake behavior instead of crashing
+   * the boot.
+   */
+  askPanelReady?(): void
+  /**
    * The content stage's rect in window CSS pixels (measured post-zoom, so
    * already the interface scale's own pixels), reported on mount and on every
    * resize: the exact area a document's WebContentsView fills. The main
@@ -1179,6 +1192,11 @@ export const HOME_CHANNELS = {
    *  to the overlay's panel copy (the shell renderer already received the
    *  original browser:ask-about) */
   browserAskAboutForward: 'home:browser-ask-about-forward',
+  /** renderer → main: the overlay view's panel copy finished booting — its
+   *  subscriptions (home:ask-forwarded, browser:ask-about) are armed, so the
+   *  messages main buffered for it may flush (see the ready handshake,
+   *  main/ai-drawer-view.ts) */
+  askPanelReady: 'home:ask-panel-ready',
   systemPresenceGet: 'home:system-presence-get',
   systemPresenceSetLoginItem: 'home:system-presence-set-login-item',
   systemPresenceSetCloseToTray: 'home:system-presence-set-close-to-tray',

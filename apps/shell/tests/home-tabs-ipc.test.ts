@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { WebContents } from 'electron'
 import type { HomeTabsState } from '../src/shared/home-api'
 import type { OpenDocumentTab, TabSummary } from '../src/shared/tabs-api'
 import type { HomeWorkbenchIpcDeps } from '../src/main/home-tabs-ipc'
@@ -38,6 +39,7 @@ vi.mock('electron', () => ({ ipcMain: { handle: ipcMainMock.handle, on: ipcMainM
 /** the injected forward routing spies both registerHomeWorkbenchIpc describes share */
 const forwardAskQuery = vi.fn()
 const forwardBrowserAskAbout = vi.fn()
+const markDrawerOverlayReadyFor = vi.fn()
 
 import {
   collectHomeTabsState,
@@ -358,6 +360,7 @@ describe('registerHomeWorkbenchIpc', () => {
       contentBounds,
       forwardAskQuery,
       forwardBrowserAskAbout,
+      markDrawerOverlayReadyFor,
     })
   }
 
@@ -488,16 +491,18 @@ describe('registerHomeWorkbenchIpc', () => {
   })
 })
 
-describe('registerHomeWorkbenchIpc — the ask forward (P0-2)', () => {
+describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (P0-2)', () => {
   beforeEach(() => {
     forwardAskQuery.mockClear()
     forwardBrowserAskAbout.mockClear()
+    markDrawerOverlayReadyFor.mockClear()
     registerHomeWorkbenchIpc({
       appSettingsPath: () => '/unused/app-settings.json',
       getTabManager: () => null,
       contentBounds: () => ({ width: 800, height: 600 }),
       forwardAskQuery,
       forwardBrowserAskAbout,
+      markDrawerOverlayReadyFor,
     })
   })
 
@@ -550,5 +555,15 @@ describe('registerHomeWorkbenchIpc — the ask forward (P0-2)', () => {
     invoke('home:browser-ask-about-forward', null)
     invoke('home:browser-ask-about-forward', 42)
     expect(forwardBrowserAskAbout).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes the panel ready ping to the dep with the event sender', () => {
+    // the channel carries no payload: the sender's identity is the whole
+    // message, and the overlay (through the dep) checks it against its own
+    // view before flushing anything it buffered
+    const sender = { id: 202 } as WebContents
+    ipcMainMock.onHandlers.get('home:ask-panel-ready')!({ sender })
+    expect(markDrawerOverlayReadyFor).toHaveBeenCalledTimes(1)
+    expect(markDrawerOverlayReadyFor).toHaveBeenCalledWith(sender)
   })
 })

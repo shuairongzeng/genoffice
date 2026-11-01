@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import type { Rectangle } from 'electron'
+import type { Rectangle, WebContents } from 'electron'
 
 import { HOME_CHANNELS } from '../shared/home-api'
 import type { HomeTabsState } from '../shared/home-api'
@@ -164,6 +164,14 @@ export interface HomeWorkbenchIpcDeps {
    * `browser:ask-about` push, so there is nothing to bounce for this one.
    */
   forwardBrowserAskAbout: (note: unknown) => void
+  /**
+   * Route the panel copy's ready ping (P0-2 delivery) to the overlay:
+   * `sender` is the webContents `home:ask-panel-ready` arrived from, and the
+   * overlay itself decides by identity whether that is its own live view
+   * before flushing anything buffered for it. Injected because only the
+   * TabManager (through index.ts) holds the overlay.
+   */
+  markDrawerOverlayReadyFor: (sender: WebContents) => void
 }
 
 /** a reported content-stage rect, whole-pixel and inside the window; null on anything malformed */
@@ -226,6 +234,13 @@ function clampStageRect(rect: Rectangle, window: { width: number; height: number
  *   channel is only as trustworthy as any other); the annotation stays raw
  *   because the consuming panel normalizes a page-supplied shape itself, the
  *   same contract the `browser:ask-about` push already carries.
+ * - `home:ask-panel-ready` (P0-2 delivery): the overlay view's panel copy
+ *   finished booting — its subscriptions (the forwarded asks, the browser
+ *   annotations) are armed — so the messages main buffered for that view may
+ *   flush. Fire-and-forget like `home:content-rect`; any renderer sharing
+ *   the shell preload can send the channel, and the sender's identity,
+ *   checked inside the overlay, is what limits the effect to the overlay's
+ *   own renderer (another renderer's ping must not arm its flush).
  *
  * Known limitation (accepted): dirtiness is resolved per push, and a
  * document turning dirty or clean all by itself (an edit, an autosave) is not
@@ -260,5 +275,8 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
   })
   ipcMain.handle(HOME_CHANNELS.browserAskAboutForward, (_event, raw: unknown) => {
     if (typeof raw === 'object' && raw !== null) deps.forwardBrowserAskAbout(raw)
+  })
+  ipcMain.on(HOME_CHANNELS.askPanelReady, (event) => {
+    deps.markDrawerOverlayReadyFor(event.sender)
   })
 }

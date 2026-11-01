@@ -19,7 +19,9 @@ import type { AiDockPrefs } from '../src/shared/home-api'
  * overlay's only click affordance while a document is active. The overlay's
  * own behaviors ride here too: the forwarded ask handoffs Home routes
  * through main while a document is active (P0-2 — consumed with the same
- * pending-query semantics Home's panel applies), the pet's live
+ * pending-query semantics Home's panel applies), the ready ping that
+ * releases the messages main buffered for this view (P0-2 delivery — the
+ * overlay flushes nothing before it), the pet's live
  * aria-expanded state (P1-4), and Esc's ladder — clear the draft first,
  * then collapse the drawer (P1-4).
  */
@@ -57,6 +59,9 @@ function panelApi(extra: Record<string, unknown> = {}): Record<string, unknown> 
     tabsActivate,
     openAiModelSettings,
     setAiDock,
+    // the entry demands it (REQUIRED_API): the browser annotation pushes the
+    // panel parks are this mount's own traffic
+    onBrowserAskAbout: () => () => {},
     ...extra,
   }
 }
@@ -157,6 +162,7 @@ describe('panelApiReady', () => {
       'onAiStream',
       'aiGetSettings',
       'setAiDock',
+      'onBrowserAskAbout',
     ]) {
       const partial = { ...panelApi() }
       delete partial[name]
@@ -224,6 +230,54 @@ describe('AskPanelEntry', () => {
     expect(tabsActivate).toHaveBeenCalledWith('home')
     // the entry has no list of its own to switch to — nothing else moved
     expect(container!.querySelector('.content')).toBeNull()
+  })
+})
+
+describe('the ready handshake (the buffered deliveries flush on it)', () => {
+  it('pings askPanelReady on mount, after the panel armed its subscriptions', async () => {
+    // React runs child effects before parent ones, so the panel's
+    // subscriptions (the one the browser annotations ride) exist by the time
+    // the ping tells main it may flush what it buffered for this view
+    const order: string[] = []
+    await mountEntry(
+      panelApi({
+        askPanelReady: () => {
+          order.push('ready')
+        },
+        onBrowserAskAbout: () => {
+          order.push('subscribe')
+          return () => {}
+        },
+      }),
+    )
+    expect(order).toEqual(['subscribe', 'ready'])
+  })
+
+  it('pings once, not on every re-render', async () => {
+    const askPanelReady = vi.fn()
+    await mountEntry(panelApi({ ...overlayChannels(), askPanelReady }))
+    // the forwarded-ask handler bumps state the entry re-renders on
+    await act(async () => forwardedAskHandler!({ text: 'again', seq: 9, origin: 'palette' }))
+    expect(askPanelReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('mounts without the channel (a stale preload): the missing ping is not fatal', async () => {
+    // main then keeps its buffered messages, the pre-handshake behavior —
+    // degraded, never a dead panel
+    await mountEntry(panelApi())
+    expect(container!.querySelector('.kb-ask')).not.toBeNull()
+  })
+
+  it('does not ping from the error state: there is no panel to flush into', async () => {
+    // a partial aiOffice face renders the explanation, not the panel — its
+    // mount has no listeners, so arming the flush there would drop the
+    // buffered messages into a renderer nobody is listening in
+    const askPanelReady = vi.fn()
+    const partial = panelApi({ askPanelReady })
+    delete partial.kbSearch
+    await mountEntry(partial)
+    expect(container!.querySelector('.ask-panel-entry-error')).not.toBeNull()
+    expect(askPanelReady).not.toHaveBeenCalled()
   })
 })
 

@@ -710,12 +710,17 @@ export interface BrowserAgentIpcDeps {
   listBrowserTabs(): Promise<readonly BrowserTabLike[]> | readonly BrowserTabLike[]
   webContentsFor(tabId: string): WebContents | undefined
   /**
-   * The shell window's own webContents — the only sender the channel serves.
-   * The dock's AgentLoop lives in that one renderer; every other webContents
-   * in the process (an app tab, a detached document window, a browser page
-   * view) is refused before the call is even parsed.
+   * The webContents the channel serves — both panel copies that host the
+   * dock's AgentLoop: the shell window's own renderer (the HTML drawer's
+   * home) and the drawer overlay's standalone panel (a separate
+   * WebContentsView while a document tab is active, without which the
+   * overlay's loop could call no browser tool at all and its parked
+   * annotation card could never read the pin-time shot). Every other
+   * webContents in the process (an app tab, a detached document window, a
+   * browser page view) is refused before the call is even parsed; destroyed
+   * or missing entries drop out and fail closed the same way.
    */
-  shellWebContents(): WebContents | undefined
+  panelWebContents(): readonly WebContents[]
   /**
    * The main-side confirmation for fill_field/click_element, wired to a native
    * dialog parented to the shell window (index.ts). Resolves false = the page
@@ -728,7 +733,12 @@ export interface BrowserAgentIpcDeps {
 /**
  * Register the browser skill's IPC handler and the page-view pairing watcher.
  * Safe to call once per process (the shell calls it from app.whenReady,
- * before the first browser tab can exist).
+ * before the first browser tab can exist). The handler's sender gate serves
+ * only the two panel copies that host the dock's AgentLoop (the shell
+ * renderer and the drawer overlay's standalone panel — see
+ * {@link BrowserAgentIpcDeps.panelWebContents}); everything else is refused
+ * before the call is parsed, and the main-side confirmation stays as the
+ * second gate on the risky tools.
  */
 export function registerBrowserSkillIpc(deps: BrowserAgentIpcDeps): void {
   const links = new BrowserPageLinks(isBrowserPageView)
@@ -736,10 +746,11 @@ export function registerBrowserSkillIpc(deps: BrowserAgentIpcDeps): void {
   // app.whenReady (where the shell registers this) precedes any tab
   app.on('web-contents-created', (_event, wc) => links.observeCreated(wc))
   ipcMain.handle(BROWSER_SKILL_CHANNEL, async (event, call: unknown) => {
-    // sender gate (P1-4 ①): compare against the shell window's live
-    // webContents by identity — a destroyed or missing window fails closed
-    const shellWc = deps.shellWebContents()
-    if (!shellWc || shellWc.isDestroyed() || event.sender !== shellWc) {
+    // sender gate (P1-4 ①): compare against the panel-hosting webContents by
+    // identity — the shell renderer and the overlay panel are the only ones
+    // served, and a sender no live entry matches fails closed
+    const allowed = deps.panelWebContents().some((wc) => !wc.isDestroyed() && wc === event.sender)
+    if (!allowed) {
       throw new Error('browserskill:execute is not callable from this sender')
     }
     const { tool, input } = (call ?? {}) as { tool?: unknown; input?: unknown }

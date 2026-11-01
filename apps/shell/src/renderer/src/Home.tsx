@@ -919,20 +919,25 @@ export function Home() {
    *  or, while a document tab is active, to the overlay copy that is the only
    *  panel the person can see (P0-2: the handoff rides the main process, which
    *  routes by its own live tab state — a handoff sent on a stale docActive
-   *  here bounces back over onForwardedAskQuery and consumes like a local one) */
+   *  here bounces back over onForwardedAskQuery and consumes like a local one).
+   *  The dock's open write goes before the handoff, the annotation path's
+   *  order: main also routes by the prefs it holds when the forward arrives,
+   *  and IPC is FIFO — a forward that beats the write lands while aiDock
+   *  still says collapsed, bounces to Home's covered copy, and the overlay
+   *  mounts empty */
   const handAskQuery = useCallback(
     (query: string, origin: AskQueryOrigin) => {
       const text = query.trim()
       if (!text) return
       askSeqRef.current += 1
       const handoff: PendingAskQuery = { text, seq: askSeqRef.current, origin }
+      openAskDock()
       const forward = window.aiOffice as Partial<HomeApi>
       if (docTabActive && typeof forward.forwardAskQuery === 'function') {
         void forward.forwardAskQuery(handoff).catch(() => undefined)
       } else {
         setPendingAskQuery(handoff)
       }
-      openAskDock()
     },
     [docTabActive, openAskDock],
   )
@@ -945,7 +950,9 @@ export function Home() {
    * The desktop's Ask AI action: expand the dock and park the selected paths
    * as the question's corpus — a blank palette-origin query carrying
    * `scopePaths`, the shape the panel consumes as its round scope. No text is
-   * injected; the person asks in their own words.
+   * injected; the person asks in their own words. The dock's open write goes
+   * before the handoff for the same FIFO reason handAskQuery documents: the
+   * overlay's copy is routed by the prefs main holds at arrival.
    */
   const askAboutPaths = useCallback(
     (paths: readonly string[]) => {
@@ -957,13 +964,13 @@ export function Home() {
         origin: 'palette',
         scopePaths: [...paths],
       }
+      openAskDock()
       const forward = window.aiOffice as Partial<HomeApi>
       if (docTabActive && typeof forward.forwardAskQuery === 'function') {
         void forward.forwardAskQuery(handoff).catch(() => undefined)
       } else {
         setPendingAskQuery(handoff)
       }
-      openAskDock()
     },
     [docTabActive, openAskDock],
   )

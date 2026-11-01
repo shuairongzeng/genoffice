@@ -738,6 +738,11 @@ const homeApi: HomeApi = {
     }
     return () => ipcRenderer.removeListener(HOME_CHANNELS.askForwarded, listener)
   },
+  // the ready handshake's renderer half: fire-and-forget like homeContentRect,
+  // because main only uses it to arm the overlay's buffered-message flush
+  askPanelReady() {
+    ipcRenderer.send(HOME_CHANNELS.askPanelReady)
+  },
   homeContentRect(rect) {
     ipcRenderer.send(HOME_CHANNELS.contentRect, rect)
   },

@@ -16,7 +16,9 @@ import type { HomeTabEntry, RecentEntry } from '../src/shared/home-api'
  * for an explicit Enter, so a web page can never inject a prompt that runs.
  * The corpus mock is empty on purpose: the submission then resolves to the
  * panel's guidance answer synchronously after the corpus check, so no AI
- * transport takes part in these tests.
+ * transport takes part in these tests. Document mode covers the P0-2
+ * forwards to the overlay's panel copy — including the order the dock's
+ * open write and the forward leave in (FIFO makes the order the routing).
  */
 
 let root: Root
@@ -337,5 +339,131 @@ describe('Home ask intent in document mode (P0-2: the overlay drawer)', () => {
     await act(async () => browserAskHandler!({ id: 'n1', note: 'on home' }))
     await flush()
     expect(forwardedNotes).toEqual([])
+  })
+
+  describe('the dock-open write precedes the forward (P0-2 FIFO)', () => {
+    /**
+     * Home remounted with the drawer collapsed and a document tab active,
+     * with the dock write and the forwards recording their order: main routes
+     * a handoff by the prefs it holds when the forward arrives, and IPC is
+     * FIFO — a forward that beats the write lands while aiDock still says
+     * collapsed, bounces to Home's covered copy, and the overlay mounts
+     * empty. The open write has to leave first.
+     */
+    async function collapsedDocModeHome(recentsEntries?: RecentEntry[]): Promise<string[]> {
+      localStorage.setItem(
+        'home.aiDock',
+        JSON.stringify({ width: 400, collapsed: true, petPos: null }),
+      )
+      const order: string[] = []
+      const api = window.aiOffice as Partial<HomeApi>
+      api.setAiDock = async () => {
+        order.push('dock-open')
+        return { width: 400, collapsed: false, petPos: null }
+      }
+      api.forwardAskQuery = async () => {
+        order.push('forward')
+      }
+      api.forwardBrowserAskAbout = async () => {
+        order.push('forward-note')
+      }
+      if (recentsEntries) {
+        api.recents = async () => ({
+          entries: recentsEntries,
+          total: recentsEntries.length,
+          totalAll: recentsEntries.length,
+        })
+      }
+      await act(async () => root.unmount())
+      container.remove()
+      container = document.createElement('div')
+      document.body.append(container)
+      root = createRoot(container)
+      await act(async () =>
+        root.render(
+          createElement(LocaleProvider, { initial: 'en', children: createElement(Home) }),
+        ),
+      )
+      await flush()
+      await activateDocTab()
+      return order
+    }
+
+    it('a deep-link ask opens the dock before the handoff leaves', async () => {
+      const order = await collapsedDocModeHome()
+      await act(async () => deepLinkHandler!({ view: 'ask', query: 'ordered handoff' }))
+      await flush()
+      expect(order).toEqual(['dock-open', 'forward'])
+      // the write did its own job too: the drawer shows open
+      expect(container.querySelector('.ai-drawer')!.className).toContain('open')
+    })
+
+    it('a browser annotation opens the dock before the note leaves', async () => {
+      const order = await collapsedDocModeHome()
+      await act(async () => browserAskHandler!({ id: 'n1', note: 'what is this' }))
+      await flush()
+      expect(order).toEqual(['dock-open', 'forward-note'])
+    })
+
+    it("the desktop's Ask AI action opens the dock before the scope handoff leaves", async () => {
+      // two files on the desktop: the multi-select context menu's Ask AI is
+      // the route into askAboutPaths
+      localStorage.setItem('home.view', 'desktop')
+      const entries = [
+        files[0]!,
+        { ...files[0]!, path: '/fixtures/notes.xlsx', name: 'notes.xlsx', ext: 'xlsx' },
+      ]
+      const order = await collapsedDocModeHome(entries)
+      const icon = (label: string): HTMLElement =>
+        container.querySelector<HTMLElement>(`.desktop-icon-item[aria-label="${label}"]`)!
+      const at = (label: string): { x: number; y: number } => {
+        const li = icon(label).closest('li') as HTMLElement
+        return {
+          x: Number.parseInt(li.style.left, 10) || 40,
+          y: Number.parseInt(li.style.top, 10) || 40,
+        }
+      }
+      const press = async (label: string, metaKey: boolean): Promise<void> => {
+        const { x, y } = at(label)
+        await act(async () => {
+          icon(label).dispatchEvent(
+            new MouseEvent('pointerdown', {
+              bubbles: true,
+              button: 0,
+              clientX: x,
+              clientY: y,
+              metaKey,
+            }),
+          )
+          await Promise.resolve()
+        })
+        await act(async () => {
+          window.dispatchEvent(
+            new MouseEvent('pointerup', { bubbles: true, clientX: x, clientY: y }),
+          )
+          await Promise.resolve()
+        })
+      }
+      await press('brief.docx', false)
+      await press('notes.xlsx', true)
+      await act(async () => {
+        icon('brief.docx').dispatchEvent(
+          new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 40,
+            clientY: 40,
+          }),
+        )
+        await Promise.resolve()
+      })
+      const ask = [
+        ...container.querySelectorAll<HTMLButtonElement>('.desktop-menu-multi button'),
+      ].find((button) => button.textContent === 'Ask AI')
+      await act(async () => ask!.click())
+      await flush()
+      expect(order).toEqual(['dock-open', 'forward'])
+      expect(container.querySelector('.ai-drawer')!.className).toContain('open')
+    })
   })
 })
