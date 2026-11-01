@@ -241,6 +241,29 @@ export function Home() {
     if (typeof api.tabsClose === 'function') void api.tabsClose(id).catch(() => undefined)
     else window.aiOfficeTabs?.close(id)
   }, [])
+  // the reveal verb below is a stable callback the sidebar's handlers capture
+  // once, so the flag it gates on is read through a ref kept live per render
+  const docTabActiveRef = useRef(docTabActive)
+  docTabActiveRef.current = docTabActive
+
+  /**
+   * The sidebar's reveal verb — the one mechanism every sidebar navigation
+   * whose outcome is content in Home's own surface calls alongside its view
+   * switch (the same verb the work-tab strip's desktop item performs; the
+   * palette's summon does the same). A document tab's native view covers the
+   * whole content stage while the sidebar itself stays clickable — it is the
+   * one Home region the covering view never reaches — so without this the
+   * click flips the view state underneath the document: the recent list
+   * "opens" where nobody can see it, and the person reports the left panel
+   * as blocked by the document. It no-ops while Home already is the active
+   * tab, and it is deliberately absent from the sidebar's self-contained
+   * outcomes — tree expansion, inline rename, the ⋯ menu, drag hover never
+   * call it, so a drag over the tree can never yank the tab.
+   */
+  const raiseHomeTab = useCallback(() => {
+    if (!docTabActiveRef.current) return
+    activateWorkTab('home')
+  }, [activateWorkTab])
 
   // The content stage's rect, pushed to the main process on mount and on
   // every resize: the active document's WebContentsView is bounded to exactly
@@ -1553,10 +1576,16 @@ export function Home() {
           tabIndex={0}
           title={isRoot ? entry.path : undefined}
           onClick={() => {
-            if (!unavailable) selectFolder(entry.path)
+            if (!unavailable) {
+              raiseHomeTab()
+              selectFolder(entry.path)
+            }
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !unavailable) selectFolder(entry.path)
+            if (e.key === 'Enter' && !unavailable) {
+              raiseHomeTab()
+              selectFolder(entry.path)
+            }
             if (e.key === 'ArrowRight' && !isOpen) toggleExpanded(entry.path)
             if (e.key === 'ArrowLeft' && isOpen) toggleExpanded(entry.path)
           }}
@@ -2108,7 +2137,11 @@ export function Home() {
 
   /** the embedded strip's desktop item: the same surface switch the sidebar's
    *  Desktop item performs, plus the home tab rising in the main process's
-   *  strip — an active document yields the stage back to the desktop */
+   *  strip — an active document yields the stage back to the desktop. The
+   *  rise is unconditional here where the sidebar's is guarded (raiseHomeTab
+   *  no-ops when Home already shows): this item lives in the strip, whose
+   *  whole job is tab switching, and clicking it always means "hand the
+   *  stage back" */
   const showDesktopTab = useCallback(() => {
     showDesktop()
     activateWorkTab('home')
@@ -2128,7 +2161,10 @@ export function Home() {
           <button
             className={`nav-item${desktopMode ? ' active' : ''}`}
             aria-current={desktopMode ? 'page' : undefined}
-            onClick={showDesktop}
+            onClick={() => {
+              raiseHomeTab()
+              showDesktop()
+            }}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <rect
@@ -2173,7 +2209,10 @@ export function Home() {
           <button
             className={`nav-item${activeNav === 'recent' ? ' active' : ''}`}
             aria-current={activeNav === 'recent' ? 'page' : undefined}
-            onClick={() => changeView('recent')}
+            onClick={() => {
+              raiseHomeTab()
+              changeView('recent')
+            }}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="8" cy="8" r="6.2" stroke="currentColor" strokeWidth="1.3" />
@@ -2190,7 +2229,10 @@ export function Home() {
           <button
             className={`nav-item${activeNav === 'starred' ? ' active' : ''}`}
             aria-current={activeNav === 'starred' ? 'page' : undefined}
-            onClick={() => changeView('starred')}
+            onClick={() => {
+              raiseHomeTab()
+              changeView('starred')
+            }}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path
@@ -2224,6 +2266,7 @@ export function Home() {
             <button
               className={`nav-item${cloudMode && !selectedFolder ? ' active' : ''}`}
               onClick={() => {
+                raiseHomeTab()
                 dispatchView({ type: 'show-cloud' })
                 writeLaunchView('cloud')
                 setSelected(new Set())

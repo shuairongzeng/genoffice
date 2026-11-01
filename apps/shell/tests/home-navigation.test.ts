@@ -5,10 +5,22 @@ import { createRoot, type Root } from 'react-dom/client'
 import { defaultAiSettings } from '@genoffice/ai-provider'
 import { Home } from '../src/renderer/src/Home'
 import { LocaleProvider } from '../src/renderer/src/locale'
-import type { RecentEntry } from '../src/shared/home-api'
+import type { HomeTabEntry, RecentEntry } from '../src/shared/home-api'
+
+/**
+ * The Home sidebar's navigation contract (src/renderer/src/Home.tsx): the nav
+ * items and the folder tree switch the surface the content stage shows, the
+ * Ask AI item opens the drawer instead, and — the doc-mode half — while a
+ * document tab's native view covers the stage every view-switching sidebar
+ * click must also raise the home tab (raiseHomeTab), or it flips state
+ * underneath the covering document where nobody can see it.
+ */
 
 let root: Root
 let container: HTMLDivElement
+/** the live onTabsChanged subscription, for pushing a doc-tab-active state */
+let tabsHandler: ((state: { tabs: HomeTabEntry[]; activeId: string }) => void) | null = null
+const tabsActivate = vi.fn(async () => undefined)
 const files: RecentEntry[] = [
   {
     path: '/fixtures/brief.docx',
@@ -52,6 +64,8 @@ beforeEach(async () => {
       throw new Error('No network in navigation tests')
     }),
   )
+  tabsHandler = null
+  tabsActivate.mockClear()
   window.aiOffice = {
     folderRoots: async () => [],
     onFolderChanged: () => () => {},
@@ -65,6 +79,13 @@ beforeEach(async () => {
     aiGetSettings: async () => defaultAiSettings(),
     aiGskStatus: async () => ({ loggedIn: false }),
     onAiSettingsChanged: () => () => {},
+    onTabsChanged: (handler: (state: { tabs: HomeTabEntry[]; activeId: string }) => void) => {
+      tabsHandler = handler
+      return () => {
+        tabsHandler = null
+      }
+    },
+    tabsActivate,
   } as unknown as Window['aiOffice']
   container = document.createElement('div')
   document.body.append(container)
@@ -162,5 +183,76 @@ describe('Home sidebar navigation', () => {
     const active = container.querySelector('.set-nav-item.active')
     expect(active?.textContent).toContain('General')
     expect(container.querySelector('[aria-label="Ask AI corpus scope"]')).not.toBeNull()
+  })
+})
+
+describe('the sidebar reveals Home under a covering document tab', () => {
+  /** a docs tab active over the Home surface, the way the main process pushes it */
+  async function pushDocTab(): Promise<void> {
+    await act(async () =>
+      tabsHandler?.({
+        tabs: [
+          {
+            id: 'home',
+            kind: 'home',
+            title: 'Home',
+            active: false,
+            dirty: false,
+            detached: false,
+          },
+          {
+            id: 't1',
+            kind: 'docs',
+            title: 'brief.docx',
+            active: true,
+            dirty: false,
+            detached: false,
+          },
+        ],
+        activeId: 't1',
+      }),
+    )
+    await act(async () => {
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+  }
+
+  it.each(['Desktop', 'Recent', 'Starred'])(
+    '%s raises the home tab when a document covers the surface',
+    async (label) => {
+      // the bug this closes: the sidebar is the one Home region a covering
+      // document view leaves clickable, so its view switches must raise the
+      // home tab or they flip state underneath the document — the person
+      // sees nothing change and calls the left panel blocked
+      await pushDocTab()
+      tabsActivate.mockClear()
+      await click(nav(label))
+      expect(tabsActivate).toHaveBeenCalledTimes(1)
+      expect(tabsActivate).toHaveBeenCalledWith('home')
+      // the switch still happened underneath, ready for the raised tab
+      if (label === 'Desktop') {
+        expect(container.querySelector('.home')!.className).toContain('desktop-mode')
+      } else {
+        expect(selected()).toEqual([label])
+      }
+    },
+  )
+
+  it('Ask AI keeps routing to the drawer, never raising the tab', async () => {
+    // the drawer overlays documents through the native overlay (the pet's
+    // drawer), so the ask item has no surface to reveal — leave the tab be
+    await pushDocTab()
+    await click(nav('Ask AI'))
+    expect(tabsActivate).not.toHaveBeenCalled()
+    expect(container.querySelector('.ai-drawer')!.className).toContain('open')
+  })
+
+  it('no redundant raise while Home already is the active tab', async () => {
+    // nothing pushed: Home is the active tab, and the click is a plain view
+    // switch — the reveal verb no-ops instead of re-activating the tab the
+    // person is already on
+    await click(nav('Starred'))
+    expect(selected()).toEqual(['Starred'])
+    expect(tabsActivate).not.toHaveBeenCalled()
   })
 })

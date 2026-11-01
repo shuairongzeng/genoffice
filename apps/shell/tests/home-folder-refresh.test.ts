@@ -5,20 +5,26 @@ import { createRoot, type Root } from 'react-dom/client'
 import { defaultAiSettings } from '@genoffice/ai-provider'
 import { Home } from '../src/renderer/src/Home'
 import { LocaleProvider } from '../src/renderer/src/locale'
-import type { FolderListing, FolderRoot, RecentEntry } from '../src/shared/home-api'
+import type { FolderListing, FolderRoot, HomeTabEntry, RecentEntry } from '../src/shared/home-api'
 
 /**
  * The folder pane's three refresh paths, which the focus dirty-check must not
  * collapse into one: a mutation this renderer made (star toggle) re-lists,
  * because the cached rows embed data no mtime probe can see; a watch event in
  * a never-listed child invalidates its tracked parent (the chevron data); the
- * window-focus refresh alone probes via the cached mtimes.
+ * window-focus refresh alone probes via the cached mtimes. The doc-mode
+ * describe at the foot pins the tree's reveal contract: a row click raises
+ * the home tab while a document covers the surface, while the chevron, the ⋯
+ * menu and drag hover never do.
  */
 
 let root: Root
 let container: HTMLDivElement
 let asked: { dir: string; knownMtimeMs?: number }[] = []
 let folderHandlers: ((dirs: string[]) => void)[] = []
+/** the live onTabsChanged subscription, for pushing a doc-tab-active state */
+let tabsHandler: ((state: { tabs: HomeTabEntry[]; activeId: string }) => void) | null = null
+const tabsActivate = vi.fn(async () => undefined)
 let starred = false
 
 const ROOT: FolderRoot = {
@@ -66,6 +72,8 @@ beforeEach(async () => {
   )
   asked = []
   folderHandlers = []
+  tabsHandler = null
+  tabsActivate.mockClear()
   starred = false
   window.aiOffice = {
     folderRoots: async () => [ROOT],
@@ -75,6 +83,13 @@ beforeEach(async () => {
         folderHandlers = folderHandlers.filter((h) => h !== handler)
       }
     },
+    onTabsChanged: (handler: (state: { tabs: HomeTabEntry[]; activeId: string }) => void) => {
+      tabsHandler = handler
+      return () => {
+        tabsHandler = null
+      }
+    },
+    tabsActivate,
     listFolder,
     toggleStar: vi.fn(async () => {
       // a star is JSON state in userData: the folder's mtime never moves
@@ -188,5 +203,99 @@ describe('folder refresh paths', () => {
     expect(asked).toEqual([{ dir: '/root', knownMtimeMs: 7 }])
     // the unchanged answer kept the cached listing — no re-list happened
     expect(listFolder).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the folder tree reveals Home under a covering document tab', () => {
+  /** a docs tab active over the Home surface, the way the main process pushes it */
+  async function pushDocTab(): Promise<void> {
+    await act(async () =>
+      tabsHandler?.({
+        tabs: [
+          {
+            id: 'home',
+            kind: 'home',
+            title: 'Home',
+            active: false,
+            dirty: false,
+            detached: false,
+          },
+          {
+            id: 't1',
+            kind: 'docs',
+            title: 'report.docx',
+            active: true,
+            dirty: false,
+            detached: false,
+          },
+        ],
+        activeId: 't1',
+      }),
+    )
+    await flush(2)
+  }
+
+  /** land on Recent and clear the raise the landing itself performed */
+  async function landOnRecent(): Promise<void> {
+    const recent = [...container.querySelectorAll<HTMLButtonElement>('.sidebar-nav button')].find(
+      (b) => b.querySelector('.nav-label')?.textContent === 'Recent',
+    )
+    await click(recent)
+    tabsActivate.mockClear()
+  }
+
+  it('a folder row click raises the home tab (its listing must be seen)', async () => {
+    // the row's outcome is the folder listing in the content stage — the very
+    // surface the covering document hides — so the click raises the home tab
+    // alongside the switch, or the listing opens where nobody can see it
+    await pushDocTab()
+    await landOnRecent()
+    await click(container.querySelector('.tree-row[title="/root"]'))
+    expect(tabsActivate).toHaveBeenCalledTimes(1)
+    expect(tabsActivate).toHaveBeenCalledWith('home')
+    // and the listing itself opened underneath, ready for the raised tab
+    expect(container.querySelector('.recent-table .star-btn')).toBeTruthy()
+  })
+
+  it('the chevron expands without raising anything', async () => {
+    // the tree's own expand/collapse is visible inside the sidebar: it must
+    // never yank the tab — the chevron stops the row's click
+    await pushDocTab()
+    await landOnRecent()
+    await click(container.querySelector('.tree-row[title="/root"] .tree-chevron'))
+    expect(tabsActivate).not.toHaveBeenCalled()
+  })
+
+  it('the ⋯ menu opens without raising anything', async () => {
+    // the folder menu is sidebar-internal (new subfolder, reveal, rename…):
+    // its button stops the row's click too
+    await pushDocTab()
+    await landOnRecent()
+    await click(container.querySelector('.tree-row[title="/root"] .folder-more-btn'))
+    expect(tabsActivate).not.toHaveBeenCalled()
+    expect(container.querySelector('.folder-menu')).toBeTruthy()
+  })
+
+  it('a drag over a row highlights it without raising anything', async () => {
+    // drag-and-drop hover is a gesture in flight, not a navigation: it must
+    // never activate the tab it happens to pass over
+    await pushDocTab()
+    await landOnRecent()
+    const row = container.querySelector<HTMLElement>('.tree-row[title="/root"]')!
+    const transfer = {
+      // the app's own drag MIME, so the folder target actually engages
+      types: ['application/x-genoffice-paths'],
+      dropEffect: '',
+    }
+    await act(async () => {
+      const over = new MouseEvent('dragover', { bubbles: true, cancelable: true })
+      Object.defineProperty(over, 'dataTransfer', { value: transfer })
+      row.dispatchEvent(over)
+      await Promise.resolve()
+    })
+    // the drop target engaged (the drag path is live)…
+    expect(row.className).toContain('drop-target')
+    // …and no tab was raised by the hover
+    expect(tabsActivate).not.toHaveBeenCalled()
   })
 })
