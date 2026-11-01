@@ -102,6 +102,11 @@ export function shellTabManager(): TabManager | null {
  * (below its header, left of the AI dock), so the desktop's header, its AI
  * dock and anything else it renders stay visible around the active document;
  * only the active view is visible at a time. Home has no view of its own.
+ *
+ * The browser tab carries a second view (its page) as a sibling of the chrome
+ * in this window's contentView — see AppDescriptor.syncView; every parent,
+ * bounds or visibility change applied here is followed by syncBrowserPages,
+ * which re-anchors and re-fits those pages.
  */
 export class TabManager {
   private readonly tabs: TabRecord[] = [
@@ -358,6 +363,21 @@ export class TabManager {
     // shows once a settled rect applies — never before, so the fallback's
     // approximation is never what the person sees.
     if (this.stageRect !== null) active.view.setVisible(true)
+    this.syncBrowserPages()
+  }
+
+  /**
+   * Mirror this window's latest parenting/bounds/visibility pass onto every
+   * browser tab's page view (a chrome sibling in this contentView). Other
+   * apps' tabs are one self-contained view and answer nothing.
+   */
+  private syncBrowserPages(): void {
+    const sync = appForKind('browser')?.syncView
+    if (!sync) return
+    for (const t of this.tabs) {
+      if (t.kind !== 'browser' || !t.view) continue
+      sync(t.view.webContents, this.shellWindow)
+    }
   }
 
   /**
@@ -553,7 +573,8 @@ export class TabManager {
     return this.openDocumentTab('html', openPath)
   }
 
-  /** open a browser tab (the chrome view loads; its nested page view starts empty) */
+  /** open a browser tab (the chrome view loads; its page view starts hidden
+   *  until the shell's activation sync anchors it beside the chrome) */
   openBrowserTab(): string {
     return this.openDocumentTab('browser')
   }
@@ -597,6 +618,10 @@ export class TabManager {
     // a bring-forward while the window is minimized or mid-restore must not
     // zero-size the view being activated (same guard as layout())
     if (target.view && isSettledRect(bounds)) target.view.setBounds(bounds)
+    // the visibility sweep above may have hidden another browser tab's chrome
+    // and shown this one: their page views (chrome siblings in this window's
+    // contentView) follow here
+    this.syncBrowserPages()
     this.activeId = id
     if (target.view) this.installPaletteShortcut(target.view.webContents)
     if (appForKind(target.kind)?.open?.spare) this.scheduleSpareView(3000)
@@ -980,6 +1005,10 @@ export class TabManager {
     const view = tab.view
     view.setVisible(false)
     this.shellWindow.contentView.removeChildView(view)
+    // the view leaves for its own window: a companion view beside it here (the
+    // browser page) must be unparented now, before that window's teardown or
+    // the strip's next activation leaves it painted where its tab no longer is
+    appForKind(tab.kind)?.syncView?.(view.webContents, null)
     if (this.activeId === id) {
       const fallback = this.tabs[idx - 1] ?? this.tabs[0]
       this.activateTab(fallback.id)

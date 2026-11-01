@@ -3173,17 +3173,28 @@ html[dir='rtl'] .quick-title-row {
 
 /* the parked "ask AI about this" annotation (browser:ask-about): a card-style
    pending draft above the composer — the label says what it is, the text is
-   what was marked, the url is where; × dismisses it with its scaffold */
+   what was marked, the url is where; the evidence pack shows as the element's
+   XPath line and the pin-time screenshot thumbnail; × dismisses it with its
+   scaffold. Wraps so the XPath takes its own full-width line under the row. */
 .kb-ask-browser-note {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   max-width: 360px;
   margin: 8px 8px 0;
   padding: 5px 6px 5px 10px;
   border: 1px solid var(--accent);
   border-radius: 10px;
   background: var(--accent-soft);
+}
+.kb-ask-browser-note-shot {
+  flex-shrink: 0;
+  height: 36px;
+  max-width: 120px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  object-fit: contain;
 }
 .kb-ask-browser-note-label {
   flex-shrink: 0;
@@ -3203,6 +3214,16 @@ html[dir='rtl'] .quick-title-row {
   flex-shrink: 0;
   max-width: 120px;
   overflow: hidden;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-ask-browser-note-xpath {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   color: var(--text-tertiary);
   text-overflow: ellipsis;

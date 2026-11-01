@@ -186,6 +186,17 @@ vi.mock('../../html/src/main/html-main', () => ({
   requestHtmlClose: vi.fn(() => Promise.resolve(true)),
 }))
 
+// the browser module's own placement engine is apps/browser's page-host
+// tests; here only its shell-facing sync matters: the page view must follow
+// the chrome view into this window, and out again before the window dies
+const syncBrowserPageView = vi.fn()
+vi.mock('../../browser/src/main/browser-main', () => ({
+  createBrowserView: vi.fn(),
+  requestBrowserClose: vi.fn(async () => true),
+  syncBrowserPageView: (...args: unknown[]) => syncBrowserPageView(...(args as [])),
+  teardownBrowserTab: vi.fn(),
+}))
+
 vi.mock('../src/main/tab-manager', () => ({
   canonicalPath: (p: string) => p.toLowerCase(),
   // the palette summon hook's own behavior lives in tab-manager.test.ts; here
@@ -585,6 +596,70 @@ describe('docking a natively dragged window', () => {
     vi.advanceTimersByTime(1000)
     expect(h.preview).not.toHaveBeenCalled()
     expect(h.dock).not.toHaveBeenCalled()
+  })
+})
+
+describe('a browser tab in its own window (the page view follows the chrome)', () => {
+  const band = { x: 100, y: 200 - 8, width: 1000, height: 56 }
+
+  it('syncs the page view into the detached window when the chrome shows there', () => {
+    const view = fakeView(71)
+    detached.createDetachedEditorWindow({
+      view: view as never,
+      kind: 'browser',
+      title: 'example.com',
+      applyMenuFor: () => {},
+    })
+    const win = instances[0]!
+    // once from the layout pass, once from the visibility flip — the page
+    // must land in this window's contentView either way
+    expect(syncBrowserPageView).toHaveBeenCalledWith(view.webContents, win)
+  })
+
+  it('takes the page out before the docked-back window is destroyed', () => {
+    vi.useFakeTimers()
+    const h = { band: vi.fn(() => band), preview: vi.fn(), dock: vi.fn() }
+    detached.setDockHost(h)
+    const view = fakeView(72)
+    detached.createDetachedEditorWindow({
+      view: view as never,
+      kind: 'browser',
+      title: 'example.com',
+      applyMenuFor: () => {},
+    })
+    const win = instances[0]!
+    const destroy = vi.spyOn(win, 'destroy')
+    syncBrowserPageView.mockClear()
+
+    cursor.x = 400
+    cursor.y = 210
+    win.emit('move')
+    vi.advanceTimersByTime(500)
+    expect(h.dock).toHaveBeenCalledTimes(1)
+    expect(syncBrowserPageView).toHaveBeenCalledWith(view.webContents, null)
+    expect(win.destroyed).toBe(true)
+    // the page leaves the window's contentView strictly before the window
+    // dies, or the teardown takes the tab's live page renderer with it
+    expect(syncBrowserPageView.mock.invocationCallOrder[0]!).toBeLessThan(
+      destroy.mock.invocationCallOrder[0]!,
+    )
+  })
+
+  it('hands the page renderer to the browser teardown when the window closes', async () => {
+    const { teardownBrowserTab } = await import('../../browser/src/main/browser-main')
+    const view = fakeView(73)
+    detached.createDetachedEditorWindow({
+      view: view as never,
+      kind: 'browser',
+      title: 'example.com',
+      applyMenuFor: () => {},
+    })
+    const win = instances[0]!
+    const event = { preventDefault: vi.fn() }
+    win.emit('close', event)
+    await flush()
+    expect(win.destroyed).toBe(true)
+    expect(teardownBrowserTab).toHaveBeenCalledWith(view.webContents)
   })
 })
 

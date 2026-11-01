@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { BrowserAskAboutPayload } from '../src/shared/home-api'
 import {
+  browserAskEvidenceSuffix,
   browserAskLabelOf,
   browserAskScaffoldParams,
   browserAskUrlOf,
@@ -9,24 +10,32 @@ import {
 
 /**
  * The "ask AI about this" park (charter W2a/W2b): the browser side pushes an
- * annotation over `browser:ask-about`, the panel normalizes the page-supplied
- * payload and parks a draft question. These are the pure halves — what
- * survives normalization, and what the card/scaffold show.
+ * annotation over `browser:ask-about` — the evidence pack (selector, XPath,
+ * snippet, note, url, shot path) — the panel normalizes the page-supplied
+ * payload and parks a draft question. These are the pure halves: what survives
+ * normalization, what the card/scaffold show, and what the evidence line
+ * teaches the model.
  */
 
 describe('normalizeBrowserAskAbout', () => {
-  it('keeps the well-formed string fields', () => {
+  it('keeps the well-formed string fields, evidence pack included', () => {
     const draft = normalizeBrowserAskAbout({
+      id: 'ann-1',
       selector: 'p:nth-of-type(3)',
+      xpath: '/html/body/p[3]',
       textSnippet: 'quarterly revenue',
       note: 'what does this mean?',
       url: 'https://example.com/report',
+      shotPath: 'annotation-shots/ann-1.png',
     })
     expect(draft).toEqual({
+      id: 'ann-1',
       selector: 'p:nth-of-type(3)',
+      xpath: '/html/body/p[3]',
       textSnippet: 'quarterly revenue',
       note: 'what does this mean?',
       url: 'https://example.com/report',
+      shotPath: 'annotation-shots/ann-1.png',
     })
   })
 
@@ -36,6 +45,9 @@ describe('normalizeBrowserAskAbout', () => {
       textSnippet: '  ',
       note: 'keep me',
       url: 42,
+      id: 9,
+      xpath: '  ',
+      shotPath: '   ',
       extra: 'ignored',
     })
     expect(draft).toEqual({ note: 'keep me' })
@@ -46,10 +58,14 @@ describe('normalizeBrowserAskAbout', () => {
       note: 'n'.repeat(500),
       textSnippet: 's'.repeat(500),
       url: 'u'.repeat(1000),
+      xpath: 'x'.repeat(500),
+      shotPath: 'p'.repeat(500),
     })
     expect(draft!.note!.length).toBe(200)
     expect(draft!.textSnippet!.length).toBe(200)
+    expect(draft!.xpath!.length).toBe(200)
     expect(draft!.url!.length).toBe(400)
+    expect(draft!.shotPath!.length).toBe(300)
   })
 
   it('answers null for shapes with nothing usable', () => {
@@ -57,6 +73,9 @@ describe('normalizeBrowserAskAbout', () => {
     expect(normalizeBrowserAskAbout('text')).toBeNull()
     expect(normalizeBrowserAskAbout({})).toBeNull()
     expect(normalizeBrowserAskAbout({ url: 'https://example.com/' })).toBeNull()
+    // the pack's fields alone are not a usable annotation: the note,
+    // snippet or selector must carry something
+    expect(normalizeBrowserAskAbout({ id: 'ann-1', xpath: '/html/body/p[1]' })).toBeNull()
     expect(normalizeBrowserAskAbout({ selector: '   ' })).toBeNull()
   })
 })
@@ -94,5 +113,23 @@ describe('the card and scaffold views of a parked draft', () => {
       content: '#q',
       url: '(no URL)',
     })
+  })
+
+  it('the evidence suffix teaches the model the addressing keys and the shot', () => {
+    expect(
+      browserAskEvidenceSuffix({
+        id: 'ann-1',
+        selector: '#buy',
+        xpath: '/html/body/form/button[1]',
+        note: 'check this',
+        shotPath: 'annotation-shots/ann-1.png',
+      }),
+    ).toBe(
+      'Marked element — selector #buy; xpath /html/body/form/button[1]; ' +
+        'annotation id ann-1; its pin-time screenshot is attached to this question.',
+    )
+    // only the fields that exist ride along
+    expect(browserAskEvidenceSuffix({ selector: '#buy' })).toBe('Marked element — selector #buy.')
+    expect(browserAskEvidenceSuffix({ note: 'x' })).toBe('')
   })
 })

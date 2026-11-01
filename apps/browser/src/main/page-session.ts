@@ -37,9 +37,9 @@ const DOWNLOAD_NAME_MAX = 200
 export function sanitizeDownloadFilename(raw: string): string {
   const base = raw.split(/[/\\]/).pop() ?? ''
   const cleaned = base
-    // the control-char range trips eslint's no-control-regex as a literal; the
-    // constructor form carries the same class without the lint hazard
-    .replace(new RegExp('[\\u0000-\\u001f\\u007f]', 'g'), '')
+    // strip control chars (C0 + DEL) without a regex — eslint's
+    // no-control-regex rejects the range in both literal and constructor form
+    .replace(/./g, (ch) => (ch < ' ' || ch === '\u007f' ? '' : ch))
     .trim()
     .slice(0, DOWNLOAD_NAME_MAX)
   return cleaned || 'download'

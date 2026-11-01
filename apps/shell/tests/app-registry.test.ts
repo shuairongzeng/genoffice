@@ -115,6 +115,7 @@ const browserNavigateMock = vi.fn()
 const createBrowserView = vi.fn(() => ({ webContents: { id: 8 } }))
 const requestBrowserClose = vi.fn(() => Promise.resolve(true))
 const setBrowserShellHooksMock = vi.fn()
+const syncBrowserPageViewMock = vi.fn()
 const teardownBrowserTab = vi.fn()
 
 vi.mock('../../browser/src/main/browser-main', () => ({
@@ -123,6 +124,7 @@ vi.mock('../../browser/src/main/browser-main', () => ({
   createBrowserView: (...args: unknown[]) => createBrowserView(...(args as [])),
   requestBrowserClose: (...args: unknown[]) => requestBrowserClose(...(args as [])),
   setBrowserShellHooks: (...args: unknown[]) => setBrowserShellHooksMock(...(args as unknown[])),
+  syncBrowserPageView: (...args: unknown[]) => syncBrowserPageViewMock(...(args as unknown[])),
   teardownBrowserTab: (...args: unknown[]) => teardownBrowserTab(...(args as [])),
 }))
 

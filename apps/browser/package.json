@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "private": true,
-  "description": "Web browser module: chrome renderer plus nested page views in a persist:browser session, hosted by shell tabs",
+  "description": "Web browser module: chrome renderer plus sibling page views in a persist:browser session, hosted by shell tabs",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

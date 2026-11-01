@@ -8,8 +8,10 @@ import {
   normalizeAnnotationList,
   normalizeAnnotationUrl,
   normalizePinDraft,
+  normalizeShotPath,
 } from '../shared/annotations'
 import type { BrowserAnnotation } from '../shared/annotations'
+import { deleteAnnotationShot } from './annotation-shots'
 
 /**
  * The browser's one-file userData store behind `browser-annotations.json`,
@@ -44,7 +46,17 @@ export interface AnnotationStore {
   add(url: string, draft: unknown): BrowserAnnotation | null
   /** rewrite one record's note (clamped); false when the id is unknown */
   setNote(id: string, note: string): boolean
-  /** drop one record; false (no write) when the id is unknown */
+  /**
+   * Record one annotation's element shot (the path relative to userData, as
+   * the pin flow wrote it). false when the id is unknown or the path is not
+   * the canonical shots shape — the shot stays unrecorded either way.
+   */
+  setShotPath(id: string, shotPath: string): boolean
+  /**
+   * Drop one record — and with it the record's shot file, which belongs to no
+   * one else (the file name is the record id). false (no write, no delete)
+   * when the id is unknown.
+   */
   remove(id: string): boolean
   /** read the file again (tests; runtime keeps the in-memory list current) */
   reload(): void
@@ -55,6 +67,15 @@ export interface AnnotationStoreSpec {
   path: () => string
   /** how failures surface (main logs; tests can capture) */
   onWriteError?: (error: unknown) => void
+  /**
+   * Where the store's userData root is (the shots live under
+   * `userData/annotation-shots`). Present = remove() deletes the record's
+   * shot file too; absent = the store never touches files (the pure-shape
+   * tests need no disk shots).
+   */
+  userData?: () => string
+  /** how shot-file removal failures surface */
+  onShotError?: (error: unknown) => void
 }
 
 /** read + normalize whatever the file holds; junk and absence both read as [] */
@@ -109,9 +130,28 @@ export function createAnnotationStore(spec: AnnotationStoreSpec): AnnotationStor
       persist(next)
       return true
     },
+    setShotPath: (id, shotPath) => {
+      const index = records.findIndex((record) => record.id === id)
+      if (index < 0) return false
+      const clean = normalizeShotPath(shotPath)
+      if (clean === undefined) return false
+      if (records[index]!.shotPath === clean) return true
+      const next = [...records]
+      next[index] = { ...records[index]!, shotPath: clean }
+      persist(next)
+      return true
+    },
     remove: (id) => {
       if (!records.some((record) => record.id === id)) return false
       persist(records.filter((record) => record.id !== id))
+      // the shot file leaves with its record: the file is named by the record
+      // id and belongs to no one else, so leaving it is only garbage. Deleting
+      // the canonical path (not the stored field) also cleans a capture whose
+      // setShotPath write never landed, and cannot be aimed elsewhere.
+      const userData = spec.userData?.()
+      if (userData !== undefined) {
+        deleteAnnotationShot(userData, id, spec.onShotError)
+      }
       return true
     },
     reload: () => {

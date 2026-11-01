@@ -19,6 +19,7 @@ import type { AiDockPrefs } from './desktop-geometry'
 import type {
   AttachmentInfo,
   BrowserActionResult,
+  BrowserAnnotationShot,
   BrowserPageAnnotation,
   BrowserPageRead,
   BrowserScreenshot,
@@ -35,6 +36,7 @@ import type {
 // re-exported for the preload, which types its bridge against this module
 export type {
   BrowserActionResult,
+  BrowserAnnotationShot,
   BrowserPageAnnotation,
   BrowserPageRead,
   BrowserScreenshot,
@@ -682,15 +684,17 @@ export interface HomeApi {
   /** forward one prefixed read call (e.g. 'docs:read_document') to the open window it targets */
   appSkillExecute(tool: string, input: Record<string, unknown>): Promise<ProxiedAppExecuteResult>
   // ---- the dock's browser skill: read/act on the active browser tab's page ----
-  /** one browser:* tool call (read_page / screenshot_page / fill_field / click_element),
-   *  routed to the active browser tab's page webContents in the shell main */
+  /** one browser:* tool call (read_page / screenshot_page / read_annotation_shot /
+   *  fill_field / click_element), routed to the active browser tab's page webContents
+   *  in the shell main */
   browserSkillExecute(
     tool: string,
     input: Record<string, unknown>,
-  ): Promise<BrowserPageRead | BrowserScreenshot | BrowserActionResult>
+  ): Promise<BrowserPageRead | BrowserScreenshot | BrowserActionResult | BrowserAnnotationShot>
   /** the browser's "ask AI about this" entry: an annotation the user left on a
-   *  page, pushed by W2a's browser side over `browser:ask-about`; the panel
-   *  parks it as a draft question and never auto-sends */
+   *  page, pushed by W2a's browser side over `browser:ask-about` — an evidence
+   *  pack (selector, XPath, note, shot) the panel parks as a draft question
+   *  and never auto-sends */
   onBrowserAskAbout(handler: (payload: BrowserAskAboutPayload) => void): () => void
   // ---- agent run records (project-store's runs API over IPC) ----
   /** append one run-lifecycle event to <project>/runs/<runId>.jsonl */

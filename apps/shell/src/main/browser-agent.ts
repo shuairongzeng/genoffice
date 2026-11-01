@@ -4,12 +4,15 @@ import * as browserModule from '../../../browser/src/main/browser-main'
 import {
   BROWSER_CLICK_TOOL,
   BROWSER_FILL_FIELD_TOOL,
+  BROWSER_READ_ANNOTATION_SHOT_TOOL,
   BROWSER_READ_PAGE_TOOL,
   BROWSER_SCREENSHOT_TOOL,
+  MAX_ANNOTATION_ID_CHARS,
   MAX_FILL_VALUE_CHARS,
   MAX_SELECTOR_CHARS,
   formatPageOutline,
   type BrowserActionResult,
+  type BrowserAnnotationShot,
   type BrowserPageAnnotation,
   type BrowserPageRead,
   type BrowserOutlineData,
@@ -28,7 +31,8 @@ import {
  * Tab → chrome view → page view: the shell's TabManager owns the first hop
  * (a browser tab's view is the app's *chrome* renderer — address bar and
  * controls), and the browser module privately owns the second (the page view
- * nested inside that chrome view). The browser app's files are W2a's turf,
+ * sitting beside the chrome view in the host window's contentView). The
+ * browser app's files are W2a's turf,
  * so the second hop is rebuilt here from Electron's own signals instead of
  * reaching into it: every page view lives in the `persist:browser` session
  * (the one partition only page views use), and each is created immediately
@@ -81,7 +85,13 @@ const MAX_ANNOTATIONS = 32
 /** per annotation field */
 const ANNOTATION_CHARS = 400
 
-/** keep the well-formed annotations only: the page is untrusted, the store may predate the shape */
+/**
+ * Keep the well-formed annotations only: the page is untrusted, the store may
+ * predate the shape. The evidence pack's fields ride along — id + xpath +
+ * hasShot for the model (the shot itself is fetched by id through
+ * read_annotation_shot); the stored shotPath is *not* forwarded, so a local
+ * path never reaches the model context.
+ */
 function sanitizeAnnotations(raw: unknown): BrowserPageAnnotation[] {
   if (!Array.isArray(raw)) return []
   const out: BrowserPageAnnotation[] = []
@@ -90,19 +100,59 @@ function sanitizeAnnotations(raw: unknown): BrowserPageAnnotation[] {
     const a = item as Record<string, unknown>
     const field = (key: string): string | undefined =>
       typeof a[key] === 'string' ? (a[key] as string).slice(0, ANNOTATION_CHARS) : undefined
+    const id = field('id')
     const selector = field('selector')
+    const xpath = field('xpath')
     const textSnippet = field('textSnippet')
     const note = field('note')
     const url = field('url')
     if (selector === undefined && textSnippet === undefined && note === undefined) continue
     out.push({
+      ...(id !== undefined ? { id } : {}),
       ...(selector !== undefined ? { selector } : {}),
+      ...(xpath !== undefined ? { xpath } : {}),
       ...(textSnippet !== undefined ? { textSnippet } : {}),
       ...(note !== undefined ? { note } : {}),
       ...(url !== undefined ? { url } : {}),
+      ...(typeof a.shotPath === 'string' && a.shotPath !== '' ? { hasShot: true } : {}),
     })
   }
   return out
+}
+
+// ── the annotation shot contract ────────────────────────────────────────────
+
+/**
+ * Read one annotation's pin-time element shot, by id. The contract is a
+ * main-process `readAnnotationShot(id)` export on the browser module — the
+ * same defensive consumption as `readAnnotationsFor` above: a build without
+ * the export answers null, and a reader that throws costs its image, not the
+ * tool call. The whitelist (known id, canonical shots path, file inside the
+ * shots directory) is enforced browser-side, where the store lives.
+ */
+export function browserAnnotationShotFor(id: string): BrowserAnnotationShot | null {
+  const reader = (browserModule as { readAnnotationShot?: (id: string) => unknown })
+    .readAnnotationShot
+  if (typeof reader !== 'function') return null
+  try {
+    return sanitizeShot(reader(id))
+  } catch {
+    // a broken store or shot file costs the image, not the tool call
+    return null
+  }
+}
+
+/** narrow the browser module's answer: bytes, mime and the PNG's own size */
+function sanitizeShot(raw: unknown): BrowserAnnotationShot | null {
+  if (raw === null || typeof raw !== 'object') return null
+  const s = raw as Record<string, unknown>
+  const id = typeof s.id === 'string' ? s.id.slice(0, MAX_ANNOTATION_ID_CHARS) : ''
+  const base64 = typeof s.base64 === 'string' ? s.base64 : ''
+  const mime = typeof s.mime === 'string' ? s.mime : ''
+  const width = typeof s.width === 'number' && Number.isFinite(s.width) ? s.width : 0
+  const height = typeof s.height === 'number' && Number.isFinite(s.height) ? s.height : 0
+  if (id === '' || base64 === '' || mime === '' || width <= 0 || height <= 0) return null
+  return { id, base64, mime, width, height }
 }
 
 // ── chrome view ↔ page view pairing ────────────────────────────────────────
@@ -416,6 +466,11 @@ export interface BrowserAgentDeps {
   confirmAction(request: BrowserPageActionConfirm): Promise<boolean>
   /** W2a's annotation reader; absent = the module's own defensive consumption */
   readAnnotations?(url: string): BrowserPageAnnotation[]
+  /**
+   * W2a's annotation-shot reader (read_annotation_shot); absent = the
+   * module's own defensive consumption. Reads the suite's own disk only.
+   */
+  readAnnotationShot?(id: string): BrowserAnnotationShot | null
 }
 
 /** the tab + chrome + page the call resolved to, or a guiding error */
@@ -573,12 +628,34 @@ export async function executeBrowserSkillAction(
   deps: BrowserAgentDeps,
   tool: string,
   input: Record<string, unknown>,
-): Promise<BrowserPageRead | BrowserScreenshot | BrowserActionResult> {
+): Promise<BrowserPageRead | BrowserScreenshot | BrowserActionResult | BrowserAnnotationShot> {
   switch (tool) {
     case BROWSER_READ_PAGE_TOOL:
       return readPageOf(deps, (await resolveTarget(deps)).page)
     case BROWSER_SCREENSHOT_TOOL:
       return screenshotOf((await resolveTarget(deps)).page)
+    case BROWSER_READ_ANNOTATION_SHOT_TOOL: {
+      // a disk read of the suite's own shots directory: no live tab, page or
+      // confirmation is involved, so the id validation is the whole gate
+      const id = input.id
+      if (typeof id !== 'string' || !id.trim()) {
+        throw new Error('`id` must be a non-empty string (an annotation id from read_page)')
+      }
+      if (id.length > MAX_ANNOTATION_ID_CHARS) {
+        throw new Error(`\`id\` must be at most ${MAX_ANNOTATION_ID_CHARS} characters`)
+      }
+      const shot = deps.readAnnotationShot
+        ? deps.readAnnotationShot(id)
+        : browserAnnotationShotFor(id)
+      if (shot === null) {
+        throw new Error(
+          `no screenshot is on file for annotation ${id} — it was pinned without one, deleted, ` +
+            'or the id does not match a read_page annotation line. Re-read the page and use an ' +
+            'id from a line marked "screenshot on file", or fall back to browser:screenshot_page',
+        )
+      }
+      return shot
+    }
     case BROWSER_FILL_FIELD_TOOL:
     case BROWSER_CLICK_TOOL: {
       const { tab, page } = await resolveTarget(deps)

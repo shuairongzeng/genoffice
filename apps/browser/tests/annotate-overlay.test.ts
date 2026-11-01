@@ -150,18 +150,41 @@ describe('picking mode', () => {
     expect(tag?.textContent).toBe('DIV · Sign in')
   })
 
-  it('pins the clicked element with selector, snippet and document rect', () => {
+  it('pins the clicked element with selector, xpath, snippet and document rect', () => {
     const h = createOverlay()
     h.overlay.setPageState({ mode: true, annotations: [] })
     const target = document.getElementById('target')!
     fire(target, 'mouseover')
     fire(target, 'click')
+    // the overlay host itself is a body-level div after the page content, so
+    // the target is the first of two divs: the predicate is part of the path
     expect(h.onPin).toHaveBeenCalledWith({
       selector: '#target',
+      xpath: '/html/body/div[1]',
       tagName: 'DIV',
       textSnippet: 'Sign in',
       rect: { x: 0, y: 0, width: 0, height: 0 },
+      viewportRect: { x: 0, y: 0, width: 0, height: 0 },
     })
+  })
+
+  it('pins the viewport rect (the shot crop) alongside the document rect', () => {
+    const h = createOverlay()
+    h.overlay.setPageState({ mode: true, annotations: [] })
+    const target = document.getElementById('target')!
+    target.getBoundingClientRect = () =>
+      ({ x: 12.4, y: 34.6, width: 120.2, height: 40.8 }) as DOMRect
+    Object.defineProperty(window, 'scrollX', { value: 100, configurable: true })
+    Object.defineProperty(window, 'scrollY', { value: 50, configurable: true })
+    fire(target, 'click')
+    expect(h.onPin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // document rect: viewport position plus the page's scroll offset
+        rect: { x: 112, y: 85, width: 120, height: 41 },
+        // viewport rect: exactly what was on screen when the pin landed
+        viewportRect: { x: 12, y: 35, width: 120, height: 41 },
+      }),
+    )
   })
 
   it('leaves the mode on Esc', () => {

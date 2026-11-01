@@ -351,9 +351,11 @@ function wireEditorHooks(win: BrowserWindow, manager: TabManager, deps: ShellWin
     detachedSetTitleFor(wc.id, title)
   })
   // ── the browser app's shell hooks ────────────────────────────────────────
-  // The browser manages its own views (chrome + the nested page view); this is
-  // the whole shell cooperation it needs, wired through the AppDescriptor
-  // registry's re-exports — no home-api surface of its own.
+  // The browser manages its own two views (the chrome view the TabManager
+  // hosts, plus the page view the descriptor's syncView anchors beside it in
+  // the same window's contentView); this is the whole remaining shell
+  // cooperation it needs, wired through the AppDescriptor registry's
+  // re-exports — no home-api surface of its own.
   setBrowserShellHooks({
     // target=_blank from a page: a new browser tab joins the strip (the
     // desktop's embedded tab strip gains a row) and loads the URL

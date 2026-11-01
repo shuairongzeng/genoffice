@@ -4,6 +4,10 @@
  * receives, and the shape the `browser:ask-about` event carries to the Home AI
  * dock. Pure on purpose — main, preload and the tests all share it, so the
  * three sides cannot drift.
+ *
+ * An annotation is an evidence pack: the CSS selector *and* the XPath that
+ * address the element, plus the pin-time element shot (`shotPath`, when the
+ * capture succeeded) — everything the "ask AI" flow forwards to the model.
  */
 
 /** the snippet cap the task's contract fixes (characters, after folding) */
@@ -16,8 +20,24 @@ export const ANNOTATION_RECORDS_MAX = 2000
 /** hard length caps for the fields a raw record may carry */
 const ID_MAX = 100
 const SELECTOR_MAX = 1000
+const XPATH_MAX = 2000
 const TAG_MAX = 60
 const URL_MAX = 2000
+
+/**
+ * The directory under userData where the pin-time element shots live. The
+ * stored `shotPath` is the path *relative to userData* and always inside this
+ * directory — the guard below and every reader keep it that way.
+ */
+export const ANNOTATION_SHOTS_DIR = 'annotation-shots'
+
+/**
+ * The only shape a shot path may take: `annotation-shots/<stem>.png` with a
+ * plain file name stem (no separators, no dots), so a stored path can never
+ * walk out of the shots directory — `../`, absolute paths and nested paths
+ * all fail here.
+ */
+const SHOT_PATH_PATTERN = /^annotation-shots\/[A-Za-z0-9_-]+\.png$/
 
 /** schemes a page view may render — http/https from anywhere, file: from the address bar only */
 const ANNOTATION_SCHEMES: ReadonlySet<string> = new Set(['http:', 'https:', 'file:'])
@@ -30,6 +50,19 @@ export interface BrowserAnnotation {
   url: string
   /** the CSS selector this build generated for the target element */
   selector: string
+  /**
+   * The absolute XPath this build generated for the target element
+   * (`/html/body/…`, positional predicates where the tag repeats) — the
+   * second addressing key of the evidence pack, for consumers a CSS selector
+   * cannot serve.
+   */
+  xpath: string
+  /**
+   * The pin-time element shot, as a path relative to userData
+   * (`annotation-shots/<id>.png`) — present only when the capture succeeded.
+   * A failed capture never blocks the pin; the record simply carries no shot.
+   */
+  shotPath?: string
   /** the target's tag name as tagName reports it ('BUTTON', 'A', …) */
   tagName: string
   /** the target's text at pin time, whitespace-folded, ≤200 chars */
@@ -46,16 +79,25 @@ export interface BrowserAnnotation {
  * The `browser:ask-about` event payload — one annotation handed to the Home AI
  * dock as a question draft's attachment context. Deliberately the whole
  * annotation record: the panel side composes the draft from whatever it needs
- * (selector + text + note + url), and no projection here can starve it.
+ * (selector + xpath + text + note + url + the shot), and no projection here
+ * can starve it.
  */
 export type BrowserAskAboutPayload = BrowserAnnotation
 
 /** what the page overlay needs to describe one pin */
 export interface AnnotationPinDraft {
   selector: string
+  xpath: string
   tagName: string
   textSnippet: string
+  /** the target's rect in document coordinates at pin time */
   rect: { x: number; y: number; width: number; height: number }
+  /**
+   * The target's rect in *viewport* coordinates at pin time — the region main
+   * crops out of a capturePage for the element shot. Not persisted: it goes
+   * stale on scroll, so only the immediate capture consumes it.
+   */
+  viewportRect: { x: number; y: number; width: number; height: number }
 }
 
 /**
@@ -108,6 +150,31 @@ function normalizedRect(raw: unknown): BrowserAnnotation['rect'] | null {
 }
 
 /**
+ * Normalize a shot path: keep it only when it is exactly the shape the pin
+ * flow writes (`annotation-shots/<stem>.png`); anything else answers undefined
+ * and the record simply carries no shot. The field is optional on purpose —
+ * a failed capture, or a path a foreign file claims, must not cost the
+ * annotation its record.
+ */
+export function normalizeShotPath(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || raw === '') return undefined
+  const trimmed = raw.trim()
+  if (!SHOT_PATH_PATTERN.test(trimmed)) return undefined
+  return trimmed
+}
+
+/**
+ * Normalize the pin draft's viewport rect: same clamps as the stored rect,
+ * plus a positive size — a zero-area region has nothing to capture, so it
+ * answers null and the pin proceeds without a shot.
+ */
+export function normalizeViewportRect(raw: unknown): AnnotationPinDraft['viewportRect'] | null {
+  const rect = normalizedRect(raw)
+  if (rect === null || rect.width <= 0 || rect.height <= 0) return null
+  return rect
+}
+
+/**
  * Shape validation: anything read from disk (or crossing IPC) walks through
  * here; a record that fails any invariant answers null and is dropped — a
  * foreign or hand-edited file never breaks the feature that reads it. Values
@@ -123,6 +190,8 @@ export function normalizeAnnotationRecord(raw: unknown): BrowserAnnotation | nul
   if (url === null) return null
   const selector = typeof r.selector === 'string' ? r.selector.trim() : ''
   if (selector === '' || selector.length > SELECTOR_MAX) return null
+  const xpath = typeof r.xpath === 'string' ? r.xpath.trim() : ''
+  if (xpath === '' || xpath.length > XPATH_MAX) return null
   const tagName = typeof r.tagName === 'string' ? r.tagName.trim() : ''
   if (tagName === '' || tagName.length > TAG_MAX) return null
   const rect = normalizedRect(r.rect)
@@ -132,10 +201,13 @@ export function normalizeAnnotationRecord(raw: unknown): BrowserAnnotation | nul
       ? Math.max(0, Math.round(r.createdAt))
       : null
   if (createdAt === null) return null
+  const shotPath = normalizeShotPath(r.shotPath)
   return {
     id,
     url,
     selector,
+    xpath,
+    ...(shotPath !== undefined ? { shotPath } : {}),
     tagName,
     textSnippet: foldSnippet(r.textSnippet),
     rect,
@@ -186,6 +258,7 @@ export function normalizePinDraft(
     id,
     url,
     selector: draft.selector,
+    xpath: draft.xpath,
     tagName: draft.tagName,
     textSnippet: draft.textSnippet,
     rect,

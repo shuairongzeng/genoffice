@@ -743,6 +743,11 @@ function releaseDetached(rec: DetachedRecord): DetachedTab {
   }
   if (!win.isDestroyed()) {
     win.contentView.removeChildView(view)
+    // the view is heading back to the strip: its companion view (a browser
+    // tab's page) must leave this contentView before the window is destroyed
+    // below — it would die with the window's teardown, taking the tab's page
+    // renderer with it
+    appForKind(kind)?.syncView?.(view.webContents, null)
     win.destroy()
   }
   if (rec.pinned) {
@@ -950,6 +955,9 @@ export function createDetachedEditorWindow(options: {
     const top = rec.pinned ? PIN_STRIP_H : 0
     view.setBounds({ x: 0, y: top, width: bounds.width, height: bounds.height - top })
     rec.strip?.setBounds({ x: 0, y: 0, width: bounds.width, height: PIN_STRIP_H })
+    // a browser tab carries a page view beside the chrome in this window's
+    // contentView: it re-fits whenever the chrome's bounds change here
+    appForKind(kind)?.syncView?.(view.webContents, win)
   }
   // same Linux/X11 quirk as the shell window: `resize` fires before the WM
   // applies the new size, so a follow-up layout on the next tick is required
@@ -970,6 +978,9 @@ export function createDetachedEditorWindow(options: {
   }
   layout()
   view.setVisible(true)
+  // the chrome view just became visible (the layout pass above ran while it
+  // was still hidden): a browser tab's page view follows the flip here
+  appForKind(kind)?.syncView?.(view.webContents, win)
   if (tearOffAt) {
     const pos = win.getPosition()
     torn = { rec, grabDx: tearOffAt.x - pos[0], grabDy: tearOffAt.y - pos[1] }

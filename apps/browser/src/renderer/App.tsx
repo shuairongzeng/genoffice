@@ -6,8 +6,9 @@ import type { BrowserPageState } from '../shared/ipc'
 
 /**
  * The browser tab's chrome: navigation controls and the address bar. The page
- * itself renders in a nested WebContentsView the main process bounds to this
- * component's content area — everything below the toolbar belongs to the page
+ * itself renders in a sibling WebContentsView the main process bounds to this
+ * component's content area (window coordinates: this view's bounds plus the
+ * rect reported below) — everything below the toolbar belongs to the page
  * view, which is why the empty hint only ever shows before the first
  * navigation.
  */
@@ -32,7 +33,8 @@ export default function App(): ReactElement {
   }, [])
 
   // the content area's rect, in this view's own pixels: the main process
-  // bounds the nested page view to exactly this rect, on mount and on resize
+  // bounds the sibling page view to this rect offset by this view's own
+  // bounds, on mount and on resize
   useEffect(() => {
     const node = contentRef.current
     if (!node) return

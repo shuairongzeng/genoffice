@@ -186,13 +186,18 @@ vi.mock('../../html/src/main/html-main', () => ({
 }))
 
 // the browser module's real createBrowserView would register IPC handlers and
-// build a nested view; the manager only needs the chrome view it hands back
+// build the tab's two views; the manager only needs the chrome view it hands
+// back (the page view's own placement engine is page-host.test.ts — here the
+// interest is that the manager notifies it at the right moments)
+const createBrowserView = vi.fn(() => makeFakeView())
+const syncBrowserPageView = vi.fn()
 vi.mock('../../browser/src/main/browser-main', () => ({
   browserNavigate: vi.fn(),
   configureBrowserRuntime: vi.fn(),
-  createBrowserView: vi.fn(() => makeFakeView()),
+  createBrowserView: (...args: unknown[]) => createBrowserView(...(args as [])),
   requestBrowserClose: vi.fn(() => Promise.resolve(true)),
   setBrowserShellHooks: vi.fn(),
+  syncBrowserPageView: (...args: unknown[]) => syncBrowserPageView(...(args as [])),
   teardownBrowserTab: vi.fn(),
 }))
 
@@ -622,6 +627,77 @@ describe('activation', () => {
     })
     view.webContents.listeners.get('leave-html-full-screen')!()
     expect(view.setBounds).toHaveBeenLastCalledWith(embeddedBounds())
+  })
+})
+
+describe('browser tabs — the page view follows the chrome (syncView notifications)', () => {
+  /** a browser tab whose chrome view the test can drive */
+  function openBrowserTab(): { id: string; chrome: FakeView } {
+    const id = manager.openBrowserTab()
+    return { id, chrome: lastCreatedView(createBrowserView) }
+  }
+
+  it('anchors the page view on activation, into the shell window', () => {
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    const { chrome } = openBrowserTab()
+    expect(syncBrowserPageView).toHaveBeenCalledWith(chrome.webContents, shellWindow)
+  })
+
+  it('re-notifies when another tab hides the chrome (the page must hide with it)', () => {
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    const { id, chrome } = openBrowserTab()
+    syncBrowserPageView.mockClear()
+    manager.openDocsTab()
+    expect(syncBrowserPageView).toHaveBeenCalledWith(chrome.webContents, shellWindow)
+    syncBrowserPageView.mockClear()
+    manager.activateTab(id)
+    expect(syncBrowserPageView).toHaveBeenCalledWith(chrome.webContents, shellWindow)
+  })
+
+  it('re-notifies when a resize re-lays out the active browser tab', () => {
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    const { chrome } = openBrowserTab()
+    syncBrowserPageView.mockClear()
+    const resize = shellWindow.on.mock.calls.find((c) => c[0] === 'resize')
+    expect(resize).toBeDefined()
+    ;(resize![1] as () => void)()
+    expect(syncBrowserPageView).toHaveBeenCalledWith(chrome.webContents, shellWindow)
+  })
+
+  it('unparents the page when the tab is detached from the strip', () => {
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    const { id, chrome } = openBrowserTab()
+    syncBrowserPageView.mockClear()
+    expect(manager.detachTab(id)).not.toBeNull()
+    expect(syncBrowserPageView).toHaveBeenCalledWith(chrome.webContents, null)
+  })
+
+  it('re-anchors the page when the tab docks back and is activated', () => {
+    manager.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    const { chrome } = openBrowserTab()
+    const id = manager.list().find((t) => t.kind === 'browser')!.id
+    const record = manager.detachTab(id)
+    expect(record).not.toBeNull()
+    syncBrowserPageView.mockClear()
+    manager.attachTab({ view: chrome as never, kind: 'browser', title: 't' })
+    expect(syncBrowserPageView).toHaveBeenCalledWith(chrome.webContents, shellWindow)
+  })
+
+  it('closes the page through the browser teardown on tab close', async () => {
+    const { id, chrome } = openBrowserTab()
+    const { teardownBrowserTab } = await import('../../browser/src/main/browser-main')
+    await manager.closeTab(id)
+    expect(teardownBrowserTab).toHaveBeenCalledWith(chrome.webContents)
+  })
+
+  it('never puts a browser tab to sleep (its page renderer is not rebuildable from a file)', async () => {
+    const { id } = openBrowserTab()
+    // idle past any threshold, over the live-tab cap and the memory budget:
+    // the sweep still refuses — a browser tab has no filePath to revive from,
+    // and sleepTab would destroy the live page renderer with nothing to rebuild
+    const slept = await manager.sleepIdleTabs({ idleMs: 0, maxLiveTabs: 1 }, Date.now(), true)
+    expect(slept).toEqual([])
+    expect(manager.list().find((t) => t.id === id)?.dormant).toBeUndefined()
   })
 })
 

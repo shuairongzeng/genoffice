@@ -8,8 +8,8 @@
  *
  * Isolation strategy (why plain DOM and hardcoded colors):
  *
- * - the overlay must render inside the page's own renderer (the nested page
- *   view paints over the chrome view, so no layer above the page exists), and
+ * - the overlay must render inside the page's own renderer (the page view
+ *   paints over the chrome view's stage, so no layer above the page exists), and
  *   it must be invisible to page *JS* — hence the closed shadow root, which
  *   stops DOM traversal at the host, plus `all: initial` + `!important` inline
  *   styles on the host, which stop page CSS at the boundary;
@@ -32,6 +32,7 @@
 
 import type { BrowserAnnotation, AnnotationPinDraft } from '../../shared/annotations'
 import { buildSelector } from './selector'
+import { buildXPath } from './xpath'
 import { ANNOTATE_COLORS } from './colors'
 
 /** the strings the overlay renders, resolved by the preload entry per locale */
@@ -116,6 +117,22 @@ function documentRect(el: Element): AnnotationPinDraft['rect'] {
   return {
     x: Math.round(rect.x + scrollX),
     y: Math.round(rect.y + scrollY),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  }
+}
+
+/**
+ * The target's rect in viewport coordinates at pin time — the exact region
+ * main crops out of a capturePage for the pin-time element shot. Unlike the
+ * document rect this one goes stale on scroll, which is why it travels with
+ * the pin IPC only (the capture runs immediately) and is never stored.
+ */
+function viewportRect(el: Element): AnnotationPinDraft['viewportRect'] {
+  const rect = el.getBoundingClientRect()
+  return {
+    x: Math.round(rect.x),
+    y: Math.round(rect.y),
     width: Math.round(rect.width),
     height: Math.round(rect.height),
   }
@@ -425,9 +442,11 @@ export function createAnnotateOverlay(deps: AnnotateOverlayDeps): AnnotateOverla
     }
     const draft: AnnotationPinDraft = {
       selector: buildSelector(target),
+      xpath: buildXPath(target),
       tagName: target.tagName,
       textSnippet: snippetOf(target),
       rect: documentRect(target),
+      viewportRect: viewportRect(target),
     }
     setHover(null)
     deps.onPin(draft)

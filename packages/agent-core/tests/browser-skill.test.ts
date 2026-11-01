@@ -13,6 +13,7 @@ import {
   AgentLoop,
   BROWSER_CLICK_TOOL,
   BROWSER_FILL_FIELD_TOOL,
+  BROWSER_READ_ANNOTATION_SHOT_TOOL,
   BROWSER_READ_PAGE_TOOL,
   BROWSER_SCREENSHOT_TOOL,
   MAX_SELECTOR_CHARS,
@@ -50,6 +51,7 @@ interface Harness {
   deps: {
     readPage: ReturnType<typeof vi.fn>
     screenshotPage: ReturnType<typeof vi.fn>
+    readAnnotationShot: ReturnType<typeof vi.fn>
     fillField: ReturnType<typeof vi.fn>
     clickElement: ReturnType<typeof vi.fn>
   }
@@ -68,6 +70,13 @@ function skillWith(
       mime: 'image/png',
       width: 1280,
       height: 800,
+    })),
+    readAnnotationShot: vi.fn(async () => ({
+      id: 'ann-1',
+      base64: 'SHOT',
+      mime: 'image/png',
+      width: 320,
+      height: 120,
     })),
     fillField: vi.fn(async (): Promise<BrowserActionResult> => ({
       ok: true,
@@ -89,17 +98,19 @@ const call = (name: string, input: Record<string, unknown> = {}): AgentToolCall 
 })
 
 describe('the browser skill surface', () => {
-  it('offers exactly the four tools, with fill/click gated as high-risk', () => {
+  it('offers exactly the five tools, with fill/click gated as high-risk', () => {
     const { skill } = skillWith(TABS)
     expect(skill.tools.map((t) => t.name)).toEqual([
       BROWSER_READ_PAGE_TOOL,
       BROWSER_SCREENSHOT_TOOL,
+      BROWSER_READ_ANNOTATION_SHOT_TOOL,
       BROWSER_FILL_FIELD_TOOL,
       BROWSER_CLICK_TOOL,
     ])
     const byName = new Map(skill.tools.map((t) => [t.name, t]))
     expect(byName.get(BROWSER_READ_PAGE_TOOL)!.risk).toBeUndefined()
     expect(byName.get(BROWSER_SCREENSHOT_TOOL)!.risk).toBeUndefined()
+    expect(byName.get(BROWSER_READ_ANNOTATION_SHOT_TOOL)!.risk).toBeUndefined()
     expect(byName.get(BROWSER_FILL_FIELD_TOOL)!.risk).toBe('high')
     expect(byName.get(BROWSER_CLICK_TOOL)!.risk).toBe('high')
     // the action tools declare their arguments
@@ -109,11 +120,15 @@ describe('the browser skill surface', () => {
     expect(byName.get(BROWSER_CLICK_TOOL)!.inputSchema).toMatchObject({
       required: ['selector'],
     })
+    expect(byName.get(BROWSER_READ_ANNOTATION_SHOT_TOOL)!.inputSchema).toMatchObject({
+      required: ['id'],
+    })
     // the prompt names the boundary: active tab, read before acting, approval
     expect(skill.systemPrompt).toMatch(/active.? tab/i)
     expect(skill.systemPrompt).toMatch(/read_page/)
     expect(skill.systemPrompt).toMatch(/approv/i)
     expect(skill.systemPrompt).toMatch(/boundaries/i)
+    expect(skill.systemPrompt).toMatch(/read_annotation_shot/)
   })
 
   it('degrades to nothing when no browser tab is open', () => {
@@ -173,6 +188,44 @@ describe('browser tool execution', () => {
     expect(execution.output).toMatch(/1280×800/)
     expect(execution.output).toMatch(/attached/i)
     expect(execution.summary).toBe('screenshot Example Domain')
+  })
+
+  it('read_annotation_shot attaches the pin-time element shot as visual input', async () => {
+    const { skill, deps } = skillWith(TABS)
+    const execution = await skill.executeTool(
+      call(BROWSER_READ_ANNOTATION_SHOT_TOOL, { id: 'ann-1' }),
+    )
+    expect(deps.readAnnotationShot).toHaveBeenCalledWith('ann-1')
+    expect(execution.isError).toBeUndefined()
+    expect(execution.images).toEqual([{ base64: 'SHOT', mime: 'image/png' } satisfies AgentImage])
+    expect(execution.output).toMatch(/annotation ann-1/)
+    expect(execution.output).toMatch(/320×120/)
+    expect(execution.output).toMatch(/attached/i)
+    expect(execution.summary).toBe('annotation shot ann-1')
+  })
+
+  it('read_annotation_shot with no shot on file answers the guiding error', async () => {
+    const readAnnotationShot = vi.fn(async () => null)
+    const { skill } = skillWith(TABS, { readAnnotationShot })
+    const execution = await skill.executeTool(
+      call(BROWSER_READ_ANNOTATION_SHOT_TOOL, { id: 'ann-gone' }),
+    )
+    expect(readAnnotationShot).toHaveBeenCalledWith('ann-gone')
+    expect(execution.isError).toBe(true)
+    expect(execution.output).toMatch(/no screenshot is on file/)
+    expect(execution.output).toMatch(/read_page/)
+    expect(execution.images).toBeUndefined()
+  })
+
+  it('read_annotation_shot refuses a bad id before any IPC', async () => {
+    const { skill, deps } = skillWith(TABS)
+    for (const input of [{}, { id: '' }, { id: 7 }, { id: 'x'.repeat(101) }]) {
+      const execution = await skill.executeTool(call(BROWSER_READ_ANNOTATION_SHOT_TOOL, input))
+      expect(execution.isError).toBe(true)
+      expect(execution.output).toMatch(/`id`/)
+      expect(execution.output).toMatch(/was not executed/)
+    }
+    expect(deps.readAnnotationShot).not.toHaveBeenCalled()
   })
 
   it('fill_field forwards selector and value, and marks a success as a mutation', async () => {
@@ -328,6 +381,34 @@ describe('the read_page budget', () => {
     expect(text).toContain('## Annotations the user left on this page (12 of 20)')
     expect(text).toContain('note 0 — "s" (p:nth-of-type(1))')
     expect(text).not.toContain('note 12')
+  })
+
+  it('renders the evidence pack fields: xpath, id and the shot marker', () => {
+    const { text } = formatPageOutline({ url: 'u', title: 't', textBlocks: [], elements: [] }, [
+      {
+        id: 'ann-1',
+        note: 'what is this?',
+        textSnippet: 'Hello',
+        selector: 'p:nth-of-type(1)',
+        xpath: '/html/body/p[1]',
+        hasShot: true,
+      },
+      { note: 'no pack fields' },
+    ])
+    expect(text).toContain(
+      '- what is this? — "Hello" (p:nth-of-type(1)) [xpath /html/body/p[1]] id=ann-1 · screenshot on file — browser:read_annotation_shot',
+    )
+    // an annotation without the pack fields renders exactly as before
+    expect(text).toContain('- no pack fields')
+  })
+
+  it('clips a long xpath to the annotation budget', () => {
+    const longXpath = `/${'div/'.repeat(150)}p`
+    const { text } = formatPageOutline({ url: 'u', title: 't', textBlocks: [], elements: [] }, [
+      { note: 'n', xpath: longXpath },
+    ])
+    expect(text).toContain(`[xpath ${longXpath.slice(0, 200)}…]`)
+    expect(text).not.toContain(`[xpath ${longXpath}]`)
   })
 
   it('an unannotated page renders no annotation section', () => {

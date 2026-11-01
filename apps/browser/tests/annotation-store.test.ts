@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createAnnotationStore, annotationStorePath } from '../src/main/annotation-store'
+import { writeAnnotationShot } from '../src/main/annotation-shots'
 import {
   ANNOTATION_NOTE_MAX,
   ANNOTATION_RECORDS_MAX,
@@ -15,10 +16,23 @@ import type { BrowserAnnotation } from '../src/shared/annotations'
 
 /**
  * The annotation store: shape validation on everything read or written, the
- * hash-stripped URL key the revisit restore reads, and the atomic-persist
- * round trip (a second store instance at the same path reads what the first
- * wrote — exactly what a page revisit does).
+ * hash-stripped URL key the revisit restore reads, the atomic-persist round
+ * trip (a second store instance at the same path reads what the first wrote —
+ * exactly what a page revisit does), and the shot half of the evidence pack —
+ * the path the capture stamps, and the file that leaves with the record.
  */
+
+/** a minimal 4×2 PNG (signature + IHDR + IEND) — real bytes, real header */
+const PNG_BYTES = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  Buffer.from([0x00, 0x00, 0x00, 0x0d]),
+  Buffer.from('IHDR'),
+  Buffer.from([0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02]),
+  Buffer.from([0x08, 0x06, 0x00, 0x00, 0x00]),
+  Buffer.from([0x00, 0x00, 0x00, 0x00]),
+  Buffer.from('IEND'),
+  Buffer.from([0x00, 0x00, 0x00, 0x00]),
+])
 
 let dir: string
 let file: string
@@ -29,9 +43,11 @@ const store = () =>
 
 const DRAFT = {
   selector: '#login',
+  xpath: '/html/body/div[2]/form/button[1]',
   tagName: 'BUTTON',
   textSnippet: 'Sign in',
   rect: { x: 10, y: 20.6, width: 88.4, height: 32 },
+  viewportRect: { x: 10, y: 20.6, width: 88.4, height: 32 },
 }
 
 const URL_A = 'https://example.com/docs/intro#section-2'
@@ -75,6 +91,7 @@ describe('normalizeAnnotationRecord — shape validation', () => {
     id: 'ann-1',
     url: 'https://example.com/p',
     selector: '#login',
+    xpath: '/html/body/div[2]/form/button[1]',
     tagName: 'BUTTON',
     textSnippet: 'Sign in',
     rect: { x: 0, y: 0, width: 10, height: 10 },
@@ -84,6 +101,21 @@ describe('normalizeAnnotationRecord — shape validation', () => {
 
   it('round-trips a well-formed record unchanged', () => {
     expect(normalizeAnnotationRecord(base)).toEqual(base)
+  })
+
+  it('round-trips the shot path when it is the canonical shape', () => {
+    expect(normalizeAnnotationRecord({ ...base, shotPath: 'annotation-shots/ann-1.png' })).toEqual({
+      ...base,
+      shotPath: 'annotation-shots/ann-1.png',
+    })
+    // absent stays absent, an invalid path is dropped rather than fatal
+    expect(normalizeAnnotationRecord({ ...base, shotPath: undefined })).not.toHaveProperty(
+      'shotPath',
+    )
+    expect(
+      normalizeAnnotationRecord({ ...base, shotPath: 'annotation-shots/../escape.png' }),
+    ).not.toHaveProperty('shotPath')
+    expect(normalizeAnnotationRecord({ ...base, shotPath: 42 })).not.toHaveProperty('shotPath')
   })
 
   it('folds and caps an over-long snippet', () => {
@@ -103,10 +135,11 @@ describe('normalizeAnnotationRecord — shape validation', () => {
     expect(record?.note.length).toBe(ANNOTATION_NOTE_MAX)
   })
 
-  it('drops records with a missing id, unusable url, empty selector or broken rect', () => {
+  it('drops records with a missing id, unusable url, empty selector, empty xpath or broken rect', () => {
     expect(normalizeAnnotationRecord({ ...base, id: '' })).toBeNull()
     expect(normalizeAnnotationRecord({ ...base, id: 'x', url: 'nope' })).toBeNull()
     expect(normalizeAnnotationRecord({ ...base, selector: '  ' })).toBeNull()
+    expect(normalizeAnnotationRecord({ ...base, xpath: '  ' })).toBeNull()
     expect(
       normalizeAnnotationRecord({ ...base, rect: { x: NaN, y: 0, width: 1, height: 1 } }),
     ).toBeNull()
@@ -206,6 +239,7 @@ describe('the store', () => {
       id: 'keep',
       url: 'https://example.com/p',
       selector: '#login',
+      xpath: '/html/body/form/button[1]',
       tagName: 'BUTTON',
       textSnippet: 'Sign in',
       rect: { x: 0, y: 0, width: 1, height: 1 },
@@ -218,6 +252,7 @@ describe('the store', () => {
         good,
         { ...good, id: 'keep' },
         { ...good, id: 'bad', selector: '' },
+        { ...good, id: 'bad-x', xpath: '' },
         7,
         null,
       ]),
@@ -241,12 +276,73 @@ describe('the store', () => {
     rmSync(join(file, 'blocking-directory'), { recursive: true, force: true })
   })
 
+  it('records the shot path after the capture landed, and only the canonical shape', async () => {
+    const s = store()
+    const pinned = s.add(URL_A, DRAFT)
+    // the pin lands without a shot; the capture stamps it afterwards
+    expect(pinned!.shotPath).toBeUndefined()
+    expect(s.setShotPath('missing', 'annotation-shots/missing.png')).toBe(false)
+    expect(s.setShotPath(pinned!.id, 'annotation-shots/../../escape.png')).toBe(false)
+    expect(s.setShotPath(pinned!.id, 'Downloads/x.png')).toBe(false)
+    expect(s.setShotPath(pinned!.id, 'annotation-shots/x.jpg')).toBe(false)
+    expect(s.setShotPath(pinned!.id, 42)).toBe(false)
+    expect(s.byId(pinned!.id)!.shotPath).toBeUndefined()
+    expect(s.setShotPath(pinned!.id, `annotation-shots/${pinned!.id}.png`)).toBe(true)
+    expect(s.byId(pinned!.id)!.shotPath).toBe(`annotation-shots/${pinned!.id}.png`)
+    // let the stamped path reach the disk, then prove a repeat of the same
+    // path is a no-op write, not a rewrite
+    await new Promise((r) => setTimeout(r, 50))
+    const before = readFileSync(file, 'utf8')
+    expect(s.setShotPath(pinned!.id, `annotation-shots/${pinned!.id}.png`)).toBe(true)
+    await new Promise((r) => setTimeout(r, 30))
+    expect(readFileSync(file, 'utf8')).toBe(before)
+  })
+
+  it('remove deletes the record shot file with the record (and only that file)', async () => {
+    const shotErrors: unknown[] = []
+    const s = createAnnotationStore({
+      path: () => file,
+      onWriteError: (e) => writeErrors.push(e),
+      userData: () => dir,
+      onShotError: (e) => shotErrors.push(e),
+    })
+    const pinned = s.add(URL_A, DRAFT)
+    const other = s.add(URL_B, DRAFT)
+    await writeAnnotationShot(dir, pinned!.id, PNG_BYTES)
+    await writeAnnotationShot(dir, other!.id, PNG_BYTES)
+    expect(s.setShotPath(pinned!.id, `annotation-shots/${pinned!.id}.png`)).toBe(true)
+    expect(s.setShotPath(other!.id, `annotation-shots/${other!.id}.png`)).toBe(true)
+    expect(s.remove(pinned!.id)).toBe(true)
+    await new Promise((r) => setTimeout(r, 30))
+    // the record's shot is gone; the other annotation's shot survives
+    expect(existsSync(join(dir, 'annotation-shots', `${pinned!.id}.png`))).toBe(false)
+    expect(existsSync(join(dir, 'annotation-shots', `${other!.id}.png`))).toBe(true)
+    expect(shotErrors).toHaveLength(0)
+    // removing a record that never had a shot file is not an error either
+    expect(s.remove(other!.id)).toBe(true)
+    await new Promise((r) => setTimeout(r, 30))
+    expect(existsSync(join(dir, 'annotation-shots', `${other!.id}.png`))).toBe(false)
+    expect(shotErrors).toHaveLength(0)
+  })
+
+  it('a store without the userData spec never touches shot files', async () => {
+    const s = store()
+    const pinned = s.add(URL_A, DRAFT)
+    await writeAnnotationShot(dir, pinned!.id, PNG_BYTES)
+    expect(s.remove(pinned!.id)).toBe(true)
+    await new Promise((r) => setTimeout(r, 30))
+    // the record left, the file stayed: pure-shape stores (the tests above)
+    // pay no disk-shot behavior
+    expect(existsSync(join(dir, 'annotation-shots', `${pinned!.id}.png`))).toBe(true)
+  })
+
   it('caps the store on write: the 2001st pin drops the oldest record, not the file growth', async () => {
     // seed a full store at the cap, ordered oldest-first
     const seed: BrowserAnnotation[] = Array.from({ length: ANNOTATION_RECORDS_MAX }, (_, i) => ({
       id: `ann-${i}`,
       url: URL_A_KEY,
       selector: `#el-${i}`,
+      xpath: `/html/body/div[${i + 1}]`,
       tagName: 'BUTTON',
       textSnippet: 'x',
       rect: { x: 0, y: 0, width: 1, height: 1 },

@@ -8,8 +8,17 @@ import { rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
 import { BROWSER_CHANNELS } from '../shared/ipc'
 import type { BrowserPageState, PageAnnotateState } from '../shared/ipc'
 import type { BrowserAnnotation, BrowserAskAboutPayload } from '../shared/annotations'
+import { normalizeViewportRect } from '../shared/annotations'
 import { annotationStorePath, createAnnotationStore } from './annotation-store'
 import type { AnnotationStore } from './annotation-store'
+import {
+  captureRectOf,
+  readAnnotationShotFile,
+  resolveAnnotationShotPath,
+  writeAnnotationShot,
+} from './annotation-shots'
+import type { AnnotationShotFile } from './annotation-shots'
+import { fetchFaviconDataUrl } from './favicon-fetch'
 import { resolveAddressInput } from './url-input'
 import { decideNavigation, decideWindowOpen, isPaletteSummonChord } from './navigation-policy'
 import {
@@ -22,16 +31,25 @@ import { applyNavigation, applyPageFavicon, applyPageTitle, type TabMetadata } f
 /**
  * The browser app's main module: the shell-facing face the AppDescriptor
  * dispatches through, plus the per-tab machinery. One browser tab is two
- * nested views —
+ * views —
  *
  * - the **chrome view** (this app's renderer: address bar, back/forward/
  *   reload/stop), created by `createBrowserView` and laid out by the shell's
  *   TabManager like any document tab's view;
- * - the **page view**, a child of the chrome view that the page's webContents
- *   renders into, bounds-synced to the rect the chrome reports for its
- *   content area. Nesting (rather than a sibling view the shell would have to
- *   keep in step) is what lets the page ride along for free when the tab is
- *   moved, hidden, detached or torn off.
+ * - the **page view**, a sibling of the chrome view in the host window's
+ *   contentView, bounds-synced to the chrome's own bounds plus the rect the
+ *   chrome reports for its content area.
+ *
+ * The page is deliberately NOT a child of the chrome view. Nesting it there
+ * composites nowhere on the current Electron/platform combination: the page
+ * loads (title, favicon, screenshots all arrive) while the screen stays
+ * black — moving the page out onto the window's contentView made it paint
+ * immediately. A sibling costs the follow-along the nesting bought for free,
+ * so the shell re-anchors it through the AppDescriptor's `syncView` every
+ * time it parents, lays out, shows, hides or unpairs the chrome view (and
+ * `layoutPage` mirrors the chrome's visibility), and the bounds are window
+ * coordinates: `chromeView.getBounds()` plus the reported content-rect
+ * offset.
  *
  * Pages live in their own `persist:browser` session, so cookies, storage and
  * downloads never mix with the document apps' sessions. That session is
@@ -47,8 +65,10 @@ import { applyNavigation, applyPageFavicon, applyPageTitle, type TabMetadata } f
  * isolated-world overlay the chrome's annotate toggle arms): picking-mode
  * hover/click handling plus the persisted markers, all invisible to page
  * scripts. Annotations live in `userData/browser-annotations.json` keyed by
- * the hash-stripped page URL, and the "Ask AI" action on one is relayed to
- * the Home AI dock through the shell hook (`browser:ask-about`).
+ * the hash-stripped page URL, each an evidence pack — CSS selector + XPath +
+ * the pin-time element shot under `userData/annotation-shots/` — and the
+ * "Ask AI" action on one is relayed to the Home AI dock through the shell
+ * hook (`browser:ask-about`).
  */
 
 /** the partition every page view renders in (chrome views use the default session) */
@@ -114,15 +134,22 @@ export function setBrowserShellHooks(next: BrowserShellHooks | null): void {
 interface BrowserTab {
   /** the chrome view the shell's TabManager hosts (the tab's view) */
   shell: WebContentsView
-  /** the page view nested inside the chrome view */
+  /** the page view, a sibling of the chrome view in the host window's contentView */
   page: WebContentsView
+  /** the window whose contentView currently parents the page view; null while unparented */
+  pageHost: BrowserWindow | null
   metadata: TabMetadata
   loading: boolean
   canGoBack: boolean
   canGoForward: boolean
   /** a navigation the policy refused; the chrome explains it until the next one */
   blockedUrl: string | null
-  /** the content rect as the chrome reported it (page-view bounds, view-local px) */
+  /**
+   * The content rect as the chrome reported it (chrome-local px). Added to the
+   * chrome view's own bounds it is the page view's rect in window coordinates
+   * — the page is a sibling of the chrome, not a child, so this offset is what
+   * keeps the page under the toolbar instead of over it.
+   */
   contentRect: Rectangle | null
   /** the first navigation started: the page view shows, the chrome's empty hint hides */
   hasContent: boolean
@@ -147,6 +174,9 @@ function annotations(): AnnotationStore {
     annotationStore = createAnnotationStore({
       path: () => annotationStorePath(app.getPath('userData')),
       onWriteError: (error) => console.warn('[browser] annotation store write failed:', error),
+      // remove() deletes the record's shot file with the record itself
+      userData: () => app.getPath('userData'),
+      onShotError: (error) => console.warn('[browser] annotation shot delete failed:', error),
     })
   }
   return annotationStore
@@ -212,15 +242,73 @@ function asContentRect(rect: unknown): Rectangle | null {
   return out
 }
 
-/** fit the page view to the chrome's content area (or hold it hidden until content exists) */
+/**
+ * Fit the page view to the chrome's content area, in window coordinates:
+ * chrome bounds plus the reported content-rect offset (or hold it hidden
+ * until content exists to draw).
+ *
+ * The chrome renderer reports the rect in its own CSS pixels. The browser
+ * chrome has not opted into `--ui-scale` (no `zoom: var(--ui-scale)` in its
+ * styles and no zoomFactor set on its webContents), so CSS px and view px are
+ * 1:1 and the report needs no rescaling — the day the chrome opts in, the
+ * report must divide by the effective zoom before it can be treated as view
+ * px again.
+ */
 function layoutPage(tab: BrowserTab): void {
   if (tab.fullscreenRestore !== null) return
-  if (!tab.hasContent || tab.contentRect === null) {
+  if (tab.pageHost === null || !tab.hasContent || tab.contentRect === null) {
     tab.page.setVisible(false)
     return
   }
-  tab.page.setBounds(tab.contentRect)
-  tab.page.setVisible(true)
+  const base = tab.shell.getBounds()
+  const rect = tab.contentRect
+  tab.page.setBounds({
+    x: base.x + rect.x,
+    y: base.y + rect.y,
+    width: rect.width,
+    height: rect.height,
+  })
+  // the page shows exactly while the chrome does: the TabManager hides the
+  // chrome view when another tab takes the stage, and the page — a sibling,
+  // which nothing hides for it — must not stay painted over that tab
+  tab.page.setVisible(tab.shell.getVisible())
+}
+
+/** take the page view out of its host window's contentView, if it has one */
+function detachPageFromHost(tab: BrowserTab): void {
+  const host = tab.pageHost
+  if (host === null) return
+  tab.pageHost = null
+  // the window may already be tearing down with the tab (a close walked here
+  // through the chrome's own 'destroyed'); its contentView subtree is gone
+  // with it, so there is nothing left to remove the page from
+  if (!host.isDestroyed()) host.contentView.removeChildView(tab.page)
+}
+
+/**
+ * Re-anchor a tab's page view after the shell moved, laid out, showed, hid or
+ * unpairs the chrome view. `host` is the window whose contentView should carry
+ * the page (null: unparent it — the chrome is leaving a window, and a page
+ * left behind would either paint over the shell or die with the window's
+ * teardown). The page is appended after the chrome view, so it stacks above
+ * it: the chrome's toolbar must never cover the page.
+ *
+ * The shell reaches this through the AppDescriptor's `syncView` — the same
+ * registry contract as `createView`/`teardown` — because only the shell knows
+ * when and where it re-hosts a tab view; the browser module never imports
+ * shell code.
+ */
+export function syncBrowserPageView(chrome: WebContents, host: BrowserWindow | null): void {
+  const tab = tabs.get(chrome.id)
+  if (!tab || tab.page.webContents.isDestroyed()) return
+  if (tab.pageHost !== host) {
+    detachPageFromHost(tab)
+    if (host && !host.isDestroyed()) {
+      host.contentView.addChildView(tab.page)
+      tab.pageHost = host
+    }
+  }
+  layoutPage(tab)
 }
 
 // ── the page view ──────────────────────────────────────────────────────────
@@ -324,7 +412,19 @@ function bindPage(tab: BrowserTab): void {
   })
   wc.on('page-favicon-updated', (_event, favicons) => {
     tab.metadata = applyPageFavicon(tab.metadata, favicons)
-    hooks?.setTabFavicon(shellWc, tab.metadata.faviconUrl)
+    // the strip renders under `img-src 'self' data:` — a remote favicon URL can
+    // never load there, so the main process fetches it and hands over a data
+    // URL; until that lands the strip keeps its glyph fallback
+    const url = tab.metadata.faviconUrl
+    if (url) {
+      void fetchFaviconDataUrl(url).then((dataUrl) => {
+        if (dataUrl && tab.metadata.faviconUrl === url) {
+          hooks?.setTabFavicon(shellWc, dataUrl)
+        }
+      })
+    } else {
+      hooks?.setTabFavicon(shellWc, null)
+    }
     pushState(tab)
   })
   wc.on('will-navigate', (event, url) => {
@@ -360,7 +460,9 @@ function bindPage(tab: BrowserTab): void {
   })
   // HTML fullscreen stays tab-local: the page covers the browser chrome, not
   // the desktop's tab strip (a deliberate wave-1 simplification — the slides
-  // show's strip-covering bleed is a document-presentation affordance)
+  // show's strip-covering bleed is a document-presentation affordance). The
+  // chrome view's bounds are window coordinates and the page is its sibling,
+  // so the chrome's full rect is exactly the page's fullscreen rect.
   wc.on('enter-html-full-screen', () => {
     if (tab.fullscreenRestore !== null) return
     const full = tab.shell.getBounds()
@@ -384,10 +486,12 @@ function bindPage(tab: BrowserTab): void {
 // ── the chrome view (the tab's view) ───────────────────────────────────────
 
 /**
- * Build one browser tab's chrome view with its nested page view. The TabManager
- * parents, bounds and shows this view like any document tab's; the page view
- * is already its child and follows along. No path argument — a browser tab is
- * never opened *from* a file (the html app owns .html files).
+ * Build one browser tab's chrome view. The TabManager parents, bounds and
+ * shows this view like any document tab's; the tab's page view is created
+ * alongside it but left unparented and hidden — the shell's `syncView` call
+ * (fired by activation) anchors it into the same window's contentView and
+ * `layoutPage` keeps it fitted. No path argument — a browser tab is never
+ * opened *from* a file (the html app owns .html files).
  */
 export function createBrowserView(): WebContentsView {
   registerBrowserIpc()
@@ -402,6 +506,7 @@ export function createBrowserView(): WebContentsView {
   const tab: BrowserTab = {
     shell: shellView,
     page: createPageView(),
+    pageHost: null,
     metadata: { title: '', faviconUrl: null },
     loading: false,
     canGoBack: false,
@@ -412,7 +517,6 @@ export function createBrowserView(): WebContentsView {
     fullscreenRestore: null,
     annotateMode: false,
   }
-  shellView.addChildView(tab.page)
   tab.page.setVisible(false)
   tabs.set(shellView.webContents.id, tab)
   tabsByPage.set(tab.page.webContents.id, tab)
@@ -431,16 +535,17 @@ export async function requestBrowserClose(): Promise<boolean> {
 }
 
 /**
- * Tab teardown beyond the chrome view's own webContents.close(): the nested
- * page view is a separate renderer the shell does not know about, so it is
- * removed and closed here, and the tab's tracking dropped.
+ * Tab teardown beyond the chrome view's own webContents.close(): the page view
+ * is a separate renderer the shell does not know about, so it is taken out of
+ * its host window's contentView and closed here, and the tab's tracking
+ * dropped.
  */
 export function teardownBrowserTab(contents: WebContents): void {
   const tab = tabs.get(contents.id)
   if (!tab) return
   tabs.delete(contents.id)
   tabsByPage.delete(tab.page.webContents.id)
-  if (!tab.shell.webContents.isDestroyed()) tab.shell.removeChildView(tab.page)
+  detachPageFromHost(tab)
   if (!tab.page.webContents.isDestroyed()) tab.page.webContents.close()
 }
 
@@ -461,6 +566,57 @@ export function browserNavigate(contents: WebContents, url: string): void {
  */
 export function readAnnotationsFor(url: string): BrowserAnnotation[] {
   return [...annotations().listForUrl(url)]
+}
+
+/** the shot payload `browser:read_annotation_shot` answers (agent-core's shape) */
+export interface BrowserAnnotationShotResult extends AnnotationShotFile {
+  /** the annotation the shot belongs to (echoed for the model-facing text) */
+  id: string
+}
+
+/**
+ * One annotation's pin-time element shot, by annotation id — the browser
+ * skill's read-only `browser:read_annotation_shot` tool and the Ask AI card's
+ * thumbnail both come here. The id whitelist is the store itself: only a
+ * *known* record whose `shotPath` is the canonical shots shape resolves, and
+ * the resolved path is re-checked to stay inside the shots directory. null
+ * for an unknown id, a shotless record, or a missing/corrupt file.
+ */
+export function readAnnotationShot(id: string): BrowserAnnotationShotResult | null {
+  if (typeof id !== 'string' || id.trim() === '') return null
+  const record = annotations().byId(id)
+  if (record === undefined || record.shotPath === undefined) return null
+  const path = resolveAnnotationShotPath(app.getPath('userData'), record.shotPath)
+  if (path === null) return null
+  const shot = readAnnotationShotFile(path)
+  if (shot === null) return null
+  return { id: record.id, ...shot }
+}
+
+/**
+ * Capture one pin's element shot and record it: crop the reported viewport
+ * rect out of the page view, write the PNG under the shots directory, and
+ * stamp the record's `shotPath`. Fire-and-forget on purpose — the pin itself
+ * has already landed, and a capture that fails (hidden view, destroyed
+ * renderer, disk error) leaves the record simply without a shot.
+ */
+async function attachPinShot(
+  tab: BrowserTab,
+  id: string,
+  viewportRect: { x: number; y: number; width: number; height: number },
+): Promise<void> {
+  const wc = tab.page.webContents
+  try {
+    if (wc.isDestroyed()) return
+    const rect = captureRectOf(viewportRect, wc.getZoomFactor(), tab.page.getBounds())
+    if (rect === null) return
+    const image = await wc.capturePage(rect)
+    if (image.isEmpty()) return
+    const shotPath = await writeAnnotationShot(app.getPath('userData'), id, image.toPNG())
+    if (annotations().setShotPath(id, shotPath)) pushAnnotateStateToAll()
+  } catch (error) {
+    console.warn('[browser] annotation shot capture failed:', error)
+  }
 }
 
 // ── IPC: the chrome renderer's controls ────────────────────────────────────
@@ -545,6 +701,15 @@ function registerBrowserIpc(): void {
     const record = annotations().add(tab.page.webContents.getURL(), draft)
     if (record === null) return ''
     pushAnnotateStateToAll()
+    // the evidence pack's image half: the pin draft's viewport rect (stale on
+    // scroll, so consumed immediately) cropped out of the page view. The pin
+    // has already landed — a capture that fails just leaves the record
+    // shotless, never blocks the pin.
+    const viewport =
+      draft !== null && typeof draft === 'object'
+        ? normalizeViewportRect((draft as { viewportRect?: unknown }).viewportRect)
+        : null
+    if (viewport !== null) void attachPinShot(tab, record.id, viewport)
     return record.id
   })
 
@@ -592,9 +757,10 @@ function registerBrowserIpc(): void {
 // ── standalone mode (`npm run dev -w @genoffice/browser`) ──────────────────
 
 /**
- * Standalone window: the chrome view hosts the window itself so the page view
- * keeps its nested place. The shell registers 'app:get-theme' for hosted tabs;
- * standalone supplies its own.
+ * Standalone window: the chrome view is a child of the window's contentView —
+ * the same sibling arrangement the shell hosts, with this module playing the
+ * shell's syncView part itself on every fit. The shell registers
+ * 'app:get-theme' for hosted tabs; standalone supplies its own.
  */
 export function startBrowserStandalone(): void {
   configureBrowserRuntime({
@@ -613,13 +779,21 @@ export function startBrowserStandalone(): void {
       title: 'GenOffice Browser',
     })
     const view = createBrowserView()
-    win.contentView = view
+    // a child of the contentView, not the contentView itself: the page view is
+    // the chrome's sibling in this same contentView (nesting under the chrome
+    // does not composite), so the chrome must stay an ordinary child view
+    win.contentView.addChildView(view)
     const fit = (): void => {
       const { width, height } = win.getContentBounds()
       view.setBounds({ x: 0, y: 0, width, height })
+      syncBrowserPageView(view.webContents, win)
     }
     win.on('resize', fit)
     fit()
+    // the window's own webContents is the base layer now (the chrome is its
+    // child, not its replacement), and it takes the initial focus: hand it to
+    // the chrome so the address bar answers the first keystroke
+    view.webContents.focus()
   })
   app.on('window-all-closed', () => app.quit())
 }

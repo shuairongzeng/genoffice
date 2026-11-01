@@ -13,12 +13,15 @@ import type { AgentSkill, ExecutedToolCall } from './skill'
  * a tab closed mid-run degrades to a guiding error instead of a failed
  * mystery. Unlike the proxied apps, this surface is not read-only: fill_field
  * and click_element change the live page, so both carry risk:'high' and stop
- * at the host's confirmTool gate (the dock's allow/deny card).
+ * at the host's confirmTool gate (the dock's allow/deny card). The actions'
+ * read-only twin, read_annotation_shot, pulls one annotation's pin-time
+ * screenshot off the suite's own disk — as risk-free as read_page itself.
  */
 
 /** tool names, prefixed so composeSkills never sees a collision */
 export const BROWSER_READ_PAGE_TOOL = 'browser:read_page'
 export const BROWSER_SCREENSHOT_TOOL = 'browser:screenshot_page'
+export const BROWSER_READ_ANNOTATION_SHOT_TOOL = 'browser:read_annotation_shot'
 export const BROWSER_FILL_FIELD_TOOL = 'browser:fill_field'
 export const BROWSER_CLICK_TOOL = 'browser:click_element'
 
@@ -36,10 +39,22 @@ export interface BrowserTabSnapshot {
  * there and never assumes a field.
  */
 export interface BrowserPageAnnotation {
+  /** the annotation's stable id — the key `read_annotation_shot` takes */
+  id?: string
   selector?: string
+  /** the element's absolute XPath (`/html/body/…`) — the twin of the selector */
+  xpath?: string
   textSnippet?: string
   note?: string
   url?: string
+  /** true when a pin-time element shot exists (fetch it with `read_annotation_shot`) */
+  hasShot?: boolean
+  /**
+   * The shot's path relative to the browser's userData — carried by the
+   * `browser:ask-about` push for the Ask AI card's thumbnail; never sent to
+   * the model (the id-keyed tool is the model's only way in).
+   */
+  shotPath?: string
 }
 
 /** one interactive element of the page outline, with the selector to address it */
@@ -85,6 +100,18 @@ export interface BrowserScreenshot {
   height: number
 }
 
+/**
+ * What a successful `read_annotation_shot` answers: one annotation's pin-time
+ * element shot as raw image bytes. `id` echoes the annotation it belongs to.
+ */
+export interface BrowserAnnotationShot {
+  id: string
+  base64: string
+  mime: string
+  width: number
+  height: number
+}
+
 /** what fill_field / click_element answer over the bridge */
 export interface BrowserActionResult {
   ok: boolean
@@ -100,6 +127,12 @@ export interface BrowserSkillDeps {
   openTabs(): readonly BrowserTabSnapshot[] | null
   readPage(): Promise<BrowserPageRead>
   screenshotPage(): Promise<BrowserScreenshot>
+  /**
+   * One annotation's pin-time element shot, by annotation id — null when the
+   * id is unknown, the record has no shot, or the file is gone. Read-only and
+   * risk-free: the bytes come from the suite's own shots directory.
+   */
+  readAnnotationShot(id: string): Promise<BrowserAnnotationShot | null>
   fillField(selector: string, value: string): Promise<BrowserActionResult>
   clickElement(selector: string): Promise<BrowserActionResult>
 }
@@ -173,8 +206,13 @@ export function formatPageOutline(
       const note = a.note ? clip(a.note, budget.annotationChars) : ''
       const snippet = a.textSnippet ? clip(a.textSnippet, budget.annotationChars) : ''
       const where = a.selector ? ` (${a.selector})` : ''
+      // the evidence pack's addressing half: the XPath rides along, and the
+      // shot marker tells the model the id is fetchable as an image
+      const xpath = a.xpath ? ` [xpath ${clip(a.xpath, budget.annotationChars)}]` : ''
+      const id = a.id ? ` id=${a.id}` : ''
+      const shot = a.hasShot ? ` · screenshot on file — browser:read_annotation_shot` : ''
       lines.push(
-        `- ${[note, snippet && `"${snippet}"`].filter(Boolean).join(' — ') || '(unlabeled)'}${where}`,
+        `- ${[note, snippet && `"${snippet}"`].filter(Boolean).join(' — ') || '(unlabeled)'}${where}${xpath}${id}${shot}`,
       )
     }
   }
@@ -197,11 +235,16 @@ The desktop's browser app is open; these tools see and act on its *active* tab
 (the tab currently in front). Each turn's context lists the open browser tabs.
 - Read before you act: browser:read_page returns the page's outline — title,
   URL, text blocks, and every interactive element with the CSS selector that
-  addresses it — plus the annotations the user left on the page. Selectors from
-  that list are the addressing key for the action tools; inventing one usually
-  fails with "element not found".
+  addresses it — plus the annotations the user left on the page (each with its
+  selector, XPath and id, and a marker when a pin-time screenshot of the
+  annotated element exists). Selectors from that list are the addressing key
+  for the action tools; inventing one usually fails with "element not found".
 - browser:screenshot_page attaches a screenshot of the page to the next turn as
   visual input — use it when the outline cannot answer a visual question.
+- browser:read_annotation_shot attaches the screenshot the user's annotation
+  was pinned with (the element as it looked when they marked it) — call it with
+  an annotation id from read_page whose line says a screenshot is on file. It
+  is a read from the suite's own disk; it never touches the live page.
 - browser:fill_field and browser:click_element change the live page. Both are
   risk-gated: the user approves each call before it runs, a denial means "do
   not retry as-is", and a page that changed since the read fails with a
@@ -228,6 +271,8 @@ const DEGRADED = (tool: string): ToolExecution => ({
 /** longest selector/value the tools accept (the loop's own schema check is per-type) */
 export const MAX_SELECTOR_CHARS = 500
 export const MAX_FILL_VALUE_CHARS = 10_000
+/** longest annotation id read_annotation_shot accepts (ids are uuid-shaped) */
+export const MAX_ANNOTATION_ID_CHARS = 100
 
 const INPUT_TOOLS: Record<string, AgentToolDef> = {
   [BROWSER_FILL_FIELD_TOOL]: {
@@ -299,7 +344,8 @@ export function createBrowserSkill(deps: BrowserSkillDeps): AgentSkill {
           description:
             'Read the outline of the active browser page: title, URL, main text blocks and ' +
             'every interactive element with its CSS selector, plus the annotations the user ' +
-            'left on the page. Read this before acting on a page.',
+            'left on the page (selector, XPath, id, and which carry a screenshot). Read this ' +
+            'before acting on a page.',
           inputSchema: { type: 'object', properties: {} },
         },
         {
@@ -309,6 +355,24 @@ export function createBrowserSkill(deps: BrowserSkillDeps): AgentSkill {
             'the conversation (visual input). Use it when the text outline cannot answer a ' +
             'visual question about the page.',
           inputSchema: { type: 'object', properties: {} },
+        },
+        {
+          name: BROWSER_READ_ANNOTATION_SHOT_TOOL,
+          description:
+            'Attach the pin-time screenshot of one annotation the user left on a browser ' +
+            'page — the annotated element exactly as it looked when they marked it. `id` must ' +
+            'come from a browser:read_page annotation line marked "screenshot on file". ' +
+            'Read-only; the live page is not touched.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: "the annotation id from read_page's annotation line",
+              },
+            },
+            required: ['id'],
+          },
         },
         INPUT_TOOLS[BROWSER_FILL_FIELD_TOOL]!,
         INPUT_TOOLS[BROWSER_CLICK_TOOL]!,
@@ -330,6 +394,22 @@ export function createBrowserSkill(deps: BrowserSkillDeps): AgentSkill {
             return await executeRead(deps)
           case BROWSER_SCREENSHOT_TOOL:
             return await executeScreenshot(deps)
+          case BROWSER_READ_ANNOTATION_SHOT_TOOL: {
+            const id = call.input.id
+            if (typeof id !== 'string' || !id.trim()) {
+              return badInput(
+                BROWSER_READ_ANNOTATION_SHOT_TOOL,
+                '`id` must be a non-empty string (an annotation id from read_page)',
+              )
+            }
+            if (id.length > MAX_ANNOTATION_ID_CHARS) {
+              return badInput(
+                BROWSER_READ_ANNOTATION_SHOT_TOOL,
+                `\`id\` must be at most ${MAX_ANNOTATION_ID_CHARS} characters`,
+              )
+            }
+            return await executeReadShot(deps, id)
+          }
           case BROWSER_FILL_FIELD_TOOL: {
             const selector = call.input.selector
             const value = call.input.value
@@ -418,6 +498,30 @@ async function executeScreenshot(deps: BrowserSkillDeps): Promise<ToolExecution>
       'attached to the conversation as visual input. Describe what you need from it in your ' +
       'own words; do not repeat this notice.',
     summary: `screenshot ${label}`,
+    images,
+  }
+}
+
+async function executeReadShot(deps: BrowserSkillDeps, id: string): Promise<ToolExecution> {
+  const shot = await deps.readAnnotationShot(id)
+  if (shot === null) {
+    return {
+      output:
+        `no screenshot is on file for annotation ${id} — it was pinned without one, deleted, ` +
+        'or the id does not match a read_page annotation line. Re-read the page and use an id ' +
+        'from a line marked "screenshot on file", or fall back to browser:screenshot_page for ' +
+        'the live page.',
+      isError: true,
+      summary: 'annotation shot missing',
+    }
+  }
+  const images: AgentImage[] = [{ base64: shot.base64, mime: shot.mime }]
+  return {
+    output:
+      `The pin-time screenshot of annotation ${shot.id} (${shot.width}×${shot.height}) — the ` +
+      'annotated element exactly as it looked when the user marked it — is attached as visual ' +
+      'input. Describe what you need from it in your own words; do not repeat this notice.',
+    summary: `annotation shot ${shot.id}`,
     images,
   }
 }

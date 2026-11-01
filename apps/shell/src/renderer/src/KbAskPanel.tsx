@@ -4,6 +4,7 @@ import {
   ATTACHMENT_IMAGE_EXTS,
   BROWSER_CLICK_TOOL,
   BROWSER_FILL_FIELD_TOOL,
+  BROWSER_READ_ANNOTATION_SHOT_TOOL,
   BROWSER_READ_PAGE_TOOL,
   BROWSER_SCREENSHOT_TOOL,
   composeSkills,
@@ -21,6 +22,7 @@ import {
   type AgentRunHandle,
   type AttachmentInfo,
   type BrowserActionResult,
+  type BrowserAnnotationShot,
   type BrowserPageRead,
   type BrowserScreenshot,
   type BrowserTabSnapshot,
@@ -65,6 +67,7 @@ import type {
 import { AskAttachments } from './AskAttachments'
 import { planPendingAskQuery, type PendingAskQuery } from './ask-intent'
 import {
+  browserAskEvidenceSuffix,
   browserAskLabelOf,
   browserAskScaffoldParams,
   browserAskUrlOf,
@@ -127,6 +130,24 @@ function browserBridgeCall(tool: string, input: Record<string, unknown>): Promis
     )
   }
   return call(tool, input)
+}
+
+/**
+ * One annotation's pin-time shot, by id — null when it cannot be read (the
+ * bridge is stale, the record predates shots, the file is gone). The read is
+ * the browser skill's own restricted channel, so only the shots directory is
+ * ever reachable; the panel uses it for the parked card's thumbnail and for
+ * the question's image attachment.
+ */
+async function readBrowserNoteShot(id: string): Promise<BrowserAnnotationShot | null> {
+  try {
+    const shot = (await browserBridgeCall(BROWSER_READ_ANNOTATION_SHOT_TOOL, {
+      id,
+    })) as BrowserAnnotationShot | null
+    return shot ?? null
+  } catch {
+    return null
+  }
 }
 
 /** the corpus scopes app-settings `kbScope` may hold (mirrors home-api's KbScope) */
@@ -613,6 +634,17 @@ export function KbAskPanel({
    * the draft, and never sent on its own — the person's Enter is what sends.
    */
   const [browserNote, setBrowserNote] = useState<BrowserAskAboutPayload | null>(null)
+  /**
+   * The parked annotation's pin-time shot: the card's thumbnail and the
+   * question's image attachment, read once by annotation id through the
+   * browser skill's restricted channel (the shots directory is the only thing
+   * it can read). Keyed by the note's id so a second push landing before the
+   * first read resolves cannot show the wrong element's picture.
+   */
+  const [browserNoteShot, setBrowserNoteShot] = useState<{
+    id: string
+    shot: BrowserAnnotationShot
+  } | null>(null)
   /** the scaffold this panel last parked, so dismissing the card un-parks exactly it */
   const browserScaffoldRef = useRef('')
   const [attachedSkills, setAttachedSkills] = useState<string[]>([])
@@ -1146,6 +1178,10 @@ export function KbAskPanel({
       readPage: () => browserBridgeCall(BROWSER_READ_PAGE_TOOL, {}) as Promise<BrowserPageRead>,
       screenshotPage: () =>
         browserBridgeCall(BROWSER_SCREENSHOT_TOOL, {}) as Promise<BrowserScreenshot>,
+      readAnnotationShot: (id) =>
+        browserBridgeCall(BROWSER_READ_ANNOTATION_SHOT_TOOL, {
+          id,
+        }) as Promise<BrowserAnnotationShot | null>,
       fillField: (selector, value) =>
         browserBridgeCall(BROWSER_FILL_FIELD_TOOL, {
           selector,
@@ -1387,19 +1423,33 @@ export function KbAskPanel({
 
   // The browser's "ask AI about this" entry (W2a): an annotation push parks
   // here as a draft question. Park semantics — nothing sends itself; the card
-  // above the composer shows what was marked, the draft carries the
-  // scaffolded question, and the composer takes the focus so the next
-  // keystroke finishes it. t reaches a mount-only listener through a ref (t
-  // is not referentially stable, and a language switch mid-session must still
-  // localize the next scaffold).
+  // above the composer shows what was marked (with the element's XPath and,
+  // when the capture succeeded, its pin-time screenshot), the draft carries
+  // the scaffolded question plus the evidence line, and the composer takes the
+  // focus so the next keystroke finishes it. t reaches a mount-only listener
+  // through a ref (t is not referentially stable, and a language switch
+  // mid-session must still localize the next scaffold).
   const tRef = useRef(t)
   tRef.current = t
+
   useEffect(() => {
     const off = window.aiOffice?.onBrowserAskAbout?.((raw) => {
       const note = normalizeBrowserAskAbout(raw)
       if (!note) return
       setBrowserNote(note)
-      const scaffold = tRef.current('askBrowserNoteDraft', browserAskScaffoldParams(note))
+      setBrowserNoteShot(null)
+      const id = note.id
+      if (id && note.shotPath) {
+        void readBrowserNoteShot(id).then((shot) => {
+          if (shot) setBrowserNoteShot({ id, shot })
+        })
+      }
+      const scaffold = [
+        tRef.current('askBrowserNoteDraft', browserAskScaffoldParams(note)),
+        browserAskEvidenceSuffix(note),
+      ]
+        .filter(Boolean)
+        .join('\n')
       browserScaffoldRef.current = scaffold
       setDraft(scaffold)
       composerRef.current?.focus()
@@ -1407,9 +1457,10 @@ export function KbAskPanel({
     return off
   }, [])
 
-  /** the card's ×: drop the parked annotation, and the scaffold with it */
+  /** the card's ×: drop the parked annotation, the scaffold and the shot with it */
   const dismissBrowserNote = (): void => {
     setBrowserNote(null)
+    setBrowserNoteShot(null)
     if (browserScaffoldRef.current && draft === browserScaffoldRef.current) setDraft('')
     browserScaffoldRef.current = ''
   }
@@ -1445,8 +1496,15 @@ export function KbAskPanel({
     // next model request: the snapshot must be as fresh as the manifest's
     refreshBrowserTabs()
     // the parked annotation question is answered by this send: the card goes,
-    // with it the scaffold (the question text itself already carries the content)
+    // with it the scaffold (the question text itself already carries the
+    // content and the evidence line). The note's pin-time shot survives the
+    // clear — it becomes this question's image, read below.
+    const note = browserNote
+    const noteId = note?.id
+    const noteHasShot = !!(note?.shotPath && noteId)
+    const cachedShot = noteHasShot && browserNoteShot?.id === noteId ? browserNoteShot.shot : null
     setBrowserNote(null)
+    setBrowserNoteShot(null)
     browserScaffoldRef.current = ''
     try {
       const files = await window.aiOffice.kbList()
@@ -1503,12 +1561,27 @@ export function KbAskPanel({
     ])
     persist({ role: 'user', text: instruction })
     try {
-      const [text, images] = await Promise.all([
+      // the evidence pack's image half: the annotation's pin-time shot rides
+      // the question as visual input (the same images channel file
+      // attachments use). The card's cached read is reused when it is still
+      // current; otherwise the restricted id-keyed channel reads it now —
+      // the user may have hit Enter before the park's read resolved.
+      const readNoteImage = async (): Promise<AgentImage | null> => {
+        if (!noteHasShot) return null
+        const shot = cachedShot ?? (noteId ? await readBrowserNoteShot(noteId) : null)
+        if (shot === null) {
+          notice(t('askImageReadFail', { name: browserAskLabelOf(note!) }))
+          return null
+        }
+        return { base64: shot.base64, mime: shot.mime }
+      }
+      const [text, images, noteImage] = await Promise.all([
         withSkillBodies(instruction, skills),
         collectImages(files),
+        readNoteImage(),
       ])
       if (askSeqRef.current !== seq) return
-      const handle = loopRef.current!.run(text, images)
+      const handle = loopRef.current!.run(text, noteImage ? [...images, noteImage] : images)
       trackRun(handle, instruction)
     } catch {
       finishLast()
@@ -1864,9 +1937,20 @@ export function KbAskPanel({
         header={
           <>
             {/* the parked "ask AI about this" annotation (W2a): a card-style
-                pending draft above the composer; × drops it with its scaffold */}
+                pending draft above the composer; × drops it with its scaffold.
+                The evidence pack shows as the element's XPath line and, when
+                the capture succeeded, the pin-time screenshot thumbnail. */}
             {browserNote && (
               <div className="kb-ask-browser-note" role="status">
+                {browserNoteShot !== null && browserNoteShot.id === browserNote.id && (
+                  <img
+                    className="kb-ask-browser-note-shot"
+                    src={`data:${browserNoteShot.shot.mime};base64,${browserNoteShot.shot.base64}`}
+                    alt={browserAskLabelOf(browserNote)}
+                    width={browserNoteShot.shot.width}
+                    height={browserNoteShot.shot.height}
+                  />
+                )}
                 <span className="kb-ask-browser-note-label">{t('askBrowserNote')}</span>
                 <span className="kb-ask-browser-note-text" title={browserAskLabelOf(browserNote)}>
                   {browserAskLabelOf(browserNote)}
@@ -1883,6 +1967,11 @@ export function KbAskPanel({
                 >
                   ×
                 </button>
+                {browserNote.xpath && (
+                  <span className="kb-ask-browser-note-xpath" title={browserNote.xpath}>
+                    {browserNote.xpath}
+                  </span>
+                )}
               </div>
             )}
             {/* the round scope: while attached, every ask searches, reads and

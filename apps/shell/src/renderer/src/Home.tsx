@@ -949,6 +949,16 @@ export function Home() {
       else openAskDock()
     })
   }, [handAskQuery, openAskDock, showDesktop])
+  /**
+   * A webpage annotation's "Ask AI" arrives from the browser (the panel parks
+   * the draft on its own subscription); Home's share of the work is making
+   * sure the dock is actually open — a draft parked in a collapsed dock is
+   * invisible.
+   */
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    return api.onBrowserAskAbout?.(() => openAskDock())
+  }, [openAskDock])
   const openTemplates = useCallback(() => setTemplatesOpen(true), [])
   const openSettings = useCallback((target: SettingsTarget) => setSettingsRequest(target), [])
   const openFolderView = useCallback((root: FolderRoot) => selectFolder(root.path), [selectFolder])

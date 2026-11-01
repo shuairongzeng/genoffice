@@ -55,6 +55,7 @@ import {
 import {
   createBrowserView,
   requestBrowserClose,
+  syncBrowserPageView,
   teardownBrowserTab,
 } from '../../../browser/src/main/browser-main'
 import type { DocumentTabKind, TabKind } from '../shared/tabs-api'
@@ -148,6 +149,18 @@ export interface AppDescriptor {
   requestClose: (wc: WebContents, win: BrowserWindow) => Promise<boolean>
   /** editor teardown beyond `view.webContents.close()` (docs: main-process bookkeeping) */
   teardown?: (wc: WebContents) => void
+  /**
+   * Re-anchor the app's companion views after the shell parented, laid out,
+   * showed, hid or unpairs this tab's view. The browser tab is two views —
+   * the chrome view the TabManager hosts, and the page view beside it in the
+   * same window's contentView (a page nested under the chrome does not
+   * composite on this Electron/platform combination) — so every such change
+   * must be mirrored for the page to follow its tab's window, bounds and
+   * visibility. `host` is the contentView that carries the chrome view, null
+   * while it is between windows. Absent when the app's tab is one
+   * self-contained view.
+   */
+  syncView?: (wc: WebContents, host: BrowserWindow | null) => void
   /** clear the dirty flag before a reload (pdf: pending markup edits) */
   clearDirty?: (wc: WebContents) => void
   /** app-owned menu builder for tabs of this kind; shell-owned builders are registered at boot */
@@ -321,13 +334,16 @@ export const documentApps: readonly AppDescriptor[] = [
     untitledTitle: 'GenOffice Browser',
     untitledTitleKey: 'untitledBrowser',
     // no path argument: a browser tab is never opened from a file; the page
-    // view is a nested child of the chrome view this builds
+    // view is a sibling of the chrome view this builds, anchored by syncView
     createView: () => createBrowserView(),
     // a browser tab holds no unsaved document state, so there is no dirty
     // answer and closing never prompts
     requestClose: requestBrowserClose,
-    // the nested page view is a renderer the TabManager does not know about
+    // the page view is a renderer the TabManager does not know about
     teardown: teardownBrowserTab,
+    // the page view rides beside the chrome view, not under it: re-anchor it
+    // whenever the shell moves the chrome
+    syncView: syncBrowserPageView,
     agentDocument: false,
   },
 ]

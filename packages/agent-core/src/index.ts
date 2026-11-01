@@ -46,8 +46,10 @@ export type {
 export {
   BROWSER_CLICK_TOOL,
   BROWSER_FILL_FIELD_TOOL,
+  BROWSER_READ_ANNOTATION_SHOT_TOOL,
   BROWSER_READ_PAGE_TOOL,
   BROWSER_SCREENSHOT_TOOL,
+  MAX_ANNOTATION_ID_CHARS,
   MAX_FILL_VALUE_CHARS,
   MAX_SELECTOR_CHARS,
   READ_PAGE_BUDGET,
@@ -56,6 +58,7 @@ export {
 } from './browser-skill'
 export type {
   BrowserActionResult,
+  BrowserAnnotationShot,
   BrowserOutlineData,
   BrowserOutlineElement,
   BrowserPageAnnotation,

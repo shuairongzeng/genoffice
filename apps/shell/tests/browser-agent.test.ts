@@ -16,6 +16,7 @@ import type { WebContents } from 'electron'
 
 const browserExports = vi.hoisted(() => ({
   readAnnotationsFor: undefined as undefined | ((url: string) => unknown),
+  readAnnotationShot: undefined as undefined | ((id: string) => unknown),
 }))
 
 vi.mock('../../browser/src/main/browser-main', () => browserExports)
@@ -50,12 +51,14 @@ vi.mock('electron', () => ({
 import {
   BROWSER_CLICK_TOOL,
   BROWSER_FILL_FIELD_TOOL,
+  BROWSER_READ_ANNOTATION_SHOT_TOOL,
   BROWSER_READ_PAGE_TOOL,
   BROWSER_SCREENSHOT_TOOL,
   type BrowserPageRead,
 } from '@genoffice/agent-core'
 import {
   BrowserPageLinks,
+  browserAnnotationShotFor,
   browserAnnotationsFor,
   executeBrowserSkillAction,
   registerBrowserSkillIpc,
@@ -241,6 +244,30 @@ describe('browserAnnotationsFor (the readAnnotationsFor contract)', () => {
     expect(out[1]!.note!.length).toBe(400)
   })
 
+  it('carries the evidence pack fields forward, but never the shot path', () => {
+    browserExports.readAnnotationsFor = () => [
+      {
+        id: 'ann-1',
+        note: 'what is this?',
+        textSnippet: 'Hello',
+        selector: 'p:nth-of-type(1)',
+        xpath: '/html/body/p[1]',
+        shotPath: 'annotation-shots/ann-1.png',
+      },
+      { note: 'no pack', shotPath: 42 }, // junk shotPath: no marker
+    ]
+    const out = browserAnnotationsFor('https://example.com/')
+    expect(out[0]).toEqual({
+      id: 'ann-1',
+      note: 'what is this?',
+      textSnippet: 'Hello',
+      selector: 'p:nth-of-type(1)',
+      xpath: '/html/body/p[1]',
+      hasShot: true,
+    })
+    expect(out[1]).toEqual({ note: 'no pack' })
+  })
+
   it('a throwing store answers the empty list, not a failed read', () => {
     browserExports.readAnnotationsFor = () => {
       throw new Error('store exploded')
@@ -254,11 +281,61 @@ describe('browserAnnotationsFor (the readAnnotationsFor contract)', () => {
   })
 })
 
+// ── the annotation shot contract ────────────────────────────────────────────
+
+describe('browserAnnotationShotFor (the readAnnotationShot contract)', () => {
+  beforeEach(() => {
+    browserExports.readAnnotationShot = undefined
+  })
+
+  const SHOT = { id: 'ann-1', base64: 'AAAA', mime: 'image/png', width: 4, height: 2 }
+
+  it('answers null when the browser side has no function yet', () => {
+    browserExports.readAnnotationShot = undefined
+    expect(browserAnnotationShotFor('ann-1')).toBeNull()
+  })
+
+  it('keeps a well-formed shot and clips its id', () => {
+    browserExports.readAnnotationShot = () => SHOT
+    expect(browserAnnotationShotFor('ann-1')).toEqual(SHOT)
+    browserExports.readAnnotationShot = () => ({ ...SHOT, id: 'i'.repeat(300) })
+    expect(browserAnnotationShotFor('long')).toMatchObject({ id: 'i'.repeat(100) })
+  })
+
+  it('refuses junk shapes: no bytes, no size, no id, not an object', () => {
+    for (const answer of [
+      null,
+      undefined,
+      'shot',
+      42,
+      {},
+      { ...SHOT, base64: '' },
+      { ...SHOT, mime: '' },
+      { ...SHOT, id: '' },
+      { ...SHOT, width: 0 },
+      { ...SHOT, height: -1 },
+      { ...SHOT, width: NaN },
+      { ...SHOT, base64: 7 },
+    ]) {
+      browserExports.readAnnotationShot = () => answer
+      expect(browserAnnotationShotFor('ann-1')).toBeNull()
+    }
+  })
+
+  it('a throwing reader answers null, not a failed call', () => {
+    browserExports.readAnnotationShot = () => {
+      throw new Error('store exploded')
+    }
+    expect(browserAnnotationShotFor('ann-1')).toBeNull()
+  })
+})
+
 // ── the tool routing ───────────────────────────────────────────────────────
 
 describe('executeBrowserSkillAction', () => {
   beforeEach(() => {
     browserExports.readAnnotationsFor = undefined
+    browserExports.readAnnotationShot = undefined
   })
 
   it('read_page runs the outline script on the page and formats within the budget', async () => {
@@ -443,6 +520,83 @@ describe('executeBrowserSkillAction', () => {
     await expect(
       executeBrowserSkillAction(depsWith(chrome, page, [TAB]), BROWSER_SCREENSHOT_TOOL, {}),
     ).rejects.toThrow(/nothing visible to capture/)
+  })
+
+  it('read_annotation_shot answers the shot without needing a live tab or page', async () => {
+    browserExports.readAnnotationShot = () => ({
+      id: 'ann-1',
+      base64: 'AAAA',
+      mime: 'image/png',
+      width: 4,
+      height: 2,
+    })
+    // no tab at all: the shot is a disk read, not a page read
+    const shot = (await executeBrowserSkillAction(
+      depsWith(makeWc(), makeWc(), []),
+      BROWSER_READ_ANNOTATION_SHOT_TOOL,
+      { id: 'ann-1' },
+    )) as { id: string; base64: string }
+    expect(shot).toMatchObject({ id: 'ann-1', base64: 'AAAA', mime: 'image/png' })
+  })
+
+  it('read_annotation_shot with no shot on file answers the structured error', async () => {
+    browserExports.readAnnotationShot = () => null
+    await expect(
+      executeBrowserSkillAction(
+        depsWith(makeWc(), makeWc(), [TAB]),
+        BROWSER_READ_ANNOTATION_SHOT_TOOL,
+        { id: 'ann-gone' },
+      ),
+    ).rejects.toThrow(/no screenshot is on file for annotation ann-gone/)
+    // the browser module predating the export reads the same way
+    browserExports.readAnnotationShot = undefined
+    await expect(
+      executeBrowserSkillAction(
+        depsWith(makeWc(), makeWc(), [TAB]),
+        BROWSER_READ_ANNOTATION_SHOT_TOOL,
+        { id: 'ann-1' },
+      ),
+    ).rejects.toThrow(/no screenshot is on file/)
+  })
+
+  it('read_annotation_shot refuses a bad id before any read', async () => {
+    browserExports.readAnnotationShot = vi.fn(() => ({
+      id: 'x',
+      base64: 'A',
+      mime: 'image/png',
+      width: 1,
+      height: 1,
+    }))
+    const deps = depsWith(makeWc(), makeWc(), [TAB])
+    await expect(
+      executeBrowserSkillAction(deps, BROWSER_READ_ANNOTATION_SHOT_TOOL, {}),
+    ).rejects.toThrow(/`id` must be a non-empty string/)
+    await expect(
+      executeBrowserSkillAction(deps, BROWSER_READ_ANNOTATION_SHOT_TOOL, { id: '' }),
+    ).rejects.toThrow(/`id` must be a non-empty string/)
+    await expect(
+      executeBrowserSkillAction(deps, BROWSER_READ_ANNOTATION_SHOT_TOOL, { id: 'x'.repeat(101) }),
+    ).rejects.toThrow(/at most 100 characters/)
+    expect(browserExports.readAnnotationShot).not.toHaveBeenCalled()
+  })
+
+  it('a deps-provided shot reader outranks the module default', async () => {
+    browserExports.readAnnotationShot = () => ({
+      id: 'from-module',
+      base64: 'M',
+      mime: 'image/png',
+      width: 1,
+      height: 1,
+    })
+    const shot = (await executeBrowserSkillAction(
+      depsWith(makeWc(), makeWc(), [TAB], {
+        readAnnotationShot: (id) =>
+          id === 'ann-1' ? { id, base64: 'D', mime: 'image/png', width: 2, height: 2 } : null,
+      }),
+      BROWSER_READ_ANNOTATION_SHOT_TOOL,
+      { id: 'ann-1' },
+    )) as { id: string; base64: string }
+    expect(shot).toMatchObject({ id: 'ann-1', base64: 'D' })
   })
 
   it('fill_field injects the isolated-world script with JSON-escaped arguments', async () => {
