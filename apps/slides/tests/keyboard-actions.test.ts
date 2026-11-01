@@ -1170,3 +1170,62 @@ describe('Enter / F2 on a selected text shape', () => {
     expect(field.setEditing).not.toHaveBeenCalled()
   })
 })
+
+describe('⌘F find/replace (issue #56 P1 #7)', () => {
+  beforeEach(() => {
+    vi.mocked(fileActions.flushActiveEdit).mockClear()
+  })
+
+  it('opens find while a text edit is open, committing the edit first', async () => {
+    // the most common moment to want find is mid-edit; the old early return
+    // suppressed the chord exactly there
+    const setFindOpen = vi.fn()
+    const ctx = makeCtx({ editing: { sourceId: 't1' }, setFindOpen })
+    const e = keydown('f')
+    handleGlobalKeydown(ctx, e)
+    expect(e.defaultPrevented).toBe(true)
+    expect(fileActions.flushActiveEdit).toHaveBeenCalledWith(ctx)
+    // the panel opens once the commit has landed
+    await vi.waitFor(() => expect(setFindOpen).toHaveBeenCalledWith(true))
+  })
+
+  it('holds the panel closed until the commit lands — open-after-flush, not alongside', async () => {
+    // a deferred commit: setFindOpen must not fire while it is pending
+    let release!: () => void
+    vi.mocked(fileActions.flushActiveEdit).mockImplementationOnce(
+      () =>
+        new Promise<void>((res) => {
+          release = res
+        }),
+    )
+    const setFindOpen = vi.fn()
+    const ctx = makeCtx({ editing: { sourceId: 't1' }, setFindOpen })
+    handleGlobalKeydown(ctx, keydown('f'))
+    await Promise.resolve() // microtasks drain; the commit is still pending
+    expect(setFindOpen).not.toHaveBeenCalled()
+    release()
+    await vi.waitFor(() => expect(setFindOpen).toHaveBeenCalledWith(true))
+  })
+
+  it('opens find directly with no edit in flight, and flushes nothing', () => {
+    const setFindOpen = vi.fn()
+    const ctx = makeCtx({ setFindOpen })
+    const e = keydown('f')
+    handleGlobalKeydown(ctx, e)
+    expect(e.defaultPrevented).toBe(true)
+    expect(fileActions.flushActiveEdit).not.toHaveBeenCalled()
+    expect(setFindOpen).toHaveBeenCalledWith(true)
+  })
+
+  it('flushes a table-cell edit too — editing stays null while the cell is live', async () => {
+    // a cell edit keeps editing null and lives in editingCell; gating on
+    // editing alone would open the panel racing the cell's async commit
+    const setFindOpen = vi.fn()
+    const ctx = makeCtx({ editingCell: { sourceId: 't0', row: 0, col: 1 }, setFindOpen })
+    const e = keydown('f')
+    handleGlobalKeydown(ctx, e)
+    expect(e.defaultPrevented).toBe(true)
+    expect(fileActions.flushActiveEdit).toHaveBeenCalledWith(ctx)
+    await vi.waitFor(() => expect(setFindOpen).toHaveBeenCalledWith(true))
+  })
+})

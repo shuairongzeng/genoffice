@@ -145,11 +145,16 @@ export function handleGlobalKeydown(
     void ctx.redo()
     return
   }
-  // ⌘F find/replace
+  // ⌘F find/replace — also while a text edit is open: the most common moment to
+  // want find is mid-edit, and the old early return suppressed the chord exactly
+  // there (issue #56 P1 #7). Commit the edit first so the scan sees committed text.
   if (mod && !e.altKey && (e.key === 'f' || e.key === 'F')) {
-    if (editing) return
     e.preventDefault()
-    ctx.setFindOpen(true)
+    // editing covers shape-text edits; a table-cell edit keeps editing null
+    // and lives in editingCell — flush both kinds, or the first scan would
+    // race the cell's async commit and miss text the user just typed
+    if (editing || ctx.editingCell) void flushActiveEdit(ctx).then(() => ctx.setFindOpen(true))
+    else ctx.setFindOpen(true)
     return
   }
   // ⌘K: annotate the selection with an AI edit
