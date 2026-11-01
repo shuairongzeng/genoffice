@@ -26,6 +26,14 @@ const TARGET_KIND_BY_TAB: Partial<Record<TabKind, ControlTarget['kind']>> = {
 }
 
 /**
+ * Tab kinds whose renderer answers a text target today. Renderers that never
+ * install `window.__genofficeControl` (markdown, html) would otherwise burn
+ * the whole ready-timeout polling for a jump that cannot come; a kind joining
+ * this set is a renderer-side change only.
+ */
+const TEXT_TARGET_TABS = new Set<TabKind>(['docs', 'sheets', 'pdf'])
+
+/**
  * Runs one CLI control request against the open tabs. Renderers register
  * `window.__genofficeControl`; the shell evaluates it through the debugger
  * channel, so no preload surface grows and an unloaded document simply
@@ -52,11 +60,15 @@ export function controlHandler(host: ControlHost): (req: ControlRequest) => Prom
       if (!req.target) return { ok: true, result: { opened: req.path } }
       const tab = existing ?? host.findTab(req.path)
       if (!tab) return fail('file_not_open_in_gui', `no editor tab is showing ${req.path}`)
-      const expected = TARGET_KIND_BY_TAB[tab.kind]
-      if (expected !== req.target.kind) {
-        return fail('unsupported', `a ${tab.kind} tab takes a --${flagFor(expected)} target`, {
-          supported: expected ? [flagFor(expected)] : [],
-        })
+      // a text target is universal: any editor with a find can answer it; the
+      // structural kinds stay matched to the tab's app
+      if (req.target.kind !== 'text') {
+        const expected = TARGET_KIND_BY_TAB[tab.kind]
+        if (expected !== req.target.kind) {
+          return fail('unsupported', `a ${tab.kind} tab takes a --${flagFor(expected)} target`, {
+            supported: expected ? [flagFor(expected)] : [],
+          })
+        }
       }
       return ask(tab.webContents, { cmd: 'goto', target: req.target }, host.readyTimeoutMs)
     }
@@ -80,9 +92,35 @@ function flagFor(kind: ControlTarget['kind'] | undefined): string {
       return 'range'
     case 'page':
       return 'page'
+    case 'text':
+      return 'text'
     default:
       return 'target'
   }
+}
+
+/**
+ * The search deep link's second half (issue #56): the caller has just opened
+ * (or focused) the file's tab; this reveals the first text match in it. The
+ * ask loop already carries the "renderer not loaded yet" window, so a fresh
+ * tab's reveal waits for its document like `genoffice open --page` does.
+ * Fire-and-forget by design: the open is the user's action, the reveal is
+ * best-effort on top — a miss or a timeout degrades to today's behavior
+ * (the file is open, at the top), never to a dialog.
+ */
+export function openDocumentAtText(
+  host: Pick<ControlHost, 'findTab' | 'readyTimeoutMs'>,
+  path: string,
+  text: string,
+): void {
+  if (!text.trim()) return
+  void (async () => {
+    const tab = host.findTab(path)
+    // nothing opened (unsupported type) or the app's renderer has no find
+    // surface wired into the control hook — nothing to reveal, silently
+    if (!tab || !TEXT_TARGET_TABS.has(tab.kind)) return
+    await ask(tab.webContents, { cmd: 'goto', target: { kind: 'text', text } }, host.readyTimeoutMs)
+  })()
 }
 
 function fail(

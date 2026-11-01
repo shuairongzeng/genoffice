@@ -48,6 +48,22 @@ describe('Markdown multi-scheme navs', () => {
     expect(onNavigate).toHaveBeenCalledWith('/Users/me/report.docx')
   })
 
+  it('renders a text-fragment cite (the search deep link) and navigates with the match', () => {
+    const onNavigate = vi.fn()
+    // issue #56: a search hit cites the matched sentence, not just the file
+    render(`see [notes.md](${fileNavHref('/Users/me/notes.md', 'the matched sentence')})`, [
+      createFileNav(onNavigate),
+    ])
+    const link = navLink()
+    expect(link).not.toBeNull()
+    // the inline-link href grammar accepts the whole fragment-carrying href
+    expect(link!.getAttribute('href')).toBe(
+      'filenav:///Users/me/notes.md#:~:text=the%20matched%20sentence',
+    )
+    click(link!)
+    expect(onNavigate).toHaveBeenCalledWith('/Users/me/notes.md', 'the matched sentence')
+  })
+
   it('keeps a nav link clickable inside bold or italic emphasis', () => {
     const onNavigate = vi.fn()
     render(

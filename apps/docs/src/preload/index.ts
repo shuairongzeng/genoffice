@@ -245,7 +245,8 @@ const api: DesktopApi = {
   kbRead: (path: string, offset: number) => ipcRenderer.invoke('kb:read', { path, offset }),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   openNewTab: (openPath?: string | null) => ipcRenderer.invoke('win:new', openPath ?? null),
-  openSourcePath: (path: string) => ipcRenderer.invoke('home:open-path', path),
+  // text = the search deep link's target; the main side reveals the match after the open
+  openSourcePath: (path: string, text?: string) => ipcRenderer.invoke('home:open-path', path, text),
   listDocsTabs: () => ipcRenderer.invoke('win:list'),
   focusDocsTab: (id: string) => ipcRenderer.invoke('win:focus', id),
   onAiStream: (handler: (chunk: AiStreamChunk) => void) => {

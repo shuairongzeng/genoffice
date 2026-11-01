@@ -6,6 +6,7 @@ import type {
   RecentEntry,
   UserSkillEntry,
 } from '../../shared/home-api'
+import { hitTargetText } from '../../shared/home-api'
 import type { InstalledPlugin } from '../../shared/found-skill'
 import type { CommandPaletteStrings } from './command-palette-strings'
 
@@ -259,7 +260,8 @@ function createPluginsProvider(): PaletteProvider {
 export function createFilesProvider(options?: {
   readonly search?: (q: string) => Promise<FileSearchPage>
   readonly rerank?: (q: string, paths: string[]) => Promise<FileSearchRerank | null>
-  readonly open?: (path: string) => void
+  /** opens a file row; the second arg is the search deep link's text target (issue #56) */
+  readonly open?: (path: string, text?: string) => void
   readonly debounceMs?: number
   readonly rerankSettleMs?: number
   readonly busyPollMs?: number
@@ -297,7 +299,11 @@ export function createFilesProvider(options?: {
     })
   const open =
     options?.open ??
-    ((path: string) => void (window.aiOffice as Partial<HomeApi> | undefined)?.openPath?.(path))
+    ((path: string, text?: string) =>
+      void (window.aiOffice as Partial<HomeApi> | undefined)?.openPath?.(
+        path,
+        text ? { text } : undefined,
+      ))
   let timer: ReturnType<typeof setTimeout> | null = null
   /** the settle timer holding the decision-model call back until the query quiets */
   let rerankTimer: ReturnType<typeof setTimeout> | null = null
@@ -466,8 +472,15 @@ export function createFilesProvider(options?: {
 
 function fileRows(
   ctx: PaletteContext,
-  hits: readonly { path: string; name: string; ext: string; missing?: boolean }[],
-  open: (path: string) => void,
+  hits: readonly {
+    path: string
+    name: string
+    ext: string
+    missing?: boolean
+    /** the file-index hit's snippet; recents rows carry none */
+    snippet?: FileSearchHit['snippet']
+  }[],
+  open: (path: string, text?: string) => void,
 ): PaletteRow[] {
   return hits.map((hit) =>
     plainRow(
@@ -476,7 +489,8 @@ function fileRows(
       hit.name,
       hit.missing ? ctx.strings.missingFile : folderOf(hit.path),
       { kind: 'file', ext: hit.ext },
-      () => open(hit.path),
+      // a content hit deep-links to where it matched (issue #56), not page one
+      () => open(hit.path, hitTargetText(hit)),
       '',
       hit.missing ?? false,
       hit.path,

@@ -663,6 +663,35 @@ describe('createFilesProvider', () => {
     expect(again.map((r) => r.id)).toEqual(rows.map((r) => r.id))
   })
 
+  it('a content hit opens at its matched text; a name-only hit opens without a target', async () => {
+    // issue #56: the search deep link rides the palette's file rows — the
+    // snippet's hit part is the text target, absent when only the name matched
+    const opens: Array<[string, string | undefined]> = []
+    const provider = createFilesProvider({
+      debounceMs: 0,
+      search: async () =>
+        page([
+          hit({
+            path: 'C:\\Docs\\contract.docx',
+            name: 'contract.docx',
+            snippet: [
+              { text: 'The ', hit: false },
+              { text: 'termination clause', hit: true },
+            ],
+          }),
+          hit({ path: 'C:\\Docs\\title-only.docx', name: 'title-only.docx', snippet: null }),
+        ]),
+      open: (path, text) => opens.push([path, text]),
+    })
+    const rows = await provider.getRows('contract', ctx())
+    rows[0]!.run()
+    rows[1]!.run()
+    expect(opens).toEqual([
+      ['C:\\Docs\\contract.docx', 'termination clause'],
+      ['C:\\Docs\\title-only.docx', undefined],
+    ])
+  })
+
   it('settles to no rows when the search fails, so other sources still answer', async () => {
     const provider = createFilesProvider({
       debounceMs: 0,

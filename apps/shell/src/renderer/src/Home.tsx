@@ -2237,7 +2237,9 @@ export function Home() {
         onWidthCommit={(width) => applyDockPrefs({ width })}
       >
         <KbAskPanel
-          onOpenPath={(path) => void window.aiOffice.openPath(path)}
+          onOpenPath={(path, text) =>
+            void window.aiOffice.openPath(path, text ? { text } : undefined)
+          }
           onGoToRecents={() => changeView('recent')}
           onOpenModelSettings={() => setSettingsRequest({ section: 'aiModel' })}
           onOpenScopeSettings={() => setSettingsRequest({ section: 'general' })}

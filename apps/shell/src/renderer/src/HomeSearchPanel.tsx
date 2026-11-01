@@ -5,6 +5,7 @@ import type {
   FileSearchRerank,
   FolderRoot,
 } from '../../shared/home-api'
+import { hitTargetText } from '../../shared/home-api'
 import { FileBadge } from './file-badge'
 import { useI18n } from './locale'
 import { EmptyHint, dirOf, formatModified, highlightText, locationLabel } from './home-shared'
@@ -130,15 +131,22 @@ export function FileSearchResults({
     return [...hits].sort((a, b) => (rank.get(a.path) ?? Infinity) - (rank.get(b.path) ?? Infinity))
   }
 
+  const openHit = (hit: FileSearchHit): Promise<void> => {
+    const text = hitTargetText(hit)
+    return window.aiOffice.openPath(hit.path, text ? { text } : undefined)
+  }
+
   const renderSearchRow = (hit: FileSearchHit): ReactElement => (
     <li
       key={hit.path}
       className="search-row"
       role="button"
       tabIndex={0}
-      onClick={() => void window.aiOffice.openPath(hit.path)}
+      // the deep link (issue #56): a content hit opens where it matched, not
+      // at the file's first page
+      onClick={() => void openHit(hit)}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') void window.aiOffice.openPath(hit.path)
+        if (e.key === 'Enter') void openHit(hit)
       }}
     >
       <span className="recent-icon">

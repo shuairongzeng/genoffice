@@ -146,6 +146,7 @@ import { buildStamps } from './stamps'
 import type { HeaderFooterConfig, WatermarkConfig } from './stamps'
 import { createSearchIndexCache, searchInIndex } from './search'
 import type { SearchIndex, SearchMatch } from './search'
+import { revealPdfText } from './text-reveal'
 import { mapDocFont, type DocFontStyle } from './doc-font'
 import { groupPageBlocks, reflowOverflows, type TextBlock } from './text-block'
 import {
@@ -1753,7 +1754,8 @@ export default function App() {
     el.scrollTop = rowTop(rowOfVis(target - 1)) - PAGE_GAP / 2
   }
 
-  // genoffice CLI (`open --page`, `selection`): the shell evaluates this hook
+  // genoffice CLI (`open --page`, `selection`) and the search deep link's text
+  // reveal (issue #56): the shell evaluates this hook
   useEffect(() => {
     ;(window as unknown as Record<string, unknown>).__genofficeControl = (req: ControlRequest) =>
       handlePdfControl(req, {
@@ -1762,6 +1764,7 @@ export default function App() {
         currentPage,
         scrollToPage,
         selectedText: () => window.getSelection()?.toString() ?? '',
+        gotoText: gotoTextMatch,
       })
   })
 
@@ -2402,14 +2405,31 @@ export default function App() {
 
   useEffect(() => {
     if (!searchOpen || !searchQuery.trim()) {
+      // the bar closed or the query emptied: the reveal's staged suppression
+      // is over — a retype of the same text is a genuine search
+      revealQueryRef.current = null
       setSearchMatches([])
       setSearchCur(0)
       return
+    }
+    // a query different from the reveal's staged one means the ref is stale
+    // (the edit may have landed inside the 200ms window and cancelled its
+    // own timer): clear it, so editing back to the same text re-searches
+    if (revealQueryRef.current !== null && revealQueryRef.current !== searchQuery.trim()) {
+      revealQueryRef.current = null
     }
     let cancelled = false
     const timer = setTimeout(() => {
       void getSearchIndex()?.then((idx) => {
         if (cancelled) return
+        if (revealQueryRef.current === searchQuery.trim()) {
+          // the deep-link reveal already searched this exact query and staged
+          // the results: re-running would reset the user's match position
+          // (searchCur back to 0) some 200ms after they started stepping.
+          // One-shot: later runs (bar reopened, a doc change) search normally.
+          revealQueryRef.current = null
+          return
+        }
         setSearchMatches(searchInIndex(idx, searchQuery.trim()))
         setSearchCur(0)
       })
@@ -2464,6 +2484,55 @@ export default function App() {
   }
 
   const closeSearch = () => setSearchOpen(false)
+
+  /**
+   * The query the deep-link reveal last staged through revealPdfText. The
+   * search debounce suppresses exactly the one follow-up run of that query
+   * (re-running it would clobber the user's match position), then clears the
+   * ref — and the ref also expires on its own after the debounce window: the
+   * effect's re-run is not guaranteed (the deep link may land on a bar
+   * already sitting open at this exact query, where no dep changes and no
+   * timer is armed), so a later doc reload or re-search must not be
+   * suppressed by a ref with no scheduled consumer.
+   */
+  const revealQueryRef = useRef<string | null>(null)
+
+  /** the search deep link's reveal (issue #56), App-side half */
+  const gotoTextMatch = useCallback(
+    (text: string): Promise<boolean> => {
+      const found = revealPdfText(
+        {
+          searchIndex: () => getSearchIndex(),
+          deletedPages: () => deleted,
+          applyFindState: ({ open, query, matches }) => {
+            setSearchOpen(open)
+            setSearchQuery(query)
+            setSearchMatches(matches)
+            setSearchCur(0)
+          },
+        },
+        text,
+      )
+      return found.then((ok) => {
+        if (ok) {
+          revealQueryRef.current = text.trim()
+          // the suppression is one-shot by construction: expire it just past
+          // the debounce window, whether or not the debounce effect consumed
+          // it (nulling an unmounted component's ref is a harmless no-op)
+          const staged = text.trim()
+          setTimeout(() => {
+            if (revealQueryRef.current === staged) revealQueryRef.current = null
+          }, 250)
+          requestAnimationFrame(() => {
+            searchInputRef.current?.focus()
+            searchInputRef.current?.select()
+          })
+        }
+        return ok
+      })
+    },
+    [getSearchIndex, deleted],
+  )
 
   /** Selection quads in PDF space keyed by original page index; null when nothing usable */
   const selectionQuads = (): Map<number, number[][]> | null => {

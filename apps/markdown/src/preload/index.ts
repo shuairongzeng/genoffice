@@ -17,7 +17,7 @@ import type {
 
 const api: MarkdownApi = {
   consumePending: () => ipcRenderer.invoke(MARKDOWN_CHANNELS.consumePending),
-  openSourcePath: (path: string) => ipcRenderer.invoke('home:open-path', path),
+  openSourcePath: (path: string, text?: string) => ipcRenderer.invoke('home:open-path', path, text),
   resolveWikiLinks: (request) => ipcRenderer.invoke(MARKDOWN_CHANNELS.resolveWikiLinks, request),
   rememberWikiFragment: (path, fragment) =>
     ipcRenderer.invoke(MARKDOWN_CHANNELS.rememberWikiFragment, path, fragment),

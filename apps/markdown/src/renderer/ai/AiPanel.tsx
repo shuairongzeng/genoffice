@@ -949,8 +949,8 @@ export function AiPanel({
     },
   }
   // [name](filenav:///abs/path) citations open the cited file in its own app
-  const fileNav = createFileNav((path) => {
-    void window.markdownApi.openSourcePath(path)
+  const fileNav = createFileNav((path, text) => {
+    void window.markdownApi.openSourcePath(path, text)
   })
 
   /** submit every still-anchored queued edit as one batch run */

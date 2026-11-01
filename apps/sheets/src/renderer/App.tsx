@@ -219,7 +219,12 @@ import {
 import { isSelectionDrag, type Point, type SelectionAskAnchor } from './ai/selection-ask'
 import { createAiDocument } from './ai/create-document'
 import { createWorkbookSkill } from './ai/workbook-skill'
-import { findWorkbookCells, selectWorkbookRange } from './ai/workbook-search'
+import {
+  findWorkbookCells,
+  revealWorkbookText,
+  selectWorkbookRange,
+  type TextRevealOutcome,
+} from './ai/workbook-search'
 import { traceWorkbookDependents, traceWorkbookPrecedents } from './ai/formula-audit'
 import { createFilesSkill } from './ai/files-skill'
 import { createMergeSkill } from './ai/merge-skill'
@@ -5498,13 +5503,38 @@ export function App({
     }
   })()
 
-  // genoffice CLI (`open --range`, `selection`): the shell evaluates this hook
+  /**
+   * The search deep link's reveal (issue #56), as the thin adapter: the
+   * composition (find workbook-wide — the find_cells / select_range pair the
+   * AI tools already use, so a match outside the streamed window loads its
+   * range and scrolls exactly like an in-app jump — then land the selection
+   * on the first match, demo and lazy workbooks both answering,
+   * case-insensitively, over cell values) lives in workbook-search.ts
+   * `revealWorkbookText`, testable with injected halves. This supplies the
+   * live halves: the read context, the workbook's sheet registry, the
+   * selection rail.
+   */
+  const gotoTextMatch = (text: string): Promise<TextRevealOutcome> =>
+    revealWorkbookText(
+      {
+        find: (options) => findWorkbookCells(readContext(), options),
+        sheetIdOf: (sheetName) =>
+          univerRef.current?.univerAPI.getActiveWorkbook()?.getSheetByName(sheetName)?.getSheetId(),
+        selectFirstCell: (sheetId, bounds) =>
+          selectWorkbookRange(readContext(), sheetId, bounds, setMessage).then((r) => r.ok),
+      },
+      text,
+    )
+
+  // genoffice CLI (`open --range`, `selection`) and the search deep link's
+  // text reveal (issue #56): the shell evaluates this hook
   useEffect(() => {
     ;(window as unknown as Record<string, unknown>).__genofficeControl = (req: ControlRequest) =>
       handleSheetsControl(
         req,
         univerRef.current?.univerAPI.getActiveWorkbook(),
         lazyWorkbookRef.current !== null,
+        gotoTextMatch,
       )
   })
 

@@ -287,7 +287,7 @@ export interface MarkdownApi {
   /** Take the md path pending for this view (queued at tab creation); null = new untitled document */
   consumePending(): Promise<string | null>
   /** open any shell-routed document path (an AI answer's filenav citation) */
-  openSourcePath(path: string): Promise<void>
+  openSourcePath(path: string, text?: string): Promise<void>
   /**
    * Resolve every `[[target]]` in this document to a file. One walk for the
    * whole batch: a fifty-link document would otherwise pay fifty root

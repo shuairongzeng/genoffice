@@ -570,8 +570,8 @@ export function AiChatPanel({
   /** [B12](sheetnav://B12) links in answers jump the grid to the cited range */
   const citationNav = { scheme: SHEET_NAV_SCHEME, onNavigate: onCitation }
   // [name](filenav:///abs/path) citations open the cited file in its own app
-  const fileNav = createFileNav((path) => {
-    void window.desktopApi.openSourcePath(path)
+  const fileNav = createFileNav((path, text) => {
+    void window.desktopApi.openSourcePath(path, text)
   })
 
   const copyMessage = (text: string, key: string) => {

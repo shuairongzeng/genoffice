@@ -112,6 +112,7 @@ const host = {
   readFileSearchSettings: () => ({ rerank: false }) as never,
   ensureSearchReranker: () => null,
   openDocumentPath: () => false,
+  openDocumentAtText: () => {},
   rememberPendingDir: () => {},
   newDocTab: () => {},
   newSheetTab: () => {},
@@ -166,6 +167,65 @@ describe('kb:search — the round scope', () => {
     const answer = await invoke('kb:search', { q: 'contract', limit: 8 })
     expect(Array.isArray(answer)).toBe(true)
     expect((answer as { path: string }[]).map((h) => h.path)).toEqual(['/idx/contract.docx'])
+  })
+
+  it('extracts the first hit run as matchText for a cite that addresses the match', async () => {
+    // issue #56: the snippet's hit flags survive into the answer as the deep
+    // link's target — the exact document text of the matched run
+    searchImpl.mockImplementationOnce(async (q: string, opts?: { limit?: number }) => ({
+      total: 2,
+      hits: [...INDEXED]
+        .filter((path) => path.includes(q))
+        .slice(0, opts?.limit ?? 50)
+        .map((path) => ({
+          path,
+          name: path.split('/').pop()!,
+          ext: path.split('.').pop()!,
+          folder: 'idx',
+          snippet: [
+            { text: '…the ' },
+            { text: 'termination clause', hit: true },
+            { text: ' applies…' },
+          ],
+          mtimeMs: 1,
+          sizeBytes: 10,
+          starred: false,
+        })),
+    }))
+    const answer = (await invoke('kb:search', { q: 'contract', limit: 8 })) as Array<{
+      matchText?: string
+    }>
+    expect(answer[0]!.matchText).toBe('termination clause')
+  })
+
+  it('openPath forwards a text target to the reveal hook after the open', async () => {
+    const opens: Array<[string] | [string, string]> = []
+    host.openDocumentPath = (path: string) => {
+      opens.push([path])
+      return true
+    }
+    host.openDocumentAtText = (path: string, text: string) => opens.push([path, text])
+    try {
+      await invoke('home:open-path', '/idx/contract.docx', 'termination clause')
+      // the open routes first, the reveal second — and a bare open carries no reveal
+      await invoke('home:open-path', '/idx/other.pdf')
+      expect(opens).toEqual([
+        ['/idx/contract.docx'],
+        ['/idx/contract.docx', 'termination clause'],
+        ['/idx/other.pdf'],
+      ])
+      // junk targets (wrong type, blank, absurd length) never reach the reveal
+      // hook — the file still opens, exactly as a bare open would
+      await invoke('home:open-path', '/idx/other.pdf', 42)
+      await invoke('home:open-path', '/idx/other.pdf', '   ')
+      await invoke('home:open-path', '/idx/other.pdf', 'x'.repeat(501))
+      expect(opens.filter((entry) => entry.length === 2)).toEqual([
+        ['/idx/contract.docx', 'termination clause'],
+      ])
+    } finally {
+      host.openDocumentPath = () => false
+      host.openDocumentAtText = () => {}
+    }
   })
 
   it('intersects the index with the selection and reports the not-indexed paths', async () => {

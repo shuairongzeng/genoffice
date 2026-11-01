@@ -1294,8 +1294,8 @@ export function AiPanel({
     },
   }
   // [name](filenav:///abs/path) citations open the cited file in its own app
-  const fileNav = createFileNav((path) => {
-    void window.htmlApi.openSourcePath(path)
+  const fileNav = createFileNav((path, text) => {
+    void window.htmlApi.openSourcePath(path, text)
   })
 
   const draftNonceRef = useRef(0)
