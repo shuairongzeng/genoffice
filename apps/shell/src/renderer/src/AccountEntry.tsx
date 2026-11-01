@@ -18,11 +18,24 @@ export function AccountEntry({
   onStatusChange,
   onFileSearchSettingsChange,
   openRequest,
+  closeRequest,
+  onOpenChange,
+  onSectionChange,
 }: {
   onStatusChange?: (status: AccountStatus | null) => void
   onFileSearchSettingsChange?: () => void
   /** a fresh object per request: the home list asks to open the modal on a given block */
   openRequest?: SettingsTarget | null
+  /**
+   * The imperative close signal (the dock context menu's 关闭标签, routed
+   * through the dock-nav intent): Home bumps the counter, this closes the
+   * modal. A counter rather than a boolean so every bump is its own edge.
+   */
+  closeRequest?: number
+  /** the modal's open state, reported up (the dock's running dots) */
+  onOpenChange?: (open: boolean) => void
+  /** the modal's live section, reported up (the plugins pane's dot) */
+  onSectionChange?: (section: SettingsTarget['section']) => void
 }) {
   const { t } = useI18n()
   const [status, setStatus] = useState<AccountStatus | null>(null)
@@ -178,6 +191,18 @@ export function AccountEntry({
   useEffect(() => {
     if (openRequest) openSettings(openRequest)
   }, [openRequest, openSettings])
+  // the dock's close verb: each bump of the counter is one close edge (the
+  // initial 0 mounts without one)
+  useEffect(() => {
+    if (!closeRequest) return
+    setSettingsOpen(false)
+    setTarget(null)
+  }, [closeRequest])
+  // the modal's state rides up to Home (the dock's running dots and the
+  // doc-mode open-target report)
+  useEffect(() => {
+    onOpenChange?.(settingsOpen)
+  }, [settingsOpen, onOpenChange])
 
   return (
     <div className="account-entry">
@@ -191,6 +216,7 @@ export function AccountEntry({
           onOpenLoginUrl={openLoginUrl}
           onCopyLoginUrl={copyLoginUrl}
           onClose={() => setSettingsOpen(false)}
+          onSectionChange={onSectionChange}
           onFileSearchChange={onFileSearchSettingsChange}
           onLogin={() => {
             setSettingsOpen(false)

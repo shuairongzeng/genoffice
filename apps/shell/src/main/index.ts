@@ -268,6 +268,7 @@ import type {
   AuthorNameSetting,
   DeepLinkPayload,
   DockNavIntent,
+  DockOpenState,
   NewFileOpts,
   DocTheme,
   StarPromptShow,
@@ -285,6 +286,8 @@ import { TABS_CHANNELS } from '../shared/tabs-api'
 import { showErrorDialog } from './error-dialog'
 import { startRendererWatchdog } from './renderer-watchdog'
 import { watchAiDock } from './ai-dock'
+import { watchDockPrefs } from './dock-prefs'
+import { DOCK_OPEN_NONE } from '../shared/dock-prefs'
 import {
   notifyHomeTabsChanged,
   registerHomeTabsIpc,
@@ -6128,6 +6131,9 @@ registerHomeTabsIpc({
 // the dock-nav intent routed while Home's renderer was still mounting (its
 // `home:dock-nav` listener not yet armed); drained by Home's mount-time pull
 let pendingDockNav: DockNavIntent | null = null
+// Home's latest open-target report (which dock surfaces are open), cached
+// for the doc-mode overlay dock's mount-time pull and pushed live on change
+let cachedDockOpen: DockOpenState = DOCK_OPEN_NONE
 registerHomeWorkbenchIpc({
   appSettingsPath: APP_SETTINGS_PATH,
   getTabManager: () => tabManager,
@@ -6191,15 +6197,18 @@ registerHomeWorkbenchIpc({
   // a routed doc-mode dock action: the intent lands in Home BEFORE the tab
   // rise (the same-beat ordering the dock-open write uses — Home flips its
   // state as it becomes visible, never one broadcast late), then the Home
-  // tab activates so the clicked surface is actually seen. The push can
-  // beat Home's subscription (cold boot: the renderer is still mounting, and
-  // a push nobody is listening for is lost), so the intent is buffered here
-  // too — Home pulls the buffer once its subscription is armed
-  // (takeDockNavPending below) and this buffer drains on that pull
+  // tab activates so the clicked surface is actually seen. A close intent
+  // (the dock context menu's 关闭标签) skips the raise: the surface it
+  // closes is covered by the document anyway, and stealing focus to show a
+  // close would be the wrong verb. The push can beat Home's subscription
+  // (cold boot: the renderer is still mounting, and a push nobody is
+  // listening for is lost), so the intent is buffered here too — Home pulls
+  // the buffer once its subscription is armed (takeDockNavPending below)
+  // and this buffer drains on that pull
   dockNavAction: (intent) => {
     pendingDockNav = intent
     sendToShellRenderer(HOME_CHANNELS.dockNav, intent)
-    tabManager?.openHomeTab()
+    if (intent.kind !== 'close') tabManager?.openHomeTab()
   },
   // the cold-boot pull: answer the buffered intent exactly once (the
   // return-and-clear makes the push the fast path once armed and this the
@@ -6209,6 +6218,21 @@ registerHomeWorkbenchIpc({
     pendingDockNav = null
     return pending
   },
+  // Home's open-target report: cache it and push it to the overlay dock's
+  // renderer — the running dots and the bounce-ready signal both ride this
+  // view. Home reports on change only, so a static state costs one send.
+  // The identity gate is reportHotEdge's lesson: only the shell window's
+  // own webContents (Home, the surface that owns the targets) may state
+  // which are open — any other renderer sharing the preload is ignored
+  applyDockOpen: (sender, state) => {
+    if (!shellWindow || shellWindow.isDestroyed() || sender !== shellWindow.webContents) return
+    cachedDockOpen = state
+    tabManager?.dockOverlayWebContents()?.send(HOME_CHANNELS.dockOpen, state)
+  },
+  // the overlay dock's mount-time pull: the cached report (all-closed until
+  // Home's first one — the state is a fact, not an event, so unlike the
+  // dock-nav buffer it is never drained)
+  takeDockOpen: () => cachedDockOpen,
 })
 registerDroppedFilesIpc()
 registerUserSkillsIpc({
@@ -6571,6 +6595,17 @@ app.whenReady().then(async () => {
   watchAiDock(APP_SETTINGS_PATH(), (dock) => {
     sendToShellRenderer(HOME_CHANNELS.aiDockChanged, dock)
     tabManager?.drawerOverlayWebContents()?.send(HOME_CHANNELS.aiDockChanged, dock)
+    tabManager?.layout()
+  })
+  // the dock's own prefs, the same shape: a settings write (or a drag's
+  // order commit on either mount) settles in app-settings.json and lands
+  // here — the broadcast reaches both dock renderers (Home's pill and the
+  // doc-mode overlay view, which sizes itself from the same numbers), and
+  // the layout re-cuts the overlay's rect for the new base size / strength
+  // the way the aiDock watcher re-fits the drawer's view
+  watchDockPrefs(APP_SETTINGS_PATH(), (prefs) => {
+    sendToShellRenderer(HOME_CHANNELS.dockPrefsChanged, prefs)
+    tabManager?.dockOverlayWebContents()?.send(HOME_CHANNELS.dockPrefsChanged, prefs)
     tabManager?.layout()
   })
   createShellWindow()

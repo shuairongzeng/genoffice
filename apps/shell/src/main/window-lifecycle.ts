@@ -64,6 +64,7 @@ import {
 } from './app-registry'
 import { readDesktopPins } from './desktop-ipc'
 import { readAiDock } from './ai-dock'
+import { readDockPrefs } from './dock-prefs'
 import { createAiDrawerOverlay } from './ai-drawer-view'
 import { createDockOverlay } from './dock-overlay-view'
 import {
@@ -194,6 +195,10 @@ export function createShellWindow(deps: ShellWindowDeps): void {
     // the AI drawer rides app-settings.json's `aiDock` (renderer-owned writes);
     // the layout re-reads it each pass, so a change lands on the next layout
     () => readAiDock(deps.appSettingsPath()),
+    // the dock's own prefs ride `dockPrefs` the same way: the icon size and
+    // the magnification strength re-cut the doc-mode overlay's rect from
+    // every sync, so a settings write re-fits the view on the next layout
+    () => readDockPrefs(deps.appSettingsPath()),
   )
   // The desktop's tab strip renders in the Home layer, so it gets the tab
   // state pushed (docs dirtiness resolved, detached editors flagged) instead

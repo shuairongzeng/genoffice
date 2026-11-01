@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Lang } from '@genoffice/i18n'
 import { FileBadge } from './file-badge'
 import {
@@ -11,6 +11,12 @@ import type { TemplateInfo } from '../../shared/home-api'
 export interface TemplateGalleryProps {
   lang: Lang
   onClose: () => void
+  /**
+   * The list round trip settled — loaded or failed, either way the surface
+   * is ready. The dock's launch bounce listens: the templates tile bounces
+   * from its click until this fires (or the bounce's own cap stops it).
+   */
+  onLoaded?: () => void
 }
 
 /** the file-type badge + kind tag both show the extension: language-neutral */
@@ -82,12 +88,17 @@ function TemplateCard({
  * after which the gallery closes. Its strings live in
  * template-gallery-strings.ts, not the shell's shared dictionary.
  */
-export function TemplateGallery({ lang, onClose }: TemplateGalleryProps) {
+export function TemplateGallery({ lang, onClose, onLoaded }: TemplateGalleryProps) {
   const strings = TEMPLATE_GALLERY_STRINGS[lang] ?? TEMPLATE_GALLERY_STRINGS.en
   const [templates, setTemplates] = useState<TemplateInfo[] | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [creatingId, setCreatingId] = useState<string | null>(null)
   const [createFailed, setCreateFailed] = useState(false)
+  // ref-held: the load must run exactly once per mount, whatever identity
+  // the host's onLoaded carries (a fresh closure every parent render must
+  // not refetch the list and flash it back to loading)
+  const onLoadedRef = useRef(onLoaded)
+  onLoadedRef.current = onLoaded
 
   const load = useCallback(() => {
     setTemplates(null)
@@ -95,8 +106,14 @@ export function TemplateGallery({ lang, onClose }: TemplateGalleryProps) {
     // a rejected invoke must surface as the error state, not an unhandled
     // rejection — the same policy the settings modal applies to its probes
     window.aiOffice.templatesList().then(
-      (list) => setTemplates(list),
-      () => setLoadFailed(true),
+      (list) => {
+        setTemplates(list)
+        onLoadedRef.current?.()
+      },
+      () => {
+        setLoadFailed(true)
+        onLoadedRef.current?.()
+      },
     )
   }, [])
 

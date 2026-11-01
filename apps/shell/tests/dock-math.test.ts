@@ -4,6 +4,12 @@ import {
   DOCK_BASE_ICON_SIZE,
   DOCK_DEFAULT_MAX_SCALE,
   DOCK_DEFAULT_SIGMA_RATIO,
+  DOCK_BOUNCE_PERIOD_MS,
+  DOCK_BOUNCE_TIMEOUT_MS,
+  DOCK_AUTOHIDE_DELAY_MS,
+  applyDockOrder,
+  dockOrderOf,
+  dockReorderAt,
   dockScales,
   dockSlotWidth,
   fisheyeScale,
@@ -123,5 +129,115 @@ describe('the shipped defaults', () => {
     expect(DOCK_BASE_ICON_SIZE).toBe(48)
     // the rendered σ the Dock derives: 1.6 × 48 = 76.8 px at scale 1
     expect(DOCK_DEFAULT_SIGMA_RATIO * DOCK_BASE_ICON_SIZE).toBeCloseTo(76.8, 6)
+  })
+
+  it('the timing constants: a steady ~0.85s bounce, an 8s cap, a short auto-hide grace', () => {
+    // the CSS keyframes hard-code the same period (home.css's dock-bounce);
+    // this pin is the number the hosts and tests share
+    expect(DOCK_BOUNCE_PERIOD_MS).toBe(850)
+    expect(DOCK_BOUNCE_TIMEOUT_MS).toBe(8000)
+    expect(DOCK_AUTOHIDE_DELAY_MS).toBe(300)
+  })
+})
+
+describe('the reorder math (drag-to-arrange)', () => {
+  // the dock's three groups: nav | launchers | ask — the fixed boundaries
+  const GROUPS = [
+    ['dock:desktop', 'dock:recent', 'dock:starred'],
+    ['dock:settings', 'dock:templates', 'dock:plugins'],
+    ['dock:ask'],
+  ] as const
+
+  it('dockOrderOf flattens the groups; applyDockOrder round-trips it', () => {
+    const order = dockOrderOf(GROUPS)
+    expect(order).toEqual([
+      'dock:desktop',
+      'dock:recent',
+      'dock:starred',
+      'dock:settings',
+      'dock:templates',
+      'dock:plugins',
+      'dock:ask',
+    ])
+    // the persisted order reapplied is the identity (whatever the groups)
+    expect(applyDockOrder(GROUPS, order)).toEqual(GROUPS)
+  })
+
+  it('applyDockOrder permutes WITHIN groups only: boundaries never move', () => {
+    // recent before desktop, plugins before settings: each stays in its group
+    const reordered = applyDockOrder(GROUPS, [
+      'dock:recent',
+      'dock:desktop',
+      'dock:plugins',
+      'dock:settings',
+      'dock:templates',
+      'dock:starred',
+      'dock:ask',
+    ])
+    expect(reordered).toEqual([
+      ['dock:recent', 'dock:desktop', 'dock:starred'],
+      ['dock:plugins', 'dock:settings', 'dock:templates'],
+      ['dock:ask'],
+    ])
+    // a sequence that would smuggle an item across a separator cannot: the
+    // group membership is decided by the groups, the order only sequences
+    expect(reordered[0]).not.toContain('dock:settings')
+  })
+
+  it('ids the sequence never names keep their coded place, not the group end', () => {
+    // a new item coded between two arranged ids lands between them in the
+    // output, wherever the person's arrangement put that pair
+    expect(applyDockOrder([['a', 'NEW', 'b']], ['b', 'a'])).toEqual([['b', 'NEW', 'a']])
+    // a trailing new id (coded after every arranged one) appends, a leading
+    // one leads — its coded place relative to the arranged ids
+    expect(applyDockOrder([['a', 'b', 'TAIL']], ['b', 'a'])).toEqual([['b', 'a', 'TAIL']])
+    expect(applyDockOrder([['HEAD', 'a', 'b']], ['b', 'a'])).toEqual([['HEAD', 'b', 'a']])
+    // entries naming ids the group no longer carries match nothing and drop
+    expect(applyDockOrder([['a', 'b']], ['gone', 'b', 'a'])).toEqual([['b', 'a']])
+    // an empty sequence is the identity (the reset verb's value)
+    expect(applyDockOrder([['a', 'b', 'c']], [])).toEqual([['a', 'b', 'c']])
+  })
+
+  it('dockReorderAt swaps past a neighbor: the neighbor takes the freed spot', () => {
+    // pointer over slot 1 (recent) while dragging desktop (slot 0)
+    expect(dockReorderAt(GROUPS, 'dock:desktop', 1)).toEqual([
+      ['dock:recent', 'dock:desktop', 'dock:starred'],
+      ['dock:settings', 'dock:templates', 'dock:plugins'],
+      ['dock:ask'],
+    ])
+    // two slots right, landing on starred
+    expect(dockReorderAt(GROUPS, 'dock:desktop', 2)).toEqual([
+      ['dock:recent', 'dock:starred', 'dock:desktop'],
+      ['dock:settings', 'dock:templates', 'dock:plugins'],
+      ['dock:ask'],
+    ])
+    // and leftward: plugins (slot 5) over settings (slot 4)
+    expect(dockReorderAt(GROUPS, 'dock:plugins', 4)).toEqual([
+      ['dock:desktop', 'dock:recent', 'dock:starred'],
+      ['dock:plugins', 'dock:settings', 'dock:templates'],
+      ['dock:ask'],
+    ])
+  })
+
+  it('refuses the separator slots and anything past the pill', () => {
+    // slot 3 is the nav/launchers separator, slot 7 the launchers/ask one,
+    // slot 8+ is past the end
+    for (const slot of [3, 7, 8, -1, 1.5]) {
+      expect(dockReorderAt(GROUPS, 'dock:desktop', slot)).toBeNull()
+    }
+  })
+
+  it('refuses a cross-group move: the groups are fixed boundaries', () => {
+    // dragging desktop (nav) onto the settings slot (launchers)
+    expect(dockReorderAt(GROUPS, 'dock:desktop', 4)).toBeNull()
+    // dragging ask onto a nav slot
+    expect(dockReorderAt(GROUPS, 'dock:ask', 0)).toBeNull()
+  })
+
+  it('a no-op move answers null (the caller keeps the arrangement)', () => {
+    expect(dockReorderAt(GROUPS, 'dock:desktop', 0)).toBeNull()
+    expect(dockReorderAt(GROUPS, 'dock:ask', 7)).toBeNull()
+    // an id that is not in the dock at all
+    expect(dockReorderAt(GROUPS, 'dock:nope', 1)).toBeNull()
   })
 })

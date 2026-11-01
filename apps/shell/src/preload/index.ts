@@ -16,6 +16,8 @@ import type {
   AccountStatus,
   CloudProjectsSnapshot,
   DefaultAppStatus,
+  DockOpenState,
+  DockPrefs,
   FolderListing,
   FolderRoot,
   MoveResult,
@@ -778,6 +780,38 @@ const homeApi: HomeApi = {
   // subscription: main answers the buffered intent once, null when none
   async takeDockNavPending() {
     return (await ipcRenderer.invoke(HOME_CHANNELS.dockNavPending)) as DockNavIntent | null
+  },
+  // the dock's own prefs (设置 ▸ 程序坞): read/persist like the aiDock pair,
+  // the settled write broadcast to every dock renderer
+  async getDockPrefs() {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.dockPrefsGet)) as DockPrefs
+  },
+  async setDockPrefs(patch) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.dockPrefsSet, patch)) as DockPrefs
+  },
+  onDockPrefsChanged(handler) {
+    const listener = (_event: IpcRendererEvent, prefs: unknown) => {
+      // main-authored and normalized before the send; the guard is defense
+      // in depth, same as every push
+      if (prefs && typeof prefs === 'object') handler(prefs as DockPrefs)
+    }
+    ipcRenderer.on(HOME_CHANNELS.dockPrefsChanged, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.dockPrefsChanged, listener)
+  },
+  // Home's open-target report, fire-and-forget on change only: main caches
+  // it and pushes the cached state to the doc-mode overlay's dock renderer
+  reportDockOpen(state) {
+    ipcRenderer.send(HOME_CHANNELS.dockOpenReport, state)
+  },
+  onDockOpen(handler) {
+    const listener = (_event: IpcRendererEvent, state: unknown) => {
+      if (state && typeof state === 'object') handler(state as DockOpenState)
+    }
+    ipcRenderer.on(HOME_CHANNELS.dockOpen, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.dockOpen, listener)
+  },
+  async takeDockOpen() {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.dockOpenGet)) as DockOpenState
   },
   homeContentRect(rect) {
     ipcRenderer.send(HOME_CHANNELS.contentRect, rect)

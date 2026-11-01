@@ -40,14 +40,173 @@ export interface FisheyeOptions {
   readonly reducedMotion?: boolean
 }
 
-/** the base icon size in CSS px — the dock's slot pitch at rest */
-export const DOCK_BASE_ICON_SIZE = 48
-
-/** the default peak magnification M (spec: ~1.7) */
-export const DOCK_DEFAULT_MAX_SCALE = 1.7
+// The base size and the peak magnification are single-sourced from
+// shared/dock-prefs.ts (the settings store's own clamps and defaults): the
+// store, the physics, and the overlay geometry all read the same numbers,
+// re-exported here under the names the component and its tests import.
+export {
+  DOCK_BASE_DEFAULT as DOCK_BASE_ICON_SIZE,
+  DOCK_MAX_SCALE_DEFAULT as DOCK_DEFAULT_MAX_SCALE,
+} from '../../shared/dock-prefs'
 
 /** the default influence radius as a multiple of the base icon size (spec: ~1.6×) */
 export const DOCK_DEFAULT_SIGMA_RATIO = 1.6
+
+// ── the launch bounce ──
+// macOS's dock bounces a launching icon STEADILY: the same height, the same
+// period, until the app answers — an ease-out decay would read as "it gave
+// up". The keyframes live in home.css; these are the timing facts the hosts
+// and the tests share.
+
+/** one full up-down cycle of the launch bounce (macOS ≈ 0.85s) */
+export const DOCK_BOUNCE_PERIOD_MS = 850
+/** the bounce's hard cap: a ready signal that never arrives must not bounce forever */
+export const DOCK_BOUNCE_TIMEOUT_MS = 8000
+/**
+ * The auto-hide grace (设置 ▸ 自动隐藏程序坞): how long the pointer may be
+ * off the pill before Home slides it away — short enough to feel like the
+ * dock's own reveal grace, long enough to forgive diagonal travel toward
+ * the stage's bottom edge.
+ */
+export const DOCK_AUTOHIDE_DELAY_MS = 300
+/**
+ * The drag inactivity failsafe: a pointer that crossed out of the renderer
+ * (another native view) mid-drag delivers no pointerup here, so a drag that
+ * goes quiet this long ends itself without a commit. Generous enough that
+ * a slow human drag never trips it.
+ */
+export const DOCK_DRAG_IDLE_MS = 1500
+
+// ── the reorder math (drag-to-arrange) ──
+
+/**
+ * The flat item-id sequence of the dock's groups — the persisted `order` of
+ * the dock prefs. Round-trips through applyDockOrder: what a drag commits,
+ * what the store holds, what the next mount reads back.
+ */
+export function dockOrderOf(groups: readonly (readonly string[])[]): string[] {
+  return groups.flatMap((group) => [...group])
+}
+
+/**
+ * Apply a persisted order WITHIN each group. The contract:
+ *
+ * - an id the sequence names is ranked by its index in the sequence;
+ * - an id the sequence never names keeps its CODED place, interpolated
+ *   between its nearest coded neighbors that the sequence does name — a
+ *   new item in a newer build lands where the code put it, not shoved to
+ *   the group's end (an id with no coded listed neighbor after it appends,
+ *   one with none before it leads — its coded place relative to the
+ *   arranged ids);
+ * - an entry naming an id the group no longer carries matches nothing and
+ *   simply drops;
+ * - the group boundaries never move: membership is the groups' own, the
+ *   sequence only ranks.
+ */
+export function applyDockOrder(
+  groups: readonly (readonly string[])[],
+  order: readonly string[],
+): readonly (readonly string[])[] {
+  if (order.length === 0) return groups
+  const rank = new Map(order.map((id, index) => [id, index]))
+  return groups.map((group) => {
+    if (!group.some((id) => rank.has(id))) return [...group]
+    // bracket each unlisted id with its nearest LISTED coded neighbors:
+    // the pair's own ranks interpolate where the unlisted id belongs
+    const lastListedBefore: number[] = []
+    const nextListedAfter: number[] = []
+    let seen = -1
+    for (let index = 0; index < group.length; index += 1) {
+      lastListedBefore[index] = seen
+      if (rank.has(group[index]!)) seen = index
+    }
+    let next = -1
+    for (let index = group.length - 1; index >= 0; index -= 1) {
+      nextListedAfter[index] = next
+      if (rank.has(group[index]!)) next = index
+    }
+    return group
+      .map((id, index) => {
+        const listed = rank.get(id)
+        if (listed !== undefined) return { id, index, r: listed as number }
+        const before = lastListedBefore[index]!
+        const after = nextListedAfter[index]!
+        // both brackets: strictly between their ranks, wherever the person
+        // put them; ties (several unlisted between the same pair) keep
+        // coded order through the sort's tiebreak below
+        let r: number
+        if (before !== -1 && after !== -1) {
+          r = (rank.get(group[before]!)! + rank.get(group[after]!)!) / 2
+        } else if (before !== -1) {
+          // every listed id is coded before this one: its coded place is
+          // after them all
+          r = order.length + index
+        } else {
+          // every listed id is coded after this one: its coded place is
+          // before them all
+          r = -1
+        }
+        return { id, index, r }
+      })
+      .sort((a, b) => (a.r !== b.r ? a.r - b.r : a.index - b.index))
+      .map((entry) => entry.id)
+  })
+}
+
+/**
+ * Where a global slot sits: the (group, index-in-group) of the item it
+ * holds, or null when it is a separator (or past the end) — the caller
+ * refuses both, the separator because the groups are fixed boundaries.
+ * Slot indices count every child of the pill, separators included, matching
+ * the DOM order the drag measures.
+ */
+function dockSlotLocation(
+  groups: readonly (readonly string[])[],
+  slotIndex: number,
+): { group: number; index: number } | null {
+  if (!Number.isInteger(slotIndex) || slotIndex < 0) return null
+  let offset = 0
+  for (let group = 0; group < groups.length; group += 1) {
+    const count = groups[group].length
+    if (slotIndex < offset + count) return { group, index: slotIndex - offset }
+    offset += count + 1 // step over the group's separator slot
+    if (slotIndex === offset - 1) return null // the separator itself
+  }
+  return null
+}
+
+/**
+ * Move `itemId` to the in-group position under global slot `slotIndex` —
+ * the macOS drag semantics: passing a neighbor swaps the two (the neighbor
+ * slides into the freed spot, the item takes the neighbor's), and the
+ * measurement frame is the live dock (the dragged item still occupies its
+ * slot while the pointer travels). Returns the new groups, or null when the
+ * move is a no-op, lands on a separator, or would cross a group boundary —
+ * the drag layer keeps the current arrangement in every refused case.
+ */
+export function dockReorderAt(
+  groups: readonly (readonly string[])[],
+  itemId: string,
+  slotIndex: number,
+): readonly (readonly string[])[] | null {
+  let sourceGroup = -1
+  let sourceIndex = -1
+  groups.forEach((group, groupIndex) => {
+    const index = group.indexOf(itemId)
+    if (index !== -1) {
+      sourceGroup = groupIndex
+      sourceIndex = index
+    }
+  })
+  if (sourceGroup === -1) return null
+  const target = dockSlotLocation(groups, slotIndex)
+  if (!target || target.group !== sourceGroup) return null
+  if (target.index === sourceIndex) return null
+  const group = [...groups[sourceGroup]]
+  group.splice(sourceIndex, 1)
+  group.splice(target.index, 0, itemId)
+  return groups.map((each, groupIndex) => (groupIndex === sourceGroup ? group : [...each]))
+}
 
 /**
  * One icon's scale for its distance d from the pointer. The distance is

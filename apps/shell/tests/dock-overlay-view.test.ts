@@ -137,6 +137,8 @@ function state(over: Partial<DockOverlayState> = {}): DockOverlayState {
     window: { ...WINDOW },
     itemCount: DOCK_ITEM_COUNT,
     separatorCount: DOCK_SEPARATOR_COUNT,
+    baseSize: 48,
+    maxScale: 1.7,
     ...over,
   }
 }
@@ -199,6 +201,31 @@ describe('mounting and shapes', () => {
     // the scale grows the pill with the chrome
     overlay.sync(state({ window: { width: 1000, height: 700 }, scale: 1.5 }))
     expect(view.bounds.at(-1)).toEqual({ x: 153, y: 501, width: 695, height: 199 })
+  })
+
+  it('the pill follows the live dock settings (设置 ▸ 程序坞): a 64px base re-cuts the rect', () => {
+    const overlay = createDockOverlay(win as never)
+    overlay.sync(state({ baseSize: 64 }))
+    const view = overlayView(win)
+    // the strip is the settings-blind rest state
+    expect(view.bounds.at(-1)).toEqual(STRIP)
+    overlay.reportHotEdge(view.webContents as never, { enter: true })
+    // the pill: 22 + 7×64 + 24 + 14 = 508 CSS px + 2×44.8 headroom = 598;
+    // the height 78+9+44.8+28 = 159.8 → 160
+    expect(view.bounds.at(-1)).toEqual({ x: 101, y: 440, width: 598, height: 160 })
+    // the strength slider shrinks the headroom: M 1.2 → 415 × 109
+    overlay.sync(state({ maxScale: 1.2 }))
+    expect(view.bounds.at(-1)).toEqual({ x: 193, y: 491, width: 415, height: 109 })
+  })
+
+  it('exposes its live webContents for the prefs/open-target pushes', () => {
+    const overlay = createDockOverlay(win as never)
+    expect(overlay.webContents()).toBeUndefined()
+    overlay.sync(state())
+    const view = overlayView(win)
+    expect(overlay.webContents()).toBe(view.webContents)
+    overlay.destroy()
+    expect(overlay.webContents()).toBeUndefined()
   })
 
   it('keeps the last good bounds on a degenerate rect (a mid-restore window)', () => {

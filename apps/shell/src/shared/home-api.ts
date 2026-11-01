@@ -16,6 +16,7 @@ import type { UpdateChannel, UpdateUiState } from './update-api'
 import type { RunEvent, RunSummary } from '@genoffice/project-store'
 import type { DesktopArrangeMode } from '@genoffice/cli/control-protocol'
 import type { AiDockPrefs } from './desktop-geometry'
+import type { DockOpenState, DockPrefs } from './dock-prefs'
 import type { PendingAskQuery } from './ask-forward'
 import type {
   AttachmentInfo,
@@ -35,6 +36,7 @@ import type {
 } from '@genoffice/agent-core'
 
 // re-exported for the preload, which types its bridge against this module
+export type { DockOpenState, DockPrefs } from './dock-prefs'
 export type {
   BrowserActionResult,
   BrowserAnnotationShot,
@@ -537,11 +539,18 @@ export interface DockHotEdgeReport {
  * beat (the intent lands before the tab rise, the same ordering the dock
  * open write uses). The ask item needs no routing: its prefs write is the
  * drawer overlay's own contract, which already works over documents.
+ *
+ * `close` is the dock context menu's "close tab" verb for a launcher whose
+ * target is open: Home closes the named surface (the settings modal for
+ * settings/plugins, the template gallery for templates) WITHOUT raising the
+ * Home tab — the closed surface is covered anyway, and a close that steals
+ * focus from the document the person is reading would be the wrong verb.
  */
 export type DockNavIntent =
   | { kind: 'nav'; view: 'desktop' | 'recent' | 'starred' }
   | { kind: 'settings'; section: 'general' | 'plugins' }
   | { kind: 'templates' }
+  | { kind: 'close'; target: 'settings' | 'templates' | 'plugins' }
 
 export interface HomeApi {
   /** unified recents across document types, newest first (paged) */
@@ -744,6 +753,39 @@ export interface HomeApi {
    * performs.
    */
   takeDockNavPending?(): Promise<DockNavIntent | null>
+  // ---- the dock's own prefs (app-settings.json `dockPrefs`, the 程序坞
+  // settings section) ----
+  // Optional like the aiDock pair so partial test stubs and stale preloads
+  // keep typing: every consumer clamps what it reads and degrades to the
+  // defaults while the channels are absent.
+  /** the dock's prefs (magnify, icon size, strength, auto-hide, order) */
+  getDockPrefs?(): Promise<DockPrefs>
+  /** persist a patch of the dock's prefs; resolves to the effective prefs */
+  setDockPrefs?(patch: Partial<DockPrefs>): Promise<DockPrefs>
+  /**
+   * The dock's prefs changed in the store (any surface's write — the
+   * settings pane, a drag on either mount): the broadcast reaches both dock
+   * renderers (Home and the doc-mode overlay view), so every pill follows
+   * the same settings.
+   */
+  onDockPrefsChanged?(handler: (prefs: DockPrefs) => void): () => void
+  /**
+   * Report which of the dock's targets are open right now (`home:dock-open`,
+   * Home → main): the doc-mode overlay's dock renders the running dots and
+   * ends its launch bounce from this push. Fire-and-forget on change only —
+   * main caches the last report and answers the overlay's mount-time pull
+   * from it, so a static state costs nothing.
+   */
+  reportDockOpen?(state: DockOpenState): void
+  /**
+   * The open-target report landed (`home:dock-open`, main → the overlay's
+   * dock renderer): the entry's running dots and bounce-ready both consume
+   * it. Subscribe before pulling {@link takeDockOpen} on mount — the same
+   * subscribe-then-pull order the dock-nav pull uses.
+   */
+  onDockOpen?(handler: (state: DockOpenState) => void): () => void
+  /** main's cached open-target report (or the all-closed default) for a mount-time pull */
+  takeDockOpen?(): Promise<DockOpenState>
   /**
    * Tell main this surface's panel finished booting and its subscriptions are
    * armed (`home:ask-panel-ready`): the native overlay's standalone mount is
@@ -1301,7 +1343,8 @@ export const HOME_CHANNELS = {
    *  `leave` from the revealed dock arms the grace timer */
   dockHotEdge: 'home:dock-hot-edge',
   /** renderer → main: one routed doc-mode dock action (nav / settings /
-   *  templates) — main activates the Home tab and delivers the intent */
+   *  templates / close) — main activates the Home tab and delivers the
+   *  intent (a close intent is delivered WITHOUT the tab raise) */
   dockAction: 'home:dock-action',
   /** main → renderer: the routed dock action Home performs (the view switch,
    *  the settings request, the templates opening) as the Home tab rises */
@@ -1311,6 +1354,22 @@ export const HOME_CHANNELS = {
    *  answers the buffered intent once and clears it, null when none is
    *  pending */
   dockNavPending: 'home:dock-nav-pending',
+  /** renderer ↔ main: read / persist the dock's own prefs (app-settings.json
+   *  `dockPrefs` — magnify, icon size, strength, auto-hide, item order) */
+  dockPrefsGet: 'home:dock-prefs-get',
+  dockPrefsSet: 'home:dock-prefs-set',
+  /** main → renderer: the dock's prefs changed in the store (any surface's
+   *  write — the settings pane, a drag on either mount) */
+  dockPrefsChanged: 'home:dock-prefs-changed',
+  /** renderer → main: Home reports which dock targets are open (the overlay
+   *  dock's running dots and bounce-ready signal) */
+  dockOpenReport: 'home:dock-open-report',
+  /** main → renderer: the cached open-target report, pushed to the doc-mode
+   *  overlay's dock renderer on every change */
+  dockOpen: 'home:dock-open',
+  /** renderer → main: the overlay dock's mount-time pull of the cached
+   *  open-target report */
+  dockOpenGet: 'home:dock-open-get',
   systemPresenceGet: 'home:system-presence-get',
   systemPresenceSetLoginItem: 'home:system-presence-set-login-item',
   systemPresenceSetCloseToTray: 'home:system-presence-set-close-to-tray',

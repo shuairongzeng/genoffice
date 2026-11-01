@@ -16,6 +16,7 @@ import {
   normalizeAiDock,
   type AiDockPrefs,
 } from '../shared/desktop-geometry'
+import { normalizeDockPrefs, type DockPrefs } from '../shared/dock-prefs'
 import type { DocumentTabKind, OpenDocumentTab, TabKind, TabSummary } from '../shared/tabs-api'
 import { intersectRect, isSettledRect } from '../shared/tab-drag-geometry'
 import { DOCK_ITEM_COUNT, DOCK_SEPARATOR_COUNT } from '../shared/desktop-geometry'
@@ -222,6 +223,14 @@ export class TabManager {
      * costs one stat per layout.
      */
     private readonly aiDock: () => AiDockPrefs = () => normalizeAiDock(undefined),
+    /**
+     * The dock's own prefs (app-settings.json `dockPrefs`): the live base
+     * size and magnification strength feed both dock mounts' geometry —
+     * the overlay's rect is cut from them every sync, so a settings write
+     * re-fits the view on the next layout the same way an `aiDock` write
+     * re-fits the drawer.
+     */
+    private readonly dockPrefs: () => DockPrefs = () => normalizeDockPrefs(undefined),
   ) {
     // Layout once synchronously for macOS/Windows (bounds are already correct),
     // then once more on the next tick. On Linux/X11, `resize` fires before the
@@ -455,6 +464,16 @@ export class TabManager {
   }
 
   /**
+   * The dock overlay view's live webContents, or undefined while it is not
+   * mounted. The prefs and open-target pushes ride it — the overlay dock's
+   * renderer learns the settings and the running-dot state through this
+   * view, exactly the way the drawer overlay's panel copy learns the prefs.
+   */
+  dockOverlayWebContents(): WebContents | undefined {
+    return this.dockOverlay?.webContents()
+  }
+
+  /**
    * Feed the dock overlay one state snapshot: whether a non-Home tab is
    * active (the strip exists only then — over Home the HTML dock is the
    * dock), whether that tab's view covers the whole window (the strip stands
@@ -467,6 +486,7 @@ export class TabManager {
     if (!overlay || this.shellWindow.isDestroyed()) return
     const { width, height } = this.shellWindow.getContentBounds()
     const active = this.tabs.find((t) => t.id === this.activeId)
+    const prefs = this.dockPrefs()
     overlay.sync({
       docActive: active !== undefined && active.kind !== 'home',
       suppressed: this.drawerOverlaySuppressed(),
@@ -474,6 +494,10 @@ export class TabManager {
       window: { width, height },
       itemCount: DOCK_ITEM_COUNT,
       separatorCount: DOCK_SEPARATOR_COUNT,
+      // the pill's live shape: the icon-size and strength sliders (设置 ▸
+      // 程序坞) size both the pill the entry renders and the rect cut here
+      baseSize: prefs.baseSize,
+      maxScale: prefs.maxScale,
     })
   }
 

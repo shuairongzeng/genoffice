@@ -238,6 +238,46 @@ body.mac .sidebar {
   box-shadow:
     0 10px 30px rgb(0 0 0 / 16%),
     0 1px 3px rgb(0 0 0 / 10%);
+  /* the brand tile colors (the squircle icons below): the launcher tiles
+   * mirror desktop.css's own exactly (slate/green/orange/blue); the nav rows
+   * have no desktop counterpart, so the dock picks from the same family —
+   * sky for the desktop, indigo for recents, amber for the star. Per
+   * CLAUDE.md these live only on custom-property lines */
+  --dock-tile-desktop: #0ea5e9;
+  --dock-tile-recent: #6366f1;
+  --dock-tile-starred: #f59e0b;
+  --dock-tile-settings: #64748b;
+  --dock-tile-templates: #16a34a;
+  --dock-tile-plugins: #f97316;
+  --dock-tile-ask: #0f7fff;
+  /* the auto-hide slide (设置 ▸ 自动隐藏程序坞): the root's only other
+   * transform is the centering translate, which the hidden state carries
+   * along */
+  transition: transform 0.25s ease;
+}
+
+/* the auto-hide rest state: the whole pill slides below the window edge
+ * (out of the viewport, so nothing hit-tests it — only the hot zone can
+ * summon it back) */
+.dock.dock-hidden {
+  transform: translateX(-50%) translateY(calc(100% + 12px));
+}
+
+/* the stage's bottom hot zone (Home mode only, auto-hide on): hovering it
+ * summons the slid-away pill; sits BELOW the dock so the risen pill covers
+ * it and takes over the enter/leave pair. Deliberately narrow — the pill's
+ * own span, not the window's width — so the zone never swallows clicks on
+ * the stage's bottom edge outside where the dock will appear; a click on
+ * it summons the dock rather than being eaten */
+.dock-hot-zone {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: min(420px, 60%);
+  height: 8px;
+  z-index: 42;
+  background: transparent;
 }
 
 /* ── the dock's standalone mount (?view=dock) ──
@@ -333,6 +373,155 @@ html.dock-view body {
 .dock-item svg {
   width: 100%;
   height: 100%;
+}
+
+/* ── the squircle tiles (macOS Big Sur style) ──
+ * The same colored rounded-square the desktop's icons draw, filling the
+ * slot: the tile IS the icon now, so the fisheye's slot-width growth and
+ * the button's scale carry it whole. The desktop tiles' look — color-mix
+ * fill, hairline edge, white glyph at half — adapted to the pill's scale.
+ */
+.dock-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 25%;
+  color: #ffffff;
+  background: color-mix(in srgb, var(--tile-color) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tile-color) 55%, transparent);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+}
+
+.dock-tile svg {
+  width: 50%;
+  height: 50%;
+}
+
+.dock-tile-desktop {
+  --tile-color: var(--dock-tile-desktop);
+}
+
+.dock-tile-recent {
+  --tile-color: var(--dock-tile-recent);
+}
+
+.dock-tile-starred {
+  --tile-color: var(--dock-tile-starred);
+}
+
+.dock-tile-settings {
+  --tile-color: var(--dock-tile-settings);
+}
+
+.dock-tile-templates {
+  --tile-color: var(--dock-tile-templates);
+}
+
+.dock-tile-plugins {
+  --tile-color: var(--dock-tile-plugins);
+}
+
+.dock-tile-ask {
+  --tile-color: var(--dock-tile-ask);
+}
+
+/* ── the launch bounce ──
+ * macOS bounces a launching icon STEADILY — the same height, the same
+ * period, until the app answers; an ease-out decay would read as giving up.
+ * The period mirrors dock-math's DOCK_BOUNCE_PERIOD_MS (850ms) — the two
+ * must move together. The tile carries the animation so it composes with
+ * the fisheye's scale on the button; reduce-motion stands it down (the
+ * component also refuses the class under the OS setting — belt and braces).
+ */
+@keyframes dock-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-42%);
+  }
+}
+
+.dock-tile.dock-bouncing {
+  animation: dock-bounce 850ms ease-in-out infinite;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock-tile.dock-bouncing {
+    animation: none;
+  }
+}
+
+/* ── the right-click context menu ──
+ * The folder-menu look, opened ABOVE the item (the item's own rect is the
+ * anchor — the pointer's y sits inside the pill). The menu portals to the
+ * body: the pill's transform would otherwise capture its fixed coordinates,
+ * and a body-level menu keeps the same document (the doc-mode overlay's
+ * own renderer) while the pin holds the dock revealed under it. One above
+ * the pill itself so it clears the tiles. The zoom follows the interface
+ * scale like every chrome band: the menu's CSS px are chrome px, so the
+ * placement math (Dock.tsx) runs in the pill's own scaled space and the
+ * rendered offsets land in viewport px.
+ */
+.dock-menu {
+  position: fixed;
+  z-index: 44;
+  min-width: 160px;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 13%);
+  animation: menu-in 0.1s ease;
+  zoom: var(--ui-scale);
+}
+
+.dock-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  text-align: start;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.dock-menu button:hover {
+  background: var(--surface-subtle);
+}
+
+.dock-menu button.danger {
+  color: var(--danger);
+}
+
+.dock-menu button.danger:hover {
+  background: var(--danger-bg);
+}
+
+/* ── the drag-to-reorder ──
+ * The live arrangement: no transitions while the pointer owns the pill
+ * (the fisheye is stood down and the swaps must land instantly), and the
+ * dragged tile rides above its neighbors.
+ */
+.dock.dock-drag-live .dock-slot {
+  transition: none;
+}
+
+.dock.dock-drag-live {
+  cursor: grabbing;
+}
+
+.dock-slot.dock-dragging .dock-item {
+  z-index: 1;
 }
 
 .dock-item:hover {

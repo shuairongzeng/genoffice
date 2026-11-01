@@ -44,6 +44,8 @@ const applyDrawerOverlayPetDrag = vi.fn()
 const reportDockHotEdge = vi.fn()
 const dockNavAction = vi.fn()
 const takeDockNavPending = vi.fn()
+const applyDockOpen = vi.fn()
+const takeDockOpen = vi.fn()
 
 import {
   collectHomeTabsState,
@@ -54,6 +56,7 @@ import {
   registerHomeWorkbenchIpc,
 } from '../src/main/home-tabs-ipc'
 import { readAiDock } from '../src/main/ai-dock'
+import { readDockPrefs } from '../src/main/dock-prefs'
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -369,6 +372,8 @@ describe('registerHomeWorkbenchIpc', () => {
       reportDockHotEdge,
       dockNavAction,
       takeDockNavPending,
+      applyDockOpen,
+      takeDockOpen,
     })
   }
 
@@ -497,6 +502,103 @@ describe('registerHomeWorkbenchIpc', () => {
     registerWorkbench(() => null)
     expect(() => send('home:content-rect', { x: 0, y: 44, width: 552, height: 556 })).not.toThrow()
   })
+
+  describe('the dock prefs channels (设置 ▸ 程序坞)', () => {
+    it('answers the read with the normalized store value, defaults on absence', async () => {
+      registerWorkbench()
+      expect(await invoke('home:dock-prefs-get')).toEqual({
+        magnify: true,
+        baseSize: 48,
+        maxScale: 1.7,
+        autoHide: false,
+        order: [],
+      })
+    })
+
+    it('merges, clamps and persists a patch, answering the effective prefs', async () => {
+      registerWorkbench()
+      const effective = await invoke('home:dock-prefs-set', {
+        baseSize: 64,
+        magnify: false,
+        order: ['dock:ask'],
+      })
+      expect(effective).toEqual({
+        magnify: false,
+        baseSize: 64,
+        maxScale: 1.7,
+        autoHide: false,
+        order: ['dock:ask'],
+      })
+      expect(readDockPrefs(join(dir, 'app-settings.json'))).toEqual(effective)
+      // a later patch without a field keeps it (the slider writes one field)
+      const kept = await invoke('home:dock-prefs-set', { autoHide: true })
+      expect(kept).toEqual({ ...effective, autoHide: true })
+      // an explicit empty order is the reset verb, not "keep the stored one"
+      const reset = await invoke('home:dock-prefs-set', { order: [] })
+      expect(reset.order).toEqual([])
+      // junk never reaches the layout: out-of-range clamps, non-numbers keep
+      const junk = await invoke('home:dock-prefs-set', { baseSize: 999, maxScale: 'big' })
+      expect(junk.baseSize).toBe(64)
+      expect(junk.maxScale).toBe(1.7)
+    })
+  })
+
+  describe('the open-target report (home:dock-open)', () => {
+    const report = {
+      view: null,
+      settings: true,
+      plugins: false,
+      templates: false,
+      ask: false,
+    }
+
+    it('routes a validated report to the cache-and-push dep, sender attached', () => {
+      registerWorkbench()
+      const sender = { id: 700001 } as never
+      ipcMainMock.onHandlers.get('home:dock-open-report')!({ sender }, report)
+      expect(applyDockOpen).toHaveBeenCalledWith(sender, report)
+      expect(applyDockOpen).toHaveBeenCalledTimes(1)
+    })
+
+    it('drops half-parsed reports whole: the dots must never see a guess', () => {
+      registerWorkbench()
+      applyDockOpen.mockClear()
+      const sender = { id: 700001 } as never
+      for (const bad of [
+        null,
+        'open',
+        {},
+        { view: 'cloud', settings: true, plugins: true, templates: true, ask: true },
+        { view: null, settings: 'yes', plugins: true, templates: true, ask: true },
+        { view: null, settings: true, plugins: true, templates: true },
+      ]) {
+        ipcMainMock.onHandlers.get('home:dock-open-report')!({ sender }, bad)
+      }
+      expect(applyDockOpen).not.toHaveBeenCalled()
+    })
+
+    it('answers the overlay dock mount-time pull from the dep cache', async () => {
+      registerWorkbench()
+      takeDockOpen.mockReturnValueOnce(report)
+      expect(await invoke('home:dock-open-get')).toBe(report)
+      expect(takeDockOpen).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('the dock action routing close intents', () => {
+    it('a close target validates like every launcher verb', () => {
+      registerWorkbench()
+      invoke('home:dock-action', { kind: 'close', target: 'plugins' })
+      expect(dockNavAction).toHaveBeenCalledWith({ kind: 'close', target: 'plugins' })
+    })
+
+    it('a close intent with an unknown target is dropped whole', () => {
+      registerWorkbench()
+      dockNavAction.mockClear()
+      invoke('home:dock-action', { kind: 'close', target: 'docs' })
+      expect(dockNavAction).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (P0-2)', () => {
@@ -508,6 +610,8 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
     reportDockHotEdge.mockClear()
     dockNavAction.mockClear()
     takeDockNavPending.mockClear()
+    applyDockOpen.mockClear()
+    takeDockOpen.mockClear()
     registerHomeWorkbenchIpc({
       appSettingsPath: () => '/unused/app-settings.json',
       getTabManager: () => null,
@@ -519,6 +623,8 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
       reportDockHotEdge,
       dockNavAction,
       takeDockNavPending,
+      applyDockOpen,
+      takeDockOpen,
     })
   })
 

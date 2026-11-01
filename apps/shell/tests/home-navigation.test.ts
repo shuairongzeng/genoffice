@@ -4,6 +4,8 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { defaultAiSettings } from '@genoffice/ai-provider'
 import { Home } from '../src/renderer/src/Home'
+import { DOCK_AUTOHIDE_DELAY_MS } from '../src/renderer/src/dock-math'
+import { normalizeDockPrefs } from '../src/shared/dock-prefs'
 import { LocaleProvider } from '../src/renderer/src/locale'
 import type { HomeTabEntry, RecentEntry } from '../src/shared/home-api'
 
@@ -445,5 +447,267 @@ describe('the doc-mode dock nav (home:dock-nav)', () => {
       for (let i = 0; i < 6; i++) await Promise.resolve()
     })
     expect(selected()).toEqual(['Starred'])
+  })
+})
+
+describe('the dock prefs surface (设置 ▸ 程序坞) and the open-target report', () => {
+  /** the prefs the next mount reads; live pushes land through the handlers */
+  let dockPrefsValue: Record<string, unknown> = {}
+  const dockPrefsHandlers: Array<(prefs: Record<string, unknown>) => void> = []
+  const setDockPrefs = vi.fn(async () => undefined)
+  const reports: unknown[] = []
+
+  /** remount Home with the dock channels on the face */
+  async function mountWithDockFace(): Promise<void> {
+    dockPrefsValue = { ...(dockPrefsValue as object) }
+    dockPrefsHandlers.length = 0
+    window.aiOffice = {
+      ...window.aiOffice,
+      getDockPrefs: async () => normalizeDockPrefs(dockPrefsValue),
+      setDockPrefs,
+      onDockPrefsChanged: (handler: (prefs: Record<string, unknown>) => void) => {
+        dockPrefsHandlers.push(handler)
+        return () => {
+          const index = dockPrefsHandlers.indexOf(handler)
+          if (index >= 0) dockPrefsHandlers.splice(index, 1)
+        }
+      },
+      reportDockOpen: (state: unknown) => {
+        reports.push(state)
+      },
+    } as unknown as Window['aiOffice']
+    await act(async () => root.unmount())
+    container.remove()
+    container = document.createElement('div')
+    document.body.append(container)
+    root = createRoot(container)
+    await act(async () =>
+      root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
+    )
+  }
+
+  /** React derives enter/leave from over/out: dispatch those */
+  const hover = (el: Element, type: 'pointerover' | 'pointerout'): void => {
+    el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, relatedTarget: null }))
+  }
+
+  it('the prefs shape the pill: the base size, the static switch, the order', async () => {
+    dockPrefsValue = {
+      baseSize: 64,
+      magnify: false,
+      order: ['dock:starred', 'dock:recent', 'dock:desktop'],
+    }
+    await mountWithDockFace()
+    const dock = container.querySelector<HTMLElement>('.dock')!
+    expect(dock.style.getPropertyValue('--dock-base')).toBe('64px')
+    // magnify off: the fisheye never magnifies
+    hover(dock, 'pointerover')
+    dock.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 200 }))
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    const widths = [...dock.querySelectorAll<HTMLElement>('.dock-slot')].map(
+      (slot) => slot.style.width,
+    )
+    expect(widths.every((width) => width === '')).toBe(true)
+    // the persisted order applies within the nav group
+    const ids = [...dock.querySelectorAll<HTMLElement>('.dock-slot')].map(
+      (slot) => slot.dataset.itemId,
+    )
+    expect(ids.slice(0, 3)).toEqual(['dock:starred', 'dock:recent', 'dock:desktop'])
+  })
+
+  it('auto-hide: the pill rests below the edge, the hot zone summons it, the leave re-hides', async () => {
+    vi.useFakeTimers()
+    try {
+      dockPrefsValue = { autoHide: true }
+      await mountWithDockFace()
+      const dock = container.querySelector<HTMLElement>('.dock')!
+      const zone = container.querySelector<HTMLElement>('.dock-hot-zone')!
+      expect(zone).toBeTruthy()
+      // the pref landed: the pill is hidden until summoned
+      expect(dock.classList.contains('dock-hidden')).toBe(true)
+      // the stage's bottom edge summons it
+      await act(async () => hover(zone, 'pointerover'))
+      expect(dock.classList.contains('dock-hidden')).toBe(false)
+      // the pointer leaving the pill arms the short grace; the pill hides
+      // when it fires, and stays up during the grace
+      hover(dock, 'pointerover')
+      await act(async () => hover(dock, 'pointerout'))
+      expect(dock.classList.contains('dock-hidden')).toBe(false)
+      await act(async () => {
+        vi.advanceTimersByTime(DOCK_AUTOHIDE_DELAY_MS)
+      })
+      expect(dock.classList.contains('dock-hidden')).toBe(true)
+      // and the zone brings it back once more
+      await act(async () => hover(zone, 'pointerover'))
+      expect(dock.classList.contains('dock-hidden')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('auto-hide off mounts no hot zone and keeps the pill up', async () => {
+    dockPrefsValue = { autoHide: false }
+    await mountWithDockFace()
+    expect(container.querySelector('.dock-hot-zone')).toBeNull()
+    expect(container.querySelector('.dock')!.classList.contains('dock-hidden')).toBe(false)
+  })
+
+  it('Home reports the open targets, and the settings modal flips the report', async () => {
+    localStorage.setItem('home.aiDock', JSON.stringify({ width: 400, collapsed: true }))
+    reports.length = 0
+    await mountWithDockFace()
+    // the mounted truth: Recent showing (the suite lands there), drawer
+    // collapsed, nothing open
+    expect(reports.at(-1)).toEqual({
+      view: 'recent',
+      settings: false,
+      plugins: false,
+      templates: false,
+      ask: false,
+    })
+    // opening the settings modal (the dock's own launcher) flips the report,
+    // and the plugins SECTION is the pane it opened on
+    await act(async () => nav('Settings').click())
+    expect(reports.at(-1)).toMatchObject({ settings: true, plugins: false })
+    await act(async () => nav('Plugins').click())
+    expect(reports.at(-1)).toMatchObject({ settings: true, plugins: true })
+  })
+
+  it('a store push re-shapes the mounted pill (the watcher broadcast)', async () => {
+    await mountWithDockFace()
+    const dock = container.querySelector<HTMLElement>('.dock')!
+    expect(dock.style.getPropertyValue('--dock-base')).toBe('48px')
+    await act(async () => {
+      for (const handler of [...dockPrefsHandlers]) {
+        handler(normalizeDockPrefs({ baseSize: 56, order: ['dock:recent', 'dock:desktop'] }))
+      }
+    })
+    expect(dock.style.getPropertyValue('--dock-base')).toBe('56px')
+    const ids = [...dock.querySelectorAll<HTMLElement>('.dock-slot')].map(
+      (slot) => slot.dataset.itemId,
+    )
+    expect(ids.slice(0, 2)).toEqual(['dock:recent', 'dock:desktop'])
+  })
+})
+
+describe('the dock surface fixes (gallery refetch, auto-hide pin, zone click)', () => {
+  const templatesList = vi.fn(async () => [])
+
+  /** remount Home with the dock channels and a counting gallery bridge */
+  async function mountWithDockFace(prefs: Record<string, unknown> = {}): Promise<void> {
+    templatesList.mockClear()
+    window.aiOffice = {
+      ...window.aiOffice,
+      templatesList,
+      getDockPrefs: async () => normalizeDockPrefs(prefs),
+      onDockPrefsChanged: () => () => undefined,
+      reportDockOpen: () => undefined,
+    } as unknown as Window['aiOffice']
+    await act(async () => root.unmount())
+    container.remove()
+    container = document.createElement('div')
+    document.body.append(container)
+    root = createRoot(container)
+    await act(async () =>
+      root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
+    )
+  }
+
+  /** React derives enter/leave from over/out: dispatch those */
+  const hover = (el: Element, type: 'pointerover' | 'pointerout'): void => {
+    el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, relatedTarget: null }))
+  }
+
+  it('a parent re-render never refetches the template gallery list', async () => {
+    await mountWithDockFace()
+    await act(async () => nav('Templates').click())
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    expect(templatesList).toHaveBeenCalledTimes(1)
+    // the bounce settled (the gallery answered) — now force Home to
+    // re-render (a tabs push) and the list must not flash back to loading
+    await act(async () => {
+      tabsHandler?.({
+        tabs: [
+          { id: 't1', kind: 'docs', title: 'a.docx', active: false, dirty: false, detached: false },
+        ],
+        activeId: 'home',
+      })
+    })
+    await act(async () => {
+      tabsHandler?.({
+        tabs: [
+          { id: 't1', kind: 'docs', title: 'a.docx', active: true, dirty: false, detached: false },
+        ],
+        activeId: 't1',
+      })
+    })
+    expect(templatesList).toHaveBeenCalledTimes(1)
+    // and a bounce settled long ago: no tile still bounces
+    expect(container.querySelector('.dock-bouncing')).toBeNull()
+  })
+
+  it('an already-open gallery does not bounce: the click brings it forward', async () => {
+    await mountWithDockFace()
+    await act(async () => nav('Templates').click())
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    // the gallery is open; clicking again is a bring-forward
+    await act(async () => nav('Templates').click())
+    expect(container.querySelector('.dock-bouncing')).toBeNull()
+  })
+
+  it('the auto-hide pin: an open menu holds the pill up through a pill leave', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await mountWithDockFace({ autoHide: true })
+      const dock = container.querySelector<HTMLElement>('.dock')!
+      const zone = container.querySelector<HTMLElement>('.dock-hot-zone')!
+      expect(dock.classList.contains('dock-hidden')).toBe(true)
+      // summon, then open the settings item's menu (its rect anchors it)
+      await act(async () => hover(zone, 'pointerover'))
+      expect(dock.classList.contains('dock-hidden')).toBe(false)
+      await act(async () => {
+        nav('Settings').dispatchEvent(
+          new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 120,
+            clientY: 560,
+          }),
+        )
+      })
+      expect(document.body.querySelector('.dock-menu')).toBeTruthy()
+      // the pointer leaves the pill for the menu above it: the dock stays
+      hover(dock, 'pointerover')
+      await act(async () => hover(dock, 'pointerout'))
+      await act(async () => {
+        vi.advanceTimersByTime(DOCK_AUTOHIDE_DELAY_MS * 2)
+      })
+      expect(dock.classList.contains('dock-hidden')).toBe(false)
+      // the menu closes with the pointer gone: the grace hides the pill
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(DOCK_AUTOHIDE_DELAY_MS)
+      })
+      expect(dock.classList.contains('dock-hidden')).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a click on the hot zone summons the dock (the click is not eaten)', async () => {
+    await mountWithDockFace({ autoHide: true })
+    const dock = container.querySelector<HTMLElement>('.dock')!
+    const zone = container.querySelector<HTMLElement>('.dock-hot-zone')!
+    expect(dock.classList.contains('dock-hidden')).toBe(true)
+    await act(async () => zone.click())
+    expect(dock.classList.contains('dock-hidden')).toBe(false)
   })
 })

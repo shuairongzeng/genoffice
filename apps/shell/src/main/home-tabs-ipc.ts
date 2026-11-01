@@ -6,12 +6,15 @@ import type {
   AiPetDragReport,
   DockHotEdgeReport,
   DockNavIntent,
+  DockOpenState,
   HomeTabsState,
 } from '../shared/home-api'
 import type { OpenDocumentTab } from '../shared/tabs-api'
 import { normalizeAiDock } from '../shared/desktop-geometry'
+import { asDockOpenState, normalizeDockPrefs } from '../shared/dock-prefs'
 import { normalizeForwardedAskQuery, type PendingAskQuery } from '../shared/ask-forward'
 import { readAiDock, AI_DOCK_KEY } from './ai-dock'
+import { DOCK_PREFS_KEY, readDockPrefs } from './dock-prefs'
 import { writeAppSetting } from './app-settings'
 import type { TabManager } from './tab-manager'
 
@@ -205,6 +208,22 @@ export interface HomeWorkbenchIpcDeps {
    * lives where the routing does (index.ts).
    */
   takeDockNavPending: () => DockNavIntent | null
+  /**
+   * Cache one validated open-target report (Home's `home:dock-open-report`)
+   * and push it to the doc-mode overlay's dock renderer: the report feeds
+   * the overlay dock's running dots and ends its launch bounce. The
+   * sender rides along so the consumer can identity-check it the way
+   * reportHotEdge's channel does — only the shell window's own renderer
+   * (Home, the surface that owns the targets) may state which are open.
+   * Injected because only index.ts holds the overlay view's webContents.
+   */
+  applyDockOpen: (sender: WebContents, state: DockOpenState) => void
+  /**
+   * The cached open-target report for the overlay dock's mount-time pull
+   * (the all-closed default until Home's first report). Injected with
+   * applyDockOpen — the cache lives where the push does.
+   */
+  takeDockOpen: () => DockOpenState
 }
 
 /** a reported content-stage rect, whole-pixel and inside the window; null on anything malformed */
@@ -264,6 +283,8 @@ function asDockHotEdgeReport(value: unknown): DockHotEdgeReport | null {
 const DOCK_NAV_VIEWS = ['desktop', 'recent', 'starred'] as const
 /** the settings sections a dock action may open */
 const DOCK_SETTINGS_SECTIONS = ['general', 'plugins'] as const
+/** the open targets a dock close action may name (the context menu's 关闭标签) */
+const DOCK_CLOSE_TARGETS = ['settings', 'templates', 'plugins'] as const
 
 /**
  * A dock action, whole: the discriminated intent the doc-mode dock's items
@@ -272,7 +293,7 @@ const DOCK_SETTINGS_SECTIONS = ['general', 'plugins'] as const
  */
 function asDockNavIntent(value: unknown): DockNavIntent | null {
   if (!value || typeof value !== 'object') return null
-  const raw = value as Partial<{ kind: unknown; view: unknown; section: unknown }>
+  const raw = value as Partial<{ kind: unknown; view: unknown; section: unknown; target: unknown }>
   if (raw.kind === 'nav') {
     if (typeof raw.view !== 'string') return null
     if (!(DOCK_NAV_VIEWS as readonly string[]).includes(raw.view)) return null
@@ -284,6 +305,11 @@ function asDockNavIntent(value: unknown): DockNavIntent | null {
     return { kind: 'settings', section: raw.section as (typeof DOCK_SETTINGS_SECTIONS)[number] }
   }
   if (raw.kind === 'templates') return { kind: 'templates' }
+  if (raw.kind === 'close') {
+    if (typeof raw.target !== 'string') return null
+    if (!(DOCK_CLOSE_TARGETS as readonly string[]).includes(raw.target)) return null
+    return { kind: 'close', target: raw.target as (typeof DOCK_CLOSE_TARGETS)[number] }
+  }
   return null
 }
 
@@ -363,6 +389,19 @@ function clampStageRect(rect: Rectangle, window: { width: number; height: number
  *   the click while the renderer was still loading, and a push nobody is
  *   listening for is lost). The dep answers the buffered intent once and
  *   clears it; null when nothing is pending.
+ * - `home:dock-prefs-get`/`home:dock-prefs-set`: the dock's own settings
+ *   (app-settings.json `dockPrefs`: magnify, icon size, strength, auto-hide,
+ *   the drag-arranged order). The aiDock pair's exact shape — the set merges
+ *   and normalizes the patch, persists, and answers the effective value; the
+ *   write trips watchDockPrefs, whose broadcast re-fits both dock mounts.
+ * - `home:dock-open-report`/`home:dock-open-get`: Home's report of which dock
+ *   targets are open (the settings modal, the template gallery, the drawer)
+ *   and the doc-mode overlay's mount-time pull of it. The report feeds the
+ *   overlay dock's running dots and ends its launch bounce; it is validated
+ *   whole and routed to the injected dep WITH ITS SENDER — the consumer
+ *   identity-checks it against the shell window's own webContents the way
+ *   reportHotEdge's channel does, then caches the state and pushes it to
+ *   the overlay view's renderer.
  *
  * Known limitation (accepted): dirtiness is resolved per push, and a
  * document turning dirty or clean all by itself (an edit, an autosave) is not
@@ -414,4 +453,40 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
     if (intent) deps.dockNavAction(intent)
   })
   ipcMain.handle(HOME_CHANNELS.dockNavPending, () => deps.takeDockNavPending())
+  // the dock's own prefs (设置 ▸ 程序坞): the aiDock pair's shape — read
+  // normalized, set merged-and-clamped, the write tripping the store watcher
+  // whose broadcast re-fits both dock mounts
+  ipcMain.handle(HOME_CHANNELS.dockPrefsGet, () => readDockPrefs(deps.appSettingsPath()))
+  ipcMain.handle(HOME_CHANNELS.dockPrefsSet, (_event, patch: unknown) => {
+    const path = deps.appSettingsPath()
+    const current = readDockPrefs(path)
+    const p = (patch ?? {}) as Partial<{
+      magnify: unknown
+      baseSize: unknown
+      maxScale: unknown
+      autoHide: unknown
+      order: unknown
+    }>
+    const next = normalizeDockPrefs({
+      magnify: typeof p.magnify === 'boolean' ? p.magnify : current.magnify,
+      baseSize: typeof p.baseSize === 'number' ? p.baseSize : current.baseSize,
+      maxScale: typeof p.maxScale === 'number' ? p.maxScale : current.maxScale,
+      autoHide: typeof p.autoHide === 'boolean' ? p.autoHide : current.autoHide,
+      // the field's presence adopts the patch — an explicit empty order is
+      // "back to the default arrangement", not "keep the stored one"
+      order: Object.hasOwn(p, 'order') ? p.order : current.order,
+    })
+    writeAppSetting(path, DOCK_PREFS_KEY, next)
+    return next
+  })
+  // Home's open-target report: validated whole (the state machine's
+  // consumers — running dots, bounce-ready — must never see a half-parsed
+  // report), the sender handed to the injected dep for the identity gate
+  // (any renderer sharing the preload could send the channel; only Home's
+  // own webContents may speak for the targets)
+  ipcMain.on(HOME_CHANNELS.dockOpenReport, (event, raw: unknown) => {
+    const state = asDockOpenState(raw)
+    if (state) deps.applyDockOpen(event.sender, state)
+  })
+  ipcMain.handle(HOME_CHANNELS.dockOpenGet, () => deps.takeDockOpen())
 }

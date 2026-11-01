@@ -11,6 +11,14 @@ import {
 import type { AiFontSize, AiPanelPrefs, AiPanelSide } from '@genoffice/ui'
 import type { DecisionEndpoint, DefaultAppStatus, FileSearchSettings } from '../../shared/home-api'
 import { AUTHOR_NAME_MAX, isCloudflareEndpoint } from '../../shared/home-api'
+import {
+  DOCK_BASE_MAX,
+  DOCK_BASE_MIN,
+  DOCK_MAX_SCALE_MAX,
+  DOCK_MAX_SCALE_MIN,
+  normalizeDockPrefs,
+  type DockPrefs,
+} from '../../shared/dock-prefs'
 import type { UpdateUiState } from '../../shared/update-api'
 import {
   DEFAULT_MAX_OUTPUT_TOKENS,
@@ -190,13 +198,22 @@ function CustomFontSizeInput({
 }
 
 export type SectionId =
-  'account' | 'aiModel' | 'aiMedia' | 'general' | 'integrations' | 'skills' | 'plugins' | 'about'
+  | 'account'
+  | 'aiModel'
+  | 'aiMedia'
+  | 'general'
+  | 'dock'
+  | 'integrations'
+  | 'skills'
+  | 'plugins'
+  | 'about'
 
 const SECTIONS: readonly { id: SectionId; labelKey: StringKey }[] = [
   { id: 'account', labelKey: 'setSecAccount' },
   { id: 'aiModel', labelKey: 'setSecAiModel' },
   { id: 'aiMedia', labelKey: 'setSecAiMedia' },
   { id: 'general', labelKey: 'setSecGeneral' },
+  { id: 'dock', labelKey: 'setSecDock' },
   { id: 'integrations', labelKey: 'setSecIntegrations' },
   { id: 'skills', labelKey: 'setSecSkills' },
   { id: 'plugins', labelKey: 'setSecPlugins' },
@@ -300,6 +317,27 @@ function SectionIcon({ id }: { id: SectionId }) {
         />
         <circle cx="11.5" cy="5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
         <circle cx="4.5" cy="11" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+      </svg>
+    )
+  }
+  if (id === 'dock') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <rect
+          x="1.8"
+          y="5.2"
+          width="12.4"
+          height="5.6"
+          rx="2.4"
+          stroke="currentColor"
+          strokeWidth="1.3"
+        />
+        <path
+          d="M4.4 8.1v.01M7.2 8.1v.01M10 8.1v.01"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
       </svg>
     )
   }
@@ -1905,6 +1943,12 @@ export interface SettingsModalProps {
   onSkillUpdateDue?: (due: boolean) => void
   /** open on this section / block instead of the account page */
   target?: SettingsTarget | null
+  /**
+   * The live section changed (the person navigated the nav): reported up so
+   * Home's dock can light the plugins tile's running dot when its pane is
+   * the one showing.
+   */
+  onSectionChange?: (section: SectionId) => void
 }
 
 export function SettingsModal({
@@ -1922,12 +1966,59 @@ export function SettingsModal({
   skillUpdateDue: updateDue = false,
   onSkillUpdateDue,
   target,
+  onSectionChange,
 }: SettingsModalProps) {
   const { lang, setLang, t } = useI18n()
   const [section, setSection] = useState<SectionId>(target?.section ?? 'account')
   useEffect(() => {
     if (target) setSection(target.section)
   }, [target])
+  useEffect(() => {
+    onSectionChange?.(section)
+  }, [section, onSectionChange])
+  // ── the dock's prefs (设置 ▸ 程序坞): the same store every dock mount
+  // reads, so a write here reaches both pills live through the watcher's
+  // broadcast (the drag arrangement, the same sliders on another mount)
+  const [dockPrefs, setDockPrefsState] = useState<DockPrefs>(() => normalizeDockPrefs(undefined))
+  useEffect(() => {
+    if (typeof window.aiOffice.getDockPrefs !== 'function') return
+    let alive = true
+    void window.aiOffice
+      .getDockPrefs()
+      .then((prefs) => {
+        if (alive) setDockPrefsState(normalizeDockPrefs(prefs))
+      })
+      .catch(() => undefined)
+    const off = window.aiOffice.onDockPrefsChanged?.((prefs) =>
+      setDockPrefsState(normalizeDockPrefs(prefs)),
+    )
+    return () => {
+      alive = false
+      off?.()
+    }
+  }, [])
+  const commitDockPrefs = useCallback((patch: Partial<DockPrefs>) => {
+    setDockPrefsState((prev) => normalizeDockPrefs({ ...prev, ...patch }))
+    void window.aiOffice.setDockPrefs?.(patch).catch(() => undefined)
+  }, [])
+  // the sliders' write discipline: the store is an atomic file write plus a
+  // watcher broadcast that re-fits both dock mounts and re-cuts the
+  // overlay's rect — a write per drag step would amplify all of that. The
+  // draft moves live (the readout and the pill follow), and the one commit
+  // lands on the slider's release: pointerup for a drag, keyup for the
+  // arrows, blur as the catch-all.
+  const [dockBaseDraft, setDockBaseDraft] = useState<number | null>(null)
+  const [dockScaleDraft, setDockScaleDraft] = useState<number | null>(null)
+  const commitDockBaseDraft = useCallback(() => {
+    if (dockBaseDraft === null) return
+    setDockBaseDraft(null)
+    commitDockPrefs({ baseSize: dockBaseDraft })
+  }, [dockBaseDraft, commitDockPrefs])
+  const commitDockScaleDraft = useCallback(() => {
+    if (dockScaleDraft === null) return
+    setDockScaleDraft(null)
+    commitDockPrefs({ maxScale: dockScaleDraft })
+  }, [dockScaleDraft, commitDockPrefs])
   const [theme, setTheme] = useState<UiTheme>('system')
   const [docTheme, setDocTheme] = useState<DocTheme>('follow')
   const [saveDir, setSaveDir] = useState('')
@@ -2705,6 +2796,95 @@ export function SettingsModal({
                     )}
                   </>
                 )}
+              </>
+            )}
+            {section === 'dock' && (
+              <>
+                <h3 className="set-pane-title">{t('setSecDock')}</h3>
+                <div className="set-field">
+                  <div className="set-field-text">
+                    <div className="set-field-stack">
+                      <div className="set-field-label">{t('setDockMagnify')}</div>
+                      <div className="set-field-desc">{t('setDockMagnifyDesc')}</div>
+                    </div>
+                  </div>
+                  <button
+                    className="set-switch"
+                    role="switch"
+                    aria-checked={dockPrefs.magnify}
+                    aria-label={t('setDockMagnify')}
+                    onClick={() => commitDockPrefs({ magnify: !dockPrefs.magnify })}
+                  />
+                </div>
+                <div className="set-field">
+                  <div className="set-field-text">
+                    <div className="set-field-stack">
+                      <div className="set-field-label">{t('setDockIconSize')}</div>
+                      <div className="set-field-desc">{dockBaseDraft ?? dockPrefs.baseSize} px</div>
+                    </div>
+                  </div>
+                  <input
+                    className="set-range"
+                    type="range"
+                    min={DOCK_BASE_MIN}
+                    max={DOCK_BASE_MAX}
+                    step={1}
+                    value={dockBaseDraft ?? dockPrefs.baseSize}
+                    aria-label={t('setDockIconSize')}
+                    onChange={(e) => setDockBaseDraft(Number(e.target.value))}
+                    onPointerUp={commitDockBaseDraft}
+                    onKeyUp={commitDockBaseDraft}
+                    onBlur={commitDockBaseDraft}
+                  />
+                </div>
+                <div className="set-field">
+                  <div className="set-field-text">
+                    <div className="set-field-stack">
+                      <div className="set-field-label">{t('setDockStrength')}</div>
+                      <div className="set-field-desc">
+                        {(dockScaleDraft ?? dockPrefs.maxScale).toFixed(2)}×
+                      </div>
+                    </div>
+                  </div>
+                  <input
+                    className="set-range"
+                    type="range"
+                    min={DOCK_MAX_SCALE_MIN}
+                    max={DOCK_MAX_SCALE_MAX}
+                    step={0.05}
+                    value={dockScaleDraft ?? dockPrefs.maxScale}
+                    aria-label={t('setDockStrength')}
+                    onChange={(e) => setDockScaleDraft(Number(e.target.value))}
+                    onPointerUp={commitDockScaleDraft}
+                    onKeyUp={commitDockScaleDraft}
+                    onBlur={commitDockScaleDraft}
+                  />
+                </div>
+                <div className="set-field">
+                  <div className="set-field-text">
+                    <div className="set-field-stack">
+                      <div className="set-field-label">{t('setDockAutoHide')}</div>
+                      <div className="set-field-desc">{t('setDockAutoHideDesc')}</div>
+                    </div>
+                  </div>
+                  <button
+                    className="set-switch"
+                    role="switch"
+                    aria-checked={dockPrefs.autoHide}
+                    aria-label={t('setDockAutoHide')}
+                    onClick={() => commitDockPrefs({ autoHide: !dockPrefs.autoHide })}
+                  />
+                </div>
+                <div className="set-field">
+                  <div className="set-field-text">
+                    <div className="set-field-stack">
+                      <div className="set-field-label">{t('setDockResetOrder')}</div>
+                    </div>
+                  </div>
+                  <button className="set-btn" onClick={() => commitDockPrefs({ order: [] })}>
+                    {t('setDockResetOrder')}
+                  </button>
+                </div>
               </>
             )}
             {section === 'integrations' && (

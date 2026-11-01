@@ -310,3 +310,58 @@ describe('getAiDock / setAiDock / homeContentRect', () => {
     })
   })
 })
+
+describe('the dock prefs and open-target bridges', () => {
+  it('reads and writes the dock prefs through their channels', async () => {
+    electronMocks.invoke.mockResolvedValueOnce({
+      magnify: true,
+      baseSize: 48,
+      maxScale: 1.7,
+      autoHide: false,
+      order: [],
+    })
+    await expect(homeApi.getDockPrefs?.()).resolves.toEqual({
+      magnify: true,
+      baseSize: 48,
+      maxScale: 1.7,
+      autoHide: false,
+      order: [],
+    })
+    expect(electronMocks.invoke).toHaveBeenCalledWith(HOME_CHANNELS.dockPrefsGet)
+    await homeApi.setDockPrefs?.({ baseSize: 56 })
+    expect(electronMocks.invoke).toHaveBeenLastCalledWith(HOME_CHANNELS.dockPrefsSet, {
+      baseSize: 56,
+    })
+  })
+
+  it('replays the prefs push and unsubscribes', () => {
+    const heard: unknown[] = []
+    const off = homeApi.onDockPrefsChanged?.((prefs) => heard.push(prefs))
+    electronMocks.emit(HOME_CHANNELS.dockPrefsChanged, { baseSize: 56 })
+    electronMocks.emit(HOME_CHANNELS.dockPrefsChanged, 'junk')
+    off?.()
+    electronMocks.emit(HOME_CHANNELS.dockPrefsChanged, { baseSize: 64 })
+    expect(heard).toEqual([{ baseSize: 56 }])
+  })
+
+  it('sends the open-target report fire-and-forget, and replays the push', () => {
+    electronMocks.send.mockClear()
+    const report = { view: null, settings: true, plugins: false, templates: false, ask: false }
+    homeApi.reportDockOpen?.(report)
+    expect(electronMocks.send).toHaveBeenCalledWith(HOME_CHANNELS.dockOpenReport, report)
+    const heard: unknown[] = []
+    const off = homeApi.onDockOpen?.((state) => heard.push(state))
+    electronMocks.emit(HOME_CHANNELS.dockOpen, report)
+    electronMocks.emit(HOME_CHANNELS.dockOpen, null)
+    off?.()
+    expect(heard).toEqual([report])
+  })
+
+  it('invokes the mount-time open-target pull', async () => {
+    electronMocks.invoke.mockClear()
+    const report = { view: 'recent', settings: false, plugins: false, templates: false, ask: true }
+    electronMocks.invoke.mockResolvedValueOnce(report)
+    await expect(homeApi.takeDockOpen?.()).resolves.toBe(report)
+    expect(electronMocks.invoke).toHaveBeenCalledWith(HOME_CHANNELS.dockOpenGet)
+  })
+})

@@ -21,6 +21,7 @@
  */
 
 import type { Rect } from './tab-drag-geometry'
+import { DOCK_BASE_DEFAULT, DOCK_MAX_SCALE_DEFAULT } from './dock-prefs'
 
 /** Fallback height of the desktop's header band — the embedded tab strip. Must
  *  stay in sync with `.work-tabs` in the renderer's home.css (44px today). */
@@ -258,8 +259,8 @@ export function documentContentBounds(
  * overshooting pill.
  */
 
-/** the dock pill's icon pitch at rest (mirrors dock-math's base size) */
-const DOCK_OVERLAY_BASE = 48
+/** the dock pill's icon pitch at rest (dock-prefs' single-sourced default) */
+const DOCK_OVERLAY_BASE = DOCK_BASE_DEFAULT
 /** the pill's horizontal padding + hairline borders, CSS px */
 const DOCK_OVERLAY_H_PADDING = 10 + 10 + 1 + 1
 /** the pill's vertical padding + borders, CSS px (above + below the row) */
@@ -273,11 +274,11 @@ const DOCK_OVERLAY_BOTTOM = 9
 /** the hot strip's thickness, CSS px */
 const DOCK_OVERLAY_STRIP = 3
 /**
- * The dock's peak magnification M, mirroring dock-math's default: the rect
- * must fit the pill WITH its fisheye, so the physics' ceiling sizes the
+ * The dock's peak magnification M (dock-prefs' single-sourced default): the
+ * rect must fit the pill WITH its fisheye, so the physics' ceiling sizes the
  * headroom.
  */
-const DOCK_OVERLAY_MAX_SCALE = 1.7
+const DOCK_OVERLAY_MAX_SCALE = DOCK_MAX_SCALE_DEFAULT
 /**
  * Room above a magnified icon for the screentip, CSS px: the tooltip flips
  * above the hovered item, and a rect that ends at the icon's scaled top
@@ -295,10 +296,11 @@ export const DOCK_ITEM_COUNT = 7
 /** the separators between those groups (nav | launchers | ask) */
 export const DOCK_SEPARATOR_COUNT = 2
 
-/** the pill's size in CSS px for a given composition */
+/** the pill's size in CSS px for a given composition and base icon size */
 function dockPillSize(
   itemCount: number,
   separatorCount: number,
+  baseSize = DOCK_OVERLAY_BASE,
 ): {
   width: number
   height: number
@@ -306,11 +308,8 @@ function dockPillSize(
   const children = itemCount + separatorCount
   const gaps = Math.max(0, children - 1) * DOCK_OVERLAY_GAP
   const width =
-    DOCK_OVERLAY_H_PADDING +
-    itemCount * DOCK_OVERLAY_BASE +
-    gaps +
-    separatorCount * DOCK_OVERLAY_SEPARATOR
-  return { width, height: DOCK_OVERLAY_BASE + DOCK_OVERLAY_V_PADDING }
+    DOCK_OVERLAY_H_PADDING + itemCount * baseSize + gaps + separatorCount * DOCK_OVERLAY_SEPARATOR
+  return { width, height: baseSize + DOCK_OVERLAY_V_PADDING }
 }
 
 /**
@@ -343,15 +342,30 @@ function dockPillSize(
  * Both scale by the interface scale like every chrome band; a window
  * narrower than the pill clamps the dock rect to the window (the pill then
  * centers over a clipped view — the same clamp the drawer's bounds take).
+ *
+ * `baseSize` and `maxScale` are the live dock settings (the icon-size and
+ * magnification-strength sliders in 设置 ▸ 程序坞); both default to the
+ * dock-math defaults, so a caller without prefs (tests, a fallback) still
+ * gets the canonical pill.
  */
 export function dockOverlayBounds(
   window: { width: number; height: number },
-  layout: { scale?: number; itemCount: number; separatorCount: number },
+  layout: {
+    scale?: number
+    itemCount: number
+    separatorCount: number
+    /** the dock's base icon size, CSS px (设置 ▸ 图标大小; default 48) */
+    baseSize?: number
+    /** the dock's peak magnification M (设置 ▸ 放大强度; default 1.7) */
+    maxScale?: number
+  },
 ): { strip: Rect; dock: Rect } {
   const scale = layout.scale ?? 1
-  const pill = dockPillSize(layout.itemCount, layout.separatorCount)
+  const baseSize = Number.isFinite(layout.baseSize) ? layout.baseSize! : DOCK_OVERLAY_BASE
+  const maxScale = Number.isFinite(layout.maxScale) ? layout.maxScale! : DOCK_OVERLAY_MAX_SCALE
+  const pill = dockPillSize(layout.itemCount, layout.separatorCount, baseSize)
   // how far a magnified icon rises above its rest top, CSS px
-  const magnifyHeadroom = (DOCK_OVERLAY_MAX_SCALE - 1) * DOCK_OVERLAY_BASE
+  const magnifyHeadroom = (maxScale - 1) * baseSize
   const stripHeight = Math.max(1, Math.round(DOCK_OVERLAY_STRIP * scale))
   const pillWidth = Math.min(
     Math.round((pill.width + 2 * magnifyHeadroom) * scale),

@@ -366,4 +366,49 @@ describe('dockOverlayBounds', () => {
     // the strip never changes with the composition
     expect(wider.strip).toEqual(base.strip)
   })
+
+  it('the live base size re-cuts the rect: a 64px pill (设置 ▸ 图标大小)', () => {
+    // the pill: 22 padding + 7×64 icons + 8×3 gaps + 2×7 separators = 508
+    // CSS px wide, 64+14 tall; the headroom (1.7−1)×64 = 44.8 both sides;
+    // height 78+9+44.8+28 = 159.8 → 160
+    const { dock } = dockOverlayBounds(
+      { width: 800, height: 600 },
+      { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT, baseSize: 64 },
+    )
+    expect(dock).toEqual({ x: 101, y: 440, width: 598, height: 160 })
+  })
+
+  it('the strength slider sizes the headroom: M 2.0 grows, M 1.2 shrinks', () => {
+    const strong = dockOverlayBounds(
+      { width: 800, height: 600 },
+      { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT, maxScale: 2 },
+    )
+    // headroom (2−1)×48 = 48 both sides: 396+96 wide, 62+9+48+28 tall
+    expect(strong.dock.width).toBe(492)
+    expect(strong.dock.height).toBe(147)
+    const gentle = dockOverlayBounds(
+      { width: 800, height: 600 },
+      { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT, maxScale: 1.2 },
+    )
+    // headroom 0.2×48 = 9.6: 396+19.2 wide, 62+9+9.6+28 tall
+    expect(gentle.dock.width).toBe(415)
+    expect(gentle.dock.height).toBe(109)
+  })
+
+  it('junk or absent sizes fall back to the dock-math defaults', () => {
+    const fallback = dockOverlayBounds(
+      { width: 800, height: 600 },
+      { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT },
+    )
+    const junk = dockOverlayBounds(
+      { width: 800, height: 600 },
+      {
+        itemCount: DOCK_ITEM_COUNT,
+        separatorCount: DOCK_SEPARATOR_COUNT,
+        baseSize: Number.NaN,
+        maxScale: 'big' as unknown as number,
+      },
+    )
+    expect(junk.dock).toEqual(fallback.dock)
+  })
 })

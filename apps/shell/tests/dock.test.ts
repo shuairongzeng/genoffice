@@ -7,6 +7,7 @@ import { Dock, type DockItem } from '../src/renderer/src/Dock'
 import {
   DOCK_DEFAULT_MAX_SCALE,
   DOCK_DEFAULT_SIGMA_RATIO,
+  DOCK_DRAG_IDLE_MS,
   dockSlotWidth,
   fisheyeScale,
 } from '../src/renderer/src/dock-math'
@@ -302,5 +303,532 @@ describe('the fisheye gesture layer', () => {
     dispatch('pointermove', centerX(1))
     await flushFrames()
     expect(slotWidths()[1]).toBe(`${dockSlotWidth(48, DOCK_DEFAULT_MAX_SCALE)}px`)
+  })
+})
+
+describe('the squircle tiles and indicators', () => {
+  it('a tile item wraps its glyph in the colored rounded-square', async () => {
+    const items = threeItems()
+    items[0] = { ...items[0], tile: 'ask' }
+    await mountDock({ groups: [items] })
+    const tile = itemAt(0).querySelector('.dock-tile')!
+    expect(tile.className).toBe('dock-tile dock-tile-ask')
+    expect(tile.querySelector('svg')).toBeTruthy()
+    // an item without a tile keeps the bare line icon
+    expect(itemAt(1).querySelector('.dock-tile')).toBeNull()
+  })
+
+  it('the running dot shows without the active flag, and both flags share one dot', async () => {
+    const items = threeItems()
+    items[0] = { ...items[0], running: true }
+    items[1] = { ...items[1], active: true, running: true }
+    await mountDock({ groups: [items] })
+    expect(slotAt(0).querySelector('.dock-dot')).not.toBeNull()
+    expect(slotAt(1).querySelectorAll('.dock-dot')).toHaveLength(1)
+    expect(slotAt(2).querySelector('.dock-dot')).toBeNull()
+  })
+
+  it('the bouncing item bounces; reduce motion refuses the class', async () => {
+    const items = threeItems()
+    items[0] = { ...items[0], tile: 'ask' }
+    await mountDock({ groups: [items], bouncing: 'recent' })
+    expect(itemAt(0).querySelector('.dock-tile')!.className).toContain('dock-bouncing')
+    // a fresh mount under reduced motion renders no bounce at all
+    await act(async () => root.unmount())
+    container.remove()
+    container = document.createElement('div')
+    document.body.append(container)
+    root = createRoot(container)
+    await act(async () =>
+      root.render(
+        createElement(Dock, {
+          groups: [items],
+          ariaLabel: 'Dock',
+          bouncing: 'recent',
+          reducedMotion: true,
+        } as Parameters<typeof Dock>[0]),
+      ),
+    )
+    expect(itemAt(0).querySelector('.dock-tile')!.className).not.toContain('dock-bouncing')
+  })
+})
+
+describe('the magnification preference', () => {
+  it('magnify false is a static dock by choice, like reduced motion', async () => {
+    await mountDock({ magnify: false })
+    stubSlots([48, 48, 48])
+    dispatch('pointerenter')
+    dispatch('pointermove', centerX(1))
+    await flushFrames()
+    expect(slotWidths()).toEqual(['', '', ''])
+    expect(rafQueue).toHaveLength(0)
+  })
+})
+
+describe('the context menu', () => {
+  const menuItems = (): DockItem[] => [
+    {
+      id: 'recent',
+      label: 'Recent',
+      icon: icon(),
+      menu: [
+        { label: 'Show', onSelect: vi.fn() },
+        { label: 'Close tab', onSelect: vi.fn(), danger: true },
+      ],
+      onSelect: vi.fn(),
+    },
+    { id: 'starred', label: 'Starred', icon: icon(), onSelect: vi.fn() },
+  ]
+
+  const contextmenu = (el: Element, x = 120, y = 560): void => {
+    el.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y }),
+    )
+  }
+
+  it('right-click opens the verbs above the dock, portal-rendered at the body level', async () => {
+    const items = menuItems()
+    await mountDock({ groups: [items] })
+    await act(async () => contextmenu(itemAt(0)))
+    const menu = document.body.querySelector('.dock-menu')!
+    expect(menu.getAttribute('role')).toBe('menu')
+    // the menu escapes the transformed pill (its fixed coordinates must
+    // not be captured by the dock's translate)
+    expect(container.contains(menu)).toBe(false)
+    // placed by the layout effect, flipped above the pointer
+    expect(menu.style.left).toMatch(/px$/)
+    expect(menu.style.top).toMatch(/px$/)
+    const entries = [...menu.querySelectorAll('button')]
+    expect(entries.map((entry) => entry.textContent)).toEqual(['Show', 'Close tab'])
+    expect(entries[1]!.className).toContain('danger')
+    // an item without a menu offers none
+    await act(async () => contextmenu(itemAt(1)))
+    expect(document.body.querySelectorAll('.dock-menu')).toHaveLength(1)
+  })
+
+  it('choosing a verb runs it and closes the menu', async () => {
+    const items = menuItems()
+    await mountDock({ groups: [items] })
+    await act(async () => contextmenu(itemAt(0)))
+    const entries = [...document.body.querySelectorAll('.dock-menu button')]
+    await act(async () => entries[0]!.click())
+    expect(items[0]!.menu![0]!.onSelect).toHaveBeenCalledTimes(1)
+    expect(items[0]!.menu![1]!.onSelect).not.toHaveBeenCalled()
+    expect(document.body.querySelector('.dock-menu')).toBeNull()
+  })
+
+  it('Escape closes, and a press outside closes', async () => {
+    const items = menuItems()
+    await mountDock({ groups: [items] })
+    await act(async () => contextmenu(itemAt(0)))
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+    expect(document.body.querySelector('.dock-menu')).toBeNull()
+    // reopen, then a pointer press outside the menu dismisses it
+    await act(async () => contextmenu(itemAt(0)))
+    await act(async () => {
+      document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    })
+    expect(document.body.querySelector('.dock-menu')).toBeNull()
+  })
+
+  it('the interaction pin reports open and closed with the menu', async () => {
+    const onInteractionChange = vi.fn()
+    const items = menuItems()
+    await mountDock({ groups: [items], onInteractionChange })
+    onInteractionChange.mockClear()
+    await act(async () => contextmenu(itemAt(0)))
+    expect(onInteractionChange).toHaveBeenLastCalledWith(true)
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+    expect(onInteractionChange).toHaveBeenLastCalledWith(false)
+  })
+})
+
+describe('drag-to-reorder', () => {
+  // jsdom has no pointer capture API: the drag layer's calls are stubbed
+  beforeEach(() => {
+    Element.prototype.setPointerCapture = () => undefined
+    Element.prototype.releasePointerCapture = () => undefined
+  })
+
+  const dispatchOn = (el: Element, type: string, x: number, buttons = 1): void => {
+    el.dispatchEvent(
+      new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        button: 0,
+        buttons,
+      }),
+    )
+  }
+
+  const rootEl = (): HTMLElement => container.querySelector<HTMLElement>('.dock')!
+
+  const itemIds = (): string[] =>
+    [...rootEl().querySelectorAll<HTMLElement>('.dock-slot')].map((slot) => slot.dataset.itemId!)
+
+  it('a horizontal drag swaps past a neighbor and commits the order', async () => {
+    const onReorder = vi.fn()
+    await mountDock({ onReorder })
+    stubSlots([48, 48, 48])
+    // the pointer grabs the first item and travels past the neighbor
+    await act(async () => dispatchOn(slotAt(0), 'pointerdown', centerX(0)))
+    await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(1)))
+    expect(rootEl().classList.contains('dock-drag-live')).toBe(true)
+    expect(itemIds()).toEqual(['starred', 'recent', 'ask'])
+    await act(async () => dispatchOn(rootEl(), 'pointerup', centerX(1)))
+    expect(onReorder).toHaveBeenCalledWith(['starred', 'recent', 'ask'])
+    // the drag ended: the pill leaves the live-arrangement mode
+    expect(rootEl().classList.contains('dock-drag-live')).toBe(false)
+  })
+
+  it('a sub-threshold wiggle stays a click; the drag suppresses the release click', async () => {
+    const items = threeItems()
+    await mountDock({ groups: [items] })
+    stubSlots([48, 48, 48])
+    const onSelect = items[0].onSelect
+    // a 2px wiggle never begins a drag, and the click fires as usual
+    await act(async () => dispatchOn(slotAt(0), 'pointerdown', centerX(0)))
+    await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(0) + 2))
+    await act(async () => dispatchOn(rootEl(), 'pointerup', centerX(0) + 2))
+    await act(async () => itemAt(0).click())
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    // a real drag: the release synthesizes no click of its own
+    const onReorder = vi.fn()
+    await act(async () =>
+      root.render(
+        createElement(Dock, {
+          groups: [threeItems()],
+          ariaLabel: 'Dock',
+          onReorder,
+        } as Parameters<typeof Dock>[0]),
+      ),
+    )
+    await act(async () => dispatchOn(slotAt(0), 'pointerdown', centerX(0)))
+    await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(2)))
+    await act(async () => dispatchOn(rootEl(), 'pointerup', centerX(2)))
+    expect(onReorder).toHaveBeenCalledTimes(1)
+    for (const item of threeItems()) expect(item.onSelect).not.toHaveBeenCalled()
+  })
+
+  it('the group boundary refuses a cross-group drop: separators never move', async () => {
+    const onReorder = vi.fn()
+    await mountDock({
+      groups: [threeItems().slice(0, 2), threeItems().slice(2)],
+      onReorder,
+    })
+    stubSlots([48, 48, 48])
+    // drag the first item over the second GROUP (past the separator)
+    await act(async () => dispatchOn(slotAt(0), 'pointerdown', centerX(0)))
+    await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(2)))
+    await act(async () => dispatchOn(rootEl(), 'pointerup', centerX(2)))
+    expect(onReorder).not.toHaveBeenCalled()
+    expect(itemIds()).toEqual(['recent', 'starred', 'ask'])
+  })
+
+  it('the arrangement persists through the order prop and the gesture re-measures it', async () => {
+    const onReorder = vi.fn()
+    await mountDock({ onReorder })
+    stubSlots([48, 48, 48])
+    await act(async () => dispatchOn(slotAt(0), 'pointerdown', centerX(0)))
+    await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(1)))
+    await act(async () => dispatchOn(rootEl(), 'pointerup', centerX(1)))
+    expect(onReorder).toHaveBeenCalledWith(['starred', 'recent', 'ask'])
+    // the host persisted it and the prop flows back: the new arrangement
+    // renders, and a fresh gesture measures ITS geometry (stubbed at a new
+    // left so stale centers would point at nothing)
+    await act(async () =>
+      root.render(
+        createElement(Dock, {
+          groups: [threeItems()],
+          ariaLabel: 'Dock',
+          order: ['starred', 'recent', 'ask'],
+        } as Parameters<typeof Dock>[0]),
+      ),
+    )
+    expect(itemIds()).toEqual(['starred', 'recent', 'ask'])
+    stubSlots([48, 48, 48], 200)
+    dispatch('pointerenter')
+    // the pointer sits on the SECOND slot (recent, the dragged item's new
+    // neighbor arrangement) — only fresh centers magnify it to the peak
+    dispatch('pointermove', centerX(1, 48, 200))
+    await flushFrames()
+    expect(slotWidths()[1]).toBe(`${dockSlotWidth(48, DOCK_DEFAULT_MAX_SCALE)}px`)
+  })
+
+  it('a drag pins the interaction (the doc-mode reveal holder)', async () => {
+    const onInteractionChange = vi.fn()
+    await mountDock({ onInteractionChange })
+    stubSlots([48, 48, 48])
+    onInteractionChange.mockClear()
+    await act(async () => dispatchOn(slotAt(0), 'pointerdown', centerX(0)))
+    await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(1)))
+    expect(onInteractionChange).toHaveBeenLastCalledWith(true)
+    await act(async () => dispatchOn(rootEl(), 'pointerup', centerX(1)))
+    expect(onInteractionChange).toHaveBeenLastCalledWith(false)
+  })
+})
+
+describe('drag abandonment and scale tracking', () => {
+  beforeEach(() => {
+    Element.prototype.setPointerCapture = () => undefined
+    Element.prototype.releasePointerCapture = () => undefined
+  })
+
+  const dispatchOn = (el: Element, type: string, x: number, buttons = 1): void => {
+    el.dispatchEvent(
+      new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        button: 0,
+        buttons,
+      }),
+    )
+  }
+
+  const rootEl = (): HTMLElement => container.querySelector<HTMLElement>('.dock')!
+
+  it('the tile follows the pointer in the pill chrome space (uiScale 1.5)', async () => {
+    // the interface scale: the pill's CSS px are chrome px, so the viewport
+    // delta lands in that space through chromeScale — without the division
+    // the tile outruns the pointer at every scale above 1
+    document.documentElement.style.setProperty('--ui-scale', '1.5')
+    try {
+      await mountDock()
+      stubSlots([48, 48, 48])
+      await act(async () => dispatchOn(slotAt(0), 'pointerdown', centerX(0)))
+      // a 48 viewport-px travel past the neighbor: 48 / 1.5 = 32 chrome px
+      await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(0) + 48))
+      const dragged = rootEl().querySelector<HTMLElement>('[data-item-id="recent"] .dock-item')!
+      expect(dragged.style.transform).toBe('translateX(32px) scale(1.06)')
+      await act(async () => dispatchOn(rootEl(), 'pointerup', centerX(0) + 48))
+    } finally {
+      document.documentElement.style.removeProperty('--ui-scale')
+    }
+  })
+
+  it('a move with no buttons drops the stale press: no phantom drag', async () => {
+    const onReorder = vi.fn()
+    await mountDock({ onReorder })
+    stubSlots([48, 48, 48])
+    // the press, then a move whose buttons read 0 (a release that landed
+    // elsewhere, or a pointer that came back without a button)
+    await act(async () => dispatchOn(slotAt(0), 'pointerdown', centerX(0)))
+    await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(1), 0))
+    expect(rootEl().classList.contains('dock-drag-live')).toBe(false)
+    expect(onReorder).not.toHaveBeenCalled()
+    // and the stale state is gone: a later real move does not resurrect it
+    await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(1)))
+    expect(rootEl().classList.contains('dock-drag-live')).toBe(false)
+  })
+
+  it('a press forgotten on leave never drags: the leave clears the press', async () => {
+    const onReorder = vi.fn()
+    await mountDock({ onReorder })
+    stubSlots([48, 48, 48])
+    await act(async () => dispatchOn(slotAt(0), 'pointerdown', centerX(0)))
+    // the pointer left the pill before any threshold: the press is void
+    await act(async () => {
+      rootEl().dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: null }))
+    })
+    await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(1)))
+    expect(rootEl().classList.contains('dock-drag-live')).toBe(false)
+    expect(onReorder).not.toHaveBeenCalled()
+  })
+
+  it('the drag ends without a commit when the pointer leaves the pill', async () => {
+    const onReorder = vi.fn()
+    await mountDock({ onReorder })
+    stubSlots([48, 48, 48])
+    await act(async () => dispatchOn(slotAt(0), 'pointerdown', centerX(0)))
+    await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(1)))
+    expect(rootEl().classList.contains('dock-drag-live')).toBe(true)
+    // the pointer crossed into another native view: no pointerup will ever
+    // arrive here — the leave ends the arrangement where it stands
+    await act(async () => {
+      rootEl().dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: null }))
+    })
+    expect(rootEl().classList.contains('dock-drag-live')).toBe(false)
+    expect(onReorder).not.toHaveBeenCalled()
+  })
+
+  it('the inactivity failsafe ends an abandoned drag (no pointerup ever comes)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const onReorder = vi.fn()
+      await mountDock({ onReorder })
+      stubSlots([48, 48, 48])
+      await act(async () => dispatchOn(slotAt(0), 'pointerdown', centerX(0)))
+      await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(1)))
+      expect(rootEl().classList.contains('dock-drag-live')).toBe(true)
+      // the pointer crossed out of the renderer without a leave: quiet for
+      // the failsafe window, the drag ends itself
+      await act(async () => {
+        vi.advanceTimersByTime(DOCK_DRAG_IDLE_MS)
+      })
+      expect(rootEl().classList.contains('dock-drag-live')).toBe(false)
+      expect(onReorder).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a drag mid-magnification measures the REST geometry, not the magnified one', async () => {
+    // a live stub: each slot's rect is computed at READ time from the
+    // current inline widths, so the magnified layout — and the snap that
+    // clears it — are both visible to the measurement
+    const stubLive = (): void => {
+      const slots = [...container.querySelectorAll<HTMLElement>('.dock-slot')]
+      slots.forEach((slot, index) => {
+        Object.defineProperty(slot, 'getBoundingClientRect', {
+          value: () => {
+            let left = 100
+            for (let i = 0; i < index; i += 1) {
+              left += Number.parseFloat(slots[i]!.style.width) || 48
+            }
+            const width = Number.parseFloat(slot.style.width) || 48
+            return { left, right: left + width, width, top: 0, bottom: 48, height: 48 }
+          },
+          configurable: true,
+        })
+      })
+    }
+    const onReorder = vi.fn()
+    await mountDock({ onReorder })
+    stubLive()
+    // magnify at the middle slot: its width grows to 82 and shifts the rest
+    dispatch('pointerenter')
+    dispatch('pointermove', centerX(1))
+    await flushFrames()
+    expect(slotWidths()[1]).not.toBe('')
+    // drag the LAST slot: with rest centers it travels from 220; against
+    // the magnified layout it would start from 254 (the grown neighbor
+    // shifted it) — the snap must feed the measurement the rest geometry
+    await act(async () => dispatchOn(slotAt(2), 'pointerdown', 244))
+    await act(async () => dispatchOn(rootEl(), 'pointermove', 260))
+    const dragged = rootEl().querySelector<HTMLElement>('[data-item-id="ask"] .dock-item')!
+    expect(dragged.style.transform).toBe('translateX(40px) scale(1.06)')
+    await act(async () => dispatchOn(rootEl(), 'pointerup', 260))
+  })
+})
+
+describe('the menu anchoring (the item rect, the keyboard, the view)', () => {
+  const menuEl = (): HTMLElement => document.body.querySelector<HTMLElement>('.dock-menu')!
+
+  const openMenu = async (
+    keyboard: boolean,
+    itemRect: { top: number; left: number; width: number },
+    menuSize: { width: number; height: number },
+    view: { width: number; height: number },
+  ): Promise<void> => {
+    const button = itemAt(0)
+    Object.defineProperty(button, 'getBoundingClientRect', {
+      value: () => ({
+        top: itemRect.top,
+        left: itemRect.left,
+        right: itemRect.left + itemRect.width,
+        bottom: itemRect.top + 40,
+        width: itemRect.width,
+        height: 40,
+      }),
+      configurable: true,
+    })
+    await act(async () => {
+      button.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: keyboard ? 0 : 160,
+          clientY: keyboard ? 0 : 560,
+        }),
+      )
+    })
+    const menu = menuEl()
+    Object.defineProperty(menu, 'offsetWidth', { value: menuSize.width, configurable: true })
+    Object.defineProperty(menu, 'offsetHeight', { value: menuSize.height, configurable: true })
+    // force the placement effect to re-run with the stubbed sizes
+    await act(async () => {
+      button.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: keyboard ? 0 : 160,
+          clientY: keyboard ? 0 : 560,
+        }),
+      )
+    })
+    Object.defineProperty(menu, 'offsetWidth', { value: menuSize.width, configurable: true })
+    Object.defineProperty(menu, 'offsetHeight', { value: menuSize.height, configurable: true })
+    void view
+  }
+
+  /** stub the viewport the placement clamps into */
+  const stubViewport = (width: number, height: number): void => {
+    Object.defineProperty(document.documentElement, 'clientWidth', {
+      value: width,
+      configurable: true,
+    })
+    Object.defineProperty(window, 'innerHeight', { value: height, configurable: true })
+  }
+
+  afterEach(() => {
+    // jsdom's real (zero) geometry back for the other tests
+    Object.defineProperty(document.documentElement, 'clientWidth', {
+      value: 0,
+      configurable: true,
+    })
+    Object.defineProperty(window, 'innerHeight', { value: 768, configurable: true })
+  })
+
+  it('anchors above the item inside the doc-mode overlay rect (no pointer clamp)', async () => {
+    // the overlay view's own viewport: 463 wide, 133 tall (the dock rect),
+    // the item near the bottom like the real pill
+    stubViewport(463, 133)
+    const items = threeItems()
+    items[0] = { ...items[0], menu: [{ label: 'Show', onSelect: vi.fn() }] }
+    await mountDock({ groups: [items] })
+    await openMenu(
+      false,
+      { top: 90, left: 100, width: 48 },
+      { width: 160, height: 44 },
+      {
+        width: 463,
+        height: 133,
+      },
+    )
+    const menu = menuEl()
+    // above the item's top, and inside the view — the headroom band the
+    // rect reserves above the pill is exactly this room
+    expect(Number.parseFloat(menu.style.top)).toBe(90 - 44)
+    expect(Number.parseFloat(menu.style.top)).toBeGreaterThanOrEqual(0)
+    expect(Number.parseFloat(menu.style.left)).toBeGreaterThanOrEqual(0)
+    expect(Number.parseFloat(menu.style.left)).toBeLessThanOrEqual(463 - 160)
+  })
+
+  it('the keyboard contextmenu (no pointer coords) anchors to the focused item', async () => {
+    stubViewport(800, 600)
+    const items = threeItems()
+    items[0] = { ...items[0], menu: [{ label: 'Show', onSelect: vi.fn() }] }
+    await mountDock({ groups: [items] })
+    // Shift+F10 / the Menu key: clientX and clientY both 0; the item sits
+    // low enough that the menu must flip above it
+    await openMenu(
+      true,
+      { top: 560, left: 200, width: 48 },
+      { width: 160, height: 44 },
+      {
+        width: 800,
+        height: 600,
+      },
+    )
+    const menu = menuEl()
+    // horizontally at the item's center, not at the viewport's 0
+    expect(Number.parseFloat(menu.style.left)).toBe(200 + 48 / 2)
+    expect(Number.parseFloat(menu.style.top)).toBe(560 - 44)
   })
 })

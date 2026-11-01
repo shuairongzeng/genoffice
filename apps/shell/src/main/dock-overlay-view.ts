@@ -84,6 +84,10 @@ export interface DockOverlayState {
   /** the dock's composition — the pill math's inputs (mirrors the renderer's groups) */
   itemCount: number
   separatorCount: number
+  /** the dock's base icon size, CSS px (设置 ▸ 图标大小) — sizes the pill */
+  baseSize: number
+  /** the dock's peak magnification M (设置 ▸ 放大强度) — sizes the headroom */
+  maxScale: number
 }
 
 /** the overlay's face the TabManager drives; no-op safe after teardown */
@@ -92,6 +96,8 @@ export interface DockOverlay {
   sync(state: DockOverlayState): void
   /** one hot-edge report from the entry's renderer (identity-checked) */
   reportHotEdge(sender: WebContents, report: DockHotEdgeReport): void
+  /** the overlay view's live webContents, for the prefs/open-target pushes */
+  webContents(): WebContents | undefined
   /** drop the view (tests, explicit teardown); the window's own close does it implicitly */
   destroy(): void
 }
@@ -259,7 +265,13 @@ export function createDockOverlay(shellWindow: BrowserWindow): DockOverlay {
       if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) return
       bounds = dockOverlayBounds(
         { width, height },
-        { scale: state.scale, itemCount: state.itemCount, separatorCount: state.separatorCount },
+        {
+          scale: state.scale,
+          itemCount: state.itemCount,
+          separatorCount: state.separatorCount,
+          baseSize: state.baseSize,
+          maxScale: state.maxScale,
+        },
       )
       if (!show) {
         // over Home the HTML dock is the dock, and a presentation owns the
@@ -313,6 +325,11 @@ export function createDockOverlay(shellWindow: BrowserWindow): DockOverlay {
           applyShape()
         }, DOCK_REVEAL_GRACE_MS)
       }
+    },
+    webContents(): WebContents | undefined {
+      const live = view
+      if (!live || live.webContents.isDestroyed()) return undefined
+      return live.webContents
     },
     destroy(): void {
       const live = view

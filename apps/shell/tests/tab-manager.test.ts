@@ -209,8 +209,10 @@ import {
   DOCK_SEPARATOR_COUNT,
   AI_DOCK_WIDTH_DEFAULT,
   DESKTOP_HEADER_HEIGHT,
+  normalizeAiDock,
   type AiDockPrefs,
 } from '../src/shared/desktop-geometry'
+import { normalizeDockPrefs } from '../src/shared/dock-prefs'
 
 const WINDOW_WIDTH = 800
 const WINDOW_HEIGHT = 600
@@ -1679,6 +1681,7 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
     sync: ReturnType<typeof vi.fn>
     destroy: ReturnType<typeof vi.fn>
     reportHotEdge: ReturnType<typeof vi.fn>
+    webContents: ReturnType<typeof vi.fn>
   }
 
   function managerWithOverlay(
@@ -1880,7 +1883,12 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
       // clickable over an open drawer panel, matching Home's HTML stacking
       // where the dock sits above the drawer's scrim), so the drawer's sync
       // runs first and the dock's re-assertion follows
-      const dock: DockSpy = { sync: vi.fn(), destroy: vi.fn(), reportHotEdge: vi.fn() }
+      const dock: DockSpy = {
+        sync: vi.fn(),
+        destroy: vi.fn(),
+        reportHotEdge: vi.fn(),
+        webContents: vi.fn(),
+      }
       const drawer: OverlaySpy = {
         sync: vi.fn(),
         destroy: vi.fn(),
@@ -1925,7 +1933,12 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
       // drawer's overlay — the hot strip never mounted until some layout
       // trigger (a resize, a stage report) arrived. The dock's sync now
       // rides the activation itself
-      const dock: DockSpy = { sync: vi.fn(), destroy: vi.fn(), reportHotEdge: vi.fn() }
+      const dock: DockSpy = {
+        sync: vi.fn(),
+        destroy: vi.fn(),
+        reportHotEdge: vi.fn(),
+        webContents: vi.fn(),
+      }
       const { m } = managerWithOverlay()
       const docs = m.openDocsTab()
       m.setDockOverlay(dock)
@@ -1948,7 +1961,12 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
     })
 
     it('hands a hot-edge report to the dock overlay host for its own gating', () => {
-      const dock: DockSpy = { sync: vi.fn(), destroy: vi.fn(), reportHotEdge: vi.fn() }
+      const dock: DockSpy = {
+        sync: vi.fn(),
+        destroy: vi.fn(),
+        reportHotEdge: vi.fn(),
+        webContents: vi.fn(),
+      }
       const { m } = managerWithOverlay()
       m.setDockOverlay(dock)
       const sender = { id: 900010 } as never
@@ -1957,6 +1975,41 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
       expect(dock.reportHotEdge).toHaveBeenCalledWith(sender, report)
       m.setDockOverlay(null)
       expect(() => m.reportDockHotEdge(sender, report)).not.toThrow()
+    })
+
+    it('feeds the dock overlay the live prefs, and exposes its webContents', () => {
+      // 设置 ▸ 程序坞: the icon size and strength re-cut the overlay's rect
+      // from every sync, the same way the aiDock getter re-fits the drawer
+      const dock: DockSpy = {
+        sync: vi.fn(),
+        destroy: vi.fn(),
+        reportHotEdge: vi.fn(),
+        webContents: vi.fn(),
+      }
+      const m = new TabManager(
+        shellWindow as never,
+        () => onChanged(),
+        (kind) => applyMenuFor(kind),
+        undefined,
+        () => 1,
+        () => normalizeAiDock(undefined),
+        () => normalizeDockPrefs({ baseSize: 64, maxScale: 2 }),
+      )
+      m.openDocsTab()
+      m.setDockOverlay(dock)
+      const state = dock.sync.mock.calls[0]![0] as Record<string, unknown>
+      expect(state).toMatchObject({
+        baseSize: 64,
+        maxScale: 2,
+        itemCount: DOCK_ITEM_COUNT,
+        separatorCount: DOCK_SEPARATOR_COUNT,
+      })
+      // the webContents accessor: the prefs/open-target pushes ride it
+      const wc = { id: 900010 } as never
+      dock.webContents.mockReturnValue(wc)
+      expect(m.dockOverlayWebContents()).toBe(wc)
+      m.setDockOverlay(null)
+      expect(m.dockOverlayWebContents()).toBeUndefined()
     })
 
     it('hands a pet-drag surface report to the overlay host for its own gating', () => {

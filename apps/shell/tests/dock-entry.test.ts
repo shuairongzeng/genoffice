@@ -7,6 +7,18 @@ import { resolve } from 'node:path'
 
 import { DockEntry, isDockView } from '../src/renderer/src/dock-entry'
 import { LocaleProvider } from '../src/renderer/src/locale'
+import {
+  DOCK_BASE_DEFAULT,
+  DOCK_MAX_SCALE_DEFAULT,
+  normalizeDockPrefs,
+  type DockOpenState,
+} from '../src/shared/dock-prefs'
+import { DOCK_BOUNCE_PERIOD_MS } from '../src/renderer/src/dock-math'
+import {
+  DOCK_ITEM_COUNT,
+  DOCK_SEPARATOR_COUNT,
+  dockOverlayBounds,
+} from '../src/shared/desktop-geometry'
 import type { DockNavIntent } from '../src/shared/home-api'
 
 /**
@@ -26,12 +38,32 @@ const actions: DockNavIntent[] = []
 /** the hot-edge reports the mock face recorded */
 const hotEdge: Array<Record<string, unknown>> = []
 const setAiDock = vi.fn(async () => undefined)
+/** the live open-target report the mock answers and pushes */
+let dockOpenState: DockOpenState = {
+  view: null,
+  settings: false,
+  plugins: false,
+  templates: false,
+  ask: false,
+}
+/** the open-target push handlers the entry subscribed */
+const dockOpenHandlers: Array<(state: DockOpenState) => void> = []
+
+/** deliver an open-target report the way main does (a push on the channel) */
+async function pushDockOpen(state: DockOpenState): Promise<void> {
+  dockOpenState = state
+  await act(async () => {
+    for (const handler of [...dockOpenHandlers]) handler(state)
+  })
+}
 
 let root: Root
 let container: HTMLDivElement
 let readyPings = 0
 
 async function mountEntry(): Promise<void> {
+  dockOpenState = { view: null, settings: false, plugins: false, templates: false, ask: false }
+  dockOpenHandlers.length = 0
   window.aiOffice = {
     dockHotEdge: (report: Record<string, unknown>) => {
       hotEdge.push(report)
@@ -44,6 +76,17 @@ async function mountEntry(): Promise<void> {
     askPanelReady: () => {
       readyPings++
     },
+    // the dock's own prefs + the open-target report (the doc-mode channels)
+    getDockPrefs: async () => normalizeDockPrefs(undefined),
+    onDockPrefsChanged: () => () => undefined,
+    onDockOpen: (handler: (state: DockOpenState) => void) => {
+      dockOpenHandlers.push(handler)
+      return () => {
+        const index = dockOpenHandlers.indexOf(handler)
+        if (index >= 0) dockOpenHandlers.splice(index, 1)
+      }
+    },
+    takeDockOpen: async () => dockOpenState,
   } as unknown as Window['aiOffice']
   container = document.createElement('div')
   document.body.append(container)
@@ -263,5 +306,251 @@ describe('Part A: the dock stays reachable over an open drawer (the stylesheet c
     expect(pill).toMatch(/background:\s*var\(--surface\)\s*;/)
     expect(pill).toMatch(/-webkit-backdrop-filter:\s*none\s*;/)
     expect(pill).toMatch(/backdrop-filter:\s*none\s*;/)
+  })
+
+  it('the context menu rides the interface scale (chrome px like the pill)', () => {
+    // the menu portals to the body — outside the dock's zoomed frame — so
+    // its own zoom keeps its CSS px chrome px; the placement math in
+    // Dock.tsx divides the viewport anchor by the same scale
+    const menu = blockOf('.dock-menu')
+    expect(menu).toMatch(/zoom:\s*var\(--ui-scale\)\s*;/)
+  })
+
+  it('the bounce keyframes period is pinned to dock-math constant', () => {
+    // the steady macOS bounce: dock-math's DOCK_BOUNCE_PERIOD_MS is what
+    // the hosts and tests read, and the CSS hard-codes the same number —
+    // the two must move together or the contract splits
+    const keyframes = /@keyframes dock-bounce\s*\{[^}]*\}/.exec(css)?.[0]
+    expect(keyframes, 'the dock-bounce keyframes exist').toBeTruthy()
+    expect(css).toMatch(new RegExp(`animation:\\s*dock-bounce\\s+${DOCK_BOUNCE_PERIOD_MS}ms`))
+  })
+
+  it('the overlay geometry mirrors the home.css pill chrome exactly', () => {
+    // desktop-geometry.ts sizes the native view from home.css's own rules:
+    // the padding, the gap, the separator's footprint and the bottom float
+    // must agree, or the revealed pill would clip or overshoot its view.
+    // The pin parses the stylesheet and re-derives the dock rect from the
+    // parsed numbers — the same arithmetic dockOverlayBounds runs.
+    const dock = blockOf('.dock')
+    const padding = /padding:\s*(\d+)px\s+(\d+)px\s+(\d+)px\s*;/.exec(dock)
+    const gap = /gap:\s*(\d+)px\s*;/.exec(dock)
+    const border = /border:\s*1px\s+solid/.exec(dock)
+    const bottom = /bottom:\s*(\d+)px\s*;/.exec(dock)
+    const separator = blockOf('.dock-separator')
+    const separatorMargin = /margin:\s*(\d+)px\s+(\d+)px\s*;/.exec(separator)
+    const separatorWidth = /width:\s*(\d+)px\s*;/.exec(separator)
+    expect(padding, 'the pill padding is the 3-value shorthand').toBeTruthy()
+    expect(gap).toBeTruthy()
+    expect(border).toBeTruthy()
+    expect(bottom).toBeTruthy()
+    expect(separatorMargin).toBeTruthy()
+    expect(separatorWidth).toBeTruthy()
+    // the geometry's constants, re-derived from the parsed CSS: the pill is
+    // 22 horizontal + 14 vertical chrome (padding both sides + hairlines),
+    // a 7px separator footprint, a 9px float
+    const hPad = 2 * Number(padding![2]) + 2
+    const vPad = Number(padding![1]) + Number(padding![3]) + 2
+    const sep = Number(separatorWidth![1]) + 2 * Number(separatorMargin![2])
+    const float = Number(bottom![1])
+    // a composition of 7 icons and 2 separators at the default 48 base
+    const pillWidth = hPad + DOCK_ITEM_COUNT * DOCK_BASE_DEFAULT + 8 * Number(gap![1]) + 2 * sep
+    const pillHeight = DOCK_BASE_DEFAULT + vPad
+    const { dock: rect } = dockOverlayBounds(
+      { width: 800, height: 600 },
+      { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT },
+    )
+    expect(rect.width).toBe(
+      Math.round(pillWidth + 2 * (DOCK_MAX_SCALE_DEFAULT - 1) * DOCK_BASE_DEFAULT),
+    )
+    expect(rect.height).toBe(
+      Math.round(pillHeight + float + (DOCK_MAX_SCALE_DEFAULT - 1) * DOCK_BASE_DEFAULT + 28),
+    )
+  })
+})
+
+describe('the running dots (the open-target report)', () => {
+  const slotOf = (label: string): Element => item(label).closest('.dock-slot')!
+
+  it('the report lights the launchers whose targets are open; nav dots only for the showing view', async () => {
+    await mountEntry()
+    await pushDockOpen({
+      view: null,
+      settings: true,
+      plugins: false,
+      templates: true,
+      ask: false,
+    })
+    expect(slotOf('Settings').querySelector('.dock-dot')).not.toBeNull()
+    expect(slotOf('Templates').querySelector('.dock-dot')).not.toBeNull()
+    expect(slotOf('Plugins').querySelector('.dock-dot')).toBeNull()
+    // doc mode: no Home view is showing, so no nav dot
+    for (const label of ['Desktop', 'Recent', 'Starred']) {
+      expect(slotOf(label).querySelector('.dock-dot')).toBeNull()
+    }
+    // the plugins pane as the modal's open section lights its own tile
+    await pushDockOpen({
+      view: 'recent',
+      settings: true,
+      plugins: true,
+      templates: false,
+      ask: false,
+    })
+    expect(slotOf('Plugins').querySelector('.dock-dot')).not.toBeNull()
+    expect(slotOf('Recent').querySelector('.dock-dot')).not.toBeNull()
+  })
+
+  it('the mount pull adopts the cached report (subscribe-then-pull)', async () => {
+    // the entry subscribes before pulling, so a report cached in main lands
+    // even before the first push — set the cache, then mount
+    await act(async () => root.unmount())
+    container.remove()
+    dockOpenState = { view: null, settings: true, plugins: false, templates: false, ask: true }
+    container = document.createElement('div')
+    document.body.append(container)
+    root = createRoot(container)
+    await act(async () =>
+      root.render(
+        createElement(LocaleProvider, { initial: 'en', children: createElement(DockEntry) }),
+      ),
+    )
+    expect(item('Ask AI').closest('.dock-slot')!.querySelector('.dock-dot')).not.toBeNull()
+    expect(item('Settings').closest('.dock-slot')!.querySelector('.dock-dot')).not.toBeNull()
+  })
+})
+
+describe('the ask item launch bounce', () => {
+  it('bounces from the click until the drawer reports open', async () => {
+    await mountEntry()
+    const tile = (): Element | null => item('Ask AI').querySelector('.dock-tile')
+    await act(async () => item('Ask AI').click())
+    expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
+    expect(tile()!.className).toContain('dock-bouncing')
+    // the drawer opened (Home reports, main pushes): ready
+    await pushDockOpen({ view: null, settings: false, plugins: false, templates: false, ask: true })
+    expect(tile()!.className).not.toContain('dock-bouncing')
+  })
+
+  it('a second click on the bouncing tile cancels the demand', async () => {
+    await mountEntry()
+    await act(async () => item('Ask AI').click())
+    await act(async () => item('Ask AI').click())
+    expect(item('Ask AI').querySelector('.dock-tile')!.className).not.toContain('dock-bouncing')
+    // both clicks still wrote the drawer open verb
+    expect(setAiDock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('the right-click menus', () => {
+  const contextmenu = (el: Element): void => {
+    el.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 120,
+        clientY: 560,
+      }),
+    )
+  }
+  const menuEntries = (): string[] =>
+    [...document.body.querySelectorAll('.dock-menu button')].map((button) => button.textContent)
+
+  it('a closed target offers only the bring-forward verb; an open one adds close', async () => {
+    await mountEntry()
+    await act(async () => contextmenu(item('Settings')))
+    expect(menuEntries()).toEqual(['Open'])
+    await act(async () => contextmenu(item('Settings')))
+    await pushDockOpen({ view: null, settings: true, plugins: false, templates: false, ask: false })
+    await act(async () => contextmenu(item('Settings')))
+    expect(menuEntries()).toEqual(['Open', 'Close tab'])
+  })
+
+  it('the close verb routes a close intent, not a settings launch', async () => {
+    await mountEntry()
+    await pushDockOpen({ view: null, settings: true, plugins: false, templates: false, ask: false })
+    await act(async () => contextmenu(item('Settings')))
+    const close = [...document.body.querySelectorAll('.dock-menu button')].at(-1)!
+    await act(async () => close.click())
+    expect(actions).toEqual([{ kind: 'close', target: 'settings' }])
+  })
+
+  it('the ask item offers the drawer verb, flipping with its state', async () => {
+    await mountEntry()
+    await act(async () => contextmenu(item('Ask AI')))
+    expect(menuEntries()).toEqual(['Open drawer'])
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+    await pushDockOpen({ view: null, settings: false, plugins: false, templates: false, ask: true })
+    await act(async () => contextmenu(item('Ask AI')))
+    expect(menuEntries()).toEqual(['Collapse drawer'])
+    // choosing it collapses the drawer through the prefs write
+    await act(async () => document.body.querySelector('.dock-menu button')!.click())
+    expect(setAiDock).toHaveBeenCalledWith({ collapsed: true })
+  })
+
+  it('nav items carry the switch verb alone', async () => {
+    await mountEntry()
+    await act(async () => contextmenu(item('Recent')))
+    expect(menuEntries()).toEqual(['Recent'])
+    await act(async () => document.body.querySelector('.dock-menu button')!.click())
+    expect(actions).toEqual([{ kind: 'nav', view: 'recent' }])
+  })
+})
+
+describe('the reveal pin (the menu holds the dock open)', () => {
+  const contextmenu = (el: Element): void => {
+    el.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 120,
+        clientY: 560,
+      }),
+    )
+  }
+
+  it('a leave while the menu is open is deferred, delivered when it closes with the pointer gone', async () => {
+    await mountEntry()
+    const surface = container.querySelector<HTMLElement>('.dock-entry')!
+    const pill = container.querySelector<HTMLElement>('.dock')!
+    await act(async () => surface.dispatchEvent(new MouseEvent('pointerenter')))
+    // the menu opens: the dock is pinned
+    await act(async () => contextmenu(item('Settings')))
+    // the pointer leaves the pill for the menu above it: no report yet
+    await act(async () => pill.dispatchEvent(new MouseEvent('pointerleave')))
+    expect(hotEdge).toEqual([{ enter: true }])
+    // the menu closes with the pointer outside the dock: the deferred leave
+    // joins the stream, and main hides the dock the usual way
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+    expect(hotEdge).toEqual([{ enter: true }, { leave: true }])
+  })
+
+  it('a pointer that returns before the menu closes swallows the deferred leave', async () => {
+    await mountEntry()
+    const surface = container.querySelector<HTMLElement>('.dock-entry')!
+    const pill = container.querySelector<HTMLElement>('.dock')!
+    await act(async () => surface.dispatchEvent(new MouseEvent('pointerenter')))
+    await act(async () => contextmenu(item('Settings')))
+    await act(async () => pill.dispatchEvent(new MouseEvent('pointerleave')))
+    // back over the pill before the menu closes
+    await act(async () => pill.dispatchEvent(new MouseEvent('pointerenter')))
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+    // the re-enter already cancelled any hide; no leave was ever owed
+    expect(hotEdge).toEqual([{ enter: true }, { enter: true }])
+  })
+})
+
+describe('the ask launch bounce (already-open guard)', () => {
+  it('an already-open drawer is a bring-forward: no bounce', async () => {
+    await mountEntry()
+    await pushDockOpen({ view: null, settings: false, plugins: false, templates: false, ask: true })
+    await act(async () => item('Ask AI').click())
+    expect(item('Ask AI').querySelector('.dock-tile')!.className).not.toContain('dock-bouncing')
+    // the drawer verb still wrote
+    expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
   })
 })

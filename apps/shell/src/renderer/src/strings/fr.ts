@@ -12,6 +12,10 @@ export const fr: Dict = {
   sidebarCollapse: 'Réduire la barre latérale',
   sidebarExpand: 'Développer la barre latérale',
   dockLabel: 'Dock',
+  dockMenuOpen: 'Ouvrir',
+  dockMenuClose: 'Fermer onglet',
+  dockMenuOpenDrawer: 'Ouvrir le panneau',
+  dockMenuCollapseDrawer: 'Replier le panneau',
   askThreadsTitle: 'Conversations',
   askThreadDelete: 'Supprimer la conversation « {label} »',
   askThreadDeleteConfirm:
@@ -342,6 +346,15 @@ export const fr: Dict = {
   settings: 'Paramètres',
   setSecAccount: 'Compte',
   setSecGeneral: 'Général',
+  setSecDock: 'Dock',
+  setDockMagnify: 'Agrandissement',
+  setDockMagnifyDesc: 'Les icônes grandissent au passage du pointeur',
+  setDockIconSize: 'Taille des icônes',
+  setDockStrength: 'Intensité de grossissement',
+  setDockAutoHide: 'Masquer automatiquement le dock',
+  setDockAutoHideDesc:
+    'Le dock se replie quand le pointeur part ; survolez le bas de la fenêtre pour le rappeler (accueil uniquement)',
+  setDockResetOrder: 'Restaurer la disposition par défaut',
   setMcp: 'Serveur MCP local',
   setMcpDesc:
     'Permet à des agents IA externes (Claude Desktop, Cursor…) de créer des documents Word via cette application. Localhost uniquement.',

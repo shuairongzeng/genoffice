@@ -2,6 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState }
 import type { DragEvent as ReactDragEvent, ReactElement } from 'react'
 import logoLockup from './assets/genoffice-logo.svg'
 import { AiDock, normalizeAiDockPrefs, readLocalAiDockPrefs, writeLocalAiDockPrefs } from './AiDock'
+import { normalizeDockPrefs, type DockOpenState, type DockPrefs } from '../../shared/dock-prefs'
+import { useDockBounce } from './dock-bounce'
+import { DOCK_AUTOHIDE_DELAY_MS } from './dock-math'
 import { HomeTabs } from './HomeTabs'
 import { KbAskPanel } from './KbAskPanel'
 import { FileBadge } from './file-badge'
@@ -31,7 +34,7 @@ import { CommandPalette } from './CommandPalette'
 import { normalizeAskDeepLink, type AskQueryOrigin, type PendingAskQuery } from './ask-intent'
 import { DesktopView } from './DesktopView'
 import { DESKTOP_STRINGS } from './desktop-strings'
-import { Dock, type DockItem } from './Dock'
+import { Dock, type DockItem, type DockMenuEntry } from './Dock'
 import {
   DockAskIcon,
   DockDesktopIcon,
@@ -235,6 +238,46 @@ export function Home() {
       writeLocalAiDockPrefs(next)
     }
   }, [])
+
+  // ── the dock's own prefs (设置 ▸ 程序坞: magnify, icon size, strength,
+  // auto-hide, item order). The aiDock pair's shape: read normalized on
+  // mount, follow the store's broadcast, write through the channel — the
+  // optimistic local state keeps a drag's arrangement from snapping back
+  // while the write round-trips, and the broadcast lands the same value.
+  const [dockPrefs, setDockPrefs] = useState<DockPrefs>(() => normalizeDockPrefs(undefined))
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    if (typeof api.getDockPrefs !== 'function') return
+    let alive = true
+    void api
+      .getDockPrefs()
+      .then((prefs) => {
+        if (alive) setDockPrefs(normalizeDockPrefs(prefs))
+      })
+      .catch(() => undefined)
+    if (typeof api.onDockPrefsChanged === 'function') {
+      const off = api.onDockPrefsChanged((prefs) => setDockPrefs(normalizeDockPrefs(prefs)))
+      return () => {
+        alive = false
+        off()
+      }
+    }
+    return () => {
+      alive = false
+    }
+  }, [])
+  const commitDockPrefs = useCallback((patch: Partial<DockPrefs>) => {
+    setDockPrefs((prev) => normalizeDockPrefs({ ...prev, ...patch }))
+    const api = window.aiOffice as Partial<HomeApi>
+    if (typeof api.setDockPrefs === 'function') {
+      void api.setDockPrefs(patch).catch(() => undefined)
+    }
+  }, [])
+
+  // the launch bounce's lifecycle: Home bounces only the templates item —
+  // the one target that actually loads (its gallery list is a round trip);
+  // nav switches are instant by contract and the drawer opens locally
+  const bounce = useDockBounce()
 
   // The open document tabs, and which one is active: the main process pushes
   // them over the `onTabsChanged` contract (docs dirtiness resolved, detached
@@ -1065,6 +1108,14 @@ export function Home() {
       }
       if (intent.kind === 'settings') {
         setSettingsRequest({ section: intent.section })
+        return
+      }
+      if (intent.kind === 'close') {
+        // the dock context menu's 关闭标签 (a doc-mode click routed here):
+        // close the named surface without raising the Home tab — main's
+        // dockNavAction already skips the raise for close intents
+        if (intent.target === 'templates') setTemplatesOpen(false)
+        else setSettingsCloseSeq((n) => n + 1)
         return
       }
       setTemplatesOpen(true)
@@ -2239,15 +2290,125 @@ export function Home() {
    * launcher group (the desktop icons' own handlers and glyphs: settings,
    * templates, plugins), and the ask tail (the drawer's open verb, which
    * works in doc mode through the native overlay and so never raises). The
-   * active flags are the same predicates the sidebar's nav badges used.
+   * active flags are the same predicates the sidebar's nav badges used; the
+   * running dots and context menus are the macOS operability layer.
    */
+  // the settings modal's live state, reported up by AccountEntry (the modal
+  // lives inside it): the running dots and the doc-mode overlay's report
+  // both need the truth, not the open request
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsTarget['section']>('general')
+  // the doc-mode overlay's close verb routes back here (a dock-nav intent);
+  // the counter is the imperative signal — AccountEntry closes on the bump
+  const [settingsCloseSeq, setSettingsCloseSeq] = useState(0)
+
+  // ── the dock's open-target report (`home:dock-open`): which targets are
+  // open, as this surface sees them — the doc-mode overlay's dock renders
+  // its running dots from the push main relays and ends its launch bounce
+  // on it. Reported on change only: a static state costs nothing after its
+  // first send (main caches the last report either way).
+  const dockOpen: DockOpenState = {
+    view:
+      !docTabActive &&
+      (activeNav === 'desktop' || activeNav === 'recent' || activeNav === 'starred')
+        ? activeNav
+        : null,
+    settings: settingsModalOpen,
+    plugins: settingsModalOpen && settingsSection === 'plugins',
+    templates: templatesOpen,
+    ask: !dock.collapsed,
+  }
+  const dockOpenRef = useRef(dockOpen)
+  dockOpenRef.current = dockOpen
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    if (typeof api.reportDockOpen !== 'function') return
+    api.reportDockOpen(dockOpenRef.current)
+  }, [dockOpen.view, dockOpen.settings, dockOpen.plugins, dockOpen.templates, dockOpen.ask])
+
+  // ── Home-mode auto-hide (设置 ▸ 自动隐藏程序坞): the pill slides below
+  // the window edge once the pointer leaves (a short grace, the same idea
+  // as the doc-mode overlay's reveal grace), and the stage's own bottom hot
+  // zone summons it back — Home's HTML, no native view (the doc-mode
+  // overlay has its own summon-and-hide state machine and ignores the pref).
+  // The same interaction pin the doc-mode entry uses holds the pill up
+  // while its own context menu is open or a drag is rearranging it: the
+  // leave that fires when the pointer moves onto the menu (above the pill,
+  // outside its subtree) must not slide the dock away under it.
+  const [dockShown, setDockShown] = useState(true)
+  const dockHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** the pin: a dock interaction (menu, drag) suspends the auto-hide */
+  const dockPinnedRef = useRef(false)
+  /** whether the pointer is over the pill — the unpin decision needs it */
+  const dockHoveredRef = useRef(false)
+  const clearDockHideTimer = useCallback(() => {
+    if (dockHideTimer.current) {
+      clearTimeout(dockHideTimer.current)
+      dockHideTimer.current = null
+    }
+  }, [])
+  const showDock = useCallback(() => {
+    clearDockHideTimer()
+    setDockShown(true)
+  }, [clearDockHideTimer])
+  const scheduleDockHide = useCallback(() => {
+    // a pinned dock stays up whatever the pointer does
+    if (dockPinnedRef.current) return
+    clearDockHideTimer()
+    dockHideTimer.current = setTimeout(() => {
+      dockHideTimer.current = null
+      setDockShown(false)
+    }, DOCK_AUTOHIDE_DELAY_MS)
+  }, [clearDockHideTimer])
+  /** the dock's own interaction pin: a menu or a drag holds the pill open,
+   *  and its end re-arms the hide only when the pointer is not on the pill */
+  const onDockInteraction = useCallback(
+    (active: boolean) => {
+      dockPinnedRef.current = active
+      if (active) {
+        clearDockHideTimer()
+        setDockShown(true)
+      } else if (!dockHoveredRef.current) {
+        scheduleDockHide()
+      }
+    },
+    [clearDockHideTimer, scheduleDockHide],
+  )
+  useEffect(() => clearDockHideTimer, [clearDockHideTimer])
+  // the pref flip applies immediately: on = rest hidden until summoned,
+  // off = always shown (the pointer may be over the pill — its next leave
+  // re-arms, and the zone summons meanwhile)
+  useEffect(() => {
+    setDockShown(!dockPrefs.autoHide)
+  }, [dockPrefs.autoHide])
+
+  /** one launcher menu: bring the target forward, plus close when it is open */
+  const targetMenu = (
+    isOpen: boolean,
+    open: () => void,
+    close: () => void,
+  ): readonly DockMenuEntry[] => [
+    { label: t('dockMenuOpen'), onSelect: open },
+    ...(isOpen ? [{ label: t('dockMenuClose'), onSelect: close, danger: true }] : []),
+  ]
+
   const dockGroups: readonly (readonly DockItem[])[] = [
     [
       {
         id: 'dock:desktop',
         label: DESKTOP_STRINGS[lang].navDesktop,
         icon: <DockDesktopIcon />,
+        tile: 'desktop',
         active: desktopMode,
+        menu: [
+          {
+            label: DESKTOP_STRINGS[lang].navDesktop,
+            onSelect: () => {
+              raiseHomeTab()
+              showDesktop()
+            },
+          },
+        ],
         onSelect: () => {
           raiseHomeTab()
           showDesktop()
@@ -2257,7 +2418,17 @@ export function Home() {
         id: 'dock:recent',
         label: t('navRecent'),
         icon: <DockRecentIcon />,
+        tile: 'recent',
         active: activeNav === 'recent',
+        menu: [
+          {
+            label: t('navRecent'),
+            onSelect: () => {
+              raiseHomeTab()
+              changeView('recent')
+            },
+          },
+        ],
         onSelect: () => {
           raiseHomeTab()
           changeView('recent')
@@ -2267,7 +2438,17 @@ export function Home() {
         id: 'dock:starred',
         label: t('navStarred'),
         icon: <DockStarredIcon />,
+        tile: 'starred',
         active: activeNav === 'starred',
+        menu: [
+          {
+            label: t('navStarred'),
+            onSelect: () => {
+              raiseHomeTab()
+              changeView('starred')
+            },
+          },
+        ],
         onSelect: () => {
           raiseHomeTab()
           changeView('starred')
@@ -2279,18 +2460,42 @@ export function Home() {
         id: 'dock:settings',
         label: DESKTOP_STRINGS[lang].appSettings,
         icon: <GearGlyph />,
+        tile: 'settings',
+        running: settingsModalOpen,
+        menu: targetMenu(
+          settingsModalOpen,
+          () => openSettings({ section: 'general' }),
+          () => setSettingsCloseSeq((n) => n + 1),
+        ),
         onSelect: () => openSettings({ section: 'general' }),
       },
       {
         id: 'dock:templates',
         label: DESKTOP_STRINGS[lang].appTemplates,
         icon: <TemplatesGlyph />,
-        onSelect: openTemplates,
+        tile: 'templates',
+        running: templatesOpen,
+        menu: targetMenu(templatesOpen, openTemplates, () => setTemplatesOpen(false)),
+        // the one target that actually loads: its gallery list is a round
+        // trip, so the click bounces the tile until the list lands (or
+        // fails — the same settle) or the 8s cap stops it. An already-open
+        // gallery is a bring-forward, not a launch — no bounce for it
+        onSelect: () => {
+          if (!templatesOpen) bounce.launch('dock:templates')
+          openTemplates()
+        },
       },
       {
         id: 'dock:plugins',
         label: DESKTOP_STRINGS[lang].appPlugins,
         icon: <PlugGlyph />,
+        tile: 'plugins',
+        running: settingsModalOpen && settingsSection === 'plugins',
+        menu: targetMenu(
+          settingsModalOpen && settingsSection === 'plugins',
+          () => openSettings({ section: 'plugins' }),
+          () => setSettingsCloseSeq((n) => n + 1),
+        ),
         onSelect: () => openSettings({ section: 'plugins' }),
       },
     ],
@@ -2299,6 +2504,14 @@ export function Home() {
         id: 'dock:ask',
         label: t('navAsk'),
         icon: <DockAskIcon />,
+        tile: 'ask',
+        running: !dock.collapsed,
+        menu: [
+          {
+            label: dock.collapsed ? t('dockMenuOpenDrawer') : t('dockMenuCollapseDrawer'),
+            onSelect: () => applyDockPrefs({ collapsed: !dock.collapsed }),
+          },
+        ],
         onSelect: openAskDock,
       },
     ],
@@ -2387,12 +2600,45 @@ export function Home() {
           onStatusChange={handleAccountStatus}
           onFileSearchSettingsChange={() => setRerankSettingsTick((n) => n + 1)}
           openRequest={settingsRequest}
+          closeRequest={settingsCloseSeq}
+          onOpenChange={setSettingsModalOpen}
+          onSectionChange={setSettingsSection}
         />
       </aside>
       {/* the primary launcher: a macOS-style fisheye dock pinned to the
           window's bottom center over whatever the content stage shows; its
-          nav items carry the sidebar's old reveal contract (raiseHomeTab) */}
-      <Dock groups={dockGroups} ariaLabel={t('dockLabel')} />
+          nav items carry the sidebar's old reveal contract (raiseHomeTab).
+          The prefs (设置 ▸ 程序坞) drive its physics and shape; auto-hide
+          slides it below the edge with the hot zone below as the summon */}
+      <Dock
+        groups={dockGroups}
+        ariaLabel={t('dockLabel')}
+        magnify={dockPrefs.magnify}
+        baseSize={dockPrefs.baseSize}
+        maxScale={dockPrefs.maxScale}
+        order={dockPrefs.order}
+        onReorder={(order) => commitDockPrefs({ order: [...order] })}
+        bouncing={bounce.bouncing}
+        hidden={dockPrefs.autoHide && !dockShown}
+        onInteractionChange={onDockInteraction}
+        onPointerEnter={() => {
+          dockHoveredRef.current = true
+          showDock()
+        }}
+        onPointerLeave={() => {
+          dockHoveredRef.current = false
+          scheduleDockHide()
+        }}
+      />
+      {dockPrefs.autoHide && (
+        <div
+          className="dock-hot-zone"
+          aria-hidden="true"
+          onPointerEnter={showDock}
+          onPointerLeave={scheduleDockHide}
+          onClick={showDock}
+        />
+      )}
       <div className="home-body">
         <HomeTabs
           lang={lang}
@@ -2546,7 +2792,15 @@ export function Home() {
       )}
 
       <DropToOpenOverlay />
-      {templatesOpen && <TemplateGallery lang={lang} onClose={() => setTemplatesOpen(false)} />}
+      {templatesOpen && (
+        <TemplateGallery
+          lang={lang}
+          onClose={() => setTemplatesOpen(false)}
+          // the launch bounce's ready signal: the gallery's list round trip
+          // settled (loaded or failed — either way the tile stops bouncing)
+          onLoaded={() => bounce.settle('dock:templates')}
+        />
+      )}
       {paletteOpen && (
         <CommandPalette
           lang={lang}
