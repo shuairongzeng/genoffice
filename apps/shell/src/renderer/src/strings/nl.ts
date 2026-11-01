@@ -530,6 +530,8 @@ export const nl: Dict = {
   dockExpand: 'AI-paneel openen',
   dockCollapse: 'AI-paneel samenvouwen',
   dockResize: 'Slepen om de breedte van het AI-paneel aan te passen',
+  panelApiMissing:
+    'Het AI-paneel heeft API’s nodig die dit venster niet aanbiedt. Start de app opnieuw.',
   workTabsAria: 'Geopende documenten',
   workTabDirty: 'Niet-opgeslagen wijzigingen',
   workTabDetached: 'Geopend in eigen venster',

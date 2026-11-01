@@ -139,13 +139,13 @@ export function Home() {
   const selectedFolder = surface === 'folder' ? viewState.folder : null
   const [filter, setFilter] = useState('all')
 
-  // ── the workbench: the docked AI panel and the embedded tab strip ──
-  // The dock's prefs persist in app-settings.json through the `aiDock`
+  // ── the workbench: the AI drawer (overlay) and the embedded tab strip ──
+  // The drawer's prefs persist in app-settings.json through the `aiDock`
   // channels; while a channel is absent (a partial test stub, a preload from
   // before the workbench), the localStorage copy stands in — written only
   // then, so it never shadows the real store once the channels exist. The
-  // panel itself is mounted below whatever the prefs say — collapse hides
-  // it, it never unmounts it.
+  // panel itself is mounted below whatever the prefs say — closed hides it,
+  // it never unmounts it.
   const [dock, setDock] = useState<AiDockPrefs>(() => readLocalAiDockPrefs())
   const dockRef = useRef(dock)
   dockRef.current = dock
@@ -159,6 +159,17 @@ export function Home() {
         if (alive) setDock(normalizeAiDockPrefs(prefs))
       })
       .catch(() => undefined)
+    // the store is shared by every surface that renders the drawer: a write
+    // made elsewhere (the native overlay's pet, panel-entry.tsx) arrives as a
+    // broadcast so this copy never paints stale. Own writes ride it too, with
+    // the value they just applied — a no-op, never a revert.
+    if (typeof api.onAiDockChanged === 'function') {
+      const off = api.onAiDockChanged((prefs) => setDock(normalizeAiDockPrefs(prefs)))
+      return () => {
+        alive = false
+        off()
+      }
+    }
     return () => {
       alive = false
     }
@@ -297,6 +308,12 @@ export function Home() {
   // the panel may submit it (palette: the user's own text) or must park it in
   // the composer for an explicit Enter (deep link: web-supplied text).
   const [pendingAskQuery, setPendingAskQuery] = useState<PendingAskQuery | null>(null)
+  /**
+   * The ask handoff's seq source: one per submission whether it stays in this
+   * renderer or is forwarded to the overlay's panel (P0-2), so the consuming
+   * panel's consume-once seq accounting never sees two handoffs share a number.
+   */
+  const askSeqRef = useRef(0)
   useEffect(
     () =>
       window.aiOffice.onOpenSettings?.((target) =>
@@ -884,28 +901,42 @@ export function Home() {
   }, [])
 
   /**
-   * The dock's one focus verb — everything that used to switch to the ask
+   * The drawer's one focus verb — everything that used to switch to the ask
    * surface now performs it: the sidebar's Ask AI item, the desktop's ask
-   * tile, the palette's fallback and the ask deep link. Expanding is a prefs
+   * tile, the palette's fallback and the ask deep link. Opening is a prefs
    * write, the composer focus is a seq bump the panel consumes, and no
-   * surface moves — the content column stays exactly where it was.
+   * surface moves — the drawer overlays the content, it never displaces it.
+   * While a document tab is active the drawer's HTML stays covered by the
+   * document's native view, so the write records the intent: the drawer is
+   * there when Home becomes the active tab again.
    */
   const openAskDock = useCallback(() => {
     if (dockRef.current.collapsed) applyDockPrefs({ collapsed: false })
     setFocusComposerSeq((n) => n + 1)
     setRowMenu(null)
   }, [applyDockPrefs])
-  /** the ask-intent handoff's shared core: bump the seq and hand the question over */
+  /** the intent bus's fallback route: hand the question to the docked panel —
+   *  or, while a document tab is active, to the overlay copy that is the only
+   *  panel the person can see (P0-2: the handoff rides the main process, which
+   *  routes by its own live tab state — a handoff sent on a stale docActive
+   *  here bounces back over onForwardedAskQuery and consumes like a local one) */
   const handAskQuery = useCallback(
     (query: string, origin: AskQueryOrigin) => {
       const text = query.trim()
       if (!text) return
-      setPendingAskQuery((prev) => ({ text, seq: (prev?.seq ?? 0) + 1, origin }))
+      askSeqRef.current += 1
+      const handoff: PendingAskQuery = { text, seq: askSeqRef.current, origin }
+      const forward = window.aiOffice as Partial<HomeApi>
+      if (docTabActive && typeof forward.forwardAskQuery === 'function') {
+        void forward.forwardAskQuery(handoff).catch(() => undefined)
+      } else {
+        setPendingAskQuery(handoff)
+      }
       openAskDock()
     },
-    [openAskDock],
+    [docTabActive, openAskDock],
   )
-  /** the intent bus's fallback route: hand the question to the docked panel */
+  /** the palette fallback's route into the shared handoff core */
   const submitAskQuery = useCallback(
     (query: string) => handAskQuery(query, 'palette'),
     [handAskQuery],
@@ -919,15 +950,22 @@ export function Home() {
   const askAboutPaths = useCallback(
     (paths: readonly string[]) => {
       if (paths.length === 0) return
-      setPendingAskQuery((prev) => ({
+      askSeqRef.current += 1
+      const handoff: PendingAskQuery = {
         text: '',
-        seq: (prev?.seq ?? 0) + 1,
+        seq: askSeqRef.current,
         origin: 'palette',
         scopePaths: [...paths],
-      }))
+      }
+      const forward = window.aiOffice as Partial<HomeApi>
+      if (docTabActive && typeof forward.forwardAskQuery === 'function') {
+        void forward.forwardAskQuery(handoff).catch(() => undefined)
+      } else {
+        setPendingAskQuery(handoff)
+      }
       openAskDock()
     },
-    [openAskDock],
+    [docTabActive, openAskDock],
   )
   // genoffice://ask?q=… and friends: the main process forwards deep links over
   // the home:deep-link channel. Softened because a preload from before the
@@ -953,12 +991,30 @@ export function Home() {
    * A webpage annotation's "Ask AI" arrives from the browser (the panel parks
    * the draft on its own subscription); Home's share of the work is making
    * sure the dock is actually open — a draft parked in a collapsed dock is
-   * invisible.
+   * invisible. While a document tab is active (P0-2), the drawer the person
+   * sees is the native overlay's copy, so the annotation is forwarded there
+   * too — Home's own (covered) copy still parks it, exactly as before.
    */
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
-    return api.onBrowserAskAbout?.(() => openAskDock())
-  }, [openAskDock])
+    return api.onBrowserAskAbout?.((payload) => {
+      openAskDock()
+      if (docTabActive && typeof api.forwardBrowserAskAbout === 'function') {
+        void api.forwardBrowserAskAbout(payload).catch(() => undefined)
+      }
+    })
+  }, [openAskDock, docTabActive])
+  /**
+   * The forward's bounce (P0-2): a handoff Home sent to the overlay that the
+   * main process routed back — the overlay was not the drawer's live host
+   * after all (Home was activated between the handoff and the delivery, or
+   * the drawer never left Home's surface). The payload already crossed the
+   * preload's validator; it consumes exactly like a local handoff.
+   */
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    return api.onForwardedAskQuery?.((query) => setPendingAskQuery(query))
+  }, [])
   const openTemplates = useCallback(() => setTemplatesOpen(true), [])
   const openSettings = useCallback((target: SettingsTarget) => setSettingsRequest(target), [])
   const openFolderView = useCallback((root: FolderRoot) => selectFolder(root.path), [selectFolder])
@@ -2216,8 +2272,9 @@ export function Home() {
         {/* the content stage: the desktop or a list view while nothing else
          *  owns it, and the exact rect the main process bounds the active
          *  document's WebContentsView to (reported through homeContentRect)
-         *  when a document tab is up — the dock and the strip keep their
-         *  margins around whatever lands here */}
+         *  when a document tab is up — the strip keeps its margin above
+         *  whatever lands here, and the AI drawer overlays it rather than
+         *  carving anything off */}
         <div className="home-stage" ref={stageRef}>
           {desktopMode ? (
             <DesktopView
@@ -2239,12 +2296,20 @@ export function Home() {
           )}
         </div>
       </div>
+      {/* the AI drawer: the panel overlay plus the floating pet, both fixed —
+       *  no layout column. `docActive` is the document-mode seam: the native
+       *  view covers this renderer, so this copy stays hidden while the
+       *  native overlay view (main/ai-drawer-view.ts) hosts the drawer's
+       *  visual above the document; the panel underneath stays mounted. */}
       <AiDock
         collapsed={dock.collapsed}
         width={dock.width}
+        petPos={dock.petPos}
+        docActive={docTabActive}
         onCollapse={() => applyDockPrefs({ collapsed: true })}
         onExpand={() => applyDockPrefs({ collapsed: false })}
         onWidthCommit={(width) => applyDockPrefs({ width })}
+        onPetPosCommit={(petPos) => applyDockPrefs({ petPos })}
       >
         <KbAskPanel
           onOpenPath={(path) => void window.aiOffice.openPath(path)}

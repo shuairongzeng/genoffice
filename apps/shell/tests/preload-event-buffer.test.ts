@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { DeepLinkPayload, HomeApi } from '../src/shared/home-api'
+import type { PendingAskQuery } from '../src/shared/ask-forward'
 import { HOME_CHANNELS } from '../src/shared/home-api'
 
 /**
@@ -181,6 +182,78 @@ describe('onPaletteOpen buffering', () => {
     await flushMicrotasks()
     expect(seen).toHaveLength(1)
     expect(opens).toBe(1) // no double delivery
+    off2()
+  })
+})
+
+describe('onForwardedAskQuery buffering (P0-2)', () => {
+  it('buffers a handoff that arrives before any handler and replays it on attach', async () => {
+    // the overlay view is created by the very prefs write that accompanies a
+    // forward, so main's delivery can land while the bundle is still booting
+    electronMocks.emit(HOME_CHANNELS.askForwarded, { text: 'early ask', seq: 1, origin: 'palette' })
+    const seen: PendingAskQuery[] = []
+    const off = homeApi.onForwardedAskQuery((query) => seen.push(query))
+    expect(seen).toEqual([])
+    await flushMicrotasks()
+    expect(seen).toEqual([{ text: 'early ask', seq: 1, origin: 'palette' }])
+    off()
+  })
+
+  it('queues several early handoffs and replays them in arrival order', async () => {
+    electronMocks.emit(HOME_CHANNELS.askForwarded, { text: 'first', seq: 1, origin: 'palette' })
+    electronMocks.emit(HOME_CHANNELS.askForwarded, { text: 'second', seq: 2, origin: 'deep-link' })
+    const seen: PendingAskQuery[] = []
+    const off = homeApi.onForwardedAskQuery((query) => seen.push(query))
+    await flushMicrotasks()
+    expect(seen).toEqual([
+      { text: 'first', seq: 1, origin: 'palette' },
+      { text: 'second', seq: 2, origin: 'deep-link' },
+    ])
+    off()
+  })
+
+  it('drops malformed handoffs instead of buffering them', async () => {
+    for (const bad of [
+      null,
+      'ask',
+      {},
+      { text: 'q', seq: 'x', origin: 'palette' },
+      { text: 'q', seq: 1, origin: 'web' },
+    ]) {
+      electronMocks.emit(HOME_CHANNELS.askForwarded, bad)
+    }
+    const seen: PendingAskQuery[] = []
+    const off = homeApi.onForwardedAskQuery((query) => seen.push(query))
+    await flushMicrotasks()
+    expect(seen).toEqual([])
+    off()
+  })
+
+  it('delivers directly once attached, data-stripped, and buffers again after detach', async () => {
+    const seen: PendingAskQuery[] = []
+    const off = homeApi.onForwardedAskQuery((query) => seen.push(query))
+    await flushMicrotasks()
+    // attached: the event reaches the handler synchronously, and a forged
+    // extra field does not survive the validator
+    electronMocks.emit(HOME_CHANNELS.askForwarded, {
+      text: 'direct',
+      seq: 7,
+      origin: 'palette',
+      scopePaths: ['a', 'a'],
+    })
+    expect(seen).toEqual([{ text: 'direct', seq: 7, origin: 'palette', scopePaths: ['a'] }])
+    off()
+    expect(electronMocks.listenerCount(HOME_CHANNELS.askForwarded)).toBe(1)
+    electronMocks.emit(HOME_CHANNELS.askForwarded, {
+      text: 'while away',
+      seq: 8,
+      origin: 'palette',
+    })
+    const seen2: PendingAskQuery[] = []
+    const off2 = homeApi.onForwardedAskQuery((query) => seen2.push(query))
+    await flushMicrotasks()
+    expect(seen2).toEqual([{ text: 'while away', seq: 8, origin: 'palette' }])
+    expect(seen).toHaveLength(1) // no double delivery
     off2()
   })
 })

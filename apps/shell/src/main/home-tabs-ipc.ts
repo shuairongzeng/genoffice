@@ -5,6 +5,7 @@ import { HOME_CHANNELS } from '../shared/home-api'
 import type { HomeTabsState } from '../shared/home-api'
 import type { OpenDocumentTab } from '../shared/tabs-api'
 import { normalizeAiDock } from '../shared/desktop-geometry'
+import { normalizeForwardedAskQuery, type PendingAskQuery } from '../shared/ask-forward'
 import { readAiDock, AI_DOCK_KEY } from './ai-dock'
 import { writeAppSetting } from './app-settings'
 import type { TabManager } from './tab-manager'
@@ -149,6 +150,20 @@ export interface HomeWorkbenchIpcDeps {
   /** the shell window's live content area, for clamping a reported stage rect
    *  inside the window; a degenerate answer ({0,0}) skips the clamp */
   contentBounds: () => { width: number; height: number }
+  /**
+   * Route one validated ask-intent handoff to the drawer's live surface
+   * (P0-2): the native overlay's panel copy while a document tab is active
+   * (main's own truth decides — the renderer's view of the active tab can lag
+   * a switch), else back to the shell renderer's own panel. Injected because
+   * the routing needs the live window/tab state only index.ts holds.
+   */
+  forwardAskQuery: (query: PendingAskQuery) => void
+  /**
+   * Route a browser annotation's ask handoff to the overlay's panel copy only
+   * (P0-2): the shell renderer already received the original
+   * `browser:ask-about` push, so there is nothing to bounce for this one.
+   */
+  forwardBrowserAskAbout: (note: unknown) => void
 }
 
 /** a reported content-stage rect, whole-pixel and inside the window; null on anything malformed */
@@ -190,12 +205,13 @@ function clampStageRect(rect: Rectangle, window: { width: number; height: number
 }
 
 /**
- * The dock and stage channels of the workbench contract:
+ * The drawer, stage and ask-forward channels of the workbench contract:
  *
- * - `home:ai-dock-get`/`home:ai-dock-set`: the prefs the renderer's docked
- *   panel persists (app-settings.json `aiDock`). The set merges the patch onto
- *   the current prefs, normalizes, persists and answers the effective value;
- *   the write also trips the ai-dock watcher, so a layout still on the
+ * - `home:ai-dock-get`/`home:ai-dock-set`: the prefs the renderer's AI
+ *   surface persists (app-settings.json `aiDock`: the overlay drawer's width
+ *   and open state, the floating pet's position). The set merges the patch
+ *   onto the current prefs, normalizes, persists and answers the effective
+ *   value; the write also trips the ai-dock watcher, so a layout still on the
  *   fallback geometry re-fits immediately.
  * - `home:content-rect`: the renderer's measured content-stage rect — the
  *   exact area an embedded document's WebContentsView fills (the embedded
@@ -203,6 +219,13 @@ function clampStageRect(rect: Rectangle, window: { width: number; height: number
  *   measuring beats deriving). Malformed reports are dropped whole; a rect
  *   that overruns the window's current content area is clamped inside it
  *   rather than bounding a document view partly past the window edge.
+ * - `home:ask-forward`/`home:browser-ask-about-forward` (P0-2): the
+ *   ask-intent handoffs Home forwards while a document tab is active — the
+ *   overlay view's panel copy is the only drawer the person can see then.
+ *   The handoff is re-validated here (the renderer owns the write path, the
+ *   channel is only as trustworthy as any other); the annotation stays raw
+ *   because the consuming panel normalizes a page-supplied shape itself, the
+ *   same contract the `browser:ask-about` push already carries.
  *
  * Known limitation (accepted): dirtiness is resolved per push, and a
  * document turning dirty or clean all by itself (an edit, an autosave) is not
@@ -215,10 +238,14 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
   ipcMain.handle(HOME_CHANNELS.aiDockSet, (_event, patch: unknown) => {
     const path = deps.appSettingsPath()
     const current = readAiDock(path)
-    const p = (patch ?? {}) as Partial<{ width: unknown; collapsed: unknown }>
+    const p = (patch ?? {}) as Partial<{ width: unknown; collapsed: unknown; petPos: unknown }>
     const next = normalizeAiDock({
       width: typeof p.width === 'number' && Number.isFinite(p.width) ? p.width : current.width,
       collapsed: typeof p.collapsed === 'boolean' ? p.collapsed : current.collapsed,
+      // the field's presence adopts the patch — a petPos of null is "back to
+      // the corner", not "keep the stored one"; the normalizer discards a
+      // malformed value either way
+      petPos: Object.hasOwn(p, 'petPos') ? p.petPos : current.petPos,
     })
     writeAppSetting(path, AI_DOCK_KEY, next)
     return next
@@ -226,5 +253,12 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
   ipcMain.on(HOME_CHANNELS.contentRect, (_event, rect: unknown) => {
     const stage = asStageRect(rect)
     if (stage) deps.getTabManager()?.setStageRect(clampStageRect(stage, deps.contentBounds()))
+  })
+  ipcMain.handle(HOME_CHANNELS.askForward, (_event, raw: unknown) => {
+    const query = normalizeForwardedAskQuery(raw)
+    if (query) deps.forwardAskQuery(query)
+  })
+  ipcMain.handle(HOME_CHANNELS.browserAskAboutForward, (_event, raw: unknown) => {
+    if (typeof raw === 'object' && raw !== null) deps.forwardBrowserAskAbout(raw)
   })
 }

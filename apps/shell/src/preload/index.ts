@@ -44,6 +44,7 @@ import type {
 } from '../shared/home-api'
 import type { ProjectApi } from '@genoffice/project-store'
 import { HOME_CHANNELS, HOME_TAB_KINDS } from '../shared/home-api'
+import { normalizeForwardedAskQuery, type PendingAskQuery } from '../shared/ask-forward'
 import { normalizeAiDock } from '../shared/desktop-geometry'
 import { INTEGRATIONS_CHANNELS } from '../shared/integrations-api'
 import type {
@@ -203,6 +204,19 @@ ipcRenderer.on(HOME_CHANNELS.tabsChanged, (_event, payload: unknown) => {
   if (ipcRenderer.listenerCount(HOME_CHANNELS.tabsChanged) > 1) return
   const state = asHomeTabsState(payload)
   if (state) pendingTabsState = state
+})
+
+// A forwarded ask handoff (P0-2) can beat the consuming renderer's own
+// handler the same way a deep link beats Home's — the overlay view is created
+// by the very prefs write that accompanies the forward, so main's delivery
+// can land while the view's bundle is still booting. Buffer early arrivals
+// for replay on attach (a queue: two questions asked in a row are two
+// handoffs, not one snapshot).
+const pendingForwardedAsks: PendingAskQuery[] = []
+ipcRenderer.on(HOME_CHANNELS.askForwarded, (_event, payload: unknown) => {
+  if (ipcRenderer.listenerCount(HOME_CHANNELS.askForwarded) > 1) return
+  const query = normalizeForwardedAskQuery(payload)
+  if (query) pendingForwardedAsks.push(query)
 })
 
 const homeApi: HomeApi = {
@@ -690,6 +704,39 @@ const homeApi: HomeApi = {
   },
   async setAiDock(patch) {
     return normalizeAiDock(await ipcRenderer.invoke(HOME_CHANNELS.aiDockSet, patch))
+  },
+  onAiDockChanged(handler) {
+    const listener = (_event: IpcRendererEvent, payload: unknown): void => {
+      // the broadcast is main-authored, but the channel is only as trustworthy
+      // as any other: a malformed payload falls back to the normalized default
+      handler(normalizeAiDock(payload))
+    }
+    ipcRenderer.on(HOME_CHANNELS.aiDockChanged, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.aiDockChanged, listener)
+  },
+  // the ask-intent forward between the drawer's two surfaces (P0-2): while a
+  // document tab is active, the native overlay's panel copy is the only drawer
+  // the person can see — a handoff starting in this renderer is routed through
+  // main, which owns the live tab state the routing decision needs
+  async forwardAskQuery(query) {
+    await ipcRenderer.invoke(HOME_CHANNELS.askForward, query)
+  },
+  async forwardBrowserAskAbout(note) {
+    await ipcRenderer.invoke(HOME_CHANNELS.browserAskAboutForward, note)
+  },
+  onForwardedAskQuery(handler) {
+    const listener = (_event: IpcRendererEvent, payload: unknown) => {
+      const query = normalizeForwardedAskQuery(payload)
+      if (query) handler(query)
+    }
+    ipcRenderer.on(HOME_CHANNELS.askForwarded, listener)
+    // replay the handoffs that arrived before this handler attached (the
+    // overlay's renderer boots while main may already have delivered), one
+    // microtask out each so they never run inside the attach call stack
+    for (const query of pendingForwardedAsks.splice(0)) {
+      queueMicrotask(() => handler(query))
+    }
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.askForwarded, listener)
   },
   homeContentRect(rect) {
     ipcRenderer.send(HOME_CHANNELS.contentRect, rect)

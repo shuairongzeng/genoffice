@@ -205,9 +205,9 @@ import { TabManager } from '../src/main/tab-manager'
 import { HOME_CHANNELS } from '../src/shared/home-api'
 import type { TabKind } from '../src/shared/tabs-api'
 import {
-  AI_DOCK_RAIL_WIDTH,
   AI_DOCK_WIDTH_DEFAULT,
   DESKTOP_HEADER_HEIGHT,
+  type AiDockPrefs,
 } from '../src/shared/desktop-geometry'
 
 const WINDOW_WIDTH = 800
@@ -702,10 +702,7 @@ describe('browser tabs — the page view follows the chrome (syncView notificati
 })
 
 describe('desktop content-area geometry (embedded document views)', () => {
-  function managerWithDock(
-    dock: () => { width: number; collapsed: boolean },
-    scale: () => number = () => 1,
-  ): TabManager {
+  function managerWithDock(dock: () => AiDockPrefs, scale: () => number = () => 1): TabManager {
     return new TabManager(
       shellWindow as never,
       () => onChanged(),
@@ -716,22 +713,22 @@ describe('desktop content-area geometry (embedded document views)', () => {
     )
   }
 
-  it('reserves the mascot rail while the dock is collapsed', () => {
-    const docked = managerWithDock(() => ({ width: 480, collapsed: true }))
+  it('reserves nothing while the drawer is closed (the pet floats, it takes no width)', () => {
+    const docked = managerWithDock(() => ({ width: 480, collapsed: true, petPos: null }))
     docked.openDocsTab()
     const view = lastCreatedView(createDocsView)
-    // the collapsed dock is the corner pet's rail, not zero width: the pet
-    // stays visible and clickable beside the document
+    // the closed drawer's whole presence is the floating pet: no rail, no
+    // column — the document spans the full width beside the sidebar
     expect(view.setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: HEADER,
-      width: WINDOW_WIDTH - AI_DOCK_RAIL_WIDTH,
+      width: WINDOW_WIDTH,
       height: WINDOW_HEIGHT - HEADER,
     })
   })
 
-  it('re-fits the active document when the dock pref changes between layouts', () => {
-    let dock = { width: 480, collapsed: false }
+  it('re-fits the active document when the drawer pref changes between layouts', () => {
+    let dock = { width: 480, collapsed: false, petPos: null }
     const docked = managerWithDock(() => dock)
     docked.openDocsTab()
     const view = lastCreatedView(createDocsView)
@@ -741,19 +738,20 @@ describe('desktop content-area geometry (embedded document views)', () => {
       width: WINDOW_WIDTH - 480,
       height: WINDOW_HEIGHT - HEADER,
     })
-    // the renderer wrote `aiDock`: the next layout reads the new state
-    dock = { width: 480, collapsed: true }
+    // the renderer wrote `aiDock`: the next layout reads the new state — the
+    // closed drawer reserves nothing
+    dock = { width: 480, collapsed: true, petPos: null }
     docked.layout()
     expect(view.setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: HEADER,
-      width: WINDOW_WIDTH - AI_DOCK_RAIL_WIDTH,
+      width: WINDOW_WIDTH,
       height: WINDOW_HEIGHT - HEADER,
     })
   })
 
-  it('clamps an oversized dock to the shared max, like the renderer drag does', () => {
-    const docked = managerWithDock(() => ({ width: 2000, collapsed: false }))
+  it('clamps an oversized drawer to the shared max, like the renderer drag does', () => {
+    const docked = managerWithDock(() => ({ width: 2000, collapsed: false, petPos: null }))
     docked.openDocsTab()
     const view = lastCreatedView(createDocsView)
     expect(view.setBounds).toHaveBeenLastCalledWith({
@@ -764,14 +762,14 @@ describe('desktop content-area geometry (embedded document views)', () => {
     })
   })
 
-  it('scales the header and the dock footprint with the interface scale', () => {
+  it('scales the header and the drawer footprint with the interface scale', () => {
     const docked = managerWithDock(
-      () => ({ width: 400, collapsed: false }),
+      () => ({ width: 400, collapsed: false, petPos: null }),
       () => 1.5,
     )
     docked.openDocsTab()
     const view = lastCreatedView(createDocsView)
-    // header 44 × 1.5 = 66; a 400 CSS px dock occupies 600 window px at 150%
+    // header 44 × 1.5 = 66; a 400 CSS px drawer occupies 600 window px at 150%
     expect(view.setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: 66,
@@ -1659,5 +1657,193 @@ describe('tab sleep (background renderers released to free memory)', () => {
     await manager.closeTab(a)
     expect(docsQueryDirty).not.toHaveBeenCalled()
     expect(manager.list().some((t) => t.id === a)).toBe(false)
+  })
+})
+
+describe('the AI drawer overlay (W2: the drawer over an active document)', () => {
+  // the manager drives an injected overlay host (the real one is
+  // ai-drawer-view.ts's WebContentsView controller, unit-tested apart); a
+  // plain spy shows every state the manager feeds it
+  type OverlaySpy = {
+    sync: ReturnType<typeof vi.fn>
+    destroy: ReturnType<typeof vi.fn>
+    deliverToPanel: ReturnType<typeof vi.fn>
+  }
+
+  function managerWithOverlay(
+    dock: () => AiDockPrefs = () => ({
+      width: AI_DOCK_WIDTH_DEFAULT,
+      collapsed: false,
+      petPos: null,
+    }),
+    scale: () => number = () => 1,
+  ): { m: TabManager; spy: OverlaySpy } {
+    const spy: OverlaySpy = {
+      sync: vi.fn(),
+      destroy: vi.fn(),
+      deliverToPanel: vi.fn(),
+    }
+    const m = new TabManager(
+      shellWindow as never,
+      () => onChanged(),
+      (kind) => applyMenuFor(kind),
+      undefined,
+      scale,
+      dock,
+    )
+    m.setDrawerOverlay(spy)
+    spy.sync.mockClear()
+    return { m, spy }
+  }
+
+  /** the newest state the manager pushed */
+  const lastState = (spy: OverlaySpy) => spy.sync.mock.calls.at(-1)![0] as Record<string, unknown>
+
+  it('activates the overlay when a document tab becomes active with the drawer open', () => {
+    const { m, spy } = managerWithOverlay()
+    m.openDocsTab()
+    expect(spy.sync).toHaveBeenCalled()
+    expect(lastState(spy)).toEqual({
+      dock: { width: AI_DOCK_WIDTH_DEFAULT, collapsed: false, petPos: null },
+      scale: 1,
+      docActive: true,
+      suppressed: false,
+      window: { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
+    })
+  })
+
+  it('stands the overlay down when Home is the active tab', () => {
+    const { m, spy } = managerWithOverlay()
+    const docs = m.openDocsTab()
+    m.activateTab('home')
+    expect(lastState(spy).docActive).toBe(false)
+    m.activateTab(docs)
+    expect(lastState(spy).docActive).toBe(true)
+  })
+
+  it('counts the manual like a document: its view covers the renderer too', () => {
+    const { m, spy } = managerWithOverlay()
+    m.openHelpTab()
+    expect(lastState(spy).docActive).toBe(true)
+  })
+
+  it('stands the overlay down when the last document tab closes', async () => {
+    const { m, spy } = managerWithOverlay()
+    const docs = m.openDocsTab()
+    await m.closeTab(docs)
+    expect(lastState(spy).docActive).toBe(false)
+  })
+
+  it('re-syncs on the same triggers that re-fit the document (resize, stage report)', () => {
+    const { m, spy } = managerWithOverlay()
+    m.openDocsTab()
+    expect(spy.sync.mock.calls.length).toBeGreaterThan(0)
+    spy.sync.mockClear()
+    m.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    expect(spy.sync).toHaveBeenCalledTimes(1)
+    spy.sync.mockClear()
+    // the last resize handler registered is this manager's (the beforeEach
+    // manager also listens on the same fake window)
+    const resize = shellWindow.on.mock.calls.filter((c) => c[0] === 'resize').at(-1)
+    ;(resize![1] as () => void)()
+    expect(spy.sync).toHaveBeenCalledTimes(1)
+  })
+
+  it('hands the overlay the live drawer prefs and interface scale on each layout', () => {
+    let dock: AiDockPrefs = { width: 480, collapsed: false, petPos: null }
+    let scale = 1
+    const { m, spy } = managerWithOverlay(
+      () => dock,
+      () => scale,
+    )
+    m.openDocsTab()
+    expect(lastState(spy).dock).toEqual(dock)
+    // a renderer write landed: the next layout reads the new state
+    dock = { width: 480, collapsed: true, petPos: null }
+    m.layout()
+    expect(lastState(spy).dock).toEqual(dock)
+    scale = 1.5
+    m.layout()
+    expect(lastState(spy).scale).toBe(1.5)
+  })
+
+  it('suppresses the overlay while the active tab presents fullscreen', () => {
+    const { m, spy } = managerWithOverlay()
+    m.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+    m.openSlidesTab()
+    const view = lastCreatedView(createSlidesView)
+    view.webContents.listeners.get('enter-html-full-screen')!()
+    expect(lastState(spy).suppressed).toBe(true)
+    view.webContents.listeners.get('leave-html-full-screen')!()
+    expect(lastState(spy).suppressed).toBe(false)
+    // the slides show's content bleed takes the same stand-down
+    m.setContentBleed(view.webContents, true)
+    expect(lastState(spy).suppressed).toBe(true)
+    m.setContentBleed(view.webContents, false)
+    expect(lastState(spy).suppressed).toBe(false)
+  })
+
+  it('stops syncing once the shell window is gone', () => {
+    const { m, spy } = managerWithOverlay()
+    m.openDocsTab()
+    spy.sync.mockClear()
+    shellWindow.isDestroyed.mockReturnValue(true)
+    m.layout()
+    expect(spy.sync).not.toHaveBeenCalled()
+  })
+
+  it('survives detach and dock-back like any activation', () => {
+    const { m, spy } = managerWithOverlay()
+    const docs = m.openDocsTab()
+    const record = m.detachTab(docs)
+    expect(record).not.toBeNull()
+    // the fallback activation (Home) stood the overlay down
+    expect(lastState(spy).docActive).toBe(false)
+    m.attachTab(record!)
+    expect(lastState(spy).docActive).toBe(true)
+  })
+
+  describe('routing the ask-intent forward (P0-2)', () => {
+    it('answers live only while a document is active, the drawer open, nothing presenting', () => {
+      let dock: AiDockPrefs = { width: 480, collapsed: false, petPos: null }
+      const { m } = managerWithOverlay(() => dock)
+      expect(m.drawerOverlayLive()).toBe(false) // Home is the active tab
+      const docs = m.openDocsTab()
+      expect(m.drawerOverlayLive()).toBe(true)
+      m.activateTab('home')
+      expect(m.drawerOverlayLive()).toBe(false)
+      m.activateTab(docs)
+      dock = { width: 480, collapsed: true, petPos: null }
+      m.layout()
+      expect(m.drawerOverlayLive()).toBe(false) // the drawer is closed
+      dock = { width: 480, collapsed: false, petPos: null }
+      m.layout()
+      expect(m.drawerOverlayLive()).toBe(true)
+      // a presentation stands the overlay down, live with it
+      m.setStageRect({ x: 208, y: 44, width: 552, height: 556 })
+      m.openSlidesTab()
+      const view = lastCreatedView(createSlidesView)
+      view.webContents.listeners.get('enter-html-full-screen')!()
+      expect(m.drawerOverlayLive()).toBe(false)
+      view.webContents.listeners.get('leave-html-full-screen')!()
+      expect(m.drawerOverlayLive()).toBe(true)
+    })
+
+    it('answers not-live without an overlay host at all', () => {
+      const { m } = managerWithOverlay()
+      m.setDrawerOverlay(null)
+      m.openDocsTab()
+      expect(m.drawerOverlayLive()).toBe(false)
+    })
+
+    it('delivers a forwarded payload to the overlay host verbatim', () => {
+      const { m, spy } = managerWithOverlay()
+      const handoff = { text: 'asked over the document', seq: 1, origin: 'palette' }
+      m.deliverToDrawerOverlay('home:ask-forwarded', handoff)
+      expect(spy.deliverToPanel).toHaveBeenCalledWith('home:ask-forwarded', handoff)
+      // no host: a no-op, not a crash
+      m.setDrawerOverlay(null)
+      expect(() => m.deliverToDrawerOverlay('home:ask-forwarded', handoff)).not.toThrow()
+    })
   })
 })

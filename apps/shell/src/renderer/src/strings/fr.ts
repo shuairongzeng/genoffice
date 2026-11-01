@@ -546,6 +546,8 @@ export const fr: Dict = {
   dockExpand: 'Ouvrir le panneau IA',
   dockCollapse: 'Replier le panneau IA',
   dockResize: 'Faire glisser pour redimensionner le panneau IA',
+  panelApiMissing:
+    'Le panneau IA nécessite des API indisponibles dans cette fenêtre. Redémarrez l’application.',
   workTabsAria: 'Documents ouverts',
   workTabDirty: 'Modifications non enregistrées',
   workTabDetached: 'Ouvert dans sa propre fenêtre',

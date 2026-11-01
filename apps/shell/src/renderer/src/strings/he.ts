@@ -509,6 +509,7 @@ export const he: Dict = {
   dockExpand: 'פתיחת פאנל ה-AI',
   dockCollapse: 'קיפול פאנל ה-AI',
   dockResize: 'גרירה לשינוי רוחב פאנל ה-AI',
+  panelApiMissing: 'לפאנל ה-AI נדרשות ממשקי API שחלון זה אינו חושף. הפעל מחדש את האפליקציה.',
   workTabsAria: 'מסמכים פתוחים',
   workTabDirty: 'שינויים שלא נשמרו',
   workTabDetached: 'פתוח בחלון משלו',

@@ -199,6 +199,7 @@ import {
   markSheetsUntitledPath,
   markSheetsUnsavedNew,
   PDF_CHANNELS,
+  BROWSER_CHANNELS,
   pdfFileRenamed,
   pdfIsDirty,
   pendingUnsavedNewRecoveries,
@@ -6133,6 +6134,32 @@ registerHomeWorkbenchIpc({
     const { width, height } = shellWindow.getContentBounds()
     return { width, height }
   },
+  // P0-2: while a document tab is active, the drawer the person sees is the
+  // native overlay's panel copy (Home's HTML copy is display:none under the
+  // document), so an ask-intent handoff is routed there. Main decides by its
+  // own live truth rather than trusting the forwarding renderer's view of the
+  // active tab — a deep link that lands while a switch to Home is still
+  // propagating would otherwise park the question in a drawer nobody can see.
+  forwardAskQuery: (query) => {
+    const manager = tabManager
+    if (!manager) return
+    if (manager.drawerOverlayLive()) {
+      manager.deliverToDrawerOverlay(HOME_CHANNELS.askForwarded, query)
+      return
+    }
+    // not the overlay's moment (Home active, the drawer closed over Home, or
+    // the tab switched between the handoff and here): the shell renderer's
+    // own panel is the drawer the person sees — bounce it back
+    sendToShellRenderer(HOME_CHANNELS.askForwarded, query)
+  },
+  // the shell renderer already received the original browser:ask-about push;
+  // this route only exists so the overlay's panel parks the annotation where
+  // the person can see it, so there is nothing to bounce
+  forwardBrowserAskAbout: (note) => {
+    if (tabManager?.drawerOverlayLive()) {
+      tabManager.deliverToDrawerOverlay(BROWSER_CHANNELS.askAbout, note)
+    }
+  },
 })
 registerDroppedFilesIpc()
 registerUserSkillsIpc({
@@ -6471,10 +6498,19 @@ app.whenReady().then(async () => {
     console.error('[mcp] failed to start on boot:', error)
   })
   installUiScale()
-  // The desktop's AI dock rides app-settings.json (`aiDock`, renderer-owned
+  // The desktop's AI drawer rides app-settings.json (`aiDock`, renderer-owned
   // writes): a change must re-fit the embedded document views even when no
-  // resize or activation happens to trigger a layout pass
-  watchAiDock(APP_SETTINGS_PATH(), () => tabManager?.layout())
+  // resize or activation happens to trigger a layout pass. That pass is also
+  // what re-fits the drawer's native overlay view over the active document
+  // (ai-drawer-view.ts, mounted by the TabManager wiring): a drawer opened,
+  // closed or resized while a document is showing lands here, and the layout
+  // hands the new state to the overlay along with the document geometry. The
+  // same settled value is broadcast to the Home renderer, whose drawer copy
+  // must follow a write another surface made (the overlay's own pet).
+  watchAiDock(APP_SETTINGS_PATH(), (dock) => {
+    tabManager?.layout()
+    sendToShellRenderer(HOME_CHANNELS.aiDockChanged, dock)
+  })
   createShellWindow()
   // deferred to ready: labels need currentLang(), which reads app.getLocale()
   installBackToHomeItems()

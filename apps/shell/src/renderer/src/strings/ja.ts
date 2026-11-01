@@ -538,6 +538,7 @@ export const ja: Dict = {
   dockExpand: 'AI パネルを開く',
   dockCollapse: 'AI パネルを折りたたむ',
   dockResize: 'ドラッグして AI パネルの幅を調整',
+  panelApiMissing: 'AI パネルに必要な API を利用できません。アプリを再起動してください。',
   workTabsAria: '開いているドキュメント',
   workTabDirty: '未保存の変更',
   workTabDetached: '別のウィンドウで開いています',

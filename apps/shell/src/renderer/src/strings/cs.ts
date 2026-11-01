@@ -449,6 +449,7 @@ export const cs: Dict = {
   dockExpand: 'Otevřít panel AI',
   dockCollapse: 'Sbalit panel AI',
   dockResize: 'Tažením upravte šířku panelu AI',
+  panelApiMissing: 'Panel AI vyžaduje API, které toto okno neposkytuje. Restartujte aplikaci.',
   workTabsAria: 'Otevřené dokumenty',
   workTabDirty: 'Neuložené změny',
   workTabDetached: 'Otevřeno ve vlastním okně',

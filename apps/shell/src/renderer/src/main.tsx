@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { htmlDir, htmlLang } from '@genoffice/i18n'
 import { AppFrame } from './AppFrame'
 import { LocaleProvider } from './locale'
+import { AskPanelEntry, isAskPanelView } from './panel-entry'
 import '@genoffice/ui/tokens.css'
 import '@genoffice/ui/screentip.css'
 import '@genoffice/ui/dropdown.css'
@@ -59,6 +60,11 @@ void Promise.all([
   // one. A static import meant Home's first paint paid for a manual nobody had
   // opened.
   const isHelp = new URLSearchParams(location.search).get('mode') === 'help'
+  // The ask panel's standalone mount (?view=ask-panel): the panel alone, the
+  // surface W2's native overlay view above documents loads. Like the manual,
+  // it shares this boot (language, theme, panel prefs) but renders none of
+  // the workbench around it.
+  const isAskPanel = isAskPanelView()
   // fetch only the current language's dictionary before first paint; switching
   // later loads the new one before the re-render
   await loadStrings(lang)
@@ -68,7 +74,9 @@ void Promise.all([
   createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <LocaleProvider initial={lang}>
-        {isHelp ? (
+        {isAskPanel ? (
+          <AskPanelEntry />
+        ) : isHelp ? (
           <React.Suspense fallback={<div className="boot" />}>
             <HelpScreen />
           </React.Suspense>

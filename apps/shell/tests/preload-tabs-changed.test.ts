@@ -237,7 +237,7 @@ describe('getAiDock / setAiDock / homeContentRect', () => {
 
   it('normalizes whatever the main process answers, like the renderer does', async () => {
     electronMocks.invoke.mockResolvedValueOnce({ width: 9999, collapsed: 1 })
-    expect(await homeApi.getAiDock()).toEqual({ width: 560, collapsed: false })
+    expect(await homeApi.getAiDock()).toEqual({ width: 560, collapsed: false, petPos: null })
   })
 
   it('sends the measured stage rect fire-and-forget', () => {

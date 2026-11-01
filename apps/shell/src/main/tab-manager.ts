@@ -4,6 +4,7 @@ import { app, BrowserWindow, shell, WebContentsView } from 'electron'
 import type { Rectangle, WebContents } from 'electron'
 
 import { appForKind, appIsDirty, documentApps, type AppCloseGuard } from './app-registry'
+import type { AiDrawerOverlay } from './ai-drawer-view'
 import type { AiDocContent } from '../../../docs/src/shared/ipc'
 import { rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
 import { HOME_CHANNELS } from '../shared/home-api'
@@ -99,9 +100,13 @@ export function shellTabManager(): TabManager | null {
  * BrowserWindow. The shell window's own webContents — the Home desktop — is
  * the persistent base layer: it is never replaced or hidden. Document tabs
  * are WebContentsView children laid out inside the desktop's content area
- * (below its header, left of the AI dock), so the desktop's header, its AI
- * dock and anything else it renders stay visible around the active document;
- * only the active view is visible at a time. Home has no view of its own.
+ * (below its header band), so the desktop's header and anything else it
+ * renders stay visible around the active document; only the active view is
+ * visible at a time. The AI surface no longer docks beside a document: the
+ * floating pet overlays the renderer (reserving nothing), and while a
+ * document is active the drawer shows through the native overlay view this
+ * manager drives (setDrawerOverlay — ai-drawer-view.ts). Home has no view of
+ * its own.
  *
  * The browser tab carries a second view (its page) as a sibling of the chrome
  * in this window's contentView — see AppDescriptor.syncView; every parent,
@@ -139,6 +144,13 @@ export class TabManager {
   private spareViewTimer: ReturnType<typeof setTimeout> | null = null
   /** views that already summon the command palette on Ctrl/Cmd+K */
   private readonly paletteHooked = new WeakSet<WebContents>()
+  /**
+   * The AI drawer's native overlay view host (W2). Injected by the shell
+   * window's wiring rather than constructed here so the manager stays free of
+   * the view's loading and lifetime concerns (and testable with a plain spy).
+   * Null in tests and any host that does not want the overlay.
+   */
+  private drawerOverlay: AiDrawerOverlay | null = null
 
   /**
    * The command palette's global summon: Ctrl/Cmd+K in any of the shell
@@ -194,7 +206,7 @@ export class TabManager {
      */
     private readonly uiScale: () => number = () => 1,
     /**
-     * The desktop's AI dock state (app-settings.json `aiDock`). A getter so a
+     * The desktop's AI drawer state (app-settings.json `aiDock`). A getter so a
      * renderer write reaches the next layout without rebuilding this — the
      * reads go through the stat-validated settings cache, so a settled file
      * costs one stat per layout.
@@ -297,8 +309,12 @@ export class TabManager {
       if (clipped) return clipped
     }
     // Fallback until a report arrives: below the desktop header, left of the
-    // dock footprint (both scaled by the interface scale, like the chrome they
-    // stand in for) — an approximation the next report replaces.
+    // drawer's footprint (both scaled by the interface scale, like the chrome
+    // they stand in for) — an approximation the next report replaces. The
+    // closed drawer reserves nothing (the pet floats), and the open drawer
+    // overlays content rather than docking beside it, so at runtime the
+    // stage report's full-width answer is the truth; only the boot-time
+    // approximation still subtracts an open drawer.
     return documentContentBounds({ width, height }, { scale: this.uiScale(), dock: this.aiDock() })
   }
 
@@ -307,6 +323,72 @@ export class TabManager {
     if (on) this.bleedWcIds.add(wc.id)
     else this.bleedWcIds.delete(wc.id)
     this.layout()
+  }
+
+  /**
+   * Install (or drop) the AI drawer's native overlay view host. The overlay
+   * appears only while the drawer is open and a non-Home tab is active, so
+   * every layout pass and activation re-decides it here: the same triggers
+   * that fit the active document (resize, restore, the renderer's stage-rect
+   * report, an interface-scale change, an `aiDock` write through
+   * watchAiDock) also re-fit the drawer floating over it.
+   */
+  setDrawerOverlay(overlay: AiDrawerOverlay | null): void {
+    this.drawerOverlay = overlay
+    this.syncDrawerOverlay()
+  }
+
+  /**
+   * Whether the AI drawer's native overlay is the drawer's live host right
+   * now (P0-2): a non-Home tab is active, its view is not presenting over the
+   * whole window, and the drawer's prefs say the overlay shows — the same
+   * predicate sync() shows the view on. While true, Home's HTML copy is
+   * display:none under the document, so anything routed "to the drawer"
+   * belongs to the overlay's panel copy instead.
+   */
+  drawerOverlayLive(): boolean {
+    if (this.shellWindow.isDestroyed() || !this.drawerOverlay) return false
+    const active = this.tabs.find((t) => t.id === this.activeId)
+    if (!active || active.kind === 'home') return false
+    return !this.drawerOverlaySuppressed() && !this.aiDock().collapsed
+  }
+
+  /**
+   * Deliver one message to the overlay view's panel copy (P0-2 — the
+   * ask-intent forward). The overlay buffers it until its renderer finished
+   * loading, so a forward that beats the view's own mounting still lands.
+   */
+  deliverToDrawerOverlay(channel: string, payload: unknown): void {
+    this.drawerOverlay?.deliverToPanel(channel, payload)
+  }
+
+  /**
+   * Feed the overlay one state snapshot: the drawer prefs, the interface
+   * scale, whether a non-Home tab is active, whether that tab's view covers
+   * the whole window (HTML fullscreen / content bleed — the overlay stands
+   * down for a presentation), and the window's content size.
+   */
+  private syncDrawerOverlay(): void {
+    const overlay = this.drawerOverlay
+    if (!overlay || this.shellWindow.isDestroyed()) return
+    const { width, height } = this.shellWindow.getContentBounds()
+    const active = this.tabs.find((t) => t.id === this.activeId)
+    overlay.sync({
+      dock: this.aiDock(),
+      scale: this.uiScale(),
+      // non-Home means a native view covers the renderer — the manual counts
+      // like a document: its view hides this renderer's drawer the same way
+      docActive: active !== undefined && active.kind !== 'home',
+      suppressed: this.drawerOverlaySuppressed(),
+      window: { width, height },
+    })
+  }
+
+  /** the active tab's view is covering the whole window (a presentation) */
+  private drawerOverlaySuppressed(): boolean {
+    if (this.htmlFullScreenId !== null && this.htmlFullScreenId === this.activeId) return true
+    const active = this.tabs.find((t) => t.id === this.activeId)
+    return !!active?.view && this.bleedWcIds.has(active.view.webContents.id)
   }
 
   /**
@@ -364,6 +446,10 @@ export class TabManager {
     // approximation is never what the person sees.
     if (this.stageRect !== null) active.view.setVisible(true)
     this.syncBrowserPages()
+    // the drawer's overlay rides the same pass: a resize, a stage report, a
+    // scale change or an aiDock write all landed here, and the drawer over
+    // the document must follow each of them
+    this.syncDrawerOverlay()
   }
 
   /**
@@ -628,6 +714,11 @@ export class TabManager {
     else this.discardSpareView()
     this.refreshActiveTargets()
     this.focusActiveView()
+    // the overlay's host changed with the active tab: a document activates it
+    // (if the drawer is open), Home stands it down — and any view this
+    // activation added or revealed must end up below the overlay, which the
+    // sync's topmost re-add guarantees
+    this.syncDrawerOverlay()
     this.onChanged()
   }
 

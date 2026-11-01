@@ -544,6 +544,8 @@ export const es: Dict = {
   dockExpand: 'Abrir el panel de IA',
   dockCollapse: 'Plegar el panel de IA',
   dockResize: 'Arrastra para cambiar el tamaño del panel de IA',
+  panelApiMissing:
+    'El panel de IA necesita API que esta ventana no expone. Reinicia la aplicación.',
   workTabsAria: 'Documentos abiertos',
   workTabDirty: 'Cambios sin guardar',
   workTabDetached: 'Abierto en su propia ventana',

@@ -1,63 +1,21 @@
 /**
  * The ask-intent handoff shared by the command palette's Ask AI fallback and
  * the `home:deep-link` bridge: both route a natural-language query into Home's
- * ask view, where the knowledge-base panel picks it up as a pending query.
- * Kept component-free so the routing decisions are testable without mounting
- * anything.
+ * ask view, where the knowledge-base panel picks it up as a pending query —
+ * or, while a document tab is active, into the drawer's native overlay copy
+ * through the forward contract in shared/ask-forward.ts. Kept component-free
+ * so the routing decisions are testable without mounting anything.
+ *
+ * The handoff's shape and sanitizers are defined in shared/ask-forward.ts (one
+ * definition the preload and the main process share, so the payload is
+ * validated identically on both sides of the forward IPC) and re-exported here
+ * so the renderer's imports keep one home.
  */
 
-/** A question handed to the Ask AI panel from outside. `seq` distinguishes two
- *  submissions of the same text: the panel consumes each seq at most once. */
-export interface PendingAskQuery {
-  readonly text: string
-  readonly seq: number
-  /** 'palette' is the user's own just-typed text; 'deep-link' is web-supplied */
-  readonly origin: AskQueryOrigin
-  /**
-   * An explicit file selection (the desktop's multi-select) as this
-   * conversation's corpus: the panel attaches it as the round scope — every
-   * ask while it is attached searches and cites within the selection only.
-   * Sanitized through {@link normalizeScopePaths}; the main process
-   * re-validates what actually crosses IPC.
-   */
-  readonly scopePaths?: readonly string[]
-}
+import { normalizeScopePaths, type PendingAskQuery } from '../../shared/ask-forward'
 
-/**
- * Where a pending query came from. The palette fallback is text the user just
- * typed and confirmed, so it submits itself; a `genoffice://ask?q=…` query can
- * be injected by any web page through location.href, so it only parks in the
- * composer draft — the person sends it with an explicit Enter.
- */
-export type AskQueryOrigin = 'palette' | 'deep-link'
-
-/**
- * How many scope paths one handoff may carry; mirrors the main-side onlyPaths
- * cap. Exported because the desktop's multi-select menu gates its Ask AI
- * action on it: a selection past the cap is refused up front with a hint
- * (a handoff would otherwise be silently truncated to the first 50).
- */
-export const MAX_SCOPE_PATHS = 50
-
-/**
- * Sanitize a handoff's scope paths: keep the non-empty strings, dedupe, cap.
- * The main process re-validates (absolute, per-path length, count) before any
- * IPC effect — this keeps the chip's count and the panel's calls well-formed
- * whatever shape arrives.
- */
-export function normalizeScopePaths(raw: unknown): readonly string[] {
-  if (!Array.isArray(raw)) return []
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const path of raw) {
-    if (typeof path !== 'string' || !path) continue
-    if (seen.has(path)) continue
-    seen.add(path)
-    out.push(path)
-    if (out.length >= MAX_SCOPE_PATHS) break
-  }
-  return out
-}
+export type { AskQueryOrigin, PendingAskQuery } from '../../shared/ask-forward'
+export { MAX_SCOPE_PATHS, normalizeScopePaths } from '../../shared/ask-forward'
 
 export type PendingAskPlan =
   | { readonly consume: false }

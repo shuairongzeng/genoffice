@@ -539,6 +539,8 @@ export const id: Dict = {
   dockExpand: 'Buka panel AI',
   dockCollapse: 'Ciutkan panel AI',
   dockResize: 'Seret untuk mengubah lebar panel AI',
+  panelApiMissing:
+    'Panel AI membutuhkan API yang tidak tersedia di jendela ini. Mulai ulang aplikasi.',
   workTabsAria: 'Dokumen yang terbuka',
   workTabDirty: 'Perubahan yang belum disimpan',
   workTabDetached: 'Terbuka di jendela sendiri',

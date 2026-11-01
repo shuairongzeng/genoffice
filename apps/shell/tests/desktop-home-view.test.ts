@@ -113,12 +113,12 @@ describe('Home opens on the desktop', () => {
     expect(container.querySelector('.desktop-icons')).toBeTruthy()
     expect(container.querySelector('.recent-table')).toBeNull()
     // the workbench chrome wraps it: the embedded strip (desktop item first)
-    // and the always-mounted AI dock beside the content column
+    // and the always-mounted AI drawer over the content
     const strip = [...container.querySelectorAll('.work-tab-title')].map(
       (label) => label.textContent,
     )
     expect(strip[0]).toBe('Desktop')
-    expect(container.querySelector('.ai-dock')).not.toBeNull()
+    expect(container.querySelector('.ai-drawer')!.className).toContain('open')
     expect(container.querySelector('.kb-ask')).not.toBeNull()
   })
 
@@ -169,9 +169,9 @@ describe('Home opens on the desktop', () => {
     expect(selected()).toEqual(['Recent'])
     expect(container.querySelector('.desktop-surface')).toBeNull()
     expect(container.querySelector('.recent-table')).toBeTruthy()
-    // the docked ask panel is present on every surface — it is the workbench,
+    // the ask drawer is present on every surface — it is the workbench,
     // not one of them
-    expect(container.querySelector('.ai-dock')).not.toBeNull()
+    expect(container.querySelector('.ai-drawer')!.className).toContain('open')
     expect(container.querySelector('.kb-ask')).not.toBeNull()
     await click(nav('Desktop'))
     expect(selected()).toEqual(['Desktop'])

@@ -418,9 +418,9 @@ body.mac .sidebar {
 
 /* while a Home popover is open the chrome bands must deliver presses (drag
    regions swallow them), so outside-press dismissal can see presses on the
-   blank track, the dock head and the logo band */
+   blank track, the drawer head and the logo band */
 html.genoffice-popover-open .work-tabs,
-html.genoffice-popover-open .ai-dock-head,
+html.genoffice-popover-open .ai-drawer-head,
 html.genoffice-popover-open .sidebar-logo {
   -webkit-app-region: no-drag;
 }
@@ -538,22 +538,80 @@ html.genoffice-popover-open .sidebar-logo {
   color: var(--text);
 }
 
-/* ── the docked AI panel ── */
+/* ── the AI drawer: a right-edge overlay, no layout footprint ── */
 
-.ai-dock {
-  position: relative;
-  z-index: 2;
-  flex-shrink: 0;
+/* the root is a hit-test void: only the scrim (while open) and the panel
+   itself take pointer events, so a closed drawer costs the content nothing.
+   It sits above the workbench chrome and below the star-prompt card (60),
+   the settings modal (70), the confirm dialogs (100) and the palette (200):
+   the panel's own dialogs must land above the drawer it lives in. */
+.ai-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+/* the scrim: click-to-retract over whatever the drawer covers; transparent
+   and inert while closed */
+.ai-drawer-mask {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--color-bg-overlay);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.ai-drawer.open .ai-drawer-mask {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+/* while a document tab is active its native WebContentsView paints above
+ * this whole renderer: the drawer's visual is hosted by the native overlay
+ * view (main/ai-drawer-view.ts) above the document instead. The panel stays
+ * mounted underneath (its thread survives); the recorded open state drives
+ * that overlay, and this HTML copy shows again when Home is the active tab. */
+.ai-drawer.doc-covered {
+  display: none;
+}
+
+/* the panel: slides in from the right edge OVER the content (translateX; the
+   global prefers-reduced-motion rule at this file's foot zeroes the
+   transition, so it simply appears there). While open the transform is none,
+   not translateX(0) — the fixed-position popovers inside the panel (model
+   picker, slash palette) must keep the viewport as their containing block,
+   and any live transform would become it. Closed, visibility (delayed to the
+   slide's end) pulls the panel out of the tab order instead of leaving an
+   offscreen focus target. */
+.ai-drawer-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  pointer-events: auto;
   /* the width is the shared clamp's (desktop-geometry.ts), set inline; the
-     main process reserves the same footprint for a document view beside it */
+     drawer overlays the content, so nothing reserves this width in layout */
   background: var(--surface);
   border-left: 1px solid var(--border);
+  --ai-drawer-shadow: -16px 0 36px rgb(0 0 0 / 16%);
+  box-shadow: var(--ai-drawer-shadow);
+  transition: transform 0.2s ease;
 }
 
-.ai-dock-head {
+.ai-drawer:not(.open) .ai-drawer-panel {
+  transform: translateX(100%);
+  visibility: hidden;
+  transition:
+    transform 0.2s ease,
+    visibility 0s 0.2s;
+}
+
+.ai-drawer-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -561,27 +619,28 @@ html.genoffice-popover-open .sidebar-logo {
   height: 36px;
   padding: 0 6px 0 16px;
   border-bottom: 1px solid var(--border-subtle);
-  /* the dock's header is a tool-window-style drag band (the collapse control
-     stays interactive) — the right column's share of the window drag surface */
+  /* the drawer's header is a tool-window-style drag band (the collapse
+     control stays interactive) — the right column's share of the window drag
+     surface */
   -webkit-app-region: drag;
 }
 
 /* Windows/Linux draw the caption buttons (titleBarOverlay) over the window's
-   top-right corner, which is the dock head's right end: the WCO env vars give
-   the band's width (0 where the overlay is absent — see title-bar-overlay.ts),
-   so the collapse control stays clear of it */
-body.overlay-title-bar .ai-dock-head {
+   top-right corner, which is the drawer head's right end: the WCO env vars
+   give the band's width (0 where the overlay is absent — see
+   title-bar-overlay.ts), so the collapse control stays clear of it */
+body.overlay-title-bar .ai-drawer-head {
   padding-right: calc(6px + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
 }
 
-.ai-dock-title {
+.ai-drawer-title {
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--text-tertiary);
 }
 
-.ai-dock-collapse {
+.ai-drawer-collapse {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -595,28 +654,29 @@ body.overlay-title-bar .ai-dock-head {
   -webkit-app-region: no-drag;
 }
 
-.ai-dock-collapse:hover {
+.ai-drawer-collapse:hover {
   background: var(--bg-hover);
   color: var(--text);
 }
 
-.ai-dock-body {
+.ai-drawer-body {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-/* the panel's own 860px cap was for the full-content layout; docked it fills
-   whatever width the person dragged */
-.ai-dock .kb-ask {
+/* the panel's own 860px cap was for the full-content layout; in the drawer
+   it fills whatever width the person dragged */
+.ai-drawer-panel .kb-ask,
+.ask-panel-entry .kb-ask {
   max-width: none;
   margin: 0;
 }
 
-/* the resize handle: an invisible 8px column on the dock's leading edge,
+/* the resize handle: an invisible 8px column on the drawer's leading edge,
    with a hairline affordance that appears on hover and while dragging */
-.ai-dock-resize {
+.ai-drawer-resize {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -627,7 +687,7 @@ body.overlay-title-bar .ai-dock-head {
   touch-action: none;
 }
 
-.ai-dock-resize::before {
+.ai-drawer-resize::before {
   content: '';
   position: absolute;
   top: 0;
@@ -638,53 +698,46 @@ body.overlay-title-bar .ai-dock-head {
   transition: background 0.12s;
 }
 
-.ai-dock-resize:hover::before {
+.ai-drawer-resize:hover::before {
   background: var(--border-strong);
 }
 
-body.ai-dock-resizing .ai-dock-resize::before {
+body.ai-drawer-resizing .ai-drawer-resize::before {
   background: var(--accent);
 }
 
-body.ai-dock-resizing {
+body.ai-drawer-resizing {
   cursor: col-resize;
   user-select: none;
 }
 
-/* collapsed: the column thins to the mascot rail (AI_DOCK_RAIL_WIDTH, set
- * inline from the same shared constant the main process reserves) — the
- * stage and any document view keep their bounds, and the mascot is all that
- * is left. The panel stays mounted (display: none), so its thread and any
- * live run survive the collapse. */
-.ai-dock.collapsed {
-  background: transparent;
-  border-left: none;
-}
-
-.ai-dock.collapsed .ai-dock-head,
-.ai-dock.collapsed .ai-dock-body {
-  display: none;
-}
-
-/* ── the mascot: the collapsed dock's whole presence ──
+/* ── the floating pet: the closed drawer's whole presence ──
  * A round bird, drawn with nine shapes and two CSS keyframes (blink and
  * breathing); the prefers-reduced-motion rule at this file's foot already
  * zeroes every animation, so a motion-sensitive setup gets a still bird.
- * Colors live on custom properties — per CLAUDE.md the mascot is the one
- * place raw hues may sit, and only on those definition lines. */
-.ai-mascot {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 14px;
-  display: none;
+ * Fixed over the content area's bottom-right corner (left/top inline from
+ * the persisted position, the default corner when none exists), it claims
+ * no layout width anywhere. Colors live on custom properties — per
+ * CLAUDE.md the mascot is the one place raw hues may sit, and only on those
+ * definition lines. */
+.ai-pet {
+  position: fixed;
+  /* above the drawer's scrim (clickable to retract while open); below the
+     star-prompt card (60), the settings modal (70) and the dialogs (100) */
+  z-index: 45;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: 6px;
   border: none;
   border-radius: 14px;
   background: none;
-  cursor: pointer;
+  cursor: grab;
+  /* the pet's own drag is a pointer gesture: no touch scrolling, no text
+     selection stealing the release */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
   --mascot-shadow: drop-shadow(0 4px 10px rgb(0 0 0 / 24%));
   --mascot-body: var(--accent);
   --mascot-belly: #ffffff;
@@ -696,14 +749,58 @@ body.ai-dock-resizing {
   --mascot-blush: color-mix(in srgb, var(--danger) 42%, transparent);
 }
 
-.ai-dock.collapsed .ai-mascot {
-  display: flex;
+body.ai-pet-dragging {
+  cursor: grabbing;
+  user-select: none;
 }
 
-.ai-mascot:focus-visible {
+.ai-pet:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* ── the standalone ask-panel view (?view=ask-panel) ──
+ * The surface the W2 native overlay view (main/ai-drawer-view.ts) loads over
+ * an active document: the panel alone fills the view, plus the floating pet
+ * (the overlay's collapse control — see panel-entry.tsx). It opts into the
+ * interface scale exactly like the app frame, so the drawer's content reads
+ * at the same size whichever layer hosts it (the overlay's window footprint
+ * is the scaled aiDockWidth; without this, its CSS would stay at 100%). */
+.ask-panel-entry {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  zoom: var(--ui-scale);
+}
+
+.ask-panel-entry .kb-ask {
+  flex: 1;
+  min-height: 0;
+  /* the pet's strip: the floating pet perches at the foot's right corner, so
+     the composer's send controls stay clear of it. 62 (PET_SIZE.height) +
+     16 (PET_MARGIN) — must move with AiDock.tsx's constants. Home's drawer
+     never hosts the pet inside itself (it clamps the pet outside its
+     footprint), so this arrangement is the overlay's own. */
+  padding-bottom: 78px;
+}
+
+/* the overlay's pet is a button, not a draggable mascot: the position
+   gesture is Home's (the pet cannot be dragged around a drawer that is
+   itself a native view), so the grab cursor must not promise it */
+.ask-panel-entry .ai-pet {
+  cursor: pointer;
+}
+
+.ask-panel-entry-error {
+  padding: 24px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* ── the mascot drawing (the pet's SVG internals) ── */
 
 .ai-mascot-svg {
   display: block;
@@ -711,7 +808,7 @@ body.ai-dock-resizing {
   transition: transform 0.16s;
 }
 
-.ai-mascot:hover .ai-mascot-svg {
+.ai-pet:hover .ai-mascot-svg {
   transform: scale(1.08) rotate(-4deg);
 }
 

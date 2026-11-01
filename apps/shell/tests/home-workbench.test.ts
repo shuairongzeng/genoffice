@@ -11,16 +11,17 @@ import {
   clampDockWidth,
   normalizeAiDockPrefs,
 } from '../src/renderer/src/AiDock'
-import type { HomeApi, HomeTabEntry } from '../src/shared/home-api'
+import type { AiDockPrefs, HomeApi, HomeTabEntry } from '../src/shared/home-api'
 import type { RecentEntry } from '../src/shared/home-api'
 
 /**
- * The workbench around Home's content column: the docked AI panel (its
- * collapse to the mascot, its persisted width, the prefs' degraded
- * localStorage copy while the app-settings channels are absent) and the
- * embedded document tab strip (the pushed contract's list, activate, close,
- * and the fixed desktop item). Everything the main process owns is a mock;
- * the assertions are about what Home does with the pushes and clicks.
+ * The workbench around Home's content column: the AI drawer (its open/closed
+ * state, its persisted width, the floating pet's drag, threshold and persisted
+ * position, the prefs' degraded localStorage copy while the app-settings
+ * channels are absent, the document-mode hiding) and the embedded document tab
+ * strip (the pushed contract's list, activate, close, and the fixed desktop
+ * item). Everything the main process owns is a mock; the assertions are about
+ * what Home does with the pushes and clicks.
  */
 
 let root: Root
@@ -28,8 +29,16 @@ let container: HTMLDivElement
 let tabsHandler: ((state: { tabs: HomeTabEntry[]; activeId: string }) => void) | null
 const tabsActivate = vi.fn(async () => undefined)
 const tabsClose = vi.fn(async () => undefined)
-const getAiDock = vi.fn(async () => ({ width: AI_DOCK_WIDTH_DEFAULT, collapsed: false }))
-const setAiDock = vi.fn(async () => ({ width: AI_DOCK_WIDTH_DEFAULT, collapsed: false }))
+const getAiDock = vi.fn(async () => ({
+  width: AI_DOCK_WIDTH_DEFAULT,
+  collapsed: false,
+  petPos: null,
+}))
+const setAiDock = vi.fn(async () => ({
+  width: AI_DOCK_WIDTH_DEFAULT,
+  collapsed: false,
+  petPos: null,
+}))
 const homeContentRect = vi.fn()
 
 const files: RecentEntry[] = [
@@ -131,7 +140,13 @@ async function click(el: Element | undefined): Promise<void> {
   await act(async () => (el as HTMLElement).click())
 }
 
-const dock = (): HTMLElement => container.querySelector<HTMLElement>('.ai-dock')!
+const drawer = (): HTMLElement => container.querySelector<HTMLElement>('.ai-drawer')!
+const drawerPanel = (): HTMLElement => container.querySelector<HTMLElement>('.ai-drawer-panel')!
+const pet = (): HTMLButtonElement => container.querySelector<HTMLButtonElement>('.ai-pet')!
+
+/** the pet's default perch in the test viewport (1024×768), nudged left of
+ *  the open default drawer (400 + 16): the pet never hides under the drawer */
+const OPEN_DRAWER_PET_X = 1024 - 68 - AI_DOCK_WIDTH_DEFAULT - 16
 
 beforeEach(() => {
   HTMLElement.prototype.scrollTo = vi.fn()
@@ -143,7 +158,11 @@ beforeEach(() => {
   getAiDock.mockClear()
   setAiDock.mockClear()
   homeContentRect.mockClear()
-  getAiDock.mockImplementation(async () => ({ width: AI_DOCK_WIDTH_DEFAULT, collapsed: false }))
+  getAiDock.mockImplementation(async () => ({
+    width: AI_DOCK_WIDTH_DEFAULT,
+    collapsed: false,
+    petPos: null,
+  }))
   vi.stubGlobal(
     'fetch',
     vi.fn(() => {
@@ -158,40 +177,82 @@ afterEach(async () => {
   localStorage.clear()
 })
 
-describe('the AI dock', () => {
+describe('the AI drawer', () => {
   beforeEach(async () => {
     await mountHome(baseApi())
   })
 
-  it('mounts with the panel beside the content column, at the persisted width', () => {
-    expect(dock()).not.toBeNull()
+  it('mounts open over the content, at the persisted width, with the pet beside it', () => {
+    expect(drawer()).not.toBeNull()
+    expect(drawer().className).toContain('open')
     expect(container.querySelector('.kb-ask')).not.toBeNull()
-    expect(dock().style.width).toBe(`${AI_DOCK_WIDTH_DEFAULT}px`)
-    // the mascot exists but stays hidden until the dock collapses
-    expect(container.querySelector('.ai-mascot')).not.toBeNull()
-    expect(dock().className).not.toContain('collapsed')
+    expect(drawerPanel().style.width).toBe(`${AI_DOCK_WIDTH_DEFAULT}px`)
+    // the pet floats (fixed, out of the layout) and stays out of the drawer
+    expect(pet()).not.toBeNull()
+    expect(pet().style.left).toBe(`${OPEN_DRAWER_PET_X}px`)
+    expect(pet().style.top).toBe('690px')
   })
 
   it('reads the width the prefs channel answers with', async () => {
-    getAiDock.mockImplementation(async () => ({ width: 448, collapsed: false }))
+    getAiDock.mockImplementation(async () => ({ width: 448, collapsed: false, petPos: null }))
     await unmountHome()
     await mountHome(baseApi())
-    expect(dock().style.width).toBe('448px')
+    expect(drawerPanel().style.width).toBe('448px')
   })
 
-  it('collapses to the mascot and expands back, persisting each state', async () => {
-    await click(container.querySelector('.ai-dock-collapse'))
-    expect(dock().className).toContain('collapsed')
+  it('follows a dock change broadcast from another surface (the overlay pet)', async () => {
+    // the main process broadcasts every settled `aiDock` write; the one that
+    // matters here is the native overlay drawer's pet collapsing it while a
+    // document is active — Home's copy must not stay stale behind the cover
+    let dockHandler: ((prefs: AiDockPrefs) => void) | null = null
+    await unmountHome()
+    await mountHome({
+      ...baseApi(),
+      onAiDockChanged: (handler) => {
+        dockHandler = handler
+        return () => {
+          dockHandler = null
+        }
+      },
+    })
+    expect(drawer().className).toContain('open')
+    await act(async () =>
+      dockHandler?.({ width: AI_DOCK_WIDTH_DEFAULT, collapsed: true, petPos: null }),
+    )
+    expect(drawer().className).not.toContain('open')
+    // a broadcast is news, not a write: the store already holds this value
+    expect(setAiDock).not.toHaveBeenCalled()
+    await act(async () => dockHandler?.({ width: 448, collapsed: false, petPos: null }))
+    expect(drawer().className).toContain('open')
+    expect(drawerPanel().style.width).toBe('448px')
+  })
+
+  it('closes to the pet and opens back, persisting each state', async () => {
+    await click(container.querySelector('.ai-drawer-collapse'))
+    expect(drawer().className).not.toContain('open')
     expect(setAiDock).toHaveBeenCalledWith({ collapsed: true })
     // the panel itself stays mounted — hidden, not unmounted
     expect(container.querySelector('.kb-ask')).not.toBeNull()
-    await click(container.querySelector('.ai-mascot'))
-    expect(dock().className).not.toContain('collapsed')
+    await click(pet())
+    expect(drawer().className).toContain('open')
     expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
   })
 
+  it('Esc, the scrim and the pet each retract the open drawer', async () => {
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+    expect(drawer().className).not.toContain('open')
+    expect(setAiDock).toHaveBeenCalledWith({ collapsed: true })
+    // back open, then the scrim retracts it too
+    await click(pet())
+    await click(container.querySelector('.ai-drawer-mask'))
+    expect(drawer().className).not.toContain('open')
+    expect(setAiDock).toHaveBeenLastCalledWith({ collapsed: true })
+  })
+
   it('a drag on the handle commits the clamped width on release', async () => {
-    const handle = container.querySelector<HTMLElement>('.ai-dock-resize')!
+    const handle = container.querySelector<HTMLElement>('.ai-drawer-resize')!
     expect(handle).toBeTruthy()
     await act(async () => {
       handle.dispatchEvent(
@@ -200,18 +261,18 @@ describe('the AI dock', () => {
       window.dispatchEvent(new MouseEvent('pointermove', { clientX: 840 }))
     })
     // live during the drag: the panel tracks the pointer before any commit
-    expect(dock().style.width).toBe(`${clampDockWidth(AI_DOCK_WIDTH_DEFAULT + 60)}px`)
+    expect(drawerPanel().style.width).toBe(`${clampDockWidth(AI_DOCK_WIDTH_DEFAULT + 60)}px`)
     expect(setAiDock).not.toHaveBeenCalled()
     await act(async () => {
       window.dispatchEvent(new MouseEvent('pointerup'))
     })
     expect(setAiDock).toHaveBeenCalledWith({ width: clampDockWidth(AI_DOCK_WIDTH_DEFAULT + 60) })
-    expect(dock().style.width).toBe(`${clampDockWidth(AI_DOCK_WIDTH_DEFAULT + 60)}px`)
+    expect(drawerPanel().style.width).toBe(`${clampDockWidth(AI_DOCK_WIDTH_DEFAULT + 60)}px`)
   })
 
   it('a drag past the rails clamps to the shared maximum; a press without a move commits nothing', async () => {
-    const handle = container.querySelector<HTMLElement>('.ai-dock-resize')!
-    // dragging the leading edge left grows the dock; a width past the shared
+    const handle = container.querySelector<HTMLElement>('.ai-drawer-resize')!
+    // dragging the leading edge left grows the drawer; a width past the shared
     // maximum is clamped to it
     await act(async () => {
       handle.dispatchEvent(
@@ -221,7 +282,7 @@ describe('the AI dock', () => {
       window.dispatchEvent(new MouseEvent('pointerup'))
     })
     expect(setAiDock).toHaveBeenCalledWith({ width: AI_DOCK_WIDTH_MAX })
-    expect(dock().style.width).toBe(`${AI_DOCK_WIDTH_MAX}px`)
+    expect(drawerPanel().style.width).toBe(`${AI_DOCK_WIDTH_MAX}px`)
 
     // a press that never moved is a click on the handle, not a resize
     await act(async () => {
@@ -234,18 +295,18 @@ describe('the AI dock', () => {
   })
 
   it('a drag past the maximum commits at the clamp without waiting for a release', async () => {
-    const handle = container.querySelector<HTMLElement>('.ai-dock-resize')!
+    const handle = container.querySelector<HTMLElement>('.ai-drawer-resize')!
     await act(async () => {
       handle.dispatchEvent(
         new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 900 }),
       )
-      // one move past the rail: the pointer is over the embedded document
-      // view's native layer now, where neither further moves nor the release
-      // ever reach this renderer — the gesture must have committed itself
+      // one move past the rail: the pointer may be over a native layer now,
+      // where neither further moves nor the release ever reach this
+      // renderer — the gesture must have committed itself
       window.dispatchEvent(new MouseEvent('pointermove', { clientX: 100 }))
     })
     expect(setAiDock).toHaveBeenCalledWith({ width: AI_DOCK_WIDTH_MAX })
-    expect(dock().style.width).toBe(`${AI_DOCK_WIDTH_MAX}px`)
+    expect(drawerPanel().style.width).toBe(`${AI_DOCK_WIDTH_MAX}px`)
 
     // the gesture is over: a release that does arrive re-commits nothing
     setAiDock.mockClear()
@@ -257,17 +318,17 @@ describe('the AI dock', () => {
   })
 
   it('a double-click on the handle resets the default width', async () => {
-    getAiDock.mockImplementation(async () => ({ width: 552, collapsed: false }))
+    getAiDock.mockImplementation(async () => ({ width: 552, collapsed: false, petPos: null }))
     await unmountHome()
     await mountHome(baseApi())
-    expect(dock().style.width).toBe('552px')
+    expect(drawerPanel().style.width).toBe('552px')
     await act(async () => {
       container
-        .querySelector<HTMLElement>('.ai-dock-resize')!
+        .querySelector<HTMLElement>('.ai-drawer-resize')!
         .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
     })
     expect(setAiDock).toHaveBeenCalledWith({ width: AI_DOCK_WIDTH_DEFAULT })
-    expect(dock().style.width).toBe(`${AI_DOCK_WIDTH_DEFAULT}px`)
+    expect(drawerPanel().style.width).toBe(`${AI_DOCK_WIDTH_DEFAULT}px`)
   })
 
   it('reports the content stage rect for the document views to fill', async () => {
@@ -277,27 +338,226 @@ describe('the AI dock', () => {
     })
     expect(homeContentRect).toHaveBeenCalledTimes(2)
   })
+
+  it('stays hidden while a document tab is active; a recorded open shows when Home returns', async () => {
+    // start closed, then let a document take the stage: the drawer's HTML is
+    // under the document's native view, so it does not appear
+    getAiDock.mockImplementation(async () => ({
+      width: AI_DOCK_WIDTH_DEFAULT,
+      collapsed: true,
+      petPos: null,
+    }))
+    await unmountHome()
+    await mountHome(baseApi())
+    await act(async () => pushTabs('t1', { id: 't1', kind: 'docs', title: 'brief.docx' }))
+    expect(drawer().className).toContain('doc-covered')
+    // the panel stays mounted under the cover — its thread survives
+    expect(container.querySelector('.kb-ask')).not.toBeNull()
+    // an ask while the document is up (the sidebar's item) records the intent
+    await click([...container.querySelectorAll<HTMLButtonElement>('.nav-item-ask')][0])
+    expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
+    expect(drawer().className).toContain('open')
+    expect(drawer().className).toContain('doc-covered')
+    // Home becomes the active tab again: the recorded drawer is there
+    await act(async () => pushTabs('home'))
+    expect(drawer().className).not.toContain('doc-covered')
+    expect(drawer().className).toContain('open')
+  })
 })
 
-describe('the AI dock without the prefs channels', () => {
+describe('the floating pet', () => {
+  beforeEach(async () => {
+    await mountHome(baseApi())
+  })
+
+  it('parks at the persisted position on mount', async () => {
+    getAiDock.mockImplementation(async () => ({
+      width: AI_DOCK_WIDTH_DEFAULT,
+      collapsed: false,
+      petPos: { x: 120, y: 80 },
+    }))
+    await unmountHome()
+    await mountHome(baseApi())
+    expect(pet().style.left).toBe('120px')
+    expect(pet().style.top).toBe('80px')
+  })
+
+  it('a drag past the slop commits the position on release, never mid-drag', async () => {
+    await act(async () => {
+      pet().dispatchEvent(
+        new MouseEvent('pointerdown', {
+          bubbles: true,
+          button: 0,
+          clientX: OPEN_DRAWER_PET_X,
+          clientY: 690,
+        }),
+      )
+      window.dispatchEvent(new MouseEvent('pointermove', { clientX: 440, clientY: 590 }))
+    })
+    // live during the drag: the pet tracks the pointer before any commit
+    expect(pet().style.left).toBe('440px')
+    expect(pet().style.top).toBe('590px')
+    expect(setAiDock).not.toHaveBeenCalled()
+    await act(async () => {
+      window.dispatchEvent(new MouseEvent('pointerup'))
+    })
+    expect(setAiDock).toHaveBeenCalledWith({ petPos: { x: 440, y: 590 } })
+    expect(pet().style.left).toBe('440px')
+  })
+
+  it('a press under the slop is a click: it opens the drawer and persists no position', async () => {
+    getAiDock.mockImplementation(async () => ({
+      width: AI_DOCK_WIDTH_DEFAULT,
+      collapsed: true,
+      petPos: null,
+    }))
+    await unmountHome()
+    await mountHome(baseApi())
+    expect(drawer().className).not.toContain('open')
+    await act(async () => {
+      pet().dispatchEvent(
+        new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 940, clientY: 690 }),
+      )
+      window.dispatchEvent(new MouseEvent('pointermove', { clientX: 943, clientY: 692 }))
+      window.dispatchEvent(new MouseEvent('pointerup'))
+    })
+    // three viewport px of travel is still the press of a click, not a drag
+    expect(setAiDock).not.toHaveBeenCalled()
+    await click(pet())
+    expect(drawer().className).toContain('open')
+    expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
+  })
+
+  it('the trailing click of a real drag is swallowed; a keyboard press resets it', async () => {
+    await act(async () => {
+      pet().dispatchEvent(
+        new MouseEvent('pointerdown', {
+          bubbles: true,
+          button: 0,
+          clientX: OPEN_DRAWER_PET_X,
+          clientY: 690,
+        }),
+      )
+      window.dispatchEvent(new MouseEvent('pointermove', { clientX: 440, clientY: 590 }))
+      window.dispatchEvent(new MouseEvent('pointerup'))
+    })
+    expect(setAiDock).toHaveBeenCalledWith({ petPos: { x: 440, y: 590 } })
+    setAiDock.mockClear()
+    // the click that follows the drag's release would toggle the drawer — the
+    // gesture already ended in a move, so it is ignored
+    await click(pet())
+    expect(drawer().className).toContain('open')
+    expect(setAiDock).not.toHaveBeenCalled()
+    // keyboard activation arrives without pointer events and toggles again
+    await act(async () => {
+      pet().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await click(pet())
+    expect(drawer().className).not.toContain('open')
+    expect(setAiDock).toHaveBeenCalledWith({ collapsed: true })
+  })
+
+  it('clamps a drag inside the window, and out of the open drawer', async () => {
+    // while the drawer is open the pet may not cross its leading edge
+    await act(async () => {
+      pet().dispatchEvent(
+        new MouseEvent('pointerdown', {
+          bubbles: true,
+          button: 0,
+          clientX: OPEN_DRAWER_PET_X,
+          clientY: 690,
+        }),
+      )
+      window.dispatchEvent(new MouseEvent('pointermove', { clientX: 2000, clientY: 2000 }))
+      window.dispatchEvent(new MouseEvent('pointerup'))
+    })
+    expect(setAiDock).toHaveBeenCalledWith({ petPos: { x: OPEN_DRAWER_PET_X, y: 706 } })
+    // close the drawer: the whole window is the pet's again, clamped inside
+    await click(container.querySelector('.ai-drawer-collapse'))
+    setAiDock.mockClear()
+    await act(async () => {
+      pet().dispatchEvent(
+        new MouseEvent('pointerdown', {
+          bubbles: true,
+          button: 0,
+          clientX: OPEN_DRAWER_PET_X,
+          clientY: 706,
+        }),
+      )
+      window.dispatchEvent(new MouseEvent('pointermove', { clientX: 2000, clientY: 2000 }))
+      window.dispatchEvent(new MouseEvent('pointerup'))
+    })
+    expect(setAiDock).toHaveBeenCalledWith({ petPos: { x: 956, y: 706 } })
+    expect(pet().style.left).toBe('956px')
+  })
+
+  it('a cancel (a pointercancel) rolls the drag back with no commit', async () => {
+    await act(async () => {
+      pet().dispatchEvent(
+        new MouseEvent('pointerdown', {
+          bubbles: true,
+          button: 0,
+          clientX: OPEN_DRAWER_PET_X,
+          clientY: 690,
+        }),
+      )
+      window.dispatchEvent(new MouseEvent('pointermove', { clientX: 440, clientY: 590 }))
+    })
+    await act(async () => {
+      window.dispatchEvent(new MouseEvent('pointercancel'))
+    })
+    expect(setAiDock).not.toHaveBeenCalled()
+    // back at the perch the drag started from
+    expect(pet().style.left).toBe(`${OPEN_DRAWER_PET_X}px`)
+  })
+})
+
+describe('the AI drawer without the prefs channels', () => {
   it('degrades to the localStorage copy and remembers it across mounts', async () => {
     const api = baseApi()
     delete api.getAiDock
     delete api.setAiDock
     await mountHome(api)
-    await click(container.querySelector('.ai-dock-collapse'))
-    expect(dock().className).toContain('collapsed')
+    await click(container.querySelector('.ai-drawer-collapse'))
+    expect(drawer().className).not.toContain('open')
     expect(setAiDock).not.toHaveBeenCalled()
     expect(normalizeAiDockPrefs(JSON.parse(localStorage.getItem('home.aiDock') ?? 'null'))).toEqual(
       {
         width: AI_DOCK_WIDTH_DEFAULT,
         collapsed: true,
+        petPos: null,
       },
     )
     await unmountHome()
     await mountHome(api)
-    expect(dock().className).toContain('collapsed')
-    expect(container.querySelector('.ai-mascot')).not.toBeNull()
+    expect(drawer().className).not.toContain('open')
+    expect(pet()).not.toBeNull()
+  })
+
+  it('remembers a dragged pet position across mounts through the same copy', async () => {
+    const api = baseApi()
+    delete api.getAiDock
+    delete api.setAiDock
+    await mountHome(api)
+    await act(async () => {
+      pet().dispatchEvent(
+        new MouseEvent('pointerdown', {
+          bubbles: true,
+          button: 0,
+          clientX: OPEN_DRAWER_PET_X,
+          clientY: 690,
+        }),
+      )
+      window.dispatchEvent(new MouseEvent('pointermove', { clientX: 300, clientY: 300 }))
+      window.dispatchEvent(new MouseEvent('pointerup'))
+    })
+    expect(
+      normalizeAiDockPrefs(JSON.parse(localStorage.getItem('home.aiDock') ?? 'null')).petPos,
+    ).toEqual({ x: 300, y: 300 })
+    await unmountHome()
+    await mountHome(api)
+    expect(pet().style.left).toBe('300px')
+    expect(pet().style.top).toBe('300px')
   })
 })
 

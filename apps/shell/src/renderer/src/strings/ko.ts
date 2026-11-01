@@ -528,6 +528,7 @@ export const ko: Dict = {
   dockExpand: 'AI 패널 열기',
   dockCollapse: 'AI 패널 접기',
   dockResize: '드래그하여 AI 패널 너비 조절',
+  panelApiMissing: 'AI 패널에 필요한 API를 사용할 수 없습니다. 앱을 다시 시작해 주세요.',
   workTabsAria: '열린 문서',
   workTabDirty: '저장되지 않은 변경 사항',
   workTabDetached: '별도 창에서 열림',

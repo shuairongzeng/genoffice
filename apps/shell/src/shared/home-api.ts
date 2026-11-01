@@ -16,6 +16,7 @@ import type { UpdateChannel, UpdateUiState } from './update-api'
 import type { RunEvent, RunSummary } from '@genoffice/project-store'
 import type { DesktopArrangeMode } from '@genoffice/cli/control-protocol'
 import type { AiDockPrefs } from './desktop-geometry'
+import type { PendingAskQuery } from './ask-forward'
 import type {
   AttachmentInfo,
   BrowserActionResult,
@@ -606,15 +607,50 @@ export interface HomeApi {
   onDeepLink(handler: (payload: DeepLinkPayload) => void): () => void
   /** the desktop prefs were changed outside this renderer (CLI / MCP desktop domain) */
   onDesktopPrefsChanged(handler: (prefs: DesktopPrefs) => void): () => void
-  // ---- the AI dock's prefs (app-settings.json `aiDock`) ----
+  // ---- the AI drawer's prefs (app-settings.json `aiDock`) ----
   // Optional so partial test stubs (and a preload from before the workbench)
   // keep typing: the renderer clamps whatever it reads and falls back to a
-  // localStorage copy while a channel is absent (see AiDock.tsx), so the dock
-  // works — and degrades — without them.
-  /** the AI dock's prefs (`home:ai-dock-get`); the renderer clamps what it reads */
+  // localStorage copy while a channel is absent (see AiDock.tsx), so the
+  // drawer works — and degrades — without them.
+  /** the AI drawer's prefs (`home:ai-dock-get`); the renderer clamps what it reads */
   getAiDock?(): Promise<AiDockPrefs>
-  /** persist a patch of the AI dock's prefs (`home:ai-dock-set`); resolves to the effective prefs */
+  /** persist a patch of the AI drawer's prefs (`home:ai-dock-set`); resolves to the effective prefs */
   setAiDock?(patch: Partial<AiDockPrefs>): Promise<AiDockPrefs>
+  /**
+   * The drawer's prefs changed outside this renderer (`home:ai-dock-changed`):
+   * the main process broadcasts every settled store change, so a write made
+   * by another surface of the same prefs — the native overlay drawer's pet
+   * collapsing it while a document is active (panel-entry.tsx) — reaches this
+   * copy instead of leaving it stale. Home's own writes ride it too, with the
+   * same value they just applied, so the broadcast never reverts anything.
+   */
+  onAiDockChanged?(handler: (prefs: AiDockPrefs) => void): () => void
+  // ---- the ask-intent forward between the drawer's two surfaces (P0-2) ----
+  // Optional so partial test stubs (and a preload from before the forward)
+  // keep typing: without the channels a doc-mode handoff degrades to the
+  // pre-forward behavior — it stays in Home's own (covered) panel copy.
+  /**
+   * Forward one ask-intent handoff to the drawer's live surface
+   * (`home:ask-forward`): while a document tab is active the native overlay's
+   * panel copy is the only one the person can see, so main routes the handoff
+   * there; otherwise it bounces back over {@link onForwardedAskQuery} and
+   * consumes exactly like a local one.
+   */
+  forwardAskQuery?(query: PendingAskQuery): Promise<void>
+  /**
+   * Forward a browser annotation's "ask AI about this" push to the overlay's
+   * panel copy (`home:browser-ask-about-forward`), so it parks its draft where
+   * the person can see it; this renderer's own panel received the original
+   * browser:ask-about push already.
+   */
+  forwardBrowserAskAbout?(note: BrowserAskAboutPayload): Promise<void>
+  /**
+   * An ask-intent handoff landed on this surface (`home:ask-forwarded`): the
+   * overlay's standalone mount consumes the forwarded ones as pending queries
+   * (the same semantics Home's own panel applies), and Home consumes the ones
+   * main bounced back because the overlay was not the drawer's live host.
+   */
+  onForwardedAskQuery?(handler: (query: PendingAskQuery) => void): () => void
   /**
    * The content stage's rect in window CSS pixels (measured post-zoom, so
    * already the interface scale's own pixels), reported on mount and on every
@@ -1115,6 +1151,8 @@ export const HOME_CHANNELS = {
   aiDockGet: 'home:ai-dock-get',
   /** persist a patch of the AI dock's prefs; answers the effective prefs */
   aiDockSet: 'home:ai-dock-set',
+  /** main → renderer: the AI dock's prefs changed in the store (any surface's write) */
+  aiDockChanged: 'home:ai-dock-changed',
   /** the renderer's measured content-stage rect (the exact area an embedded
    *  document's WebContentsView fills), reported on mount and on resize */
   contentRect: 'home:content-rect',
@@ -1129,6 +1167,18 @@ export const HOME_CHANNELS = {
   paletteOpen: 'home:palette-open',
   /** main → renderer: a genoffice:// deep link routed to Home (e.g. genoffice://ask?q=…) */
   deepLink: 'home:deep-link',
+  /** renderer → main: forward one ask-intent handoff to the drawer's live
+   *  surface (P0-2) — the native overlay's panel copy while a document tab is
+   *  active, Home's own panel otherwise */
+  askForward: 'home:ask-forward',
+  /** main → renderer: an ask-intent handoff landed on this surface — the
+   *  overlay's standalone mount consumes the forwarded ones, Home consumes the
+   *  ones main bounced back (the overlay was not the live host after all) */
+  askForwarded: 'home:ask-forwarded',
+  /** renderer → main: forward a browser annotation's "ask AI about this" push
+   *  to the overlay's panel copy (the shell renderer already received the
+   *  original browser:ask-about) */
+  browserAskAboutForward: 'home:browser-ask-about-forward',
   systemPresenceGet: 'home:system-presence-get',
   systemPresenceSetLoginItem: 'home:system-presence-set-login-item',
   systemPresenceSetCloseToTray: 'home:system-presence-set-close-to-tray',

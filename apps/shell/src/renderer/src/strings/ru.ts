@@ -533,6 +533,7 @@ export const ru: Dict = {
   dockExpand: 'Открыть панель ИИ',
   dockCollapse: 'Свернуть панель ИИ',
   dockResize: 'Потяните, чтобы изменить ширину панели ИИ',
+  panelApiMissing: 'Панель ИИ требует API, недоступных в этом окне. Перезапустите приложение.',
   workTabsAria: 'Открытые документы',
   workTabDirty: 'Несохранённые изменения',
   workTabDetached: 'Открыто в отдельном окне',

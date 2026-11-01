@@ -526,6 +526,8 @@ export const hi: Dict = {
   dockExpand: 'AI पैनल खोलें',
   dockCollapse: 'AI पैनल छोटा करें',
   dockResize: 'AI पैनल की चौड़ाई बदलने के लिए खींचें',
+  panelApiMissing:
+    'AI पैनल को उन API की आवश्यकता है जो यह विंडो उपलब्ध नहीं कराती। ऐप को पुनः आरंभ करें।',
   workTabsAria: 'खुले दस्तावेज़',
   workTabDirty: 'असहेजे बदलाव',
   workTabDetached: 'अपनी खुद की विंडो में खुला है',

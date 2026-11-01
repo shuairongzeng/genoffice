@@ -42,7 +42,10 @@ describe('McpLogger', () => {
     const m = /^\[(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})\.(\d{3})\]/.exec(line)
     expect(m, line).not.toBeNull()
     // interpreting the stamp in the device timezone lands ~now; a UTC ISO
-    // stamp (the old format) drifts by the timezone offset here
+    // stamp (the old format) drifts by the timezone offset here. On a DST
+    // transition day the local wall time is ambiguous — two instants share it
+    // — so allow exactly that offset too (a UTC stamp would drift by the full
+    // zone offset, far more than one hour).
     const parsed = new Date(
       Number(m![1]),
       Number(m![2]) - 1,
@@ -52,7 +55,8 @@ describe('McpLogger', () => {
       Number(m![6]),
       Number(m![7]),
     )
-    expect(Math.abs(parsed.getTime() - Date.now())).toBeLessThan(5_000)
+    const drift = Math.abs(parsed.getTime() - Date.now())
+    expect(drift < 5_000 || Math.abs(drift - 3_600_000) < 5_000).toBe(true)
   })
 
   it('recent() prefers the file contents and caps the tail', () => {

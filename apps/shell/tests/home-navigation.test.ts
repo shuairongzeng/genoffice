@@ -94,28 +94,25 @@ function selected(): string[] {
 }
 
 describe('Home sidebar navigation', () => {
-  it.each(['Recent', 'Starred'])(
-    'Ask AI focuses the docked panel without leaving %s',
-    async (from) => {
-      await click(nav(from))
-      expect(selected()).toEqual([from])
-      await click(nav('Ask AI'))
-      // the ask panel is the workbench's dock, not a surface: the list stays
-      // selected, the panel is present from launch, and the composer focused
-      expect(container.querySelector('.ai-dock')).not.toBeNull()
-      expect(container.querySelector('.kb-ask')).not.toBeNull()
-      expect(selected()).toEqual([from])
-      expect(document.activeElement).toBe(container.querySelector('.kb-ask textarea'))
-      expect(nav('Ask AI').hasAttribute('aria-current')).toBe(false)
-      expect(fetch).not.toHaveBeenCalled()
-      await click(nav(from))
-      expect(selected()).toEqual([from])
-      expect(nav(from).getAttribute('aria-current')).toBe('page')
-      expect(container.querySelector('.content')?.textContent).toContain('brief.docx')
-      if (from === 'Starred')
-        expect(container.querySelector('.content')?.textContent).not.toContain('budget.xlsx')
-    },
-  )
+  it.each(['Recent', 'Starred'])('Ask AI opens the drawer without leaving %s', async (from) => {
+    await click(nav(from))
+    expect(selected()).toEqual([from])
+    await click(nav('Ask AI'))
+    // the ask panel is the workbench's drawer, not a surface: the list stays
+    // selected, the panel is present from launch, and the composer focused
+    expect(container.querySelector('.ai-drawer')!.className).toContain('open')
+    expect(container.querySelector('.kb-ask')).not.toBeNull()
+    expect(selected()).toEqual([from])
+    expect(document.activeElement).toBe(container.querySelector('.kb-ask textarea'))
+    expect(nav('Ask AI').hasAttribute('aria-current')).toBe(false)
+    expect(fetch).not.toHaveBeenCalled()
+    await click(nav(from))
+    expect(selected()).toEqual([from])
+    expect(nav(from).getAttribute('aria-current')).toBe('page')
+    expect(container.querySelector('.content')?.textContent).toContain('brief.docx')
+    if (from === 'Starred')
+      expect(container.querySelector('.content')?.textContent).not.toContain('budget.xlsx')
+  })
 
   it('keeps the file-type filter across an Ask AI focus', async () => {
     const docs = [...container.querySelectorAll<HTMLButtonElement>('.filter-pill')].find(
@@ -136,7 +133,7 @@ describe('Home sidebar navigation', () => {
   })
 
   it("the folders-scope ask panel's CTA opens settings on the General pane", async () => {
-    // the panel reads the scope through the bridge on mount; the dock mounts
+    // the panel reads the scope through the bridge on mount; the drawer mounts
     // with Home, so the bridge carries the folders scope before the render
     const bridge = window.aiOffice as unknown as Record<string, unknown>
     bridge.getKbScope = async () => 'folders'

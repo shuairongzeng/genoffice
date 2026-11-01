@@ -80,22 +80,25 @@ import { RafFlushQueue, sticksToBottom } from './ask-stream'
 
 /**
  * The workbench's knowledge-base ask panel: chat with the reader's corpus
- * without opening a document. It lives in the AI dock beside the content area
- * (see AiDock.tsx), always mounted — the desktop, the list views and a
- * document's view are all its neighbors, none of them its replacement. First
- * app-side consumer of the shell's kb:* gateway — the loop, streaming and
- * rendering reuse what every editor's AI panel uses (AgentLoop +
- * createIpcTransport + Markdown with a filenav nav), so answers cite the
- * folder and file they came from and clicking a citation opens that file in
- * the app that owns it.
+ * without opening a document. It lives in the AI drawer that overlays the
+ * content area's right edge (see AiDock.tsx), always mounted — the desktop,
+ * the list views and a document's view are all its neighbors, none of them
+ * its replacement. First app-side consumer of the shell's kb:* gateway — the
+ * loop, streaming and rendering reuse what every editor's AI panel uses
+ * (AgentLoop + createIpcTransport + Markdown with a filenav nav), so answers
+ * cite the folder and file they came from and clicking a citation opens that
+ * file in the app that owns it.
  *
- * The conversation persists through project-store under a fixed chat id, the
- * one place in the app where a conversation belongs to no file: with no
- * `filePath` the store takes the caller's id verbatim, so the panel passes a
- * constant and finds its own transcript again on the next launch. An empty
- * corpus gets an onboarding hero instead of a bare hint: the only useful move
- * there is going to Recents and starring files, so the panel says so and
- * offers the jump as a button.
+ * The conversation persists through project-store under a chat id the host
+ * passes — the one place in the app where a conversation belongs to no file:
+ * with no `filePath` the store takes the caller's id verbatim, so a stable id
+ * finds its own transcript again on the next launch. The panel is mounted
+ * twice (P0-1): Home's copy keeps the original 'kb-ask' thread, and the
+ * document-mode overlay's standalone mount (panel-entry.tsx) passes its own
+ * id — before that, both AgentLoops cross-read one transcript and their
+ * streams interleaved. An empty corpus gets an onboarding hero instead of a
+ * bare hint: the only useful move there is going to Recents and starring
+ * files, so the panel says so and offers the jump as a button.
  *
  * That constant is also the limit of what exists so far: one transcript, no
  * list, no name, and nothing to start a second conversation. A reader with two
@@ -114,7 +117,12 @@ import { RafFlushQueue, sticksToBottom } from './ask-stream'
  * selection behind.
  */
 
-/** The one transcript the panel keeps. Stable across launches by design. */
+/**
+ * The home copy's transcript id — the default every mount falls back to.
+ * Stable across launches by design. The overlay's standalone mount passes its
+ * own (see panel-entry.tsx): the two ids' prefix families must stay disjoint,
+ * or each panel's thread list would offer deleting the other's transcripts.
+ */
 const CHAT_ID = 'kb-ask'
 
 /**
@@ -243,10 +251,14 @@ export function listThreads(
  * This panel's threads, and nothing else. Unsaved editor documents write
  * their AI history into the same default project under `unsaved-` ids, and a
  * list that showed those would offer deleting a document's transcript from a
- * panel that has nothing to do with it.
+ * panel that has nothing to do with it. `chatId` is the family root this mount
+ * owns: the id itself plus the `id-…` threads its own "new conversation"
+ * starts — and the roots must stay prefix-disjoint, because a root inside
+ * another root's family (say 'kb-ask-overlay' inside 'kb-ask-…') would list
+ * the other surface's threads right back.
  */
-export function panelThreads(metas: readonly ChatMeta[]): ChatMeta[] {
-  return metas.filter((meta) => meta.chatId === CHAT_ID || meta.chatId.startsWith(`${CHAT_ID}-`))
+export function panelThreads(metas: readonly ChatMeta[], chatId: string = CHAT_ID): ChatMeta[] {
+  return metas.filter((meta) => meta.chatId === chatId || meta.chatId.startsWith(`${chatId}-`))
 }
 
 /** The first question in a stored conversation, which is how it is labelled. */
@@ -598,6 +610,7 @@ const AskMessageRow = memo(function AskMessageRow({
 })
 
 export function KbAskPanel({
+  chatId = CHAT_ID,
   onOpenPath,
   onGoToRecents,
   onOpenModelSettings,
@@ -605,7 +618,15 @@ export function KbAskPanel({
   pendingQuery,
   onPendingQueryConsumed,
   focusSignal,
+  onEscapeCollapse,
 }: {
+  /**
+   * The transcript this mount owns (P0-1): project-store takes the id
+   * verbatim for a file-less chat, so two mounts of this panel (Home's copy
+   * and the overlay's standalone one) must pass different ids or their
+   * AgentLoops cross-read one transcript. Defaults to the home thread.
+   */
+  chatId?: string
   onOpenPath: (path: string) => void
   onGoToRecents: () => void
   /** Settings › AI Model, the model chip's last row */
@@ -620,6 +641,13 @@ export function KbAskPanel({
    *  the composer's focus (the sidebar's Ask AI item, a deep link, the dock
    *  expanding): each bump focuses the composer once */
   focusSignal?: number
+  /**
+   * The drawer host's Esc verb (P1-4; panel-entry.tsx, the overlay's mount,
+   * passes it): Esc clears a non-empty composer draft first, and only an empty
+   * one reaches this callback — the host collapses its drawer with it. Absent
+   * in Home's mount, where AiDock owns the Esc key itself.
+   */
+  onEscapeCollapse?: () => void
 }): React.JSX.Element {
   const { t, lang } = useI18n()
   // the in-app replacement for the native confirm on thread delete (and any
@@ -768,7 +796,7 @@ export function KbAskPanel({
     [streamFlush],
   )
   /** where this panel's transcript lives, once project-store has answered */
-  const [activeChat, setActiveChat] = useState<string>(CHAT_ID)
+  const [activeChat, setActiveChat] = useState<string>(chatId)
   const [threads, setThreads] = useState<ListedThread[]>([])
   /**
    * The corpus scope the panel's guidance teaches (app-settings `kbScope`):
@@ -837,7 +865,7 @@ export function KbAskPanel({
   }, [])
   const chatIdsRef = useRef<{ projectId: string; chatId: string } | null>(null)
   /** the thread id the CLI tools key their work directory on */
-  const activeChatRef = useRef<string>(CHAT_ID)
+  const activeChatRef = useRef<string>(chatId)
   activeChatRef.current = activeChat
   const cliContextRef = useRef<CliContext | null>(null)
   const attachmentsRef = useRef<AttachmentInfo[]>([])
@@ -956,11 +984,11 @@ export function KbAskPanel({
 
   const refreshThreads = async (api: ProjectApi): Promise<void> => {
     try {
-      const ids = await api.resolveChat({ filePath: null, tempChatId: CHAT_ID })
+      const ids = await api.resolveChat({ filePath: null, tempChatId: chatId })
       // Only this panel's own threads belong in the list: the default project
-      // also keeps every editor document's AI history, and listing those
-      // would offer deleting them from here.
-      const metas = panelThreads(await api.listChats({ projectId: ids.projectId }))
+      // also keeps every editor document's AI history — and the other mount's
+      // family (P0-1) — and listing those would offer deleting them from here.
+      const metas = panelThreads(await api.listChats({ projectId: ids.projectId }), chatId)
       // Labels ride on the listing itself, so a refresh is one call however
       // many threads are stored.
       setThreads(
@@ -997,7 +1025,7 @@ export function KbAskPanel({
   /** A fresh id, so a new thread does not append to the one being read. */
   const startThread = (): void => {
     leaveThread()
-    setActiveChat(`kb-ask-${Date.now()}`)
+    setActiveChat(`${chatId}-${Date.now()}`)
   }
 
   const removeThread = async (chatId: string, label: string): Promise<void> => {
@@ -1015,7 +1043,7 @@ export function KbAskPanel({
     const api = window.projectApi
     if (!api) return
     try {
-      const ids = await api.resolveChat({ filePath: null, tempChatId: CHAT_ID })
+      const ids = await api.resolveChat({ filePath: null, tempChatId: chatId })
       await api.deleteChat({ projectId: ids.projectId, chatId })
       if (chatId === activeChat) startThread()
       await refreshThreads(api)
@@ -1464,6 +1492,42 @@ export function KbAskPanel({
     if (browserScaffoldRef.current && draft === browserScaffoldRef.current) setDraft('')
     browserScaffoldRef.current = ''
   }
+
+  // Esc's ladder (P1-4), the mirrors it reads at event time so the window
+  // listener is not re-armed on every keystroke: the live draft, the parked
+  // note it may belong to, and the host's collapse verb.
+  const draftRef = useRef(draft)
+  draftRef.current = draft
+  const browserNoteRef = useRef(browserNote)
+  browserNoteRef.current = browserNote
+  const onEscapeCollapseRef = useRef(onEscapeCollapse)
+  onEscapeCollapseRef.current = onEscapeCollapse
+  /** Esc handling is armed only when a host passed the collapse verb */
+  const escapeCollapseArmed = onEscapeCollapse !== undefined
+  useEffect(() => {
+    if (!escapeCollapseArmed) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      // anything that already consumed the key owns it — the composer's
+      // Esc-stop while a run streams calls preventDefault, and the slash
+      // palette stops propagation before the key ever bubbles this far
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      event.preventDefault()
+      if (draftRef.current.trim() !== '') {
+        // the parked annotation follows its scaffold out — the card's own ×
+        // keeps the card and its draft in step, and so does this
+        if (browserNoteRef.current !== null && draftRef.current === browserScaffoldRef.current) {
+          setBrowserNote(null)
+          setBrowserNoteShot(null)
+        }
+        browserScaffoldRef.current = ''
+        setDraft('')
+        return
+      }
+      onEscapeCollapseRef.current?.()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [escapeCollapseArmed])
 
   // Retry and other programmatic turns: the composer draft is not theirs to clear
   const askWith = async (

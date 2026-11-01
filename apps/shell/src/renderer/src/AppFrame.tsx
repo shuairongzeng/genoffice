@@ -59,11 +59,14 @@ export function AppFrame({ initialOnboardingSeen }: AppFrameProps) {
     <div className="app-frame">
       {/* Home is the persistent workbench: it stays mounted and visible
        * whatever tab is active. Document tabs are WebContentsViews the main
-       * process bounds to Home's content stage, so the docked AI panel and
-       * the embedded tab strip keep their margins around a document — the
-       * stage itself is what yields. The native tab strip is retired: the
-       * window's drag surface is the workbench chrome itself (work-tabs
-       * track, dock head, sidebar logo), and the OS window controls live in
+       * process bounds to Home's content stage, so the embedded tab strip
+       * keeps its margin above a document — the stage itself is what yields.
+       * The AI panel is no longer a layout column: the floating pet and the
+       * overlay drawer are fixed layers over the content (AiDock.tsx); over a
+       * document the drawer's visual moves to the native overlay view
+       * (main/ai-drawer-view.ts) above it. The native tab strip is retired:
+       * the window's drag surface is the workbench chrome itself (work-tabs
+       * track, drawer head, sidebar logo), and the OS window controls live in
        * the main process's title-bar overlay / native traffic lights. Only
        * the first-run overlays below still wait for the home tab, since a
        * document's view paints above them. */}

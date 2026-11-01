@@ -519,6 +519,7 @@ export const th: Dict = {
   dockExpand: 'เปิดแผง AI',
   dockCollapse: 'ย่อแผง AI',
   dockResize: 'ลากเพื่อปรับความกว้างของแผง AI',
+  panelApiMissing: 'แผง AI ต้องการ API ที่หน้าต่างนี้ไม่มี โปรดรีสตาร์ทแอป',
   workTabsAria: 'เอกสารที่เปิดอยู่',
   workTabDirty: 'การเปลี่ยนแปลงที่ยังไม่ได้บันทึก',
   workTabDetached: 'เปิดอยู่ในหน้าต่างแยก',

@@ -498,6 +498,7 @@ export const zhTW: Dict = {
   dockExpand: '展開 AI 問答',
   dockCollapse: '收合 AI 問答',
   dockResize: '拖曳調整 AI 面板寬度',
+  panelApiMissing: '問答面板所需的介面不可用，請重新啟動應用程式。',
   workTabsAria: '已開啟的文件',
   workTabDirty: '有未儲存的變更',
   workTabDetached: '已在獨立視窗中開啟',

@@ -503,6 +503,7 @@ export const zh = {
   dockExpand: '展开 AI 问答',
   dockCollapse: '收起 AI 问答',
   dockResize: '拖动调整 AI 面板宽度',
+  panelApiMissing: '问答面板所需的接口不可用，请重启应用。',
   workTabsAria: '已打开的文档',
   workTabDirty: '有未保存的修改',
   workTabDetached: '已在独立窗口中打开',

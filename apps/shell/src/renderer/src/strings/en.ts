@@ -520,6 +520,7 @@ export const en: Dict = {
   dockExpand: 'Open the AI panel',
   dockCollapse: 'Collapse the AI panel',
   dockResize: 'Drag to resize the AI panel',
+  panelApiMissing: 'The ask panel needs APIs this window does not expose. Try restarting the app.',
   workTabsAria: 'Open documents',
   workTabDirty: 'Unsaved changes',
   workTabDetached: 'Open in its own window',

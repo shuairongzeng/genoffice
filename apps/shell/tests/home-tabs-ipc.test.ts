@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { HomeTabsState } from '../src/shared/home-api'
 import type { OpenDocumentTab, TabSummary } from '../src/shared/tabs-api'
@@ -34,6 +34,10 @@ const ipcMainMock = vi.hoisted(() => {
 })
 
 vi.mock('electron', () => ({ ipcMain: { handle: ipcMainMock.handle, on: ipcMainMock.on } }))
+
+/** the injected forward routing spies both registerHomeWorkbenchIpc describes share */
+const forwardAskQuery = vi.fn()
+const forwardBrowserAskAbout = vi.fn()
 
 import {
   collectHomeTabsState,
@@ -352,6 +356,8 @@ describe('registerHomeWorkbenchIpc', () => {
       appSettingsPath: () => join(dir, 'app-settings.json'),
       getTabManager: getTabManager as HomeWorkbenchIpcDeps['getTabManager'],
       contentBounds,
+      forwardAskQuery,
+      forwardBrowserAskAbout,
     })
   }
 
@@ -362,22 +368,49 @@ describe('registerHomeWorkbenchIpc', () => {
     ipcMainMock.onHandlers.get(channel)!(undefined, ...args)
   }
 
-  it('answers the stored dock prefs, defaults on absence', async () => {
+  it('answers the stored drawer prefs, defaults on absence', async () => {
     registerWorkbench()
-    expect(await invoke('home:ai-dock-get')).toEqual({ width: 400, collapsed: false })
+    expect(await invoke('home:ai-dock-get')).toEqual({
+      width: 400,
+      collapsed: false,
+      petPos: null,
+    })
   })
 
-  it('merges, clamps and persists a dock patch, answering the effective prefs', async () => {
+  it('merges, clamps and persists a drawer patch, answering the effective prefs', async () => {
     registerWorkbench()
     const effective = await invoke('home:ai-dock-set', { width: 9999, collapsed: true })
-    expect(effective).toEqual({ width: 560, collapsed: true })
-    expect(readAiDock(join(dir, 'app-settings.json'))).toEqual({ width: 560, collapsed: true })
+    expect(effective).toEqual({ width: 560, collapsed: true, petPos: null })
+    expect(readAiDock(join(dir, 'app-settings.json'))).toEqual({
+      width: 560,
+      collapsed: true,
+      petPos: null,
+    })
+  })
+
+  it('adopts a pet-position patch — null included — and keeps it through other patches', async () => {
+    registerWorkbench()
+    const moved = await invoke('home:ai-dock-set', { petPos: { x: 120, y: 80 } })
+    expect(moved).toEqual({ width: 400, collapsed: false, petPos: { x: 120, y: 80 } })
+    // a later patch without petPos keeps the parked pet
+    const untouched = await invoke('home:ai-dock-set', { collapsed: true })
+    expect(untouched).toEqual({ width: 400, collapsed: true, petPos: { x: 120, y: 80 } })
+    // an explicit null returns it to the default corner
+    const home = await invoke('home:ai-dock-set', { petPos: null })
+    expect(home).toEqual({ width: 400, collapsed: true, petPos: null })
+    // a malformed pet position falls back to the corner, keeping the rest
+    const bad = await invoke('home:ai-dock-set', { petPos: { x: 'left', y: 2 } })
+    expect(bad).toEqual({ width: 400, collapsed: true, petPos: null })
   })
 
   it('ignores malformed patch fields, keeping the current values', async () => {
     registerWorkbench()
     await invoke('home:ai-dock-set', { width: 'wide', collapsed: 'yes' })
-    expect(readAiDock(join(dir, 'app-settings.json'))).toEqual({ width: 400, collapsed: false })
+    expect(readAiDock(join(dir, 'app-settings.json'))).toEqual({
+      width: 400,
+      collapsed: false,
+      petPos: null,
+    })
   })
 
   it('bounds the active view to a reported stage rect, rounded to whole pixels', () => {
@@ -452,5 +485,70 @@ describe('registerHomeWorkbenchIpc', () => {
   it('survives a missing tab manager', () => {
     registerWorkbench(() => null)
     expect(() => send('home:content-rect', { x: 0, y: 44, width: 552, height: 556 })).not.toThrow()
+  })
+})
+
+describe('registerHomeWorkbenchIpc — the ask forward (P0-2)', () => {
+  beforeEach(() => {
+    forwardAskQuery.mockClear()
+    forwardBrowserAskAbout.mockClear()
+    registerHomeWorkbenchIpc({
+      appSettingsPath: () => '/unused/app-settings.json',
+      getTabManager: () => null,
+      contentBounds: () => ({ width: 800, height: 600 }),
+      forwardAskQuery,
+      forwardBrowserAskAbout,
+    })
+  })
+
+  const invoke = (channel: string, ...args: unknown[]): unknown =>
+    ipcMainMock.handlers.get(channel)!(undefined, ...args)
+
+  it('validates a handoff and hands the routing to the injected dep', () => {
+    invoke('home:ask-forward', { text: 'ask over the document', seq: 4, origin: 'palette' })
+    expect(forwardAskQuery).toHaveBeenCalledWith({
+      text: 'ask over the document',
+      seq: 4,
+      origin: 'palette',
+    })
+  })
+
+  it('normalizes the scope paths of a forwarded handoff', () => {
+    invoke('home:ask-forward', {
+      text: 'about these',
+      seq: 5,
+      origin: 'palette',
+      scopePaths: ['a', 'a', '', 7, 'b'],
+    })
+    expect(forwardAskQuery).toHaveBeenCalledWith({
+      text: 'about these',
+      seq: 5,
+      origin: 'palette',
+      scopePaths: ['a', 'b'],
+    })
+  })
+
+  it('drops malformed handoffs whole rather than half-keeping them', () => {
+    for (const bad of [
+      null,
+      'ask',
+      {},
+      { text: 1, seq: 1, origin: 'palette' },
+      { text: 'q', seq: 'one', origin: 'palette' },
+      { text: 'q', seq: Number.NaN, origin: 'palette' },
+      { text: 'q', seq: 1, origin: 'web' },
+    ]) {
+      invoke('home:ask-forward', bad)
+    }
+    expect(forwardAskQuery).not.toHaveBeenCalled()
+  })
+
+  it('routes a browser note only when the payload is an object', () => {
+    invoke('home:browser-ask-about-forward', { id: 'n1', note: 'what is this' })
+    expect(forwardBrowserAskAbout).toHaveBeenCalledWith({ id: 'n1', note: 'what is this' })
+    invoke('home:browser-ask-about-forward', 'note')
+    invoke('home:browser-ask-about-forward', null)
+    invoke('home:browser-ask-about-forward', 42)
+    expect(forwardBrowserAskAbout).toHaveBeenCalledTimes(1)
   })
 })

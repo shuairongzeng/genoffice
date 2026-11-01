@@ -5,7 +5,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { defaultAiSettings } from '@genoffice/ai-provider'
 import { Home } from '../src/renderer/src/Home'
 import { LocaleProvider } from '../src/renderer/src/locale'
-import type { RecentEntry } from '../src/shared/home-api'
+import type { PendingAskQuery } from '../src/shared/ask-forward'
+import type { HomeTabEntry, RecentEntry } from '../src/shared/home-api'
 
 /**
  * The ask intent's two entry routes into Home: the command palette's Ask AI
@@ -22,6 +23,13 @@ let root: Root
 let container: HTMLDivElement
 let deepLinkHandler: ((payload: unknown) => void) | null
 let paletteHandler: (() => void) | null
+let tabsHandler: ((state: { tabs: HomeTabEntry[]; activeId: string }) => void) | null
+let browserAskHandler: ((payload: unknown) => void) | null
+let forwardedAskHandler: ((query: PendingAskQuery) => void) | null
+/** the handoffs Home forwarded to the overlay's panel copy (P0-2) */
+const forwardedAsks: PendingAskQuery[] = []
+/** the browser annotations Home forwarded to the overlay's panel copy (P0-2) */
+const forwardedNotes: unknown[] = []
 
 const files: RecentEntry[] = [
   {
@@ -45,6 +53,11 @@ beforeEach(async () => {
   )
   deepLinkHandler = null
   paletteHandler = null
+  tabsHandler = null
+  browserAskHandler = null
+  forwardedAskHandler = null
+  forwardedAsks.length = 0
+  forwardedNotes.length = 0
   window.aiOffice = {
     folderRoots: async () => [],
     onFolderChanged: () => () => {},
@@ -68,6 +81,24 @@ beforeEach(async () => {
       paletteHandler = handler
       return () => {}
     },
+    onTabsChanged: (handler: (state: { tabs: HomeTabEntry[]; activeId: string }) => void) => {
+      tabsHandler = handler
+      return () => {}
+    },
+    onBrowserAskAbout: (handler: (payload: unknown) => void) => {
+      browserAskHandler = handler
+      return () => {}
+    },
+    onForwardedAskQuery: (handler: (query: PendingAskQuery) => void) => {
+      forwardedAskHandler = handler
+      return () => {}
+    },
+    forwardAskQuery: async (query: PendingAskQuery) => {
+      forwardedAsks.push(query)
+    },
+    forwardBrowserAskAbout: async (note: unknown) => {
+      forwardedNotes.push(note)
+    },
     openPath: async () => {},
   } as unknown as Window['aiOffice']
   container = document.createElement('div')
@@ -84,6 +115,33 @@ afterEach(async () => {
   vi.unstubAllGlobals()
   localStorage.clear()
 })
+
+/** a tab push the way the main process sends it: Home first, then a document */
+function pushTabs(activeId: string, ...tabs: Array<Partial<HomeTabEntry>>): void {
+  const home: HomeTabEntry = {
+    id: 'home',
+    kind: 'home',
+    title: 'Home',
+    active: activeId === 'home',
+    dirty: false,
+    detached: false,
+  }
+  const rest = tabs.map((tab) => ({
+    id: tab.id ?? 't1',
+    kind: tab.kind ?? 'docs',
+    title: tab.title ?? 'Untitled',
+    active: tab.active ?? false,
+    dirty: tab.dirty ?? false,
+    detached: tab.detached ?? false,
+  }))
+  tabsHandler?.({ tabs: [home, ...rest], activeId })
+}
+
+/** make a document tab the active one: Home's copy is covered, the overlay is live */
+async function activateDocTab(): Promise<void> {
+  await act(async () => pushTabs('t1', { id: 't1', kind: 'docs', title: 'brief.docx' }))
+  await flush()
+}
 
 /** flush the mounted component plus the async submission chain (kbList, state) */
 async function flush(times = 6): Promise<void> {
@@ -151,18 +209,21 @@ describe('Home ask intent — deep link', () => {
     expect(container.querySelector('.desktop-surface')).toBeTruthy()
     expect(localStorage.getItem('home.view')).toBe('desktop')
 
-    // leaving through a link works too: the ask route focuses the dock — the
+    // leaving through a link works too: the ask route opens the drawer — the
     // desktop surface stays mounted underneath, and the question parks
     await act(async () => deepLinkHandler!({ view: 'ask', query: 'back to ask' }))
     await flush()
     expect(container.querySelector('.home')!.className).toContain('desktop-mode')
-    expect(container.querySelector('.ai-dock')).not.toBeNull()
+    expect(container.querySelector('.ai-drawer')!.className).toContain('open')
     expect(composerDraft()).toBe('back to ask')
   })
 
-  it('an ask deep link expands a collapsed dock before parking the question', async () => {
-    // the mascot state: the dock starts folded to its rail
-    localStorage.setItem('home.aiDock', JSON.stringify({ width: 400, collapsed: true }))
+  it('an ask deep link opens a closed drawer before parking the question', async () => {
+    // the pet state: the drawer starts closed
+    localStorage.setItem(
+      'home.aiDock',
+      JSON.stringify({ width: 400, collapsed: true, petPos: null }),
+    )
     await act(async () => root.unmount())
     container.remove()
     container = document.createElement('div')
@@ -171,13 +232,13 @@ describe('Home ask intent — deep link', () => {
     await act(async () =>
       root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
     )
-    expect(container.querySelector('.ai-dock')!.className).toContain('collapsed')
+    expect(container.querySelector('.ai-drawer')!.className).not.toContain('open')
     await act(async () => deepLinkHandler!({ view: 'ask', query: 'wake up' }))
     await flush()
-    // the ask route is a dock focus now: the rail gave way to the panel and
+    // the ask route is a drawer focus now: the pet gave way to the panel and
     // the composer holds the question
-    expect(container.querySelector('.ai-dock')!.className).not.toContain('collapsed')
-    expect(container.querySelector('.ai-mascot')).toBeTruthy()
+    expect(container.querySelector('.ai-drawer')!.className).toContain('open')
+    expect(container.querySelector('.ai-pet')).toBeTruthy()
     expect(composerDraft()).toBe('wake up')
     expect(document.activeElement).toBe(container.querySelector('.kb-ask textarea'))
   })
@@ -206,5 +267,75 @@ describe('Home ask intent — palette fallback', () => {
     expect(container.querySelector('.cmd-overlay')).toBeNull()
     expect(container.querySelector('.kb-ask')).not.toBeNull()
     expect(askedMessages()).toEqual(['zzz palette question'])
+  })
+})
+
+describe('Home ask intent in document mode (P0-2: the overlay drawer)', () => {
+  it('forwards a deep-link ask to main instead of parking it in the covered copy', async () => {
+    await activateDocTab()
+    await act(async () => deepLinkHandler!({ view: 'ask', query: 'ask over the document' }))
+    await flush()
+    // the overlay view is the drawer the person sees: the handoff left for it
+    expect(forwardedAsks).toEqual([{ text: 'ask over the document', seq: 1, origin: 'deep-link' }])
+    // Home's own copy is display:none under the document — it must not park
+    // or ask anything either
+    expect(composerDraft()).toBe('')
+    expect(askedMessages()).toEqual([])
+    // the drawer's open intent is still recorded, so the overlay shows
+    expect(container.querySelector('.ai-drawer')!.className).toContain('open')
+  })
+
+  it('numbers the handoffs it forwards, so a second one is still a second handoff', async () => {
+    await activateDocTab()
+    await act(async () => deepLinkHandler!({ view: 'ask', query: 'first over the doc' }))
+    await flush()
+    await act(async () => deepLinkHandler!({ view: 'ask', query: 'second over the doc' }))
+    await flush()
+    expect(forwardedAsks.map((q) => q.seq)).toEqual([1, 2])
+  })
+
+  it('consumes a bounced-back handoff exactly like a local one', async () => {
+    // main routes by its own live tab state: a handoff sent on a stale
+    // docActive bounces back over onForwardedAskQuery — same pending-query
+    // semantics, so a deep-link origin parks in this copy's composer
+    expect(forwardedAskHandler).not.toBeNull()
+    await act(async () =>
+      forwardedAskHandler!({ text: 'bounced back', seq: 9, origin: 'deep-link' }),
+    )
+    await flush()
+    expect(composerDraft()).toBe('bounced back')
+    expect(askedMessages()).toEqual([])
+    expect(forwardedAsks).toEqual([])
+  })
+
+  it('submits a bounced palette handoff, the origin the panel may send itself', async () => {
+    await act(async () =>
+      forwardedAskHandler!({ text: 'typed in the palette', seq: 3, origin: 'palette' }),
+    )
+    await flush()
+    expect(askedMessages()).toEqual(['typed in the palette'])
+  })
+
+  it('keeps the handoff local while Home is the active tab', async () => {
+    await act(async () => deepLinkHandler!({ view: 'ask', query: 'local ask' }))
+    await flush()
+    expect(forwardedAsks).toEqual([])
+    expect(composerDraft()).toBe('local ask')
+  })
+
+  it('forwards a browser annotation to the overlay copy while a document is active', async () => {
+    await activateDocTab()
+    const note = { id: 'n1', note: 'what does this highlight mean', url: 'https://example.com' }
+    await act(async () => browserAskHandler!(note))
+    await flush()
+    expect(forwardedNotes).toEqual([note])
+    // the dock opened for the annotation either way
+    expect(container.querySelector('.ai-drawer')!.className).toContain('open')
+  })
+
+  it('leaves the browser annotation local while Home is the active tab', async () => {
+    await act(async () => browserAskHandler!({ id: 'n1', note: 'on home' }))
+    await flush()
+    expect(forwardedNotes).toEqual([])
   })
 })
