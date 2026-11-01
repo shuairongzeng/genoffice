@@ -30,7 +30,7 @@ export const fr: Dict = {
   askToolBrowser: 'Action sur la page web',
   askBrowserNote: 'Annotation web',
   askBrowserNoteClear: 'Supprimer l’annotation web',
-  askBrowserNoteDraft: 'À propos de l’annotation « {content} » sur {url}, je veux demander : ',
+  askBrowserNoteDraft: 'À propos de l’annotation « {content} » sur {url} : ',
   askArtifactBuilding: 'En cours',
   askArtifactFailed: 'Échec',
   askArtifactRetry: 'Réessayer',

@@ -26,7 +26,7 @@ export const nl: Dict = {
   askToolBrowser: 'Bezig met de webpagina',
   askBrowserNote: 'Webannotatie',
   askBrowserNoteClear: 'Webannotatie verwijderen',
-  askBrowserNoteDraft: 'Over de annotatie "{content}" op {url} wil ik vragen: ',
+  askBrowserNoteDraft: 'Over de annotatie "{content}" op {url}: ',
   askArtifactBuilding: 'Bezig',
   askArtifactFailed: 'Mislukt',
   askArtifactRetry: 'Opnieuw',

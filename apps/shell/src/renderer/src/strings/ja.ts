@@ -28,7 +28,7 @@ export const ja: Dict = {
   askToolBrowser: 'Webページを操作中',
   askBrowserNote: 'Web注釈',
   askBrowserNoteClear: 'Web注釈を削除',
-  askBrowserNoteDraft: '{url} の注釈「{content}」について質問したい:',
+  askBrowserNoteDraft: '{url} の注釈「{content}」について:',
   askArtifactBuilding: '作成中',
   askArtifactFailed: '失敗',
   askArtifactRetry: '再試行',

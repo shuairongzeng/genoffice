@@ -27,7 +27,7 @@ export const th: Dict = {
   askToolBrowser: 'กำลังจัดการหน้าเว็บ',
   askBrowserNote: 'คำอธิบายประกอบหน้าเว็บ',
   askBrowserNoteClear: 'ลบคำอธิบายประกอบหน้าเว็บ',
-  askBrowserNoteDraft: 'เกี่ยวกับคำอธิบายประกอบ "{content}" บน {url} ฉันอยากถาม: ',
+  askBrowserNoteDraft: 'เกี่ยวกับคำอธิบายประกอบ "{content}" บน {url}: ',
   askArtifactBuilding: 'กำลังสร้าง',
   askArtifactFailed: 'ล้มเหลว',
   askArtifactRetry: 'ลองอีกครั้ง',

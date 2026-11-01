@@ -29,7 +29,7 @@ export const de: Dict = {
   askToolBrowser: 'Aktion auf der Webseite',
   askBrowserNote: 'Web-Anmerkung',
   askBrowserNoteClear: 'Web-Anmerkung entfernen',
-  askBrowserNoteDraft: 'Zur Anmerkung "{content}" auf {url} möchte ich fragen: ',
+  askBrowserNoteDraft: 'Zur Anmerkung "{content}" auf {url}: ',
   askArtifactBuilding: 'Wird erstellt',
   askArtifactFailed: 'Fehlgeschlagen',
   askArtifactRetry: 'Erneut versuchen',

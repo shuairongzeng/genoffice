@@ -29,7 +29,7 @@ export const id: Dict = {
   askToolBrowser: 'Mengerjakan halaman web',
   askBrowserNote: 'Anotasi web',
   askBrowserNoteClear: 'Hapus anotasi web',
-  askBrowserNoteDraft: 'Tentang anotasi "{content}" di {url}, saya ingin bertanya: ',
+  askBrowserNoteDraft: 'Tentang anotasi "{content}" di {url}: ',
   askArtifactBuilding: 'Membuat',
   askArtifactFailed: 'Gagal',
   askArtifactRetry: 'Coba lagi',

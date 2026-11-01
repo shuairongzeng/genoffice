@@ -26,7 +26,7 @@ export const en: Dict = {
   askToolBrowser: 'Working on the web page',
   askBrowserNote: 'Web annotation',
   askBrowserNoteClear: 'Remove the web annotation',
-  askBrowserNoteDraft: 'About the annotation "{content}" on {url}, I want to ask: ',
+  askBrowserNoteDraft: 'About the annotation "{content}" on {url}: ',
   askArtifactBuilding: 'Building',
   askArtifactFailed: 'Failed',
   askArtifactRetry: 'Retry',

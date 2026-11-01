@@ -28,7 +28,7 @@ export const ko: Dict = {
   askToolBrowser: '웹 페이지 작업 중',
   askBrowserNote: '웹 주석',
   askBrowserNoteClear: '웹 주석 제거',
-  askBrowserNoteDraft: '{url}의 주석 "{content}"에 대해 묻고 싶습니다: ',
+  askBrowserNoteDraft: '{url}의 주석 "{content}"에 대해: ',
   askArtifactBuilding: '생성 중',
   askArtifactFailed: '실패',
   askArtifactRetry: '다시 시도',

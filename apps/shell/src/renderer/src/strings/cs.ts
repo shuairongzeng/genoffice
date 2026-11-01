@@ -27,7 +27,7 @@ export const cs: Dict = {
   askToolBrowser: 'Práce na webové stránce',
   askBrowserNote: 'Webová anotace',
   askBrowserNoteClear: 'Odebrat webovou anotaci',
-  askBrowserNoteDraft: 'K anotaci "{content}" na {url} se chci zeptat: ',
+  askBrowserNoteDraft: 'K anotaci "{content}" na {url}: ',
   askArtifactBuilding: 'Vytváří se',
   askArtifactFailed: 'Selhalo',
   askArtifactRetry: 'Zkusit znovu',

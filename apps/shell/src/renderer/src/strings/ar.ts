@@ -28,7 +28,7 @@ export const ar: Dict = {
   askToolBrowser: 'التعامل مع صفحة الويب',
   askBrowserNote: 'تعليق الويب',
   askBrowserNoteClear: 'إزالة تعليق الويب',
-  askBrowserNoteDraft: 'بخصوص التعليق "{content}" على {url}، أريد أن أسأل: ',
+  askBrowserNoteDraft: 'بخصوص التعليق "{content}" على {url}: ',
   askArtifactBuilding: 'جارٍ الإنشاء',
   askArtifactFailed: 'فشل',
   askArtifactRetry: 'إعادة المحاولة',

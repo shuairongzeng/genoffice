@@ -27,7 +27,7 @@ export const ms: Dict = {
   askToolBrowser: 'Mengendalikan halaman web',
   askBrowserNote: 'Anotasi web',
   askBrowserNoteClear: 'Buang anotasi web',
-  askBrowserNoteDraft: 'Mengenai anotasi "{content}" pada {url}, saya ingin bertanya: ',
+  askBrowserNoteDraft: 'Mengenai anotasi "{content}" pada {url}: ',
   askArtifactBuilding: 'Mencipta',
   askArtifactFailed: 'Gagal',
   askArtifactRetry: 'Cuba lagi',

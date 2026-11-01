@@ -27,7 +27,7 @@ export const vi: Dict = {
   askToolBrowser: 'Đang thao tác trên trang web',
   askBrowserNote: 'Chú thích web',
   askBrowserNoteClear: 'Xóa chú thích web',
-  askBrowserNoteDraft: 'Về chú thích "{content}" trên {url}, tôi muốn hỏi: ',
+  askBrowserNoteDraft: 'Về chú thích "{content}" trên {url}: ',
   askArtifactBuilding: 'Đang tạo',
   askArtifactFailed: 'Thất bại',
   askArtifactRetry: 'Thử lại',

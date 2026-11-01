@@ -26,7 +26,7 @@ export const zhTW: Dict = {
   askToolBrowser: '正在操作網頁',
   askBrowserNote: '網頁標註',
   askBrowserNoteClear: '移除網頁標註',
-  askBrowserNoteDraft: '關於網頁 {url} 上標註的內容「{content}」,我想問:',
+  askBrowserNoteDraft: '關於網頁 {url} 上標註的內容「{content}」：',
   askArtifactBuilding: '產生中',
   askArtifactFailed: '失敗',
   askArtifactRetry: '重試',

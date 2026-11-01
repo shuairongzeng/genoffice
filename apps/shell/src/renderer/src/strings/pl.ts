@@ -27,7 +27,7 @@ export const pl: Dict = {
   askToolBrowser: 'Działanie na stronie internetowej',
   askBrowserNote: 'Adnotacja internetowa',
   askBrowserNoteClear: 'Usuń adnotację internetową',
-  askBrowserNoteDraft: 'Chcę zapytać o adnotację "{content}" na {url}: ',
+  askBrowserNoteDraft: 'O adnotacji "{content}" na {url}: ',
   askArtifactBuilding: 'Tworzenie',
   askArtifactFailed: 'Niepowodzenie',
   askArtifactRetry: 'Ponów',

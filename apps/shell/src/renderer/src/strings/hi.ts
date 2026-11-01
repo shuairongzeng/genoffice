@@ -28,7 +28,7 @@ export const hi: Dict = {
   askToolBrowser: 'वेब पेज पर कार्य कर रहा है',
   askBrowserNote: 'वेब एनोटेशन',
   askBrowserNoteClear: 'वेब एनोटेशन हटाएँ',
-  askBrowserNoteDraft: '{url} पर एनोटेशन "{content}" के बारे में, मैं पूछना चाहता हूँ: ',
+  askBrowserNoteDraft: '{url} पर एनोटेशन "{content}" के बारे में: ',
   askArtifactBuilding: 'बन रही है',
   askArtifactFailed: 'विफल',
   askArtifactRetry: 'पुनः प्रयास',

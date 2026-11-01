@@ -26,7 +26,7 @@ export const zh = {
   askToolBrowser: '正在操作网页',
   askBrowserNote: '网页标注',
   askBrowserNoteClear: '移除网页标注',
-  askBrowserNoteDraft: '关于网页 {url} 上标注的内容「{content}」,我想问:',
+  askBrowserNoteDraft: '关于网页 {url} 上标注的内容「{content}」：',
   askArtifactBuilding: '生成中',
   askArtifactFailed: '失败',
   askArtifactRetry: '重试',

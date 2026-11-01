@@ -29,7 +29,7 @@ export const ru: Dict = {
   askToolBrowser: 'Действие на веб-странице',
   askBrowserNote: 'Веб-аннотация',
   askBrowserNoteClear: 'Удалить веб-аннотацию',
-  askBrowserNoteDraft: 'Об аннотации «{content}» на {url} хочу спросить: ',
+  askBrowserNoteDraft: 'Об аннотации «{content}» на {url}: ',
   askArtifactBuilding: 'Создаётся',
   askArtifactFailed: 'Ошибка',
   askArtifactRetry: 'Повторить',

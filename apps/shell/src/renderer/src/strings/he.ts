@@ -27,7 +27,7 @@ export const he: Dict = {
   askToolBrowser: 'פועל בדף האינטרנט',
   askBrowserNote: 'הערת דף אינטרנט',
   askBrowserNoteClear: 'הסרת הערת דף האינטרנט',
-  askBrowserNoteDraft: 'לגבי ההערה "{content}" ב-{url}, ברצוני לשאול: ',
+  askBrowserNoteDraft: 'לגבי ההערה "{content}" ב-{url}: ',
   askArtifactBuilding: 'יוצר',
   askArtifactFailed: 'נכשל',
   askArtifactRetry: 'נסה שוב',

@@ -28,7 +28,7 @@ export const it: Dict = {
   askToolBrowser: 'Azione sulla pagina web',
   askBrowserNote: 'Annotazione web',
   askBrowserNoteClear: 'Rimuovi l’annotazione web',
-  askBrowserNoteDraft: 'Riguardo all’annotazione "{content}" su {url}, vorrei chiedere: ',
+  askBrowserNoteDraft: 'Riguardo all’annotazione "{content}" su {url}: ',
   askArtifactBuilding: 'In corso',
   askArtifactFailed: 'Non riuscito',
   askArtifactRetry: 'Riprova',
