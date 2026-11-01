@@ -1,4 +1,4 @@
-/* global window, document */
+/* global window, document, MutationObserver */
 /* Injected into the sandboxed preview frame. Plain ES2020, no imports: this
  * file is loaded as a raw string and appended as a <script>. It never mutates
  * the document except for its own overlay nodes (marked data-gx-inspector) and
@@ -106,6 +106,8 @@
     [${MARK}-overlay="select"] { outline: 2px solid var(--gx-select, #0f7fff); outline-offset: -1px; background: rgba(15,127,255,0.05); }
     [${MARK}-overlay="dynamic"] { outline: 2px solid #f59e0b; outline-offset: -1px; }
     [${MARK}-overlay="highlight"] { background: rgba(255,213,79,0.35); }
+    [${MARK}-overlay="findhit"] { background: rgba(255,213,79,0.35); }
+    [${MARK}-overlay="findact"] { background: rgba(255,213,79,0.55); outline: 2px solid #f59e0b; outline-offset: -1px; }
     [${MARK}-label] { position: fixed; z-index: 2147483647; pointer-events: none; font: 11px/1 -apple-system, system-ui, sans-serif; color: #fff; background: var(--gx-select, #0f7fff); padding: 2px 6px; border-radius: 3px; white-space: nowrap; }
     [${MARK}-editing] { outline: 2px solid #2563eb !important; outline-offset: -1px; }
     [${MARK}-pin] { position: fixed; z-index: 2147483647; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; background: var(--gx-select, #0f7fff); color: #fff; font: 600 11px/18px -apple-system, system-ui, sans-serif; text-align: center; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
@@ -162,6 +164,491 @@
   dropBar.setAttribute(`${MARK}-drop`, '')
   dropBar.style.display = 'none'
   document.documentElement.appendChild(dropBar)
+
+  // ---- find-in-preview (issue #56 P2 #8): the host's find panel searches a text
+  // mirror we push over postMessage (the frame is cross-origin to it) and sends
+  // match ranges back; we paint them as overlay boxes like element highlights —
+  // one box per client rect, so a match wrapped over lines paints per line ----
+  /** mirrored nodes by stable id (text nodes with their raw-offset map, form
+   *  controls without): surviving nodes keep theirs across mutations, so
+   *  ranges the host computed against an older mirror still address the right node */
+  const nodesById = new Map()
+  const nodeIds = new WeakMap()
+  let nextNodeId = 1
+  let docTextOn = false
+  let docTextTimer = null
+  const DOC_TEXT_DEBOUNCE_MS = 250
+  const SKIPPED_TAGS = new Set(['script', 'style', 'noscript', 'template', 'title', 'textarea'])
+  /** inputs whose value is rendered as text the reader can see */
+  const TEXTUAL_INPUT = new Set([
+    'text',
+    'search',
+    'tel',
+    'url',
+    'email',
+    'number',
+    'submit',
+    'button',
+    'reset',
+  ])
+  /** does this display create its own layout BLOCK (as opposed to sitting in
+   *  the inline flow)? Inline-level boxes (inline, inline-block, inline-flex,
+   *  inline-table, ruby) share the line with their neighbours — text runs
+   * flush against them, so they are not word boundaries. 'contents' makes no
+   * box at all. */
+  const isBlockish = (display) =>
+    !!display &&
+    display !== 'contents' &&
+    !display.startsWith('inline') &&
+    !display.startsWith('ruby')
+  /** does this element's BOX occupy layout? display:none removes the box
+   *  entirely; everything else — a closed details, a hidden-visibility box —
+   *  still takes its space and still breaks the line for the runs around it */
+  const hasLayoutBox = (el) => {
+    for (let n = el; n; n = n.parentElement) {
+      if (window.getComputedStyle(n).display === 'none') return false
+    }
+    return true
+  }
+  /** an out-of-flow box (absolutely positioned, floated): real engines
+   *  BLOCKIFY it to display:block while the text keeps flowing around it, so
+   *  it neither breaks the line nor hosts a run — the runs before and after
+   *  it stay flush. jsdom does not blockify and reports empty defaults for
+   *  unstyled elements, so this matches on the OUT-of-flow values rather
+   *  than the in-flow ones */
+  const isOutOfFlow = (el) => {
+    const cs = window.getComputedStyle(el)
+    const floated = cs.cssFloat || cs.float || ''
+    return (
+      cs.position === 'absolute' ||
+      cs.position === 'fixed' ||
+      floated === 'left' ||
+      floated === 'right'
+    )
+  }
+  /** the summary a CLOSED details renders: its FIRST summary child (a later
+   *  summary sibling is ordinary hidden content, engine rule) */
+  const firstSummaryChild = (details) => {
+    for (let c = details.firstElementChild; c; c = c.nextElementSibling) {
+      if (c.tagName === 'SUMMARY') return c
+    }
+    return null
+  }
+  /** the layout box a text run under `el` renders in: null when the run is not
+   *  rendered at all (display:none, hidden visibility, a closed details, a
+   *  dropdown select's hidden options). The host is the nearest ancestor with
+   *  a block-level box: two runs in different host elements sit on different
+   *  lines, so a newline belongs between them (whole-word matching needs it),
+   *  while inline runs (<b>Hel</b>lo, inline-block chips) keep reading as one
+   *  continuous line. `boxMode` asks the BOX question instead: a
+   *  hidden-visibility subtree still lays out (its <br> still breaks the
+   *  line), so the visibility gate is skipped */
+  const hostOf = (el, boxMode = false) => {
+    // computed visibility resolves inheritance: the parent's own value is the
+    // text's effective one (a visible child of a hidden parent reads 'visible')
+    if (!boxMode && window.getComputedStyle(el).visibility === 'hidden') return null
+    let host = document.body
+    let n = el
+    let prev = null
+    while (n) {
+      if (n.tagName === 'DETAILS' && !n.open) {
+        // a closed details hides its content — except the slot its FIRST
+        // summary child renders in (later summary siblings are hidden content)
+        if (!prev || prev.tagName !== 'SUMMARY' || firstSummaryChild(n) !== prev) return null
+      }
+      // a dropdown select renders only its selected option (mirrored as the
+      // control's value); listboxes keep their options as page text
+      if (n.tagName === 'SELECT' && n !== el && !n.multiple && (n.size || 0) <= 1) return null
+      const cs = window.getComputedStyle(n)
+      if (cs.display === 'none') return null
+      // each listbox option renders as its own line (its computed display is
+      // UA-defined, so do not rely on it). An out-of-flow box is skipped as a
+      // host: the nearest IN-flow block owns the line around it
+      if (
+        !isOutOfFlow(n) &&
+        host === document.body &&
+        (isBlockish(cs.display) || n.tagName === 'OPTION')
+      )
+        host = n
+      if (n === document.body) break
+      prev = n
+      n = n.parentElement
+    }
+    return host
+  }
+  /** the selected option's label (the text a dropdown select renders — the
+   *  label attribute wins over the element's text when present) */
+  const selectLabel = (sel) => {
+    for (let i = 0; i < sel.options.length; i += 1) {
+      const opt = sel.options[i]
+      if (opt.selected) return opt.label || opt.text
+    }
+    return ''
+  }
+  /** a run of whitespace renders as ONE space unless the parent preserves
+   *  whitespace (pre family). Returns the normalized text plus the map from
+   *  normalized offsets to raw offsets, so ranges the host computes against
+   *  the mirror still address the node's real data (null map = identity). */
+  const normalizeText = (data, ws) => {
+    if (ws === 'pre' || ws === 'pre-wrap' || ws === 'break-spaces') return { text: data, map: null }
+    const preLine = ws === 'pre-line'
+    const isWs = (ch) =>
+      ch === ' ' ||
+      ch === '\t' ||
+      ch === '\f' ||
+      ch === '\v' ||
+      ch === '\r' ||
+      (!preLine && ch === '\n')
+    let hasWs = false
+    for (let i = 0; i < data.length; i += 1) {
+      if (isWs(data.charAt(i))) {
+        hasWs = true
+        break
+      }
+    }
+    if (!hasWs) return { text: data, map: null }
+    let text = ''
+    const map = []
+    let i = 0
+    while (i < data.length) {
+      if (isWs(data.charAt(i))) {
+        let j = i
+        while (j < data.length && isWs(data.charAt(j))) j += 1
+        text += ' '
+        map.push(i)
+        i = j
+      } else {
+        text += data.charAt(i)
+        map.push(i)
+        i += 1
+      }
+    }
+    return { text, map }
+  }
+  /** the frame's rendered text in document order: text nodes (skipping our
+   *  MARK chrome and non-rendered runs, whitespace collapsed the way layout
+   *  renders it) plus form-control values, each with a 'sep' newline when a
+   *  block boundary or a forced <br> precedes it */
+  const snapshotDocText = () => {
+    nodesById.clear()
+    const nodes = []
+    const hosts = new Map()
+    const hostFor = (el, boxMode = false) => {
+      // boxMode answers a different question per element — never cached
+      if (boxMode) return hostOf(el, true)
+      if (!hosts.has(el)) hosts.set(el, hostOf(el))
+      return hosts.get(el)
+    }
+    const accept = (n) => {
+      // every element is visited: block boxes matter even when they hold no
+      // text (they still break the line for the runs after them)
+      return n.nodeType === 1 || n.nodeType === 3 ? 1 : 3 /* NodeFilter.FILTER_SKIP */
+    }
+    // walk from documentElement: a page script may legally place content
+    // under <html> itself (outside body), and that text is findable too
+    const walker = document.createTreeWalker(
+      document.documentElement,
+      0xffffffff /* NodeFilter.SHOW_ALL */,
+      {
+        acceptNode: accept,
+      },
+    )
+    let lastHost = null
+    let pendingBreak = false
+    // the previous pushed run ended in whitespace (a run split across nodes
+    // renders as one space, so the next node's leading run collapses away)
+    let lastEndedSpace = false
+    let node = walker.nextNode()
+    while (node) {
+      if (node.nodeType === 1) {
+        if (node.closest(`[${MARK}]`)) {
+          node = walker.nextNode()
+          continue
+        }
+        if (node.tagName === 'BR') {
+          // a forced break: the next run starts a new line even in the same
+          // block (and the whitespace right after it is line-leading, so it
+          // collapses — the skip rule below uses the flag). A <br> the layout
+          // does not render (its own display:none) draws no line at all. The
+          // BOX question decides the subtree: a hidden-visibility run is not
+          // mirrored, but its <br> still breaks the line the reader sees
+          if (hostFor(node.parentElement, true) && window.getComputedStyle(node).display !== 'none')
+            pendingBreak = true
+          node = walker.nextNode()
+          continue
+        }
+        if (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.tagName === 'SELECT') {
+          // a form control: its VALUE is the text the reader sees (its child
+          // nodes are not rendered). It counts as its own little block — one
+          // box over the control, never joined to the neighbouring text
+          const value =
+            node.tagName === 'SELECT'
+              ? node.multiple || (node.size || 0) > 1
+                ? ''
+                : selectLabel(node)
+              : node.tagName === 'TEXTAREA' ||
+                  TEXTUAL_INPUT.has((node.getAttribute('type') || 'text').toLowerCase())
+                ? node.value
+                : ''
+          const host = value ? hostFor(node) : null
+          if (value && host) {
+            let id = nodeIds.get(node)
+            if (id === undefined) {
+              id = nextNodeId
+              nextNodeId += 1
+              nodeIds.set(node, id)
+            }
+            nodesById.set(id, { node, map: null })
+            nodes.push({ id, text: value, sep: '\n' })
+            lastHost = node
+            pendingBreak = false
+            lastEndedSpace = false
+          }
+          node = walker.nextNode()
+          continue
+        }
+        // a rendered block box with no text of its own still breaks the line
+        // for the runs that follow it (same host or not) — unless it is
+        // out-of-flow (see isOutOfFlow). The BOX question, not the content
+        // question: a closed details renders a collapsed box even though its
+        // content does not render (hostFor answers the content question and
+        // would return null here), and a hidden-visibility box still occupies
+        // its space — both still break the line. OPTION/OPTGROUP never break
+        // the page's line flow: a dropdown's options live in its popup, and a
+        // listbox's options already read as per-line hosts
+        if (
+          node.tagName !== 'OPTION' &&
+          node.tagName !== 'OPTGROUP' &&
+          isBlockish(window.getComputedStyle(node).display) &&
+          !isOutOfFlow(node) &&
+          hasLayoutBox(node)
+        )
+          pendingBreak = true
+        node = walker.nextNode()
+        continue
+      }
+      const parent = node.parentElement
+      if (
+        !parent ||
+        parent.closest(`[${MARK}]`) ||
+        SKIPPED_TAGS.has(parent.tagName.toLowerCase())
+      ) {
+        node = walker.nextNode()
+        continue
+      }
+      const host = hostFor(parent)
+      const ws = window.getComputedStyle(parent).whiteSpace
+      const preservesWs = ws === 'pre' || ws === 'pre-wrap' || ws === 'break-spaces'
+      // whitespace-only runs that straddle block boundaries (or that follow a
+      // forced break) are collapsed by layout: drop those, keep the ones
+      // inside a block (they carry the space between words — and everything
+      // a pre-formatted run owns is real text)
+      if (
+        !host ||
+        (!preservesWs && (host !== lastHost || pendingBreak) && node.data.trim() === '')
+      ) {
+        node = walker.nextNode()
+        continue
+      }
+      const norm = normalizeText(node.data, ws)
+      let text = norm.text
+      let map = norm.map
+      // line-leading whitespace (a block start, a <br>, or an empty block
+      // box before this run) collapses entirely; a leading run glued to a
+      // previous run's trailing whitespace collapses into that one space.
+      // A pre-formatted run owns every character: its leading space IS
+      // rendered text, never collapsed — stripping it would desync the
+      // identity map and shift every painted range one char left
+      if (
+        !preservesWs &&
+        text.startsWith(' ') &&
+        (pendingBreak || host !== lastHost || lastEndedSpace)
+      ) {
+        text = text.slice(1)
+        map = map ? map.slice(1) : map
+      }
+      if (text === '') {
+        node = walker.nextNode()
+        continue
+      }
+      let id = nodeIds.get(node)
+      if (id === undefined) {
+        id = nextNodeId
+        nextNodeId += 1
+        nodeIds.set(node, id)
+      }
+      nodesById.set(id, { node, map })
+      nodes.push({
+        id,
+        text,
+        sep: lastHost !== null && (host !== lastHost || pendingBreak) ? '\n' : undefined,
+      })
+      lastHost = host
+      pendingBreak = false
+      lastEndedSpace = text.endsWith(' ')
+      node = walker.nextNode()
+    }
+    post({ type: 'gx:docText', nodes })
+  }
+  /** coalesce bursts (script-driven updates, an in-place text edit): one push
+   *  per settled change; ids stay stable so the host's rescan addresses right */
+  const scheduleDocTextPush = () => {
+    if (!docTextOn || docTextTimer !== null) return
+    docTextTimer = window.setTimeout(() => {
+      docTextTimer = null
+      if (docTextOn) snapshotDocText()
+    }, DOC_TEXT_DEBOUNCE_MS)
+  }
+  const onDocTextInput = () => scheduleDocTextPush()
+  const startDocText = () => {
+    docTextOn = true
+    // a control's value changes fire no mutation records: listen for edits
+    document.addEventListener('input', onDocTextInput)
+    snapshotDocText()
+  }
+  const stopDocText = () => {
+    docTextOn = false
+    document.removeEventListener('input', onDocTextInput)
+    if (docTextTimer !== null) window.clearTimeout(docTextTimer)
+    docTextTimer = null
+  }
+  const isOwnNode = (n) => {
+    const el = n && n.nodeType === 1 ? n : n && n.parentElement
+    return !!(el && el.closest && el.closest(`[${MARK}]`))
+  }
+  const ownRecord = (r) => {
+    if (r.target !== document.documentElement) return isOwnNode(r.target)
+    // a page script may legally append straight to <html>: ours only when the
+    // moved nodes themselves are chrome
+    for (const n of r.addedNodes) if (!isOwnNode(n)) return false
+    for (const n of r.removedNodes) if (!isOwnNode(n)) return false
+    return true
+  }
+  const docTextObserver = new MutationObserver((records) => {
+    // our overlay chrome churns constantly (box pools grow, the selection
+    // label and mark pins rewrite their text in place): records touching our
+    // [MARK] chrome — or moving chrome directly under documentElement — are
+    // ours, and pushing a snapshot for them would re-trigger the host's
+    // rescan (and its repaint) on every scroll
+    if (records.every(ownRecord)) return
+    scheduleDocTextPush()
+  })
+  docTextObserver.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+  })
+
+  /** painted find matches: one entry per MATCH (the index space the host
+   *  counts in), each holding its pieces — one per node the hit spans, plus
+   *  one per form control — and each piece a pool of overlay boxes (a wrapped
+   *  piece owns as many rects as its current layout wraps to) */
+  let findMatches = []
+  let findActive = -1
+  const pieceRects = (piece) => {
+    if (piece.element)
+      return piece.element.isConnected ? [piece.element.getBoundingClientRect()] : []
+    // a range over a node the page removed since painting: no rects, and the
+    // boxes must hide rather than paint a phantom at (0,0)
+    if (!piece.range.startContainer.isConnected) return []
+    // getClientRects returns a DOMRectList in real engines — iterable, but no
+    // array methods; every consumer here needs a real array
+    return Array.from(piece.range.getClientRects())
+  }
+  const placeFind = () => {
+    findMatches.forEach((match, mi) => {
+      const kind = mi === findActive ? 'findact' : 'findhit'
+      for (const piece of match.pieces) {
+        const rects = pieceRects(piece)
+        // the pool grows to the widest wrap this piece has had; extra boxes hide
+        while (piece.boxes.length < rects.length) piece.boxes.push(overlay('findhit'))
+        piece.boxes.forEach((box, i) => {
+          const r = rects[i]
+          // an all-zero rect is a piece that is connected but not rendered (a
+          // stale mirror, a hidden control): no phantom 2x2 box at (0,0) for it
+          if (!r || (r.width === 0 && r.height === 0)) {
+            box.style.display = 'none'
+            return
+          }
+          box.setAttribute(`${MARK}-overlay`, kind)
+          box.style.display = 'block'
+          box.style.left = `${r.left}px`
+          box.style.top = `${r.top}px`
+          box.style.width = `${Math.max(r.width, 2)}px`
+          box.style.height = `${Math.max(r.height, 2)}px`
+        })
+      }
+    })
+  }
+  const setFindActive = (at) => {
+    findActive = at
+    placeFind()
+  }
+  const clearFind = () => {
+    for (const match of findMatches)
+      for (const piece of match.pieces) for (const box of piece.boxes) box.remove()
+    findMatches = []
+    findActive = -1
+  }
+  /** a rect worth scrolling to: an all-zero rect comes from a piece that is
+   *  connected but not actually rendered (a stale mirror, a hidden control) —
+   *  scrolling to it would yank the reader to the top of the page on its
+   *  (0,0) rect */
+  const usableRect = (r) => r && (r.width > 0 || r.height > 0)
+  /** scroll the active match into view (nearest, like gx:select) — called on
+   *  navigation and on a moved search context, not on every repaint; pieces
+   *  whose node the page removed are skipped (a detached rect reads (0,0)) */
+  const scrollFindActive = () => {
+    const match = findMatches[findActive]
+    if (!match || !match.pieces.length) return
+    for (const piece of match.pieces) {
+      if (piece.element && !piece.element.isConnected) continue
+      if (piece.range && !piece.range.startContainer.isConnected) continue
+      // the piece's rect is RE-READ at every step: each container scroll moves
+      // it in viewport space, and a rect captured before a scroll would aim
+      // the next ancestor (and then the window) at where the match no longer
+      // is
+      const readTop = () => {
+        const rects = pieceRects(piece)
+        const r =
+          rects.find(usableRect) ||
+          (piece.range && piece.range.getBoundingClientRect
+            ? piece.range.getBoundingClientRect()
+            : null)
+        return usableRect(r) ? r.top : null
+      }
+      if (readTop() === null) continue
+      // a match deep inside a nested overflow container only becomes visible
+      // when the container scrolls too, not just the frame window
+      const anchor =
+        piece.element ||
+        (piece.range.startContainer.nodeType === 1
+          ? piece.range.startContainer
+          : piece.range.startContainer.parentElement)
+      for (let cur = anchor; cur && cur !== document.documentElement; cur = cur.parentElement) {
+        // the shorthand (overflow:auto) resolves to overflowY in real engines;
+        // jsdom only reports the shorthand itself
+        const cs = window.getComputedStyle(cur)
+        const oy = cs.overflowY || cs.overflow || ''
+        if (
+          (oy === 'auto' || oy === 'scroll' || oy === 'hidden') &&
+          cur.scrollHeight > cur.clientHeight
+        ) {
+          const box = cur.getBoundingClientRect()
+          const top = readTop()
+          if (top !== null && (top < box.top || top > box.bottom)) {
+            cur.scrollTop = Math.max(0, cur.scrollTop + (top - box.top) - cur.clientHeight / 3)
+          }
+        }
+      }
+      // the window last, off the post-container-scroll rect (rect.top +
+      // scrollY is the document position for the current container state)
+      const top = readTop()
+      if (top === null) continue
+      window.scrollTo(0, Math.max(0, top + window.scrollY - window.innerHeight / 3))
+      return
+    }
+  }
 
   const place = (box, el) => {
     if (!el || !el.isConnected) {
@@ -400,6 +887,7 @@
     placeGrip(selected)
     for (const { box, el } of highlightBoxes) place(box, el)
     for (const { pin, el } of markPins) placePin(pin, el)
+    placeFind()
     if (selected) postRect()
   }
 
@@ -1162,6 +1650,70 @@
         break
       case 'gx:scrollTo':
         window.scrollTo(0, msg.y)
+        break
+      case 'gx:setDocText':
+        // enable: push the current snapshot immediately so the host's mirror
+        // primes before its first search; disable: stop pushing (the observer
+        // stays connected but idles on the flag)
+        if (msg.on) startDocText()
+        else stopDocText()
+        break
+      case 'gx:findMark': {
+        clearFind()
+        // the payload crosses the sandbox boundary from a document that can
+        // forge it: every piece is shape-checked and its offsets clamped, so
+        // one bad entry is skipped instead of throwing past this handler and
+        // leaving the paint half-cleared
+        const groups = Array.isArray(msg.matches) ? msg.matches : []
+        for (const pieces of groups) {
+          const match = { pieces: [] }
+          for (const r of Array.isArray(pieces) ? pieces : []) {
+            if (typeof r !== 'object' || r === null) continue
+            const entry =
+              typeof r.id === 'number' && Number.isFinite(r.id) ? nodesById.get(r.id) : null
+            // a stale mirror range (node since removed): painting nothing beats
+            // painting over the wrong node — the host rescans on its next
+            // refresh. The match still takes its slot, so the indexes we
+            // emphasize by stay aligned with the host's match count
+            if (!entry || !entry.node.isConnected) continue
+            const node = entry.node
+            if (node.nodeType === 1) {
+              // a form control: one box over the control itself (its value
+              // is not addressable as a range)
+              match.pieces.push({ element: node, boxes: [] })
+              continue
+            }
+            const start = typeof r.start === 'number' && Number.isFinite(r.start) ? r.start : 0
+            const end = typeof r.end === 'number' && Number.isFinite(r.end) ? r.end : start
+            // the host searched the NORMALIZED text; translate its offsets
+            // back onto the node's raw data (identity map = none). The map
+            // was built against the data as it was: a node that shrank since
+            // is clamped to its CURRENT length, or setStart would throw and
+            // drop the whole paint
+            const rawAt = (at) => {
+              const len = node.data.length
+              const raw = entry.map ? (at >= entry.map.length ? len : entry.map[at]) : at
+              return Math.max(0, Math.min(raw, len))
+            }
+            const range = document.createRange()
+            range.setStart(node, rawAt(start))
+            range.setEnd(node, rawAt(end))
+            match.pieces.push({ range, boxes: [] })
+          }
+          findMatches.push(match)
+        }
+        setFindActive(
+          typeof msg.active === 'number' && Number.isFinite(msg.active) ? msg.active : -1,
+        )
+        if (msg.scroll) scrollFindActive()
+        break
+      }
+      case 'gx:findActivate':
+        setFindActive(msg.active)
+        scrollFindActive()
+        break
+      case 'gx:findClear':
+        clearFind()
         break
       case 'gx:theme':
         dark = !!msg.dark

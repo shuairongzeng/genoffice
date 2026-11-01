@@ -99,17 +99,18 @@ export function FindPanel({ target, strings, onClose, focusRequest }: FindPanelP
     [refresh],
   )
 
-  const targetRef = useRef(target)
-  targetRef.current = target
   useEffect(() => {
     inputRef.current?.focus()
     inputRef.current?.select()
     return () => {
       if (timerRef.current !== null) window.clearTimeout(timerRef.current)
-      // unmounting without Esc (host hides the panel) must not leave hits painted
-      targetRef.current.clear()
     }
   }, [])
+  // painted hits must not outlive the search: clear the target on unmount AND
+  // when the host swaps the target under an open panel (html retargets the
+  // panel between its source pane and the rendered preview — the old
+  // surface's marks would otherwise stay painted with no owner)
+  useEffect(() => () => target.clear(), [target])
 
   // declared after the mount effect so opening straight into replace wins the focus
   // (replace falls back to find when read-only)

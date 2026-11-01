@@ -24,6 +24,7 @@ import {
   type SourceEditorHandle,
 } from './source/SourceEditor'
 import { PreviewFrame, type PreviewFrameHandle } from './preview/PreviewFrame'
+import { PreviewFindController } from './preview/preview-find'
 import { instrumentForPreview } from './preview/instrument'
 import type { ComputedSnapshot, ElementRect, FromInspector } from './preview/inspector-protocol'
 import inspectorSource from './preview/inspector.js?raw'
@@ -211,6 +212,17 @@ export default function App() {
 
   const editorRef = useRef<SourceEditorHandle>(null)
   const previewRef = useRef<PreviewFrameHandle>(null)
+  /** preview find (issue #56 P2 #8): the panel searches the mirror this
+   *  controller keeps of the frame's pushed text — Cmd+F in preview view finds
+   *  what the reader is looking at instead of dumping them into the source */
+  const previewFindRef = useRef<PreviewFindController | null>(null)
+  const getPreviewFind = useCallback(() => {
+    if (!previewFindRef.current)
+      previewFindRef.current = new PreviewFindController((msg) => previewRef.current?.post(msg))
+    return previewFindRef.current
+  }, [])
+  /** which surface the open panel searches: the preview mirror or the source editor */
+  const findModeRef = useRef<'source' | 'preview' | null>(null)
   const envelopeRef = useRef<Envelope>(DEFAULT_ENVELOPE)
   const textRef = useRef('')
   const savedTextRef = useRef('')
@@ -681,8 +693,15 @@ export default function App() {
             previewRef.current?.post({ type: 'gx:beginTextEdit', sid })
           editAfterLoadRef.current = null
           postMarks()
+          // a fresh inspector knows nothing of the find session: re-arm text
+          // reporting; the snapshot it then pushes refreshes the mirror and an
+          // open panel rescans + repaints its marks
+          if (findModeRef.current === 'preview') getPreviewFind().start()
           return
         }
+        case 'gx:docText':
+          getPreviewFind().onDocText(msg.nodes)
+          return
         case 'gx:markClick': {
           const map = getMap()
           const proj = buildProjection(textRef.current, map)
@@ -835,7 +854,7 @@ export default function App() {
           return
       }
     },
-    [getMap, postMarks, runManual, selectSid, t, flushPending],
+    [getMap, getPreviewFind, postMarks, runManual, selectSid, t, flushPending],
   )
 
   // the source cursor picks the covering element (no reveal: the user is already there)
@@ -1296,19 +1315,48 @@ export default function App() {
     [],
   )
 
-  const openFind = useCallback((replace: boolean) => {
-    if (statusRef.current !== 'ready' || canvasModeRef.current === 'present') return
-    const target = editorRef.current?.findTarget()
-    if (!target) return
-    setFindTarget(target)
-    setFindFocus((f) => ({ field: replace ? 'replace' : 'find', nonce: f.nonce + 1 }))
-    // hits live in the source pane, so it must be on screen
-    setView((v) => (v === 'preview' ? 'split' : v))
-  }, [])
-  const closeFind = useCallback(() => setFindTarget(null), [])
+  const openFind = useCallback(
+    (replace: boolean) => {
+      if (statusRef.current !== 'ready' || canvasModeRef.current === 'present') return
+      // the reader in preview view is looking at rendered text: search THAT
+      // (the source pane's runs are invisible to them). While a draft is being
+      // written the draft overlay covers the frame — fall back to the source.
+      if (view === 'preview' && draftHtml === null) {
+        const controller = getPreviewFind()
+        findModeRef.current = 'preview'
+        controller.start()
+        setFindTarget(controller.findTarget())
+        setFindFocus((f) => ({ field: replace ? 'replace' : 'find', nonce: f.nonce + 1 }))
+        return
+      }
+      // retargeting to the source pane: tear down a live preview session
+      // first, or its painted marks stay on the frame and its reporting keeps
+      // pushing under the new target
+      if (findModeRef.current === 'preview') getPreviewFind().stop()
+      const target = editorRef.current?.findTarget()
+      if (!target) return
+      findModeRef.current = 'source'
+      setFindTarget(target)
+      setFindFocus((f) => ({ field: replace ? 'replace' : 'find', nonce: f.nonce + 1 }))
+      // hits live in the source pane, so it must be on screen
+      setView((v) => (v === 'preview' ? 'split' : v))
+    },
+    [view, draftHtml, getPreviewFind],
+  )
+  const closeFind = useCallback(() => {
+    if (findModeRef.current === 'preview') getPreviewFind().stop()
+    findModeRef.current = null
+    setFindTarget(null)
+  }, [getPreviewFind])
   useEffect(() => {
     if (canvasMode === 'present') closeFind()
   }, [canvasMode, closeFind])
+  // the panel searches the rendered preview; when that surface goes away (a
+  // view switch, or a draft overlay covering the frame) close it instead of
+  // letting it keep painting marks on a hidden frame off a stale mirror
+  useEffect(() => {
+    if (findModeRef.current === 'preview' && (view !== 'preview' || draftHtml !== null)) closeFind()
+  }, [view, draftHtml, closeFind])
 
   const exportingRef = useRef(false)
   /** `outPath` (headless export only) skips the save dialog; resolves true when a file was written. */
