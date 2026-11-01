@@ -107,6 +107,13 @@ export interface ToolExecution {
    * Ignored when tool results are assembled into an AgentMessage.
    */
   display?: ToolDisplay
+  /**
+   * Inline images the tool produced (screenshot_page): the loop attaches them
+   * to the next model request as a user-side image turn — tool results are
+   * text-only on every provider, while user-turn images are the one shape
+   * every transport already carries (the attachment path).
+   */
+  images?: AgentImage[]
 }
 
 // ---- run phase (drives the in-progress status line in chat UIs) ----

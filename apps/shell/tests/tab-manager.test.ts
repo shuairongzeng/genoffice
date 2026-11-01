@@ -185,6 +185,17 @@ vi.mock('../../html/src/main/html-main', () => ({
   requestHtmlClose: (...args: unknown[]) => requestHtmlClose(...(args as [])),
 }))
 
+// the browser module's real createBrowserView would register IPC handlers and
+// build a nested view; the manager only needs the chrome view it hands back
+vi.mock('../../browser/src/main/browser-main', () => ({
+  browserNavigate: vi.fn(),
+  configureBrowserRuntime: vi.fn(),
+  createBrowserView: vi.fn(() => makeFakeView()),
+  requestBrowserClose: vi.fn(() => Promise.resolve(true)),
+  setBrowserShellHooks: vi.fn(),
+  teardownBrowserTab: vi.fn(),
+}))
+
 import { TabManager } from '../src/main/tab-manager'
 import { HOME_CHANNELS } from '../src/shared/home-api'
 import type { TabKind } from '../src/shared/tabs-api'
@@ -1186,9 +1197,9 @@ describe('file path bookkeeping', () => {
       const after = manager.list()
       if (after.length > before) opened.push(after[after.length - 1]!.kind)
     }
-    // file-less tabs (the in-app manual) have no path to rename, so they are
-    // opened by the enumeration but must not demand a RENAMABLE case
-    const fileless = new Set(['help'])
+    // file-less tabs (the in-app manual, the browser: no file behind the tab)
+    // are opened by the enumeration but must not demand a RENAMABLE case
+    const fileless = new Set(['help', 'browser'])
     expect([...new Set(opened.filter((k) => !fileless.has(k)))].sort()).toEqual(
       RENAMABLE.map((c) => c.kind).sort(),
     )

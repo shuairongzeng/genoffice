@@ -55,6 +55,25 @@ describe('toolNoteDetail', () => {
   it('leaves a search without detail', () => {
     expect(toolNoteDetail(call('search_knowledge_base', { query: 'rent' }))).toBeUndefined()
   })
+
+  it('names the selector of a browser page action, clipped', () => {
+    expect(toolNoteDetail(call('browser:fill_field', { selector: '#q', value: 'rent' }))).toBe(
+      'browser · #q',
+    )
+    expect(toolNoteDetail(call('browser:click_element', { selector: 'a:nth-child(2)' }))).toBe(
+      'browser · a:nth-child(2)',
+    )
+    // a bare selector (or none) still says the domain
+    expect(toolNoteDetail(call('browser:click_element', { selector: '   ' }))).toBe('browser')
+    expect(toolNoteDetail(call('browser:fill_field', { selector: 'x'.repeat(80) }))).toBe(
+      `browser · ${'x'.repeat(40)}`,
+    )
+  })
+
+  it('a browser read carries no detail (the label says the domain)', () => {
+    expect(toolNoteDetail(call('browser:read_page', {}))).toBeUndefined()
+    expect(toolNoteDetail(call('browser:screenshot_page', {}))).toBeUndefined()
+  })
 })
 
 describe('appendToolNote', () => {

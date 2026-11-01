@@ -32,6 +32,8 @@ export function runTabDocumentAction(
     !tab ||
     tab.kind === 'home' ||
     tab.kind === 'help' ||
+    // a browser tab hosts no document to save or print
+    tab.kind === 'browser' ||
     !deps.tabs.canDetachTab(id) ||
     !contents ||
     contents.isDestroyed()

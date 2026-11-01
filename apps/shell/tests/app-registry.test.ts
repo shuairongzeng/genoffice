@@ -111,22 +111,47 @@ vi.mock('../../html/src/main/html-main', () => ({
   requestHtmlClose: (...args: unknown[]) => requestHtmlClose(...(args as [])),
 }))
 
+const browserNavigateMock = vi.fn()
+const createBrowserView = vi.fn(() => ({ webContents: { id: 8 } }))
+const requestBrowserClose = vi.fn(() => Promise.resolve(true))
+const setBrowserShellHooksMock = vi.fn()
+const teardownBrowserTab = vi.fn()
+
+vi.mock('../../browser/src/main/browser-main', () => ({
+  browserNavigate: (...args: unknown[]) => browserNavigateMock(...(args as unknown[])),
+  configureBrowserRuntime: vi.fn(),
+  createBrowserView: (...args: unknown[]) => createBrowserView(...(args as [])),
+  requestBrowserClose: (...args: unknown[]) => requestBrowserClose(...(args as [])),
+  setBrowserShellHooks: (...args: unknown[]) => setBrowserShellHooksMock(...(args as unknown[])),
+  teardownBrowserTab: (...args: unknown[]) => teardownBrowserTab(...(args as [])),
+}))
+
 import {
   agentIoFor,
   appForKind,
   appForPath,
   appIsDirty,
+  browserNavigate,
   clearShellMenuBuilders,
   documentApps,
   installAppMenu,
   registryAgentIo,
+  setBrowserShellHooks,
   setShellMenuBuilders,
 } from '../src/main/app-registry'
 import { LAUNCHABLE_EXTS } from '../src/main/launch-paths'
 import type { DocumentTabKind, TabKind } from '../src/shared/tabs-api'
 import type { WebContents, WebContentsView } from 'electron'
 
-const DOC_TAB_KINDS: DocumentTabKind[] = ['docs', 'sheets', 'slides', 'pdf', 'markdown', 'html']
+const DOC_TAB_KINDS: DocumentTabKind[] = [
+  'docs',
+  'sheets',
+  'slides',
+  'pdf',
+  'markdown',
+  'html',
+  'browser',
+]
 
 /** a stand-in WebContents for the descriptor faces (they only key or pass it on) */
 function wc(id: number): WebContents {
@@ -166,8 +191,11 @@ describe('the descriptor table itself', () => {
     for (const app of documentApps) {
       expect(typeof app.createView).toBe('function')
       expect(typeof app.requestClose).toBe('function')
-      // dirty answer: sync or a renderer round-trip, never neither
-      expect(Boolean(app.isDirty) || Boolean(app.queryDirty)).toBe(true)
+      // dirty answer: sync, a renderer round-trip, or nothing to ask (browser:
+      // a web page holds no unsaved document state)
+      expect(Boolean(app.isDirty) || Boolean(app.queryDirty) || app.agentDocument === false).toBe(
+        true,
+      )
       expect(app.untitledTitle.length).toBeGreaterThan(0)
       expect(app.untitledTitleKey).toMatch(/^untitled[A-Z]/)
     }
@@ -249,6 +277,7 @@ describe('per-family close guard dispatch', () => {
       pdf: requestPdfClose,
       markdown: requestMarkdownClose,
       html: requestHtmlClose,
+      browser: requestBrowserClose,
     }
     for (const kind of DOC_TAB_KINDS) {
       await appForKind(kind)!.requestClose(contents, win)
@@ -286,12 +315,18 @@ describe('createView dispatch', () => {
     expect(queueWorkbookForView).not.toHaveBeenCalled()
   })
 
-  it('docs teardown is the only one beyond plain webContents.close', () => {
+  it('docs teardown is the only editor bookkeeping beyond plain webContents.close', () => {
     const contents = wc(81)
     appForKind('docs')!.teardown!(contents)
     expect(teardownDocsRenderer).toHaveBeenCalledWith(contents)
     for (const kind of ['sheets', 'slides', 'pdf', 'markdown', 'html'] as const)
       expect(appForKind(kind)!.teardown).toBeUndefined()
+  })
+
+  it('browser teardown closes the nested page view the TabManager does not know about', () => {
+    const contents = wc(91)
+    appForKind('browser')!.teardown!(contents)
+    expect(teardownBrowserTab).toHaveBeenCalledWith(contents)
   })
 })
 
@@ -459,5 +494,41 @@ describe('the MCP agent surfaces', () => {
     agents.html!.read!(contents)
     expect(htmlReadText).toHaveBeenCalledWith(contents)
     expect(agents.docs).toBeUndefined()
+  })
+})
+
+describe('the browser app (the html/browser split)', () => {
+  it('registers with no editor family, no extensions and no agent surface', () => {
+    const descriptor = appForKind('browser')!
+    expect(descriptor.family).toBeUndefined()
+    expect(descriptor.extensions).toEqual([])
+    expect(descriptor.agentControl).toBeUndefined()
+    expect(descriptor.agentDocument).toBe(false)
+  })
+
+  it('builds its chrome view with no path argument (a browser tab is never file-opened)', () => {
+    appForKind('browser')!.createView()
+    expect(createBrowserView).toHaveBeenCalledWith()
+    // the open route never files a path into it either
+    expect(appForPath('/x/page.html')).toBe('html')
+  })
+
+  it('closes with no prompt (a web page holds no unsaved document state)', async () => {
+    await expect(appForKind('browser')!.requestClose(wc(101), {} as never)).resolves.toBe(true)
+    expect(requestBrowserClose).toHaveBeenCalled()
+  })
+
+  it('exposes the shell hooks and the target=_blank navigation the shell wires', () => {
+    const hooks = {
+      openTab: () => {},
+      setTabTitle: () => {},
+      setTabFavicon: () => {},
+      summonPalette: () => {},
+    }
+    setBrowserShellHooks(hooks)
+    expect(setBrowserShellHooksMock).toHaveBeenCalledWith(hooks)
+    const contents = wc(102)
+    browserNavigate(contents, 'https://example.com/')
+    expect(browserNavigateMock).toHaveBeenCalledWith(contents, 'https://example.com/')
   })
 })

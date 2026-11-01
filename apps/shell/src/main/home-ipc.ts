@@ -148,6 +148,7 @@ export interface HomeFileIpcHost {
   newSlideTab: () => void
   newMarkdownTab: () => void
   newHtmlTab: () => void
+  newBrowserTab: () => void
   newPdfTab: () => void | Promise<void>
   // the file-follow plumbing (recents/stars/tabs re-keying) stays in index.ts
   afterFileMoved: (oldPath: string, newPath: string) => void
@@ -572,6 +573,10 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
   ipcMain.handle(HOME_CHANNELS.newHtml, (_event, opts?: NewFileOpts) => {
     host.rememberPendingDir('html', opts)
     host.newHtmlTab()
+  })
+
+  ipcMain.handle(HOME_CHANNELS.newBrowser, () => {
+    host.newBrowserTab()
   })
 
   ipcMain.handle(HOME_CHANNELS.newPdf, (_event, opts?: NewFileOpts) => {

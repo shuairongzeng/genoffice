@@ -326,7 +326,18 @@ function RowIcon({ icon }: { icon: PaletteRow['icon'] }) {
   if (icon.kind === 'pen') return <PenIcon />
   if (icon.kind === 'gear') return <GearIcon />
   if (icon.kind === 'sparkle') return <SparkleIcon />
+  if (icon.kind === 'globe') return <GlobeIcon />
   return <PlugIcon />
+}
+
+function GlobeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.2" stroke="currentColor" strokeWidth="1.3" />
+      <ellipse cx="8" cy="8" rx="2.6" ry="6.2" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M1.8 8h12.4M2.6 5h10.8M2.6 11h10.8" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  )
 }
 
 function SearchIcon() {

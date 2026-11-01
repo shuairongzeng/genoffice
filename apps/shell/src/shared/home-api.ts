@@ -18,6 +18,10 @@ import type { DesktopArrangeMode } from '@genoffice/cli/control-protocol'
 import type { AiDockPrefs } from './desktop-geometry'
 import type {
   AttachmentInfo,
+  BrowserActionResult,
+  BrowserPageAnnotation,
+  BrowserPageRead,
+  BrowserScreenshot,
   CliContext,
   CliRunRequest,
   CliRunResult,
@@ -29,7 +33,17 @@ import type {
 } from '@genoffice/agent-core'
 
 // re-exported for the preload, which types its bridge against this module
-export type { ProxiedAppExecuteResult, ProxiedAppManifest } from '@genoffice/agent-core'
+export type {
+  BrowserActionResult,
+  BrowserPageAnnotation,
+  BrowserPageRead,
+  BrowserScreenshot,
+  ProxiedAppExecuteResult,
+  ProxiedAppManifest,
+} from '@genoffice/agent-core'
+
+/** the `browser:ask-about` push's payload: the annotation the "ask AI" entry sent */
+export type BrowserAskAboutPayload = BrowserPageAnnotation
 export type { RunEvent, RunSummary } from '@genoffice/project-store'
 import type { AiPanelPrefs } from '@genoffice/ui/ai-panel-prefs'
 import type { FoundSkill, ForeignSkillCandidate, InstalledPlugin } from './found-skill'
@@ -379,6 +393,8 @@ export interface HomeTabEntry {
   id: string
   kind: TabKind
   title: string
+  /** the tab's page favicon (browser tabs); absent when the page has none */
+  faviconUrl?: string
   /** the shell's active tab, or (for a detached entry) its window has OS focus */
   active: boolean
   /** the tab has unsaved changes */
@@ -409,6 +425,7 @@ export const HOME_TAB_KINDS: readonly TabKind[] = [
   'pdf',
   'markdown',
   'html',
+  'browser',
   'help',
 ]
 
@@ -664,6 +681,17 @@ export interface HomeApi {
   appSkillManifest(): Promise<ProxiedAppManifest>
   /** forward one prefixed read call (e.g. 'docs:read_document') to the open window it targets */
   appSkillExecute(tool: string, input: Record<string, unknown>): Promise<ProxiedAppExecuteResult>
+  // ---- the dock's browser skill: read/act on the active browser tab's page ----
+  /** one browser:* tool call (read_page / screenshot_page / fill_field / click_element),
+   *  routed to the active browser tab's page webContents in the shell main */
+  browserSkillExecute(
+    tool: string,
+    input: Record<string, unknown>,
+  ): Promise<BrowserPageRead | BrowserScreenshot | BrowserActionResult>
+  /** the browser's "ask AI about this" entry: an annotation the user left on a
+   *  page, pushed by W2a's browser side over `browser:ask-about`; the panel
+   *  parks it as a draft question and never auto-sends */
+  onBrowserAskAbout(handler: (payload: BrowserAskAboutPayload) => void): () => void
   // ---- agent run records (project-store's runs API over IPC) ----
   /** append one run-lifecycle event to <project>/runs/<runId>.jsonl */
   appendRunEvent(args: AppendRunEventRequest): Promise<void>
@@ -703,6 +731,8 @@ export interface HomeApi {
   newMarkdown(opts?: NewFileOpts): Promise<void>
   /** open a blank html editor tab */
   newHtml(opts?: NewFileOpts): Promise<void>
+  /** open a browser tab (the desktop's Web tile and the palette's open-browser action) */
+  newBrowser(): Promise<void>
   /** create a blank single-page PDF in the default save folder and open it */
   newPdf(opts?: NewFileOpts): Promise<void>
   /** drop entries from the recent list (does not touch the files) */
@@ -1049,6 +1079,7 @@ export const HOME_CHANNELS = {
   newSlide: 'home:new-slide',
   newMarkdown: 'home:new-markdown',
   newHtml: 'home:new-html',
+  newBrowser: 'home:new-browser',
   newPdf: 'home:new-pdf',
   templatesList: 'home:templates-list',
   newFromTemplate: 'home:new-from-template',

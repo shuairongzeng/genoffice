@@ -331,6 +331,19 @@ const homeApi: HomeApi = {
       ...(input !== undefined ? { input } : {}),
     })) as ProxiedAppExecuteResult
   },
+  // the dock's browser skill (charter W2b): browser:* tool calls over the
+  // shell main's browserskill:execute handler (main/browser-agent.ts)
+  async browserSkillExecute(tool, input) {
+    return ipcRenderer.invoke('browserskill:execute', { tool, input })
+  },
+  // the browser's "ask AI about this" entry (W2a): an annotation push over
+  // browser:ask-about. Forwarded raw — the consuming panel normalizes the
+  // payload (a page-supplied shape) before it reaches any state
+  onBrowserAskAbout(handler) {
+    const listener = (_event: Electron.IpcRendererEvent, raw: unknown) => handler(raw as never)
+    ipcRenderer.on('browser:ask-about', listener)
+    return () => ipcRenderer.removeListener('browser:ask-about', listener)
+  },
   // agent run records: the project-store runs API's three handlers, registered
   // by registerProjectIpc (the same registration the chat channels use)
   async appendRunEvent(args) {
@@ -398,6 +411,9 @@ const homeApi: HomeApi = {
   },
   async newHtml(opts) {
     await ipcRenderer.invoke(HOME_CHANNELS.newHtml, opts)
+  },
+  async newBrowser() {
+    await ipcRenderer.invoke(HOME_CHANNELS.newBrowser)
   },
   async newPdf(opts) {
     await ipcRenderer.invoke(HOME_CHANNELS.newPdf, opts)

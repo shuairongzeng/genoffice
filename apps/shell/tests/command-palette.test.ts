@@ -297,19 +297,20 @@ describe('CommandPalette', () => {
     )
     await render()
     // the fixed create actions, in order
-    expect(rowTitles().slice(0, 7)).toEqual([
+    expect(rowTitles().slice(0, 8)).toEqual([
       'New document',
       'New spreadsheet',
       'New presentation',
       'New Markdown',
       'New web page',
+      'Open Browser',
       'New PDF',
       'Open a local file…',
     ])
     // only the five newest recents ride along
-    expect(rows().slice(7)).toHaveLength(5)
-    expect(rowTitles()[7]).toBe('file-0.docx')
-    expect(rowTitles()[11]).toBe('file-4.docx')
+    expect(rows().slice(8)).toHaveLength(5)
+    expect(rowTitles()[8]).toBe('file-0.docx')
+    expect(rowTitles()[12]).toBe('file-4.docx')
     // no skills, settings or plugins groups on an empty query
     expect(host.querySelector('.cmd-group-title')?.textContent).toBe('New')
     expect(host.querySelectorAll('.cmd-group-title')).toHaveLength(2)
@@ -369,8 +370,8 @@ describe('CommandPalette', () => {
       ),
     )
     await render()
-    // 7 create actions + 3 recents = 10 rows, the first is active
-    expect(rows()).toHaveLength(10)
+    // 8 create actions + 3 recents = 11 rows, the first is active
+    expect(rows()).toHaveLength(11)
     expect(activeRow()?.textContent).toContain('New document')
     // up from the first wraps to the last row (the third recent)
     await press('ArrowUp')
@@ -474,7 +475,7 @@ describe('CommandPalette', () => {
     await render()
     expect(activeRow()?.textContent).toContain('New document')
     await act(async () => {
-      rows()[8]!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+      rows()[9]!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
       await Promise.resolve()
     })
     expect(activeRow()?.textContent).toContain('b.docx')
@@ -587,10 +588,10 @@ describe('defaultPaletteProviders', () => {
     }))
     const rows = mergePaletteRows(parts)
     expect(rows.map((r) => r.group)).toEqual([
-      ...Array(7).fill('create'),
+      ...Array(8).fill('create'),
       ...Array.from({ length: 5 }, () => 'recent'),
     ])
-    expect(rows[7]!.title).toBe('file-0.docx')
+    expect(rows[8]!.title).toBe('file-0.docx')
   })
 })
 

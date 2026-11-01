@@ -451,6 +451,10 @@ export const TOOL_DENIED_OUTPUT =
   '(the user declined to run this tool; it was not executed. Do not call it again in this run. ' +
   'Continue with an approach that does not need it, or say plainly that the user declined this action.)'
 
+/** the marker text of the synthetic user turn that carries a tool's image output */
+const TOOL_IMAGE_TURN_TEXT =
+  '[a tool attached an image to this message as visual input — see the tool result before it]'
+
 const TOOL_ABORTED = Symbol('tool-aborted')
 
 async function awaitToolOrAbort(
@@ -1494,6 +1498,9 @@ export class AgentLoop<TSnapshot = unknown> {
     })
     const generation = this.generation
     const results: AgentToolResult[] = []
+    // images tools produced this turn (screenshot_page): attached to the next
+    // request as one user-side image turn, after the tool results
+    const turnImages: AgentImage[] = []
     let turnMutated = false
     let redundantRead = false
     // unusable-input streak is counted per turn: a batch of empty calls in one
@@ -1630,6 +1637,7 @@ export class AgentLoop<TSnapshot = unknown> {
       }
       const execution = raced
       this.executedCalls.push({ name: call.name, ok: !execution.isError })
+      if (execution.images?.length) turnImages.push(...execution.images)
       const firstMutation = !!execution.mutated && !this.mutationSeen
       if (execution.mutated) {
         this.mutationSeen = true
@@ -1678,6 +1686,18 @@ export class AgentLoop<TSnapshot = unknown> {
       this.redundantReadTurns = 0
     }
     this.history.push({ role: 'tool', results })
+    if (turnImages.length > 0) {
+      // Tool results are text-only on every provider; user-turn images are the
+      // one shape every transport already carries (the attachment path), so a
+      // tool's vision output rides a synthetic user turn right after its
+      // results. The marker text keeps the message self-describing wherever
+      // images are dropped (compaction slims user turns to text).
+      this.history.push({
+        role: 'user',
+        text: TOOL_IMAGE_TURN_TEXT,
+        images: turnImages,
+      })
+    }
     if (executedInTurn) this.inputParseFails = 0
     else if (unusableInTurn) this.inputParseFails++
 

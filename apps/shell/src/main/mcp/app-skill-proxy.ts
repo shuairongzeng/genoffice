@@ -79,6 +79,9 @@ const KIND_LABEL: Record<DocumentTabKind, string> = {
   pdf: 'PDF',
   markdown: 'markdown',
   html: 'html',
+  // the browser never appears in the proxy's documents (agentDocument: false);
+  // the label only keeps the Record exhaustive
+  browser: 'browser',
 }
 
 /** input keys forwarded to the family reader (validated); every tool also takes `document` */

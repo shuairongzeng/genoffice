@@ -162,8 +162,8 @@ import {
 
 import { blankXlsxBuffer } from '@genoffice/xlsx-gateway/gateway/csv-import'
 import {
-  // the AppDescriptor registry: the shell's single import site for the six
-  // document apps' main modules plus the table routing, menus and MCP agent
+  // the AppDescriptor registry: the shell's single import site for the
+  // bundled apps' main modules plus the table routing, menus and MCP agent
   // surfaces are driven from
   appForKind,
   appForPath,
@@ -175,6 +175,7 @@ import {
   authorizeMcpDocWrite,
   authorizeMcpSheetWrite,
   blankPdfBuffer,
+  configureBrowserRuntime,
   configureDocsRuntime,
   configureHtmlRuntime,
   configureMarkdownRuntime,
@@ -254,6 +255,8 @@ import { createSlidesControl } from './mcp/slides-bridge'
 import { createSheetsControl, installSheetsBridge } from './mcp/sheets-bridge'
 import { createOpenDocumentsControl, createOpenTargetResolver } from './mcp/open-documents-bridge'
 import { registerAppSkillIpc } from './mcp/app-skill-proxy'
+import { registerBrowserSkillIpc } from './browser-agent'
+import type { BrowserPageActionConfirm } from './browser-agent'
 import { convertPdfFileToDocxLocalWithPrompt, PdfLoadError } from './pdf2docx-local'
 import { convertPdfFileToPptxLocalWithPrompt } from './pdf2pptx-local'
 import { convertPdfFileToXlsxLocalWithPrompt } from './pdf2xlsx-local'
@@ -436,6 +439,9 @@ const MARKDOWN_OUT = app.isPackaged
 const HTML_OUT = app.isPackaged
   ? join(process.resourcesPath, 'modules', 'html')
   : join(APPS_ROOT, 'html', 'out')
+const BROWSER_OUT = app.isPackaged
+  ? join(process.resourcesPath, 'modules', 'browser')
+  : join(APPS_ROOT, 'browser', 'out')
 const SIDECAR_BIN = app.isPackaged
   ? join(process.resourcesPath, 'native', SIDECAR_EXE)
   : join(APPS_ROOT, 'sheets', 'native', 'xlsx-engine', 'target', 'release', SIDECAR_EXE)
@@ -479,6 +485,11 @@ configureHtmlRuntime({
   rendererUrl: process.env.HTML_RENDERER_URL,
   rendererFile: join(HTML_OUT, 'renderer', 'index.html'),
   openGeneratedPath: (path) => openGeneratedDocument(path),
+})
+configureBrowserRuntime({
+  preloadPath: join(BROWSER_OUT, 'preload', 'index.js'),
+  rendererUrl: process.env.BROWSER_RENDERER_URL,
+  rendererFile: join(BROWSER_OUT, 'renderer', 'index.html'),
 })
 // privileged-scheme registration is only legal before app ready
 registerPrivilegedSchemes()
@@ -769,6 +780,7 @@ const tMain = createI18n({
     untitledMarkdown: '未命名 Markdown',
     untitledHtml: '未命名 HTML',
     untitledPdf: '未命名 PDF',
+    untitledBrowser: '浏览器',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -851,6 +863,13 @@ const tMain = createI18n({
     pdfDocxLocalCorruptDetail: '文件已损坏或不是有效的 PDF，无法转换。',
     dlgPickSaveDir: '选择默认保存位置',
     errSaveDirUnusable: '所选文件夹不可写，无法用作默认保存位置',
+    browserConfirmClickMsg: 'AI 助手要点击网页“{page}”中的元素',
+    browserConfirmFillMsg: 'AI 助手要在网页“{page}”中填写内容',
+    browserConfirmPage: '页面：{url}',
+    browserConfirmSelector: '目标元素：{selector}',
+    browserConfirmValue: '填入内容：{value}',
+    browserConfirmAllow: '允许',
+    browserConfirmDeny: '拒绝',
   },
   en: {
     menuTabSave: 'Save',
@@ -895,6 +914,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Untitled Markdown',
     untitledHtml: 'Untitled HTML',
     untitledPdf: 'Untitled PDF',
+    untitledBrowser: 'Browser',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -983,6 +1003,13 @@ const tMain = createI18n({
     dlgPickSaveDir: 'Choose Default Save Location',
     errSaveDirUnusable:
       'The selected folder is not writable and cannot be used as the default save location',
+    browserConfirmClickMsg: 'The AI assistant wants to click an element on “{page}”',
+    browserConfirmFillMsg: 'The AI assistant wants to fill in a field on “{page}”',
+    browserConfirmPage: 'Page: {url}',
+    browserConfirmSelector: 'Element: {selector}',
+    browserConfirmValue: 'Text to type: {value}',
+    browserConfirmAllow: 'Allow',
+    browserConfirmDeny: 'Deny',
   },
   vi: {
     menuTabSave: 'Lưu',
@@ -1023,6 +1050,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown chưa có tiêu đề',
     untitledHtml: 'HTML chưa có tiêu đề',
     untitledPdf: 'PDF chưa có tiêu đề',
+    untitledBrowser: 'Trình duyệt',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1115,6 +1143,13 @@ const tMain = createI18n({
       'Tệp bị hỏng hoặc không phải là tệp PDF hợp lệ và không thể chuyển đổi.',
     dlgPickSaveDir: 'Chọn vị trí lưu mặc định',
     errSaveDirUnusable: 'Thư mục đã chọn không thể ghi và không thể dùng làm vị trí lưu mặc định',
+    browserConfirmClickMsg: 'Trợ lý AI muốn nhấp vào một phần tử trên trang “{page}”',
+    browserConfirmFillMsg: 'Trợ lý AI muốn điền nội dung vào trang “{page}”',
+    browserConfirmPage: 'Trang: {url}',
+    browserConfirmSelector: 'Phần tử: {selector}',
+    browserConfirmValue: 'Nội dung sẽ điền: {value}',
+    browserConfirmAllow: 'Cho phép',
+    browserConfirmDeny: 'Từ chối',
   },
   ja: {
     menuTabSave: '保存',
@@ -1155,6 +1190,7 @@ const tMain = createI18n({
     untitledMarkdown: '無題の Markdown',
     untitledHtml: '無題の HTML',
     untitledPdf: '無題の PDF',
+    untitledBrowser: 'ブラウザ',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1247,6 +1283,13 @@ const tMain = createI18n({
     dlgPickSaveDir: '既定の保存先を選択',
     errSaveDirUnusable:
       '選択したフォルダーは書き込みできないため、既定の保存先として使用できません',
+    browserConfirmClickMsg: 'AI アシスタントが「{page}」の要素をクリックしようとしています',
+    browserConfirmFillMsg: 'AI アシスタントが「{page}」のフィールドに入力しようとしています',
+    browserConfirmPage: 'ページ：{url}',
+    browserConfirmSelector: '要素：{selector}',
+    browserConfirmValue: '入力内容：{value}',
+    browserConfirmAllow: '許可',
+    browserConfirmDeny: '拒否',
   },
   ko: {
     menuTabSave: '저장',
@@ -1287,6 +1330,7 @@ const tMain = createI18n({
     untitledMarkdown: '제목 없는 Markdown',
     untitledHtml: '제목 없는 HTML',
     untitledPdf: '제목 없는 PDF',
+    untitledBrowser: '브라우저',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1378,6 +1422,13 @@ const tMain = createI18n({
     pdfDocxLocalCorruptDetail: '파일이 손상되었거나 유효한 PDF가 아니어서 변환할 수 없습니다.',
     dlgPickSaveDir: '기본 저장 위치 선택',
     errSaveDirUnusable: '선택한 폴더에 쓸 수 없어 기본 저장 위치로 사용할 수 없습니다',
+    browserConfirmClickMsg: 'AI 어시스턴트가 “{page}” 페이지의 요소를 클릭하려고 합니다',
+    browserConfirmFillMsg: 'AI 어시스턴트가 “{page}” 페이지의 필드를 채우려고 합니다',
+    browserConfirmPage: '페이지: {url}',
+    browserConfirmSelector: '요소: {selector}',
+    browserConfirmValue: '입력할 내용: {value}',
+    browserConfirmAllow: '허용',
+    browserConfirmDeny: '거부',
   },
   fr: {
     menuTabSave: 'Enregistrer',
@@ -1418,6 +1469,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown sans titre',
     untitledHtml: 'HTML sans titre',
     untitledPdf: 'PDF sans titre',
+    untitledBrowser: 'Navigateur',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1511,6 +1563,13 @@ const tMain = createI18n({
     dlgPickSaveDir: "Choisir l'emplacement d'enregistrement par défaut",
     errSaveDirUnusable:
       "Le dossier sélectionné n'est pas accessible en écriture et ne peut pas servir d'emplacement d'enregistrement par défaut",
+    browserConfirmClickMsg: 'L’assistant IA veut cliquer sur un élément de la page « {page} »',
+    browserConfirmFillMsg: 'L’assistant IA veut remplir un champ de la page « {page} »',
+    browserConfirmPage: 'Page : {url}',
+    browserConfirmSelector: 'Élément : {selector}',
+    browserConfirmValue: 'Texte à saisir : {value}',
+    browserConfirmAllow: 'Autoriser',
+    browserConfirmDeny: 'Refuser',
   },
   de: {
     menuTabSave: 'Speichern',
@@ -1551,6 +1610,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Unbenanntes Markdown',
     untitledHtml: 'Unbenanntes HTML',
     untitledPdf: 'Unbenanntes PDF',
+    untitledBrowser: 'Browser',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1645,6 +1705,13 @@ const tMain = createI18n({
     dlgPickSaveDir: 'Standard-Speicherort auswählen',
     errSaveDirUnusable:
       'Der ausgewählte Ordner ist nicht beschreibbar und kann nicht als Standard-Speicherort verwendet werden',
+    browserConfirmClickMsg: 'Der KI-Assistent möchte ein Element auf der Seite „{page}“ anklicken',
+    browserConfirmFillMsg: 'Der KI-Assistent möchte ein Feld auf der Seite „{page}“ ausfüllen',
+    browserConfirmPage: 'Seite: {url}',
+    browserConfirmSelector: 'Element: {selector}',
+    browserConfirmValue: 'Einzugebender Text: {value}',
+    browserConfirmAllow: 'Zulassen',
+    browserConfirmDeny: 'Ablehnen',
   },
   es: {
     menuTabSave: 'Guardar',
@@ -1685,6 +1752,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown sin título',
     untitledHtml: 'HTML sin título',
     untitledPdf: 'PDF sin título',
+    untitledBrowser: 'Navegador',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1778,6 +1846,14 @@ const tMain = createI18n({
     dlgPickSaveDir: 'Elegir ubicación de guardado predeterminada',
     errSaveDirUnusable:
       'La carpeta seleccionada no admite escritura y no puede usarse como ubicación de guardado predeterminada',
+    browserConfirmClickMsg:
+      'El asistente de IA quiere hacer clic en un elemento de la página «{page}»',
+    browserConfirmFillMsg: 'El asistente de IA quiere rellenar un campo de la página «{page}»',
+    browserConfirmPage: 'Página: {url}',
+    browserConfirmSelector: 'Elemento: {selector}',
+    browserConfirmValue: 'Texto que se escribirá: {value}',
+    browserConfirmAllow: 'Permitir',
+    browserConfirmDeny: 'Denegar',
   },
   th: {
     menuTabSave: 'บันทึก',
@@ -1818,6 +1894,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown ไม่มีชื่อ',
     untitledHtml: 'HTML ไม่มีชื่อ',
     untitledPdf: 'PDF ไม่มีชื่อ',
+    untitledBrowser: 'เบราว์เซอร์',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1907,6 +1984,13 @@ const tMain = createI18n({
     pdfDocxLocalCorruptDetail: 'ไฟล์เสียหายหรือไม่ใช่ PDF ที่ถูกต้อง จึงไม่สามารถแปลงได้',
     dlgPickSaveDir: 'เลือกตำแหน่งบันทึกเริ่มต้น',
     errSaveDirUnusable: 'โฟลเดอร์ที่เลือกไม่สามารถเขียนได้ จึงใช้เป็นตำแหน่งบันทึกเริ่มต้นไม่ได้',
+    browserConfirmClickMsg: 'ผู้ช่วย AI ต้องการคลิกองค์ประกอบในหน้า “{page}”',
+    browserConfirmFillMsg: 'ผู้ช่วย AI ต้องการกรอกข้อมูลในหน้า “{page}”',
+    browserConfirmPage: 'หน้า: {url}',
+    browserConfirmSelector: 'องค์ประกอบ: {selector}',
+    browserConfirmValue: 'ข้อความที่จะพิมพ์: {value}',
+    browserConfirmAllow: 'อนุญาต',
+    browserConfirmDeny: 'ปฏิเสธ',
   },
   id: {
     menuTabSave: 'Simpan',
@@ -1947,6 +2031,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown tanpa judul',
     untitledHtml: 'HTML tanpa judul',
     untitledPdf: 'PDF tanpa judul',
+    untitledBrowser: 'Peramban',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2040,6 +2125,13 @@ const tMain = createI18n({
     dlgPickSaveDir: 'Pilih Lokasi Penyimpanan Default',
     errSaveDirUnusable:
       'Folder yang dipilih tidak dapat ditulis dan tidak bisa digunakan sebagai lokasi penyimpanan default',
+    browserConfirmClickMsg: 'Asisten AI ingin mengklik elemen di halaman “{page}”',
+    browserConfirmFillMsg: 'Asisten AI ingin mengisi kolom di halaman “{page}”',
+    browserConfirmPage: 'Halaman: {url}',
+    browserConfirmSelector: 'Elemen: {selector}',
+    browserConfirmValue: 'Teks yang akan diketik: {value}',
+    browserConfirmAllow: 'Izinkan',
+    browserConfirmDeny: 'Tolak',
   },
   ru: {
     menuTabSave: 'Сохранить',
@@ -2080,6 +2172,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown без названия',
     untitledHtml: 'HTML без названия',
     untitledPdf: 'PDF без названия',
+    untitledBrowser: 'Браузер',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2173,6 +2266,13 @@ const tMain = createI18n({
     dlgPickSaveDir: 'Выбрать папку сохранения по умолчанию',
     errSaveDirUnusable:
       'Выбранная папка недоступна для записи и не может использоваться как папка сохранения по умолчанию',
+    browserConfirmClickMsg: 'ИИ-помощник хочет нажать на элемент на странице «{page}»',
+    browserConfirmFillMsg: 'ИИ-помощник хочет заполнить поле на странице «{page}»',
+    browserConfirmPage: 'Страница: {url}',
+    browserConfirmSelector: 'Элемент: {selector}',
+    browserConfirmValue: 'Вводимый текст: {value}',
+    browserConfirmAllow: 'Разрешить',
+    browserConfirmDeny: 'Отклонить',
   },
   ar: {
     menuTabSave: 'حفظ',
@@ -2213,6 +2313,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown بدون عنوان',
     untitledHtml: 'HTML بدون عنوان',
     untitledPdf: 'PDF بدون عنوان',
+    untitledBrowser: 'المتصفح',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2302,6 +2403,13 @@ const tMain = createI18n({
     pdfDocxLocalCorruptDetail: 'الملف تالف أو ليس ملف PDF صالحًا ولا يمكن تحويله.',
     dlgPickSaveDir: 'اختيار موقع الحفظ الافتراضي',
     errSaveDirUnusable: 'المجلد المحدد غير قابل للكتابة ولا يمكن استخدامه كموقع حفظ افتراضي',
+    browserConfirmClickMsg: 'يريد مساعد الذكاء الاصطناعي النقر على عنصر في صفحة «{page}»',
+    browserConfirmFillMsg: 'يريد مساعد الذكاء الاصطناعي تعبئة حقل في صفحة «{page}»',
+    browserConfirmPage: 'الصفحة: {url}',
+    browserConfirmSelector: 'العنصر: {selector}',
+    browserConfirmValue: 'النص الذي سيُكتب: {value}',
+    browserConfirmAllow: 'السماح',
+    browserConfirmDeny: 'الرفض',
   },
   pt: {
     menuTabSave: 'Salvar',
@@ -2342,6 +2450,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown sem título',
     untitledHtml: 'HTML sem título',
     untitledPdf: 'PDF sem título',
+    untitledBrowser: 'Navegador',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2435,6 +2544,13 @@ const tMain = createI18n({
     dlgPickSaveDir: 'Escolher local de salvamento padrão',
     errSaveDirUnusable:
       'A pasta selecionada não permite gravação e não pode ser usada como local de salvamento padrão',
+    browserConfirmClickMsg: 'O assistente de IA quer clicar num elemento da página «{page}»',
+    browserConfirmFillMsg: 'O assistente de IA quer preencher um campo da página «{page}»',
+    browserConfirmPage: 'Página: {url}',
+    browserConfirmSelector: 'Elemento: {selector}',
+    browserConfirmValue: 'Texto a digitar: {value}',
+    browserConfirmAllow: 'Permitir',
+    browserConfirmDeny: 'Recusar',
   },
   it: {
     menuTabSave: 'Salva',
@@ -2475,6 +2591,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown senza titolo',
     untitledHtml: 'HTML senza titolo',
     untitledPdf: 'PDF senza titolo',
+    untitledBrowser: 'Browser',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2568,6 +2685,13 @@ const tMain = createI18n({
     dlgPickSaveDir: 'Scegli la posizione di salvataggio predefinita',
     errSaveDirUnusable:
       'La cartella selezionata non è scrivibile e non può essere usata come posizione di salvataggio predefinita',
+    browserConfirmClickMsg: 'L’assistente IA vuole fare clic su un elemento della pagina «{page}»',
+    browserConfirmFillMsg: 'L’assistente IA vuole compilare un campo della pagina «{page}»',
+    browserConfirmPage: 'Pagina: {url}',
+    browserConfirmSelector: 'Elemento: {selector}',
+    browserConfirmValue: 'Testo da digitare: {value}',
+    browserConfirmAllow: 'Consenti',
+    browserConfirmDeny: 'Nega',
   },
   pl: {
     menuTabSave: 'Zapisz',
@@ -2608,6 +2732,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown bez tytułu',
     untitledHtml: 'HTML bez tytułu',
     untitledPdf: 'PDF bez tytułu',
+    untitledBrowser: 'Przeglądarka',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2701,6 +2826,13 @@ const tMain = createI18n({
     dlgPickSaveDir: 'Wybierz domyślną lokalizację zapisu',
     errSaveDirUnusable:
       'Wybrany folder nie pozwala na zapis i nie może być domyślną lokalizacją zapisu',
+    browserConfirmClickMsg: 'Asystent AI chce kliknąć element na stronie „{page}”',
+    browserConfirmFillMsg: 'Asystent AI chce wypełnić pole na stronie „{page}”',
+    browserConfirmPage: 'Strona: {url}',
+    browserConfirmSelector: 'Element: {selector}',
+    browserConfirmValue: 'Tekst do wpisania: {value}',
+    browserConfirmAllow: 'Zezwól',
+    browserConfirmDeny: 'Odmów',
   },
   cs: {
     menuTabSave: 'Uložit',
@@ -2741,6 +2873,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown bez názvu',
     untitledHtml: 'HTML bez názvu',
     untitledPdf: 'PDF bez názvu',
+    untitledBrowser: 'Prohlížeč',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2832,6 +2965,13 @@ const tMain = createI18n({
     dlgPickSaveDir: 'Zvolte výchozí umístění pro ukládání',
     errSaveDirUnusable:
       'Do vybrané složky nelze zapisovat a nelze ji použít jako výchozí umístění pro ukládání',
+    browserConfirmClickMsg: 'Asistent AI chce kliknout na prvek na stránce „{page}“',
+    browserConfirmFillMsg: 'Asistent AI chce vyplnit pole na stránce „{page}“',
+    browserConfirmPage: 'Stránka: {url}',
+    browserConfirmSelector: 'Prvek: {selector}',
+    browserConfirmValue: 'Text k zadání: {value}',
+    browserConfirmAllow: 'Povolit',
+    browserConfirmDeny: 'Zamítnout',
   },
   nl: {
     menuTabSave: 'Opslaan',
@@ -2872,6 +3012,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Naamloos Markdown',
     untitledHtml: 'Naamloos HTML',
     untitledPdf: 'Naamloze PDF',
+    untitledBrowser: 'Browser',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2965,6 +3106,13 @@ const tMain = createI18n({
     dlgPickSaveDir: 'Standaard opslaglocatie kiezen',
     errSaveDirUnusable:
       'De geselecteerde map is niet beschrijfbaar en kan niet als standaard opslaglocatie worden gebruikt',
+    browserConfirmClickMsg: 'De AI-assistent wil op een element op de pagina ‘{page}’ klikken',
+    browserConfirmFillMsg: 'De AI-assistent wil een veld op de pagina ‘{page}’ invullen',
+    browserConfirmPage: 'Pagina: {url}',
+    browserConfirmSelector: 'Element: {selector}',
+    browserConfirmValue: 'In te voeren tekst: {value}',
+    browserConfirmAllow: 'Toestaan',
+    browserConfirmDeny: 'Weigeren',
   },
   ms: {
     menuTabSave: 'Simpan',
@@ -3005,6 +3153,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown tanpa tajuk',
     untitledHtml: 'HTML tanpa tajuk',
     untitledPdf: 'PDF tanpa tajuk',
+    untitledBrowser: 'Pelayar',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3097,6 +3246,13 @@ const tMain = createI18n({
     dlgPickSaveDir: 'Pilih Lokasi Simpanan Lalai',
     errSaveDirUnusable:
       'Folder yang dipilih tidak boleh ditulis dan tidak dapat digunakan sebagai lokasi simpanan lalai',
+    browserConfirmClickMsg: 'Pembantu AI mahu mengklik elemen pada halaman “{page}”',
+    browserConfirmFillMsg: 'Pembantu AI mahu mengisi medan pada halaman “{page}”',
+    browserConfirmPage: 'Halaman: {url}',
+    browserConfirmSelector: 'Elemen: {selector}',
+    browserConfirmValue: 'Teks yang akan ditaip: {value}',
+    browserConfirmAllow: 'Benarkan',
+    browserConfirmDeny: 'Tolak',
   },
   he: {
     menuTabSave: 'שמירה',
@@ -3137,6 +3293,7 @@ const tMain = createI18n({
     untitledMarkdown: 'Markdown ללא שם',
     untitledHtml: 'HTML ללא שם',
     untitledPdf: 'PDF ללא שם',
+    untitledBrowser: 'דפדפן',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3226,6 +3383,13 @@ const tMain = createI18n({
     dlgPickSaveDir: 'בחירת מיקום שמירה כברירת מחדל',
     errSaveDirUnusable:
       'התיקייה שנבחרה אינה ניתנת לכתיבה ולא ניתן להשתמש בה כמיקום שמירה כברירת מחדל',
+    browserConfirmClickMsg: 'העוזר החכם רוצה ללחוץ על רכיב בדף „{page}”',
+    browserConfirmFillMsg: 'העוזר החכם רוצה למלא שדה בדף „{page}”',
+    browserConfirmPage: 'דף: {url}',
+    browserConfirmSelector: 'רכיב: {selector}',
+    browserConfirmValue: 'טקסט שיוקלד: {value}',
+    browserConfirmAllow: 'לאפשר',
+    browserConfirmDeny: 'לדחות',
   },
   hi: {
     menuTabSave: 'सहेजें',
@@ -3266,6 +3430,7 @@ const tMain = createI18n({
     untitledMarkdown: 'अनाम Markdown',
     untitledHtml: 'अनाम HTML',
     untitledPdf: 'अनाम PDF',
+    untitledBrowser: 'ब्राउज़र',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3359,6 +3524,13 @@ const tMain = createI18n({
     dlgPickSaveDir: 'डिफ़ॉल्ट सहेजने का स्थान चुनें',
     errSaveDirUnusable:
       'चयनित फ़ोल्डर में लिखा नहीं जा सकता, इसलिए इसे डिफ़ॉल्ट सहेजने के स्थान के रूप में उपयोग नहीं किया जा सकता',
+    browserConfirmClickMsg: 'AI सहायक “{page}” पेज के तत्व पर क्लिक करना चाहता है',
+    browserConfirmFillMsg: 'AI सहायक “{page}” पेज के फ़ील्ड में टेक्स्ट भरना चाहता है',
+    browserConfirmPage: 'पेज: {url}',
+    browserConfirmSelector: 'तत्व: {selector}',
+    browserConfirmValue: 'टाइप किया जाने वाला टेक्स्ट: {value}',
+    browserConfirmAllow: 'अनुमति दें',
+    browserConfirmDeny: 'अस्वीकार करें',
   },
   'zh-TW': {
     menuTabSave: '儲存',
@@ -3399,6 +3571,7 @@ const tMain = createI18n({
     untitledMarkdown: '未命名 Markdown',
     untitledHtml: '未命名 HTML',
     untitledPdf: '未命名 PDF',
+    untitledBrowser: '瀏覽器',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3481,6 +3654,13 @@ const tMain = createI18n({
     pdfDocxLocalCorruptDetail: '檔案已損壞或不是有效的 PDF，無法轉換。',
     dlgPickSaveDir: '選擇預設儲存位置',
     errSaveDirUnusable: '所選資料夾無法寫入，無法作為預設儲存位置',
+    browserConfirmClickMsg: 'AI 助理要點擊網頁「{page}」中的元素',
+    browserConfirmFillMsg: 'AI 助理要在網頁「{page}」中填寫內容',
+    browserConfirmPage: '頁面：{url}',
+    browserConfirmSelector: '目標元素：{selector}',
+    browserConfirmValue: '填入內容：{value}',
+    browserConfirmAllow: '允許',
+    browserConfirmDeny: '拒絕',
   },
 })
 
@@ -3491,6 +3671,51 @@ const tm = (key: Parameters<typeof tMain>[1], params?: Parameters<typeof tMain>[
 
 let shellWindow: BrowserWindow | null = null
 let tabManager: TabManager | null = null
+
+/**
+ * The main-side gate for the dock's browser fill/click tools (P1-4): a native
+ * dialog, parented to the shell window whenever it still exists, asking the
+ * person to allow exactly this action on exactly this page. The dock's
+ * confirm card already asked in the renderer — but that card is renderer
+ * state anything in that renderer could bypass, while this dialog can only
+ * pass through a click in a window this process owns. Deny is the default
+ * button, and a dialog that fails (no window, API error) denies too: the gate
+ * fails closed. The cost is a second prompt per page action — the price of
+ * the action tools being the suite's only write surface onto untrusted web
+ * content.
+ */
+async function confirmBrowserPageAction(request: BrowserPageActionConfirm): Promise<boolean> {
+  const host = shellWindow && !shellWindow.isDestroyed() ? shellWindow : undefined
+  const label = request.pageTitle || request.pageUrl
+  // the value can be long; the dialog is a decision surface, not a viewer
+  const value = request.value.slice(0, 200) + (request.value.length > 200 ? '…' : '')
+  try {
+    const options = {
+      type: 'question' as const,
+      buttons: [tm('browserConfirmAllow'), tm('browserConfirmDeny')],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+      message: tm(request.action === 'fill' ? 'browserConfirmFillMsg' : 'browserConfirmClickMsg', {
+        page: label,
+      }),
+      detail:
+        tm('browserConfirmPage', { url: request.pageUrl }) +
+        '\n' +
+        tm('browserConfirmSelector', { selector: request.selector }) +
+        (request.action === 'fill' ? '\n' + tm('browserConfirmValue', { value }) : ''),
+    }
+    // the parent is the shell window when it still exists (error-dialog.ts's
+    // pattern); an unprompted dialog still blocks the action until answered
+    const { response } =
+      host && !host.isDestroyed()
+        ? await dialog.showMessageBox(host, options)
+        : await dialog.showMessageBox(options)
+    return response === 0
+  } catch {
+    return false
+  }
+}
 
 // ---- system presence: tray, global hotkey, login item, genoffice:// deep links ----
 
@@ -4240,6 +4465,16 @@ function newHtmlTab(): void {
   }
 }
 
+/** the desktop's Web tile and the palette's open-browser action land here */
+function newBrowserTab(): void {
+  try {
+    tabManager?.openBrowserTab()
+    analytics.track('file_new', { kind: 'browser' })
+  } catch (err) {
+    surfaceNewTabError(err)
+  }
+}
+
 /**
  * "New PDF" creates a blank single-page .pdf in the default folder up front and
  * opens it as a regular file tab — the PDF module has no in-memory blank mode
@@ -4366,6 +4601,7 @@ function registerHomeIpc(): void {
     newSlideTab,
     newMarkdownTab,
     newHtmlTab,
+    newBrowserTab,
     newPdfTab,
     afterFileMoved,
     afterFolderMoved,
@@ -6013,6 +6249,7 @@ app.whenReady().then(async () => {
     pdf: join(PDF_OUT, 'renderer'),
     markdown: join(MARKDOWN_OUT, 'renderer'),
     html: join(HTML_OUT, 'renderer'),
+    browser: join(BROWSER_OUT, 'renderer'),
     // the manual shares the shell's own renderer bundle (help mode)
     help: join(__dirname, '../renderer'),
   })
@@ -6157,6 +6394,28 @@ app.whenReady().then(async () => {
       markdown: mcpAgentIo.markdown?.read,
       html: mcpAgentIo.html?.read,
     },
+  })
+  // The dock's browser skill (charter W2b): browser:* tool calls land here —
+  // the active browser tab resolves from this enumeration (detached browser
+  // windows first, so a focused one outranks the shell strip's active tab),
+  // and the page webContents behind the tab's chrome view comes from the
+  // creation-order pairing browser-agent tracks. Reads run freely; the
+  // risk:'high' fill/click calls were already gated by the dock's confirmTool
+  // before they crossed this IPC, and the main-side gate below asks the person
+  // once more with a native dialog — the dock's card is renderer state, this
+  // process's ask is not.
+  registerBrowserSkillIpc({
+    listBrowserTabs: async () => [
+      ...(await detachedOpenDocuments()).filter((doc) => doc.kind === 'browser'),
+      ...(tabManager?.list().filter((tab) => tab.kind === 'browser') ?? []),
+    ],
+    webContentsFor: (tabId) =>
+      tabManager?.webContentsForTab(tabId) ?? detachedWebContentsFor(tabId),
+    // the one sender the channel serves: the shell window's own renderer
+    // (the dock's home), never an app tab, a detached window or a page view
+    shellWebContents: () =>
+      shellWindow && !shellWindow.isDestroyed() ? shellWindow.webContents : undefined,
+    confirmPageAction: (request) => confirmBrowserPageAction(request),
   })
   configureMcpRuntime({
     version: app.getVersion(),

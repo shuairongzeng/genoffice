@@ -44,6 +44,27 @@ export type {
   ProxiedAppsDeps,
 } from './proxied-apps-skill'
 export {
+  BROWSER_CLICK_TOOL,
+  BROWSER_FILL_FIELD_TOOL,
+  BROWSER_READ_PAGE_TOOL,
+  BROWSER_SCREENSHOT_TOOL,
+  MAX_FILL_VALUE_CHARS,
+  MAX_SELECTOR_CHARS,
+  READ_PAGE_BUDGET,
+  createBrowserSkill,
+  formatPageOutline,
+} from './browser-skill'
+export type {
+  BrowserActionResult,
+  BrowserOutlineData,
+  BrowserOutlineElement,
+  BrowserPageAnnotation,
+  BrowserPageRead,
+  BrowserScreenshot,
+  BrowserSkillDeps,
+  BrowserTabSnapshot,
+} from './browser-skill'
+export {
   createAttachmentsSkill,
   ATTACHMENT_IMAGE_EXTS,
   ATTACHMENT_READ_CHUNK_CHARS,

@@ -1,4 +1,5 @@
-export type TabKind = 'home' | 'docs' | 'sheets' | 'slides' | 'pdf' | 'markdown' | 'html' | 'help'
+export type TabKind =
+  'home' | 'docs' | 'sheets' | 'slides' | 'pdf' | 'markdown' | 'html' | 'browser' | 'help'
 
 /** a tab that holds a document — every kind except the Home screen and the in-app manual */
 export type DocumentTabKind = Exclude<TabKind, 'home' | 'help'>
@@ -16,6 +17,8 @@ export interface TabSummary {
   dormant?: boolean
   /** excluded from sleeping (tab context menu) */
   pinned?: boolean
+  /** the tab's page favicon (browser tabs); absent when the page has none */
+  faviconUrl?: string
   /**
    * unsaved-changes state, resolved per family (docs needs a renderer
    * round-trip, the rest answer synchronously) — so it only appears on the

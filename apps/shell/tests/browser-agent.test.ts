@@ -1,0 +1,767 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { session } from 'electron'
+import type { WebContents } from 'electron'
+
+/**
+ * The browser skill's shell-main half (src/main/browser-agent.ts): the
+ * active-tab resolution, the chrome-view → page-view pairing rebuilt from
+ * creation order, the tool routing (read / screenshot / fill / click), the
+ * structured error paths (no tab, unreachable page, timeout), the read
+ * budget, the defensive consumption of W2a's `readAnnotationsFor` contract,
+ * and the channel's IPC gate: only the shell window's renderer may call, and
+ * fill/click additionally need the main-side confirmation. Electron and the
+ * browser app's module are faked. (The page script itself — including the
+ * password redaction — runs in browser-agent-read-page.test.ts under jsdom.)
+ */
+
+const browserExports = vi.hoisted(() => ({
+  readAnnotationsFor: undefined as undefined | ((url: string) => unknown),
+}))
+
+vi.mock('../../browser/src/main/browser-main', () => browserExports)
+
+const appOn = vi.hoisted(() => vi.fn())
+const ipcHandlers = vi.hoisted(() => new Map<string, (event: unknown, call: unknown) => unknown>())
+const sessions = vi.hoisted(() => new Map<string, { id: string }>())
+const webContentsById = vi.hoisted(() => new Map<number, unknown>())
+
+vi.mock('electron', () => ({
+  app: { on: appOn },
+  ipcMain: {
+    handle: (channel: string, handler: (event: unknown, call: unknown) => unknown) => {
+      ipcHandlers.set(channel, handler)
+    },
+  },
+  session: {
+    fromPartition: (partition: string) => {
+      let s = sessions.get(partition)
+      if (!s) {
+        s = { id: partition }
+        sessions.set(partition, s)
+      }
+      return s
+    },
+  },
+  webContents: {
+    fromId: (id: number) => webContentsById.get(id),
+  },
+}))
+
+import {
+  BROWSER_CLICK_TOOL,
+  BROWSER_FILL_FIELD_TOOL,
+  BROWSER_READ_PAGE_TOOL,
+  BROWSER_SCREENSHOT_TOOL,
+  type BrowserPageRead,
+} from '@genoffice/agent-core'
+import {
+  BrowserPageLinks,
+  browserAnnotationsFor,
+  executeBrowserSkillAction,
+  registerBrowserSkillIpc,
+  resolveActiveBrowserTab,
+  BROWSER_SKILL_CHANNEL,
+  type BrowserAgentDeps,
+  type BrowserAgentIpcDeps,
+  type BrowserTabLike,
+} from '../src/main/browser-agent'
+
+// ── fakes ───────────────────────────────────────────────────────────────────
+
+interface FakeWc {
+  id: number
+  session?: { id: string }
+  executeJavaScript: ReturnType<typeof vi.fn>
+  executeJavaScriptInIsolatedWorld: ReturnType<typeof vi.fn>
+  capturePage: ReturnType<typeof vi.fn>
+  isDestroyed: () => boolean
+  getURL: () => string
+  getTitle: () => string
+}
+
+let nextWcId = 1
+
+function makeWc(overrides: Partial<FakeWc> = {}): FakeWc {
+  const wc: FakeWc = {
+    id: nextWcId++,
+    executeJavaScript: vi.fn(async () => ({})),
+    executeJavaScriptInIsolatedWorld: vi.fn(async () => ({ ok: true, detail: 'done' })),
+    capturePage: vi.fn(async () => ({
+      isEmpty: () => false,
+      getSize: () => ({ width: 1280, height: 800 }),
+      resize: () => {
+        throw new Error('resize not expected')
+      },
+      toPNG: () => Buffer.from('png-bytes'),
+    })),
+    isDestroyed: () => false,
+    getURL: () => 'https://example.com/',
+    getTitle: () => 'Example Domain',
+    ...overrides,
+  }
+  return wc
+}
+
+const asWc = (wc: FakeWc): WebContents => wc as unknown as WebContents
+
+/** a page script answer shaped like READ_PAGE_SCRIPT's */
+const OUTLINE = {
+  url: 'https://example.com/',
+  title: 'Example Domain',
+  textBlocks: ['Hello world', 'More text'],
+  elements: [
+    { selector: '#q', tag: 'input', role: 'input', text: '', type: 'search' },
+    { selector: 'a:nth-child(2)', tag: 'a', role: 'link', text: 'About us' },
+  ],
+}
+
+/** deps wired at a chrome and a page, with the tab list given per test */
+function depsWith(
+  chrome: FakeWc,
+  page: FakeWc,
+  tabs: readonly BrowserTabLike[],
+  extra: Partial<BrowserAgentDeps> = {},
+): BrowserAgentDeps {
+  return {
+    listBrowserTabs: () => tabs,
+    webContentsFor: (tabId) => (tabId === 't1' ? asWc(chrome) : undefined),
+    pageFor: (candidate) => (candidate === chrome ? asWc(page) : undefined),
+    // the main-side confirmation is granted by default; the gate's own tests
+    // inject the decisions that matter
+    confirmAction: () => Promise.resolve(true),
+    ...extra,
+  }
+}
+
+const TAB: BrowserTabLike = { id: 't1', kind: 'browser', title: 'Example Domain', active: true }
+
+// ── the active tab resolution ──────────────────────────────────────────────
+
+describe('resolveActiveBrowserTab', () => {
+  const tab = (over: Partial<BrowserTabLike>): BrowserTabLike => ({
+    id: 'x',
+    kind: 'browser',
+    title: 't',
+    active: false,
+    ...over,
+  })
+
+  it('picks the active tab when it is a browser tab', () => {
+    const tabs = [
+      tab({ id: 'a' }),
+      tab({ id: 'b', active: true }),
+      { id: 'd', kind: 'docs', title: 'x', active: false },
+    ]
+    expect(resolveActiveBrowserTab(tabs)?.id).toBe('b')
+  })
+
+  it('falls back to the last browser tab when the active tab is another app', () => {
+    const tabs = [
+      tab({ id: 'a' }),
+      tab({ id: 'b' }),
+      { id: 'd', kind: 'docs', title: 'x', active: true },
+    ]
+    expect(resolveActiveBrowserTab(tabs)?.id).toBe('b')
+  })
+
+  it('no browser tab at all answers undefined', () => {
+    expect(resolveActiveBrowserTab([])).toBeUndefined()
+    expect(
+      resolveActiveBrowserTab([{ id: 'd', kind: 'docs', title: 'x', active: true }]),
+    ).toBeUndefined()
+  })
+})
+
+// ── the chrome → page pairing ───────────────────────────────────────────────
+
+describe('BrowserPageLinks', () => {
+  const pageIds = new Set([10, 12])
+  const links = () => new BrowserPageLinks((wc) => pageIds.has(wc.id))
+
+  it('pairs each page view with the chrome view created just before it', () => {
+    const l = links()
+    l.observeCreated({ id: 9 }) // chrome 1
+    l.observeCreated({ id: 10 }) // page 1
+    l.observeCreated({ id: 11 }) // chrome 2
+    l.observeCreated({ id: 12 }) // page 2
+    expect(l.pageOf(9)).toBe(10)
+    expect(l.pageOf(11)).toBe(12)
+    expect(l.pageOf(10)).toBeUndefined()
+  })
+
+  it('a second page view never pairs with another page view', () => {
+    const l = links()
+    l.observeCreated({ id: 9 })
+    l.observeCreated({ id: 10 })
+    l.observeCreated({ id: 12 }) // a second page without a chrome between
+    expect(l.pageOf(9)).toBe(12)
+    expect(l.pageOf(10)).toBeUndefined()
+  })
+
+  it('forgets both sides of a pairing', () => {
+    const l = links()
+    l.observeCreated({ id: 9 })
+    l.observeCreated({ id: 10 })
+    l.forget(10)
+    expect(l.pageOf(9)).toBeUndefined()
+    // the chrome side alone is gone too (forget by the other id works)
+    l.observeCreated({ id: 21 })
+    l.observeCreated({ id: 22 })
+    l.forget(21)
+    expect(l.pageOf(21)).toBeUndefined()
+  })
+})
+
+// ── the W2a annotation contract ────────────────────────────────────────────
+
+describe('browserAnnotationsFor (the readAnnotationsFor contract)', () => {
+  beforeEach(() => {
+    browserExports.readAnnotationsFor = undefined
+  })
+
+  it('answers the empty list when the browser side has no function yet (W2a not landed)', () => {
+    browserExports.readAnnotationsFor = undefined
+    expect(browserAnnotationsFor('https://example.com/')).toEqual([])
+  })
+
+  it('keeps the well-formed annotations and clips their fields', () => {
+    browserExports.readAnnotationsFor = () => [
+      { note: 'what is this?', textSnippet: 'Hello', selector: 'p:nth-of-type(1)' },
+      { note: 7 }, // junk: dropped
+      'nope', // junk: dropped
+      { note: 'x'.repeat(600) }, // clipped
+    ]
+    const out = browserAnnotationsFor('https://example.com/')
+    expect(out).toHaveLength(2)
+    expect(out[0]).toEqual({
+      note: 'what is this?',
+      textSnippet: 'Hello',
+      selector: 'p:nth-of-type(1)',
+    })
+    expect(out[1]!.note!.length).toBe(400)
+  })
+
+  it('a throwing store answers the empty list, not a failed read', () => {
+    browserExports.readAnnotationsFor = () => {
+      throw new Error('store exploded')
+    }
+    expect(browserAnnotationsFor('https://example.com/')).toEqual([])
+  })
+
+  it('a non-array answer reads as no annotations', () => {
+    browserExports.readAnnotationsFor = () => ({ not: 'an array' })
+    expect(browserAnnotationsFor('https://example.com/')).toEqual([])
+  })
+})
+
+// ── the tool routing ───────────────────────────────────────────────────────
+
+describe('executeBrowserSkillAction', () => {
+  beforeEach(() => {
+    browserExports.readAnnotationsFor = undefined
+  })
+
+  it('read_page runs the outline script on the page and formats within the budget', async () => {
+    const chrome = makeWc()
+    const page = makeWc({
+      executeJavaScript: vi.fn(async () => structuredClone(OUTLINE)),
+    })
+    const read = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_READ_PAGE_TOOL,
+      {},
+    )) as BrowserPageRead
+    expect(page.executeJavaScript).toHaveBeenCalledTimes(1)
+    expect(page.executeJavaScript.mock.calls[0]![0]).toMatch(/location\.href/)
+    expect(read.url).toBe('https://example.com/')
+    expect(read.title).toBe('Example Domain')
+    expect(read.outline).toContain('# Example Domain')
+    expect(read.outline).toContain('## Text blocks (2)')
+    expect(read.outline).toContain('## Interactive elements (2)')
+    expect(read.outline).toContain('- #q  (input · type=search)')
+    expect(read.outline).toContain('- a:nth-child(2)  (link · "About us")')
+    expect(read.annotations).toEqual([])
+    expect(read.truncated).toBeUndefined()
+  })
+
+  it('read_page carries the page url to the annotation reader and renders its annotations', async () => {
+    browserExports.readAnnotationsFor = (url) => {
+      expect(url).toBe('https://example.com/')
+      return [{ note: 'what is this?', textSnippet: 'Hello', selector: 'p:nth-of-type(1)' }]
+    }
+    const chrome = makeWc()
+    const page = makeWc({ executeJavaScript: vi.fn(async () => structuredClone(OUTLINE)) })
+    const read = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_READ_PAGE_TOOL,
+      {},
+    )) as BrowserPageRead
+    expect(read.annotations).toEqual([
+      { note: 'what is this?', textSnippet: 'Hello', selector: 'p:nth-of-type(1)' },
+    ])
+    expect(read.outline).toContain('## Annotations the user left on this page (1)')
+    expect(read.outline).toContain('what is this? — "Hello" (p:nth-of-type(1))')
+  })
+
+  it('a deps-provided reader outranks the module default', async () => {
+    browserExports.readAnnotationsFor = () => [{ note: 'from the browser module' }]
+    const chrome = makeWc()
+    const page = makeWc({ executeJavaScript: vi.fn(async () => structuredClone(OUTLINE)) })
+    const read = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB], { readAnnotations: () => [{ note: 'from deps' }] }),
+      BROWSER_READ_PAGE_TOOL,
+      {},
+    )) as BrowserPageRead
+    expect(read.annotations).toEqual([{ note: 'from deps' }])
+  })
+
+  it('an oversized outline is truncated with the budget marker', async () => {
+    const chrome = makeWc()
+    const page = makeWc({
+      executeJavaScript: vi.fn(async () => ({
+        url: 'https://example.com/',
+        title: 't',
+        textBlocks: Array.from({ length: 40 }, () => 'x'.repeat(600)),
+        elements: [],
+      })),
+    })
+    const read = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_READ_PAGE_TOOL,
+      {},
+    )) as BrowserPageRead
+    expect(read.outline.length).toBeLessThanOrEqual(8200)
+    expect(read.outline).toContain('outline truncated to the read budget')
+    expect(read.truncated).toBe(true)
+  })
+
+  it('a page script that rejects answers a structured error', async () => {
+    const chrome = makeWc()
+    const page = makeWc({
+      executeJavaScript: vi.fn(() => Promise.reject(new Error('script blew up'))),
+    })
+    await expect(
+      executeBrowserSkillAction(depsWith(chrome, page, [TAB]), BROWSER_READ_PAGE_TOOL, {}),
+    ).rejects.toThrow(/the page did not answer the read: script blew up/)
+  })
+
+  it('a page that never answers times out with a structured error', async () => {
+    vi.useFakeTimers()
+    try {
+      const chrome = makeWc()
+      const page = makeWc({
+        executeJavaScript: vi.fn(() => new Promise(() => {})),
+      })
+      const attempt = executeBrowserSkillAction(
+        depsWith(chrome, page, [TAB]),
+        BROWSER_READ_PAGE_TOOL,
+        {},
+      )
+      // let the call reach withTimeout and arm its timer before advancing it
+      await Promise.resolve()
+      await Promise.resolve()
+      vi.advanceTimersByTime(10_001)
+      await expect(attempt).rejects.toThrow(/reading the page timed out/)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('no browser tab answers the guiding error', async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    await expect(
+      executeBrowserSkillAction(depsWith(chrome, page, []), BROWSER_READ_PAGE_TOOL, {}),
+    ).rejects.toThrow(/no browser tab is open/)
+    await expect(
+      executeBrowserSkillAction(
+        {
+          ...depsWith(chrome, page, []),
+          listBrowserTabs: () => [{ id: 'd', kind: 'docs', title: 'x', active: true }],
+        },
+        BROWSER_SCREENSHOT_TOOL,
+        {},
+      ),
+    ).rejects.toThrow(/no browser tab is open/)
+  })
+
+  it('a tab whose chrome or page is unreachable answers a structured error', async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    await expect(
+      executeBrowserSkillAction(
+        { ...depsWith(chrome, page, [TAB]), webContentsFor: () => undefined },
+        BROWSER_READ_PAGE_TOOL,
+        {},
+      ),
+    ).rejects.toThrow(/no longer live/)
+    await expect(
+      executeBrowserSkillAction(
+        { ...depsWith(chrome, page, [TAB]), pageFor: () => undefined },
+        BROWSER_READ_PAGE_TOOL,
+        {},
+      ),
+    ).rejects.toThrow(/not reachable/)
+  })
+
+  it('screenshot_page captures, caps the width and answers the image payload', async () => {
+    const chrome = makeWc()
+    const page = makeWc({
+      capturePage: vi.fn(async () => ({
+        isEmpty: () => false,
+        getSize: () => ({ width: 2000, height: 1250 }),
+        resize: vi.fn(() => ({
+          isEmpty: () => false,
+          getSize: () => ({ width: 1280, height: 800 }),
+          toPNG: () => Buffer.from('png-bytes'),
+        })),
+        toPNG: () => Buffer.from('png-bytes'),
+      })),
+    })
+    const shot = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_SCREENSHOT_TOOL,
+      {},
+    )) as { base64: string; mime: string; width: number; height: number; url: string }
+    expect(shot).toMatchObject({
+      base64: Buffer.from('png-bytes').toString('base64'),
+      mime: 'image/png',
+      width: 1280,
+      height: 800,
+      url: 'https://example.com/',
+    })
+  })
+
+  it('a page with nothing visible to capture answers a structured error', async () => {
+    const chrome = makeWc()
+    const page = makeWc({
+      capturePage: vi.fn(async () => ({
+        isEmpty: () => true,
+        getSize: () => ({ width: 0, height: 0 }),
+      })),
+    })
+    await expect(
+      executeBrowserSkillAction(depsWith(chrome, page, [TAB]), BROWSER_SCREENSHOT_TOOL, {}),
+    ).rejects.toThrow(/nothing visible to capture/)
+  })
+
+  it('fill_field injects the isolated-world script with JSON-escaped arguments', async () => {
+    const chrome = makeWc()
+    const page = makeWc({
+      executeJavaScriptInIsolatedWorld: vi.fn(async () => ({
+        ok: true,
+        detail: 'filled #q with "hello"',
+      })),
+    })
+    const result = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_FILL_FIELD_TOOL,
+      { selector: '#q', value: 'hello' },
+    )) as { ok: boolean; detail: string }
+    expect(result).toEqual({ ok: true, detail: 'filled #q with "hello"' })
+    // the action runs in an isolated world, with the user gesture the
+    // confirmation gate granted
+    expect(page.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(
+      42,
+      [{ code: expect.any(String) }],
+      true,
+    )
+    const code = page.executeJavaScriptInIsolatedWorld.mock.calls[0]![1][0]!.code as string
+    // arguments travel as a JSON literal — never interpolated
+    expect(code).toContain(
+      JSON.stringify({ action: 'fill', selector: '#q', value: 'hello' }).slice(0, -1),
+    )
+    // a selector with quotes stays quoted, not escaping the script
+    const hostile = page.executeJavaScriptInIsolatedWorld.mock.calls
+    expect(hostile).toHaveLength(1)
+  })
+
+  it('a quoted selector cannot escape the injected script', async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    await executeBrowserSkillAction(depsWith(chrome, page, [TAB]), BROWSER_CLICK_TOOL, {
+      selector: '#q"); throw new Error("pwned',
+    })
+    const code = page.executeJavaScriptInIsolatedWorld.mock.calls[0]![1][0]!.code as string
+    // the whole selector rides inside the JSON literal
+    expect(code).toContain(
+      JSON.stringify({
+        action: 'click',
+        selector: '#q"); throw new Error("pwned',
+        value: '',
+      }).slice(0, -1),
+    )
+    expect(code).not.toMatch(/throw new Error\("pwned"\)/)
+  })
+
+  it('fill_field with a bad selector or value answers a structured error before the page', async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    const deps = depsWith(chrome, page, [TAB])
+    await expect(
+      executeBrowserSkillAction(deps, BROWSER_FILL_FIELD_TOOL, { selector: '' }),
+    ).rejects.toThrow(/selector/)
+    await expect(
+      executeBrowserSkillAction(deps, BROWSER_FILL_FIELD_TOOL, { selector: 7, value: 'x' }),
+    ).rejects.toThrow(/selector/)
+    await expect(
+      executeBrowserSkillAction(deps, BROWSER_FILL_FIELD_TOOL, { selector: '#q' }),
+    ).rejects.toThrow(/value/)
+    await expect(
+      executeBrowserSkillAction(deps, BROWSER_CLICK_TOOL, { selector: '#q'.repeat(600) }),
+    ).rejects.toThrow(/at most 500 characters/)
+    expect(page.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled()
+  })
+
+  it('a page action failure reports the structured detail', async () => {
+    const chrome = makeWc()
+    const page = makeWc({
+      executeJavaScriptInIsolatedWorld: vi.fn(async () => ({
+        ok: false,
+        detail: 'no element matches "#gone" — the page may have changed; read the page again',
+      })),
+    })
+    const result = await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_CLICK_TOOL,
+      {
+        selector: '#gone',
+      },
+    )
+    expect(result).toEqual({
+      ok: false,
+      detail: 'no element matches "#gone" — the page may have changed; read the page again',
+    })
+  })
+
+  it('an action the page rejects (script throw) reports a structured failure, not a rejection', async () => {
+    const chrome = makeWc()
+    const page = makeWc({
+      executeJavaScriptInIsolatedWorld: vi.fn(() =>
+        Promise.reject(new Error('page renderer gone')),
+      ),
+    })
+    const result = await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_CLICK_TOOL,
+      {
+        selector: '#q',
+      },
+    )
+    expect(result).toEqual({
+      ok: false,
+      detail: 'the page rejected the click: page renderer gone',
+    })
+  })
+
+  it('an unknown tool answers an error', async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    await expect(
+      executeBrowserSkillAction(depsWith(chrome, page, [TAB]), 'browser:navigate', {}),
+    ).rejects.toThrow(/unknown browser tool/)
+  })
+})
+
+// ── the IPC registration ───────────────────────────────────────────────────
+
+describe('registerBrowserSkillIpc', () => {
+  beforeEach(() => {
+    appOn.mockClear()
+    ipcHandlers.clear()
+    webContentsById.clear()
+    sessions.clear()
+    browserExports.readAnnotationsFor = undefined
+  })
+
+  it('watches web-contents-created and serves the channel against the pairing', async () => {
+    const shellWc = { id: 201, isDestroyed: () => false } as unknown as WebContents
+    registerBrowserSkillIpc({
+      listBrowserTabs: () => [TAB],
+      webContentsFor: (tabId) =>
+        tabId === 't1'
+          ? ({ id: 101, isDestroyed: () => false } as unknown as WebContents)
+          : undefined,
+      shellWebContents: () => shellWc,
+      confirmPageAction: async () => true,
+    })
+    // the pairing watcher registered
+    expect(appOn).toHaveBeenCalledWith('web-contents-created', expect.any(Function))
+    const observe = appOn.mock.calls[0]![1] as (event: unknown, wc: unknown) => void
+    // the page view must carry the session object the mocked fromPartition
+    // hands out — pairing is by session identity
+    const browserSession = (
+      (await import('electron')) as { session: { fromPartition: (p: string) => unknown } }
+    ).session.fromPartition('persist:browser')
+    const page = makeWc({
+      id: 102,
+      session: browserSession as FakeWc['session'],
+      executeJavaScript: vi.fn(async () => structuredClone(OUTLINE)),
+    })
+    webContentsById.set(102, page)
+    // chrome view (no browser session) then its nested page view
+    observe({}, makeWc({ id: 101 }))
+    observe({}, page)
+    const handler = ipcHandlers.get(BROWSER_SKILL_CHANNEL)!
+    const event = { sender: shellWc }
+    const read = (await handler(event, {
+      tool: BROWSER_READ_PAGE_TOOL,
+      input: {},
+    })) as BrowserPageRead
+    expect(read.title).toBe('Example Domain')
+    expect(page.executeJavaScript).toHaveBeenCalled()
+  })
+
+  it('rejects a malformed call shape', async () => {
+    const shellWc = { id: 201, isDestroyed: () => false } as unknown as WebContents
+    registerBrowserSkillIpc({
+      listBrowserTabs: () => [],
+      webContentsFor: () => undefined,
+      shellWebContents: () => shellWc,
+      confirmPageAction: async () => true,
+    })
+    const handler = ipcHandlers.get(BROWSER_SKILL_CHANNEL)!
+    const event = { sender: shellWc }
+    await expect(handler(event, {})).rejects.toThrow(/requires a tool name/)
+    await expect(handler(event, { tool: 'browser:read_page', input: 'nope' })).rejects.toThrow(
+      /input must be an object/,
+    )
+  })
+})
+
+// ── the IPC gate (P1-4) ─────────────────────────────────────────────────────
+
+describe('the browserskill:execute gate (P1-4)', () => {
+  /**
+   * One registered channel with the pairing already established: a chrome
+   * view, its nested page view (paired by the mocked session identity), and
+   * the shell window's webContents the sender check compares against.
+   */
+  function setupChannel(over: Partial<BrowserAgentIpcDeps> = {}): {
+    page: FakeWc
+    shellWc: FakeWc
+    handler: (event: unknown, call: unknown) => Promise<unknown>
+    event: { sender: FakeWc }
+  } {
+    const browserSession = session.fromPartition('persist:browser')
+    const chrome = makeWc({ id: 101 })
+    const page = makeWc({
+      id: 102,
+      session: browserSession as FakeWc['session'],
+      executeJavaScriptInIsolatedWorld: vi.fn(async () => ({ ok: true, detail: 'done' })),
+    })
+    const shellWc = makeWc({ id: 201 })
+    webContentsById.set(102, page)
+    registerBrowserSkillIpc({
+      listBrowserTabs: () => [TAB],
+      webContentsFor: (tabId) => (tabId === 't1' ? asWc(chrome) : undefined),
+      shellWebContents: () => asWc(shellWc),
+      confirmPageAction: async () => true,
+      ...over,
+    })
+    const observe = appOn.mock.calls.find((call) => call[0] === 'web-contents-created')![1] as (
+      event: unknown,
+      wc: unknown,
+    ) => void
+    observe({}, chrome)
+    observe({}, page)
+    return {
+      page,
+      shellWc,
+      handler: ipcHandlers.get(BROWSER_SKILL_CHANNEL)!,
+      event: { sender: shellWc },
+    }
+  }
+
+  beforeEach(() => {
+    appOn.mockClear()
+    ipcHandlers.clear()
+    webContentsById.clear()
+    sessions.clear()
+    browserExports.readAnnotationsFor = undefined
+  })
+
+  it('refuses a sender that is not the shell window webContents, before parsing the call', async () => {
+    const { handler } = setupChannel()
+    const other = makeWc()
+    await expect(
+      handler({ sender: other }, { tool: BROWSER_READ_PAGE_TOOL, input: {} }),
+    ).rejects.toThrow(/not callable from this sender/)
+    // a missing or destroyed shell window fails closed the same way
+    const destroyed = setupChannel({
+      shellWebContents: () => ({ isDestroyed: () => true }) as unknown as WebContents,
+    })
+    await expect(
+      destroyed.handler({ sender: destroyed.shellWc }, { tool: BROWSER_READ_PAGE_TOOL }),
+    ).rejects.toThrow(/not callable from this sender/)
+    const gone = setupChannel({ shellWebContents: () => undefined })
+    await expect(
+      gone.handler({ sender: gone.shellWc }, { tool: BROWSER_READ_PAGE_TOOL }),
+    ).rejects.toThrow(/not callable from this sender/)
+  })
+
+  it('refuses a fill whose main-side confirmation was not granted', async () => {
+    const confirm = vi.fn(async () => false)
+    const { page, handler, event } = setupChannel({ confirmPageAction: confirm })
+    await expect(
+      handler(event, { tool: BROWSER_FILL_FIELD_TOOL, input: { selector: '#q', value: 'x' } }),
+    ).rejects.toThrow(/declined this page action/)
+    expect(page.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled()
+    // the ask carried the exact action it was gating
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool: BROWSER_FILL_FIELD_TOOL,
+        action: 'fill',
+        selector: '#q',
+        value: 'x',
+        pageTitle: 'Example Domain',
+        pageUrl: 'https://example.com/',
+      }),
+    )
+  })
+
+  it('refuses a click without the main-side confirmation too', async () => {
+    const { page, handler, event } = setupChannel({ confirmPageAction: async () => false })
+    await expect(
+      handler(event, { tool: BROWSER_CLICK_TOOL, input: { selector: '#q' } }),
+    ).rejects.toThrow(/declined this page action/)
+    expect(page.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled()
+  })
+
+  it('runs the action once the main-side confirmation grants it', async () => {
+    const { page, handler, event } = setupChannel()
+    const result = (await handler(event, {
+      tool: BROWSER_CLICK_TOOL,
+      input: { selector: '#q' },
+    })) as { ok: boolean; detail: string }
+    expect(result).toEqual({ ok: true, detail: 'done' })
+    expect(page.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(
+      42,
+      [{ code: expect.any(String) }],
+      true,
+    )
+  })
+
+  it('fails closed when the confirmation itself throws', async () => {
+    const { page, handler, event } = setupChannel({
+      confirmPageAction: () => Promise.reject(new Error('dialog exploded')),
+    })
+    await expect(
+      handler(event, { tool: BROWSER_CLICK_TOOL, input: { selector: '#q' } }),
+    ).rejects.toThrow(/declined this page action/)
+    expect(page.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled()
+  })
+
+  it('validates the input before asking for the confirmation', async () => {
+    const confirm = vi.fn(async () => true)
+    const { page, handler, event } = setupChannel({ confirmPageAction: confirm })
+    await expect(
+      handler(event, { tool: BROWSER_FILL_FIELD_TOOL, input: { selector: '#q' } }),
+    ).rejects.toThrow(/value/)
+    await expect(
+      handler(event, { tool: BROWSER_CLICK_TOOL, input: { selector: '' } }),
+    ).rejects.toThrow(/selector/)
+    expect(confirm).not.toHaveBeenCalled()
+    expect(page.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled()
+  })
+})

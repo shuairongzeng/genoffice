@@ -39,6 +39,8 @@ interface TabRecord {
   view: WebContentsView | null
   title: string
   filePath?: string
+  /** the page's favicon (browser tabs), pushed to the strip entries */
+  favicon?: string
   /** chrome-free Present tab: no file, no editor menu or save/export targets */
   present?: boolean
   /** when the tab last became or stopped being the active one */
@@ -404,6 +406,7 @@ export class TabManager {
       closable: tab.id !== HOME_ID,
       active: tab.id === this.activeId,
       ...(tab.filePath ? { filePath: tab.filePath } : {}),
+      ...(tab.favicon ? { faviconUrl: tab.favicon } : {}),
       ...(tab.dormant ? { dormant: true } : {}),
       ...(tab.pinned ? { pinned: true } : {}),
     }
@@ -412,7 +415,9 @@ export class TabManager {
   /**
    * Documents an MCP agent may act on: every editor tab except Home (no file)
    * and chrome-free Present tabs (a live preview of another tab's document, so
-   * acting on it would double-count that document).
+   * acting on it would double-count that document). Apps that host no
+   * agent-editable documents (browser: web pages) are skipped by their
+   * descriptor's `agentDocument: false`.
    *
    * Dirtiness is resolved here per family because it is not uniform — five
    * families answer synchronously in the main process, docs has to ask its
@@ -420,7 +425,11 @@ export class TabManager {
    */
   async openDocuments(): Promise<OpenDocumentTab[]> {
     const tabs = this.tabs.filter(
-      (tab) => tab.kind !== 'home' && !tab.present && (tab.view || tab.dormant),
+      (tab) =>
+        tab.kind !== 'home' &&
+        !tab.present &&
+        (tab.view || tab.dormant) &&
+        appForKind(tab.kind)?.agentDocument !== false,
     )
     return Promise.all(
       tabs.map(async (tab) => ({
@@ -544,6 +553,11 @@ export class TabManager {
     return this.openDocumentTab('html', openPath)
   }
 
+  /** open a browser tab (the chrome view loads; its nested page view starts empty) */
+  openBrowserTab(): string {
+    return this.openDocumentTab('browser')
+  }
+
   /** Present → New tab: a chrome-free html tab showing the owner tab's live preview */
   openHtmlPresentTab(owner: WebContents, title: string): string {
     const descriptor = appForKind('html')!
@@ -657,11 +671,21 @@ export class TabManager {
     this.onChanged()
   }
 
-  /** an untitled document named itself before its first save (html: from the first AI request) */
+  /** an untitled document named itself before its first save (html: from the first AI request);
+   *  browser tabs retitle continuously the same way — their page owns the title */
   setTabTitleFor(webContentsId: number, title: string): void {
     const tab = this.tabs.find((t) => t.view?.webContents.id === webContentsId)
     if (!tab || tab.filePath || tab.title === title) return
     tab.title = title
+    this.onChanged()
+  }
+
+  /** a browser tab's page published (or dropped) its favicon — sync the strip entry */
+  setTabFaviconFor(webContentsId: number, faviconUrl: string | null): void {
+    const tab = this.tabs.find((t) => t.view?.webContents.id === webContentsId)
+    if (!tab || tab.favicon === faviconUrl) return
+    if (faviconUrl === null) delete tab.favicon
+    else tab.favicon = faviconUrl
     this.onChanged()
   }
 

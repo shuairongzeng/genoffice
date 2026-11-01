@@ -12,6 +12,7 @@ export type AppTile =
   | 'pdf'
   | 'markdown'
   | 'html'
+  | 'browser'
   | 'ask'
   | 'templates'
   | 'plugins'
@@ -148,7 +149,15 @@ function createAppsProvider(): DesktopItemProvider {
           title: s.appMarkdown,
           open: () => void api.newMarkdown?.(),
         },
-        { id: 'app:html', tile: 'html', title: s.appHtml, open: () => void api.newHtml?.() },
+        // the Web tile opens the *browser* app, not the html editor: the
+        // browser app browses the live web in tabs; the html app edits .html
+        // files (still reachable from the New menu and by opening a file)
+        {
+          id: 'app:browser',
+          tile: 'browser',
+          title: s.appHtml,
+          open: () => void api.newBrowser?.(),
+        },
         { id: 'app:ask', tile: 'ask', title: s.appAsk, open: ctx.onOpenAsk },
         {
           id: 'app:templates',

@@ -52,6 +52,7 @@ export async function collectHomeTabsState(
     id: tab.id,
     kind: tab.kind,
     title: tab.title,
+    ...(tab.faviconUrl ? { faviconUrl: tab.faviconUrl } : {}),
     active: tab.active,
     dirty: tab.dirty ?? false,
     detached: false,

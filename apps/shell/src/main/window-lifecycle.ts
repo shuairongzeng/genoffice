@@ -34,6 +34,9 @@ import {
   projectFileRenamed,
   recordRecentFile,
   replaceRecentFile,
+  setBrowserShellHooks,
+  BROWSER_CHANNELS,
+  browserNavigate,
   setDocsFileOpenedHook,
   setDocsFileSavedHook,
   setDocsHostWindowHook,
@@ -346,6 +349,43 @@ function wireEditorHooks(win: BrowserWindow, manager: TabManager, deps: ShellWin
   setHtmlProvisionalTitleHook((wc, title) => {
     manager.setTabTitleFor(wc.id, title)
     detachedSetTitleFor(wc.id, title)
+  })
+  // ── the browser app's shell hooks ────────────────────────────────────────
+  // The browser manages its own views (chrome + the nested page view); this is
+  // the whole shell cooperation it needs, wired through the AppDescriptor
+  // registry's re-exports — no home-api surface of its own.
+  setBrowserShellHooks({
+    // target=_blank from a page: a new browser tab joins the strip (the
+    // desktop's embedded tab strip gains a row) and loads the URL
+    openTab: (url) => {
+      const tabManager = ensureTabManager(deps)
+      const id = tabManager.openBrowserTab()
+      const wc = tabManager.webContentsForTab(id)
+      if (url && wc) browserNavigate(wc, url)
+    },
+    // a page's title landed: sync the shell tab and any detached entry
+    setTabTitle: (wc, title) => {
+      manager.setTabTitleFor(wc.id, title)
+      detachedSetTitleFor(wc.id, title)
+    },
+    // a page's favicon landed: the strip entry carries it (detached entries
+    // do not render favicons)
+    setTabFavicon: (wc, faviconUrl) => {
+      manager.setTabFaviconFor(wc.id, faviconUrl)
+    },
+    // Ctrl/Cmd+K inside a web page summons the palette like every shell surface
+    summonPalette: () => {
+      if (deps.getTabManager()) deps.getTabManager()!.summonPalette()
+      else manager.summonPalette()
+    },
+    // "Ask AI" on a browser annotation: the dock lives in this window's
+    // renderer (the chrome cannot reach window.aiOffice across webContents),
+    // so the event rides the browser:ask-about channel to it. The dock treats
+    // the payload as a parked question draft with attachment context — the
+    // person sends it with an explicit Enter, like a web-supplied deep link.
+    askAbout: (payload) => {
+      deps.sendToShellRenderer(BROWSER_CHANNELS.askAbout, payload)
+    },
   })
   // A redacted copy becomes this tab's document; the source still exists.
   setPdfRedactionSavedHook((wc, path) => {

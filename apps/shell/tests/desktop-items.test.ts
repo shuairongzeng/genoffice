@@ -74,6 +74,21 @@ describe('defaultDesktopProviders', () => {
       'widgets',
     ])
   })
+
+  it('the 网页/Web tile opens the browser app, not the html editor', () => {
+    const newBrowser = vi.fn()
+    const newHtml = vi.fn()
+    const items = mergeDesktopItems(
+      defaultDesktopProviders(),
+      ctx({ api: { newBrowser, newHtml } }),
+    )
+    const tile = items.find((item) => item.id === 'app:browser')
+    expect(tile?.tile).toBe('browser')
+    expect(tile?.title).toBe(strings.appHtml)
+    tile?.open()
+    expect(newBrowser).toHaveBeenCalledTimes(1)
+    expect(newHtml).not.toHaveBeenCalled()
+  })
 })
 
 describe('mergeDesktopItems', () => {

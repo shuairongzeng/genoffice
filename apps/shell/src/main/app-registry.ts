@@ -52,6 +52,11 @@ import {
   htmlSaveToPath,
   requestHtmlClose,
 } from '../../../html/src/main/html-main'
+import {
+  createBrowserView,
+  requestBrowserClose,
+  teardownBrowserTab,
+} from '../../../browser/src/main/browser-main'
 import type { DocumentTabKind, TabKind } from '../shared/tabs-api'
 import type { EditorFamily } from './mcp/tools/formats'
 import type { DocsControl } from './mcp/tools/document-tools'
@@ -60,23 +65,23 @@ import type { SlidesControl } from './mcp/tools/slides-tools'
 
 // ── the AppDescriptor registry ────────────────────────────────────────────
 //
-// One row per bundled document app: everything the shell needs to host the
-// app's documents — the view factory, dirty/close guards, routing extensions,
-// untitled title, menu builder and the MCP agent surface — declared once so
-// app-routing, TabManager, the close guards, detached windows and the MCP
-// bridge all look up this table instead of switching on families.
+// One row per bundled app: everything the shell needs to host the app's tabs
+// — the view factory, dirty/close guards, routing extensions, untitled title,
+// menu builder and the MCP agent surface — declared once so app-routing,
+// TabManager, the close guards, detached windows and the MCP bridge all look
+// up this table instead of switching on families.
 //
 // The descriptors are declared centrally here rather than as a `descriptor()`
-// export on each app's main module: the six apps today are plain modules with
-// no shell-facing contract, several descriptor faces (the shell-owned pdf/
-// markdown/html menus, the runtime MCP controls) only exist on the shell side,
-// and a central table keeps the wiring diff to the app modules at zero. When
-// third-party apps arrive, this table is the seam they register through.
+// export on each app's main module: the bundled apps today are plain modules
+// with no shell-facing contract, several descriptor faces (the shell-owned
+// pdf/markdown/html menus, the runtime MCP controls) only exist on the shell
+// side, and a central table keeps the wiring diff to the app modules at zero.
+// When third-party apps arrive, this table is the seam they register through.
 //
-// This file is also the shell main process's single static-import site for the
-// six app main modules (the re-exports below): "which app code does the shell
-// link against" has one answer, and swapping the static imports for lazy ones
-// later touches exactly one file.
+// This file is also the shell main process's single static-import site for
+// the seven app main modules (the re-exports below): "which app code does the
+// shell link against" has one answer, and swapping the static imports for
+// lazy ones later touches exactly one file.
 
 /** what the MCP `open_documents` tool can do with one open document of an app */
 export interface AgentDocumentIo {
@@ -116,19 +121,23 @@ export type UntitledTitleKey =
   | 'untitledMarkdown'
   | 'untitledHtml'
   | 'untitledPdf'
+  | 'untitledBrowser'
 
 export interface AppDescriptor {
-  /** registry id: the tab kind the shell uses for this app's documents */
+  /** registry id: the tab kind the shell uses for this app's tabs */
   id: DocumentTabKind
-  /** the MCP layer's editor family for this app */
-  family: EditorFamily
+  /**
+   * The MCP layer's editor family for this app. Absent for apps that host no
+   * editable document files at all (browser: web pages, not documents) —
+   * the MCP open-documents surface skips such apps entirely.
+   */
+  family?: EditorFamily
   /** extensions the open route files into this app (no leading dots, lowercase) */
   extensions: readonly string[]
   /** tab title before the first save, when no localized title provider is wired */
   untitledTitle: string
   /** i18n key for the localized untitled title (the shell's locale tables) */
   untitledTitleKey: UntitledTitleKey
-  /** build the WebContentsView for a tab of this app; a path opens the file, none opens a blank document */
   /** build the WebContentsView for a tab of this app; a path opens the file, none opens a blank document */
   createView: (openPath?: string) => WebContentsView
   /** synchronous unsaved-changes answer; the five families that keep dirty state in the main process */
@@ -156,6 +165,12 @@ export interface AppDescriptor {
   /** what the MCP open-documents tool can read/save/discard for this app */
   agentControl?: AgentDocumentIo
   /**
+   * False when this app's tabs are not agent-editable documents, so they stay
+   * out of the MCP `open_documents` list (browser: web pages). Absent means
+   * they are documents like every editor app's.
+   */
+  agentDocument?: boolean
+  /**
    * This app ships its own plain Ctrl/Cmd+K binding (docs: Word's hyperlink
    * dialog) and keeps it: the shell's palette summon yields inside it — the
    * palette stays reachable through the global hotkey and the tray.
@@ -166,7 +181,7 @@ export interface AppDescriptor {
 /** the requestClose signature, for close-guard plumbing */
 export type AppCloseGuard = AppDescriptor['requestClose']
 
-/** the six bundled apps, in registry/routing order (first match wins) */
+/** the bundled apps, in registry/routing order (first match wins) */
 export const documentApps: readonly AppDescriptor[] = [
   {
     id: 'docs',
@@ -292,6 +307,28 @@ export const documentApps: readonly AppDescriptor[] = [
       discard: htmlDiscardPendingAssets,
       discardNeedsFilePath: true,
     },
+  },
+  // ── the browser/html split ──────────────────────────────────────────────
+  // The html app is the HTML *file* editor: .html/.htm paths route to it and
+  // its Save As writes .html files. The browser app is the *web* browser:
+  // chrome + page views over the live network in tabs. The two deliberately
+  // share no surface — a file is a document, a page is a view — so the
+  // browser owns no extension, no save path, no agent surface, and the
+  // desktop's Web tile opens *it*, not the editor.
+  {
+    id: 'browser',
+    extensions: [],
+    untitledTitle: 'GenOffice Browser',
+    untitledTitleKey: 'untitledBrowser',
+    // no path argument: a browser tab is never opened from a file; the page
+    // view is a nested child of the chrome view this builds
+    createView: () => createBrowserView(),
+    // a browser tab holds no unsaved document state, so there is no dirty
+    // answer and closing never prompts
+    requestClose: requestBrowserClose,
+    // the nested page view is a renderer the TabManager does not know about
+    teardown: teardownBrowserTab,
+    agentDocument: false,
   },
 ]
 
@@ -538,3 +575,16 @@ export {
   setHtmlPresentHooks,
   setHtmlProvisionalTitleHook,
 } from '../../../html/src/main/html-main'
+
+export {
+  browserNavigate,
+  configureBrowserRuntime,
+  requestBrowserClose,
+  setBrowserShellHooks,
+  teardownBrowserTab,
+} from '../../../browser/src/main/browser-main'
+// the browser app's channel table and the ask-about payload type: the shell
+// relays the event main→renderer (window-lifecycle), so the names and shape
+// come from the app's own shared contract, not a shell-side copy
+export { BROWSER_CHANNELS } from '../../../browser/src/shared/ipc'
+export type { BrowserAskAboutPayload } from '../../../browser/src/shared/annotations'

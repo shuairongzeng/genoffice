@@ -39,7 +39,8 @@ export interface PaletteRow {
   /** secondary line, also searched (folder, description, app name + extension) */
   readonly detail: string
   readonly icon:
-    { kind: 'file'; ext: string } | { kind: 'folder' | 'pen' | 'gear' | 'plug' | 'sparkle' }
+    | { kind: 'file'; ext: string }
+    | { kind: 'folder' | 'pen' | 'gear' | 'plug' | 'sparkle' | 'globe' }
   /** the file failed to stat; the row dims but still tries to open */
   readonly missing: boolean
   /** plugins: the chip naming what Enter does (Disable / Enable) */
@@ -588,6 +589,14 @@ function buildCreateRows(strings: CommandPaletteStrings): PaletteRow[] {
       strings.hintNewHtml,
       'html',
       () => void window.aiOffice.newHtml(),
+    ),
+    // the browser is the Web tile's app: browsing the live web, not editing files
+    commandRow(
+      'browser',
+      strings.cmdOpenBrowser,
+      strings.hintOpenBrowser,
+      'globe',
+      () => void window.aiOffice.newBrowser(),
     ),
     commandRow(
       'pdf',

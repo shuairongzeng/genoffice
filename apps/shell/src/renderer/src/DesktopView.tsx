@@ -1927,6 +1927,7 @@ export function DesktopView({
         {icon.tile === 'pdf' && <PdfGlyph />}
         {icon.tile === 'markdown' && <MarkdownGlyph />}
         {icon.tile === 'html' && <HtmlGlyph />}
+        {icon.tile === 'browser' && <BrowserGlyph />}
         {icon.tile === 'ask' && <SparkGlyph />}
         {icon.tile === 'templates' && <TemplatesGlyph />}
         {icon.tile === 'plugins' && <PlugGlyph />}
@@ -2536,6 +2537,17 @@ function HtmlGlyph() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  )
+}
+
+/* same artwork as the strip's BrowserIcon, at the desktop tile's scale */
+function BrowserGlyph() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 240 240" fill="none" aria-hidden="true">
+      <circle cx="120" cy="120" r="62" stroke="currentColor" strokeWidth="14" />
+      <ellipse cx="120" cy="120" rx="26" ry="62" stroke="currentColor" strokeWidth="14" />
+      <path d="M58 96h124M58 144h124" stroke="currentColor" strokeWidth="14" />
     </svg>
   )
 }

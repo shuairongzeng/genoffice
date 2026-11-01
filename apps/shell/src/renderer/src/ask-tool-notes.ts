@@ -1,4 +1,6 @@
 import {
+  BROWSER_CLICK_TOOL,
+  BROWSER_FILL_FIELD_TOOL,
   CREATE_DOCUMENT_TOOL,
   LOAD_GUIDE_TOOL,
   READ_ATTACHMENT_TOOL,
@@ -13,7 +15,7 @@ import {
  * repeats the same action on the same target.
  */
 
-export type ToolNoteKind = 'search' | 'read' | 'create' | 'cli'
+export type ToolNoteKind = 'search' | 'read' | 'create' | 'cli' | 'browser'
 
 export interface ToolNote {
   label: string
@@ -34,6 +36,7 @@ export function toolNoteKind(call: AgentToolCall): ToolNoteKind {
   if (call.name === 'search_knowledge_base') return 'search'
   if (call.name === CREATE_DOCUMENT_TOOL) return 'create'
   if (call.name === RUN_GENOFFICE_TOOL || call.name === LOAD_GUIDE_TOOL) return 'cli'
+  if (call.name.startsWith('browser:')) return 'browser'
   return 'read'
 }
 
@@ -69,6 +72,15 @@ export function toolNoteDetail(
     const lookup = call.name === READ_ATTACHMENT_TOOL ? attachmentName : readName
     const name = Number.isInteger(index) ? lookup?.(index) : undefined
     return name ? baseName(name) : undefined
+  }
+  // the browser tools: a page action names its target selector; a read or
+  // screenshot needs no detail (the label already says the domain)
+  if (call.name.startsWith('browser:')) {
+    if (call.name !== BROWSER_FILL_FIELD_TOOL && call.name !== BROWSER_CLICK_TOOL) {
+      return undefined
+    }
+    const selector = typeof call.input.selector === 'string' ? call.input.selector.trim() : ''
+    return selector ? `browser · ${selector.slice(0, 40)}` : 'browser'
   }
   // a proxied app read (docs:read_document, …): the app prefix plus the
   // document it targeted, when the call named one

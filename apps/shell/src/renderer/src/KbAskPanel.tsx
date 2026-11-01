@@ -2,8 +2,13 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AgentLoop,
   ATTACHMENT_IMAGE_EXTS,
+  BROWSER_CLICK_TOOL,
+  BROWSER_FILL_FIELD_TOOL,
+  BROWSER_READ_PAGE_TOOL,
+  BROWSER_SCREENSHOT_TOOL,
   composeSkills,
   createAttachmentsSkill,
+  createBrowserSkill,
   createCliSkill,
   createDocumentSkill,
   createIpcTransport,
@@ -15,6 +20,10 @@ import {
   type AgentImage,
   type AgentRunHandle,
   type AttachmentInfo,
+  type BrowserActionResult,
+  type BrowserPageRead,
+  type BrowserScreenshot,
+  type BrowserTabSnapshot,
   type CliContext,
   type CreateDocumentFormat,
   type KbFileInfo,
@@ -48,9 +57,19 @@ import type { ChatMessage, ChatMeta, ProjectApi, RunSummary } from '@genoffice/p
 import { useI18n } from './locale'
 import { useConfirm } from './ConfirmDialog'
 import { aiSetupNeeded } from './ai-setup-state'
-import type { AttachmentAddResult, KbScopedSearchResult } from '../../shared/home-api'
+import type {
+  AttachmentAddResult,
+  BrowserAskAboutPayload,
+  KbScopedSearchResult,
+} from '../../shared/home-api'
 import { AskAttachments } from './AskAttachments'
 import { planPendingAskQuery, type PendingAskQuery } from './ask-intent'
+import {
+  browserAskLabelOf,
+  browserAskScaffoldParams,
+  browserAskUrlOf,
+  normalizeBrowserAskAbout,
+} from './ask-browser'
 import { artifactFromCall, retryInstruction, settleArtifact, type Artifact } from './ask-artifacts'
 import { appendToolNote, toolNoteDetail, toolNoteKind, type ToolNote } from './ask-tool-notes'
 import { RunRecorder, runsBridgeOf } from './ask-runs'
@@ -95,6 +114,21 @@ import { RafFlushQueue, sticksToBottom } from './ask-stream'
 /** The one transcript the panel keeps. Stable across launches by design. */
 const CHAT_ID = 'kb-ask'
 
+/**
+ * The browser skill's IPC bridge with a stale-preload guard: a bridge that
+ * predates the browser tools answers a clear error the skill surfaces as a
+ * tool failure, not a TypeError the model sees as a crashed call.
+ */
+function browserBridgeCall(tool: string, input: Record<string, unknown>): Promise<unknown> {
+  const call = window.aiOffice?.browserSkillExecute
+  if (typeof call !== 'function') {
+    return Promise.reject(
+      new Error('the browser tools are unavailable in this build (stale preload)'),
+    )
+  }
+  return call(tool, input)
+}
+
 /** the corpus scopes app-settings `kbScope` may hold (mirrors home-api's KbScope) */
 type KbScopeValue = 'indexed' | 'starred' | 'folders'
 
@@ -103,6 +137,7 @@ const TOOL_NOTE_LABEL = {
   read: 'askToolRead',
   create: 'askToolCreate',
   cli: 'askToolCli',
+  browser: 'askToolBrowser',
 } as const
 
 /** Collapsible thinking block for one answer: open while the run streams,
@@ -572,6 +607,14 @@ export function KbAskPanel({
   const aiPrefs = useAiPanelPrefs()
   const [messages, setMessages] = useState<AskMessage[]>([])
   const [draft, setDraft] = useState('')
+  /**
+   * The parked "ask AI about this" annotation (W2a's browser:ask-about push):
+   * shown as a card above the composer with the question scaffold parked in
+   * the draft, and never sent on its own — the person's Enter is what sends.
+   */
+  const [browserNote, setBrowserNote] = useState<BrowserAskAboutPayload | null>(null)
+  /** the scaffold this panel last parked, so dismissing the card un-parks exactly it */
+  const browserScaffoldRef = useRef('')
   const [attachedSkills, setAttachedSkills] = useState<string[]>([])
   const [attachments, setAttachments] = useState<AttachmentInfo[]>([])
   /** rejection / image-read messages, cleared after a few seconds */
@@ -611,6 +654,28 @@ export function KbAskPanel({
       })
       .catch(() => {
         // without the manifest the panel just has no cross-app read tools
+      })
+  }
+  /**
+   * The browser skill's live gate: the open browser tabs, straight from the
+   * tab strip's own bridge. Refreshed wherever the app manifest is (mount,
+   * tab change, each send) because the loop re-reads the composed tools
+   * before every model request — a browser tab opening or closing mid-chat
+   * flips the browser tools in and out without rebuilding the loop.
+   */
+  const browserTabsRef = useRef<BrowserTabSnapshot[]>([])
+  const refreshBrowserTabs = (): void => {
+    if (typeof window.aiOfficeTabs?.list !== 'function') return
+    void window.aiOfficeTabs
+      .list()
+      .then((tabs) => {
+        browserTabsRef.current = tabs
+          .filter((tab) => tab.kind === 'browser')
+          .map((tab) => ({ id: tab.id, title: tab.title, active: tab.active }))
+      })
+      .catch(() => {
+        // a failed listing keeps the last snapshot: the tools degrade to the
+        // guiding error if the tab is actually gone
       })
   }
   const settingsRef = useRef<AiSettings | null>(null)
@@ -1030,7 +1095,12 @@ export function KbAskPanel({
     // the desktop loop's first manifest snapshot; tab changes re-pull so the
     // read tools follow what is actually open (sends refresh it again too)
     refreshAppManifest()
-    const offTabsChanged = window.aiOfficeTabs?.onChanged(refreshAppManifest)
+    // the browser skill's gate starts from the same tab list snapshot
+    refreshBrowserTabs()
+    const offTabsChanged = window.aiOfficeTabs?.onChanged(() => {
+      refreshAppManifest()
+      refreshBrowserTabs()
+    })
     refreshSettings()
     void window.aiOffice
       .aiGskStatus()
@@ -1066,6 +1136,23 @@ export function KbAskPanel({
     const appSkill = createProxiedAppsSkill({
       manifest: () => appManifestRef.current,
       execute: (tool, input) => window.aiOffice.appSkillExecute(tool, input),
+    })
+    // the browser skill (W2b): reads and gated actions on the active browser
+    // tab's page, forwarded to the shell main's browser-agent over IPC. The
+    // fill/click tools declare risk:'high', so they stop at the same
+    // confirmTool card as run_genoffice and create_document above
+    const browserSkill = createBrowserSkill({
+      openTabs: () => browserTabsRef.current,
+      readPage: () => browserBridgeCall(BROWSER_READ_PAGE_TOOL, {}) as Promise<BrowserPageRead>,
+      screenshotPage: () =>
+        browserBridgeCall(BROWSER_SCREENSHOT_TOOL, {}) as Promise<BrowserScreenshot>,
+      fillField: (selector, value) =>
+        browserBridgeCall(BROWSER_FILL_FIELD_TOOL, {
+          selector,
+          value,
+        }) as Promise<BrowserActionResult>,
+      clickElement: (selector) =>
+        browserBridgeCall(BROWSER_CLICK_TOOL, { selector }) as Promise<BrowserActionResult>,
     })
     loopRef.current = new AgentLoop({
       transport: createIpcTransport<AiSettings>({
@@ -1103,6 +1190,7 @@ export function KbAskPanel({
         docSkill,
         cliSkill,
         appSkill,
+        browserSkill,
       ]),
       events: {
         onText: (text) => patchLast({ text }),
@@ -1297,6 +1385,35 @@ export function KbAskPanel({
     },
   })
 
+  // The browser's "ask AI about this" entry (W2a): an annotation push parks
+  // here as a draft question. Park semantics — nothing sends itself; the card
+  // above the composer shows what was marked, the draft carries the
+  // scaffolded question, and the composer takes the focus so the next
+  // keystroke finishes it. t reaches a mount-only listener through a ref (t
+  // is not referentially stable, and a language switch mid-session must still
+  // localize the next scaffold).
+  const tRef = useRef(t)
+  tRef.current = t
+  useEffect(() => {
+    const off = window.aiOffice?.onBrowserAskAbout?.((raw) => {
+      const note = normalizeBrowserAskAbout(raw)
+      if (!note) return
+      setBrowserNote(note)
+      const scaffold = tRef.current('askBrowserNoteDraft', browserAskScaffoldParams(note))
+      browserScaffoldRef.current = scaffold
+      setDraft(scaffold)
+      composerRef.current?.focus()
+    })
+    return off
+  }, [])
+
+  /** the card's ×: drop the parked annotation, and the scaffold with it */
+  const dismissBrowserNote = (): void => {
+    setBrowserNote(null)
+    if (browserScaffoldRef.current && draft === browserScaffoldRef.current) setDraft('')
+    browserScaffoldRef.current = ''
+  }
+
   // Retry and other programmatic turns: the composer draft is not theirs to clear
   const askWith = async (
     instruction: string,
@@ -1324,6 +1441,13 @@ export function KbAskPanel({
     // freshly starred files are answerable this very turn; so are documents
     // opened while the panel sat idle (the desktop loop's read tools)
     refreshAppManifest()
+    // a browser tab opened mid-conversation flips the browser tools in on the
+    // next model request: the snapshot must be as fresh as the manifest's
+    refreshBrowserTabs()
+    // the parked annotation question is answered by this send: the card goes,
+    // with it the scaffold (the question text itself already carries the content)
+    setBrowserNote(null)
+    browserScaffoldRef.current = ''
     try {
       const files = await window.aiOffice.kbList()
       corpusRef.current = files
@@ -1335,11 +1459,15 @@ export function KbAskPanel({
     // a question about an attached file needs no starred corpus; a scoped ask
     // runs even against an empty listing — the selection is the corpus, and
     // the model's own search (plus the chip's not-indexed hint) is what tells
-    // the reader which of the selected files the index actually covers
+    // the reader which of the selected files the index actually covers. An
+    // open browser tab answers too: the browser skill is a corpus of its own
+    // (read_page, screenshot_page), so a web question must reach the loop
+    // even with nothing indexed
     if (
       corpusRef.current.length === 0 &&
       availableAttachments().length === 0 &&
-      scopeRef.current.length === 0
+      scopeRef.current.length === 0 &&
+      browserTabsRef.current.length === 0
     ) {
       // the scope says which empty this is: nothing starred yet, an empty
       // folders list, folders chosen whose files are not answerable yet, or
@@ -1735,6 +1863,28 @@ export function KbAskPanel({
         textareaRef={composerRef}
         header={
           <>
+            {/* the parked "ask AI about this" annotation (W2a): a card-style
+                pending draft above the composer; × drops it with its scaffold */}
+            {browserNote && (
+              <div className="kb-ask-browser-note" role="status">
+                <span className="kb-ask-browser-note-label">{t('askBrowserNote')}</span>
+                <span className="kb-ask-browser-note-text" title={browserAskLabelOf(browserNote)}>
+                  {browserAskLabelOf(browserNote)}
+                </span>
+                <span className="kb-ask-browser-note-url" title={browserNote.url ?? ''}>
+                  {browserAskUrlOf(browserNote)}
+                </span>
+                <button
+                  type="button"
+                  className="kb-ask-browser-note-clear"
+                  aria-label={t('askBrowserNoteClear')}
+                  title={t('askBrowserNoteClear')}
+                  onClick={dismissBrowserNote}
+                >
+                  ×
+                </button>
+              </div>
+            )}
             {/* the round scope: while attached, every ask searches, reads and
                 cites within the selection; × drops back to the default corpus */}
             {scopePaths.length > 0 && (

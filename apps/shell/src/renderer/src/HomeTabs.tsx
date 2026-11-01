@@ -204,6 +204,17 @@ function HtmlIcon() {
   )
 }
 
+function BrowserIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 240 240" fill="none" aria-hidden="true">
+      <rect width="240" height="240" rx="48" fill="#0284C7" />
+      <circle cx="120" cy="120" r="62" stroke="#fff" strokeWidth="14" />
+      <ellipse cx="120" cy="120" rx="26" ry="62" stroke="#fff" strokeWidth="14" />
+      <path d="M58 96h124M58 144h124" stroke="#fff" strokeWidth="14" />
+    </svg>
+  )
+}
+
 /** the per-kind tab glyph, keyed the way the strip's entries are */
 export const KIND_ICON: Record<TabSummary['kind'], ReactElement> = {
   home: <HomeIcon />,
@@ -213,6 +224,7 @@ export const KIND_ICON: Record<TabSummary['kind'], ReactElement> = {
   pdf: <PdfIcon />,
   markdown: <MarkdownIcon />,
   html: <HtmlIcon />,
+  browser: <BrowserIcon />,
   help: <HelpIcon />,
 }
 
@@ -268,7 +280,12 @@ export function HomeTabs({
             onClick={() => onActivate(tab.id)}
           >
             <span className="work-tab-icon" aria-hidden="true">
-              {KIND_ICON[tab.kind] ?? <FallbackDocIcon />}
+              {/* a browser tab shows the live page favicon once the page has one */}
+              {tab.faviconUrl ? (
+                <img className="work-tab-favicon" src={tab.faviconUrl} alt="" />
+              ) : (
+                (KIND_ICON[tab.kind] ?? <FallbackDocIcon />)
+              )}
             </span>
             <span className="work-tab-title">{tab.title}</span>
             {tab.dirty && (

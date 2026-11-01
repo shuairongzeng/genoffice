@@ -112,6 +112,8 @@ export const TAB_MENU_ICON: Record<TabKind, keyof MenuIconSet> = {
   pdf: 'pdf',
   markdown: 'md',
   html: 'html',
+  // no dedicated menu icon yet — the web tile is the closest brand
+  browser: 'html',
   help: 'home',
 }
 

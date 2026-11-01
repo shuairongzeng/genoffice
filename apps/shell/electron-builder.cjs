@@ -510,6 +510,10 @@ const config = {
       from: '../html/out',
       to: 'modules/html',
     },
+    {
+      from: '../browser/out',
+      to: 'modules/browser',
+    },
     // PDF text editing engines: the bundled main resolves these under
     // Resources/wasm when node_modules is absent (apps/pdf/src/main/wasm-path.ts)
     {

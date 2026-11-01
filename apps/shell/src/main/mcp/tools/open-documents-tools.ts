@@ -17,8 +17,12 @@ import { sanitizeFileBase, uniquePathIn } from './document-tools'
  * a fake.
  */
 
-/** tab kind -> format family (the registry's vocabulary, for the type label) */
-const FAMILY_BY_KIND: Record<Exclude<TabKind, 'home' | 'help'>, EditorFamily> = {
+/**
+ * tab kind -> format family (the registry's vocabulary, for the type label).
+ * Browser tabs hold no documents and never join the open-documents list, so
+ * they carry no family; the readers below degrade gracefully if one ever does.
+ */
+const FAMILY_BY_KIND: Partial<Record<Exclude<TabKind, 'home' | 'help'>, EditorFamily>> = {
   docs: 'docx',
   sheets: 'xlsx',
   slides: 'pptx',
@@ -120,7 +124,8 @@ export function resolveOpenDocumentOfFamily(
   const actual = FAMILY_BY_KIND[doc.kind]
   if (actual !== family) {
     throw new Error(
-      `"${doc.title}" is a ${familyLabel(actual)}, but this tool edits ${familyLabel(family)} documents`,
+      `"${doc.title}" is ${actual ? `a ${familyLabel(actual)}` : 'not an editable document'}, ` +
+        `but this tool edits ${familyLabel(family)} documents`,
     )
   }
   return doc
@@ -138,7 +143,8 @@ function noMatch(target: string, documents: readonly OpenDocumentTab[]): Error {
 }
 
 function typeLabel(doc: OpenDocumentTab): string {
-  return familyLabel(FAMILY_BY_KIND[doc.kind])
+  const family = FAMILY_BY_KIND[doc.kind]
+  return family ? familyLabel(family) : doc.kind
 }
 
 /** one row of the `list` action */
@@ -161,7 +167,9 @@ function describeDocument(doc: OpenDocumentTab): Record<string, unknown> {
  */
 export function closeSavePath(doc: OpenDocumentTab, defaultSaveDir: () => string): string {
   if (doc.filePath) return doc.filePath
-  const name = `${sanitizeFileBase(doc.title)}${extensionFor(FAMILY_BY_KIND[doc.kind])}`
+  const family = FAMILY_BY_KIND[doc.kind]
+  if (!family) throw new Error(`a ${doc.kind} tab has no file to save to`)
+  const name = `${sanitizeFileBase(doc.title)}${extensionFor(family)}`
   return uniquePathIn(defaultSaveDir(), name)
 }
 

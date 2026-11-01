@@ -1,0 +1,160 @@
+/*
+ * The browser chrome's skin. Accent tokens per CLAUDE.md rule 3: this app owns
+ * its brand blue (a web-browser sky, distinct from the html editor's teal);
+ * every other chrome color goes through the shared semantic tokens.
+ */
+:root {
+  --accent: #0284c7;
+  --accent-dark: #075985;
+  --accent-soft: rgb(2 132 199 / 12%);
+  --browser-toolbar-h: 44px;
+  --browser-empty-ink: var(--text-tertiary);
+}
+
+[data-theme='dark'] {
+  --accent: #38bdf8;
+  --accent-dark: #7dd3fc;
+  --accent-soft: rgb(56 189 248 / 16%);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--gs-font-sans);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.browser-chrome {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--surface);
+}
+
+.browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--browser-toolbar-h);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  box-sizing: border-box;
+}
+
+.browser-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.browser-nav:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.browser-nav:disabled {
+  color: var(--icon-muted);
+  cursor: default;
+}
+
+.browser-address {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  box-sizing: border-box;
+}
+
+.browser-address:focus-within {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.browser-address.loading {
+  border-color: var(--accent-soft);
+}
+
+.browser-favicon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.browser-address input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.browser-address input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* the annotate toggle: pressed state carries the app's accent (a page-action
+ * chip, not a navigation button — the picker is on while it stays lit) */
+.browser-annotate.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.browser-annotate.on:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.browser-blocked {
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-bottom: 1px solid var(--danger-border);
+}
+
+.browser-content {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: var(--canvas);
+}
+
+.browser-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--browser-empty-ink);
+}
+
+.browser-empty p {
+  margin: 0;
+  font-size: 13px;
+}

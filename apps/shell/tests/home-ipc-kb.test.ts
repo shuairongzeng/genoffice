@@ -118,6 +118,7 @@ const host = {
   newSlideTab: () => {},
   newMarkdownTab: () => {},
   newHtmlTab: () => {},
+  newBrowserTab: () => {},
   newPdfTab: () => {},
   afterFileMoved: () => {},
   afterFolderMoved: () => {},
