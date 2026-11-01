@@ -5,7 +5,11 @@ import {
   AI_DOCK_WIDTH_DEFAULT,
   AI_DOCK_WIDTH_MAX,
   AI_DOCK_WIDTH_MIN,
+  clampPetPos,
+  defaultPetPos,
   normalizeAiDock,
+  PET_MARGIN,
+  PET_SIZE,
   type AiPetPos,
 } from '../../shared/desktop-geometry'
 import { useI18n } from './locale'
@@ -48,6 +52,10 @@ import { useI18n } from './locale'
 
 export { AI_DOCK_WIDTH_DEFAULT, AI_DOCK_WIDTH_MAX, AI_DOCK_WIDTH_MIN }
 export type { AiDockPrefs, AiPetPos }
+// the pet's geometry moved to the shared module: the native overlay's
+// pet-only view must size and clamp the bird identically, and its import
+// sites (panel-entry) keep reaching for them here
+export { PET_SIZE, PET_MARGIN, clampPetPos, defaultPetPos } from '../../shared/desktop-geometry'
 
 /** where the drawer prefs live while the app-settings IPC contract is absent */
 const DOCK_PREFS_KEY = 'home.aiDock'
@@ -89,49 +97,22 @@ export function writeLocalAiDockPrefs(prefs: AiDockPrefs): void {
  * width lives in): the pet is a child of the zoomed app frame, so its
  * left/top are CSS px there and its window footprint multiplies by the
  * interface scale. The pet's own box is a fixed-size drawing (56×50 mascot
- * plus 6px button padding), so constants describe it exactly. */
+ * plus 6px button padding), so constants describe it exactly — the size,
+ * the margin, the clamp and the default perch live in desktop-geometry.ts
+ * now, shared with the native overlay's pet-only view (re-exported above);
+ * the slop below is a gesture rule, so it stays with the gestures. */
 
-/** the pet button's size in chrome CSS px (the mascot SVG plus its padding) */
-export const PET_SIZE = { width: 68, height: 62 } as const
-/** the pet's default gap from the window's right and bottom edges */
-export const PET_MARGIN = 16
 /** pointer travel (viewport px) under which a press counts as a click, not a drag */
 export const PET_CLICK_SLOP = 5
-
-/**
- * Clamp a pet position into the window (and out of the open drawer's
- * footprint, via `reservedRight`): the pet never hangs off an edge and never
- * hides under the drawer it opens. Pure so the gesture and the tests share
- * one truth.
- */
-export function clampPetPos(
-  pos: AiPetPos,
-  bounds: { width: number; height: number },
-  size: { width: number; height: number },
-  reservedRight = 0,
-): AiPetPos {
-  const maxX = Math.max(0, Math.round(bounds.width - size.width - reservedRight))
-  const maxY = Math.max(0, Math.round(bounds.height - size.height))
-  return {
-    x: Math.min(Math.max(0, Math.round(pos.x)), maxX),
-    y: Math.min(Math.max(0, Math.round(pos.y)), maxY),
-  }
-}
-
-/** the default perch: the content corner (the window's bottom-right, the stage's own) */
-function defaultPetPos(bounds: { width: number; height: number }): AiPetPos {
-  return {
-    x: bounds.width - PET_SIZE.width - PET_MARGIN,
-    y: bounds.height - PET_SIZE.height - PET_MARGIN,
-  }
-}
 
 /**
  * The interface scale as this renderer sees it (`--ui-scale`, an inline style
  * main writes onto `:root`). The pet's drag math converts pointer viewport px
  * into the zoomed chrome space through it; anything unreadable reads as 1.
+ * Exported for the ask panel's standalone mount (panel-entry.tsx), whose
+ * pet-only drag divides by the same scale.
  */
-function chromeScale(): number {
+export function chromeScale(): number {
   const raw = getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')
   const scale = Number.parseFloat(raw)
   return Number.isFinite(scale) && scale > 0 ? scale : 1

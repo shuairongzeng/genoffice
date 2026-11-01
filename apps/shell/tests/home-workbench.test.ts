@@ -405,6 +405,47 @@ describe('the floating pet', () => {
     expect(pet().style.left).toBe('440px')
   })
 
+  it('a drag at a 125% interface scale still tracks the cursor 1:1 on screen', async () => {
+    // the same exposure the overlay pet's drag was reviewed for: petPos is
+    // zoomed-chrome space (window = petPos × scale), so a pointer moving Δ
+    // viewport px moves the stored position by Δ/scale — the pet's on-screen
+    // position follows the cursor exactly while the number shrinks by the
+    // scale. Live-probed against this Electron build: clientX is viewport
+    // px and a chrome left/top renders at chrome × scale, so the division
+    // is the correct direction — dropping it would overshoot by ×scale
+    try {
+      document.documentElement.style.setProperty('--ui-scale', '1.25')
+      getAiDock.mockImplementation(async () => ({
+        width: AI_DOCK_WIDTH_DEFAULT,
+        collapsed: false,
+        // clear of the open drawer's reserved right rail (maxX 335 chrome)
+        petPos: { x: 120, y: 160 },
+      }))
+      await unmountHome()
+      await mountHome(baseApi())
+      // chrome 120,160 renders at viewport 150,200; grab 30,20 into the pet
+      await act(async () => {
+        pet().dispatchEvent(
+          new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 180, clientY: 220 }),
+        )
+        // the pointer moves +250,+187.5 viewport px (a Δ of +200,+150 chrome)
+        window.dispatchEvent(new MouseEvent('pointermove', { clientX: 430, clientY: 407.5 }))
+      })
+      // live position: chrome start + Δ/scale — the stored number, not the
+      // viewport delta
+      expect(pet().style.left).toBe('320px')
+      expect(pet().style.top).toBe('310px')
+      await act(async () => {
+        window.dispatchEvent(new MouseEvent('pointerup'))
+      })
+      expect(setAiDock).toHaveBeenCalledWith({ petPos: { x: 320, y: 310 } })
+      // and on screen the pet moved 320×1.25 − 120×1.25 = 250 viewport px —
+      // exactly the cursor's travel
+    } finally {
+      document.documentElement.style.removeProperty('--ui-scale')
+    }
+  })
+
   it('a press under the slop is a click: it opens the drawer and persists no position', async () => {
     getAiDock.mockImplementation(async () => ({
       width: AI_DOCK_WIDTH_DEFAULT,

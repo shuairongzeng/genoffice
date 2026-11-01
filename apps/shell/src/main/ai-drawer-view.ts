@@ -4,19 +4,25 @@ import type { BrowserWindow, WebContents } from 'electron'
 
 import { rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
 import { drawerOverlayBounds, type AiDockPrefs } from '../shared/desktop-geometry'
+import type { AiPetDragReport } from '../shared/home-api'
 import { applyUiScaleTo } from './ui-scale'
 
 /**
  * The AI drawer's native overlay (W2). While a document tab is active, its
  * WebContentsView paints above the whole Home renderer — the HTML drawer and
- * the pet included — so the drawer's open state drives this sibling view
- * instead: a WebContentsView at the window's right edge, as wide as
+ * the pet included — so this sibling view hosts the drawer's entire
+ * document-mode presence, in two shapes driven by the same `aiDock` prefs:
+ * expanded, a WebContentsView at the window's right edge, as wide as
  * `aiDockWidth()` and the full content height (drawerOverlayBounds), loading
  * the shell renderer's ask-panel mount (`?view=ask-panel`, the same
- * one-bundle-two-branches trick the manual plays with `?mode=help`). The
- * entry renders the panel plus the floating pet — the overlay's only click
- * affordance, since the drawer head and scrim belong to the Home surface the
- * document is covering (the keyboard's Esc answers inside the panel itself).
+ * one-bundle-two-branches trick the manual plays with `?mode=help`); collapsed,
+ * a pet-sized transparent view carrying the floating pet
+ * (petOverlayBounds) — the drawer's whole presence then, and the only way
+ * back into the panel, because Home's HTML pet is painted under the document
+ * and would otherwise be unreachable. The entry renders the panel plus the
+ * floating pet — the panel stays mounted in both states (hidden while
+ * collapsed — the streaming-keeps-streaming contract below), so the pet is
+ * the collapsed state's only *visible* affordance, never its only listener.
  * The entry also answers a ready handshake: the panel's subscriptions arm
  * only after the renderer's own boot (an await chain of language, theme and
  * dictionary before the first render), so a message flushed at the load
@@ -27,8 +33,10 @@ import { applyUiScaleTo } from './ui-scale'
  * Z-order: the view sits above every document/browser view of the window's
  * contentView — addChildView re-adds an existing child as the topmost
  * (documented Electron semantics), so every shown sync re-asserts it over
- * views added while the drawer is open (a tab opened mid-conversation, a
- * browser tab's page sibling). Pinned desktop widgets would outrank it — they
+ * views added while the overlay is up (a tab opened mid-conversation, a
+ * browser tab's page sibling — the annotate layer included: the pet stays
+ * clickable above a page mid-annotation, which is exactly when the person
+ * reaches for it). Pinned desktop widgets would outrank it — they
  * are child *windows* of the shell, and the OS stacks a child window above
  * its parent's content however the views are ordered — but that ordering is
  * unreachable in practice: widgets show only while Home is the active tab
@@ -39,26 +47,48 @@ import { applyUiScaleTo } from './ui-scale'
  * re-parenting.
  *
  * Mounting and hiding, never destroying on state changes: the view is created
- * lazily (the first time the drawer opens over a document) and then survives
- * drawer closes, tab switches and HTML fullscreen hidden — the same
- * "the panel stays mounted, closing only hides it" contract the HTML drawer
- * keeps (a streaming answer keeps streaming). It dies with the shell window,
- * like every tab view — an in-flight AgentLoop in this copy is interrupted,
- * the same tradeoff closing the window already makes. The Home renderer's
- * own panel copy is a second, independent session: each mount claims its own
- * chat id (P0-1 — the overlay's is `kb-overlay-ask`, Home's is `kb-ask`), so
- * a question asked over a document is not in Home's thread list and vice
- * versa. Ask-intent handoffs that arrive while this view is the visible
- * drawer are forwarded to it through the main process (P0-2, see
- * deliverToPanel), with Home's covered copy kept out of the routing.
+ * lazily (the first time a document tab shows, drawer open or collapsed) and
+ * then survives drawer opens and closes, tab switches and HTML fullscreen
+ * hidden — the same "the panel stays mounted, closing only hides it"
+ * contract the HTML drawer keeps (a streaming answer keeps streaming). It
+ * dies with the shell window, like every tab view — an in-flight AgentLoop
+ * in this copy is interrupted, the same tradeoff closing the window already
+ * makes. The Home renderer's own panel copy is a second, independent
+ * session: each mount claims its own chat id (P0-1 — the overlay's is
+ * `kb-overlay-ask`, Home's is `kb-ask`), so a question asked over a
+ * document is not in Home's thread list and vice versa. Ask-intent handoffs
+ * that arrive while this view is the visible drawer are forwarded to it
+ * through the main process (P0-2, see deliverToPanel), with Home's covered
+ * copy kept out of the routing.
  *
  * The panel entry's URL rides the `help` scheme host — the shell renderer's
  * own root in the renderer protocol (`installRendererProtocol` maps `help` to
  * the shell's renderer directory); the `view=ask-panel` query routes the
  * bundle to the panel entry, exactly as `mode=help` routes it to the manual.
+ * The view's surface itself is transparent (setBackgroundColor at creation):
+ * the pet-only state must show the document straight through around the
+ * bird, and the expanded state paints its own opaque panel over the same
+ * transparent surface. Because a WebContentsView hit-tests and takes focus
+ * over its whole rect however transparent it paints, transparency is only
+ * safe behind the shape-known gate (applyVisibility): the view stays hidden
+ * until the entry's ready ping — the boot's shape-unknown blank, a reloading
+ * or never-loaded or crashed renderer would otherwise be an invisible
+ * click-eating zone over the document.
+ *
+ * The pet drag runs on this same transparency: while the gesture lasts the
+ * view is temporarily expanded to the whole window (applyPetDragReport) —
+ * static and window-wide, so the pointer cannot leave it and its client
+ * coordinates are its window position whatever the input device — and the
+ * release shrinks it back (the prefs write, or the end report). See
+ * applyPetDragReport for why the view must never *follow* the pointer.
  */
 export interface AiDrawerOverlayState {
-  /** the drawer's persisted prefs — collapsed hides the overlay */
+  /**
+   * The drawer's persisted prefs. `collapsed` no longer hides anything: it
+   * shrinks the view from the drawer's footprint to the pet-only one — the
+   * pet is the drawer's whole reachable presence while a document shows, so
+   * the overlay must stay up in both states.
+   */
   dock: AiDockPrefs
   /** the interface scale, sizing the footprint like every chrome band */
   scale: number
@@ -104,6 +134,23 @@ export interface AiDrawerOverlay {
    */
   markPanelReadyFor(sender: WebContents): void
   /**
+   * One surface request from the pet drag (`home:ai-pet-drag`): `start`
+   * expands the view to the whole window for the gesture's duration, `end`
+   * re-fits the synced footprint. Window-wide and static is what makes the
+   * drag correct: a pet-sized renderer cannot capture the pointer, and a
+   * view that *follows* the pointer would make the drag's math depend on
+   * whether the input source shifts its client coordinates with the moved
+   * view — real pointers do, synthetic and assistive input does not. On a
+   * static window-wide surface every event's client position is the
+   * pointer's window position whatever the device, so the renderer's
+   * pointer-minus-grab math is exact for all of them, and the pointer cannot
+   * leave the view, so the release always arrives. `end` matters because the
+   * release's own prefs write only re-fits the view when the position
+   * actually changed (the watcher dedups an identical one). Identity-checked
+   * like the ready ping; `start` is honored only in the pet-only state.
+   */
+  applyPetDragReport(sender: WebContents, report: AiPetDragReport): void
+  /**
    * The overlay view's live webContents, or undefined while it is not
    * mounted (or already gone). The sender gates that must accept the panel
    * copy — browserskill:execute among them (browser-agent.ts) — read it.
@@ -119,9 +166,10 @@ export interface AiDrawerOverlay {
 export interface AiDrawerOverlayDeps {
   /**
    * Hand the keyboard back to the active tab's view when the overlay hides
-   * (P1-3): the composer inside the overlay held the focus, and a hidden
-   * WebContentsView keeps it — without this, keystrokes strand in a surface
-   * the person cannot see. The TabManager's focusActiveView is the verb.
+   * or shrinks to the pet (P1-3): the composer inside the overlay held the
+   * focus, and a hidden — or pet-sized — WebContentsView keeps it; without
+   * this, keystrokes strand in a surface the person cannot see. The
+   * TabManager's focusActiveView is the verb.
    */
   focusActiveView: () => void
 }
@@ -138,6 +186,19 @@ export function createAiDrawerOverlay(
   let appliedScale = 1
   /** whether the last sync left the view showing — the hide path's guard */
   let shown = false
+  /**
+   * Whether the last synced prefs left the view pet-only. The pet drag's
+   * `start` is honored only in this state: a drawer-shaped view must never
+   * become a window-wide drag surface on a stray report.
+   */
+  let petMode = false
+  /**
+   * The layout the last sync carried (scale + prefs): the pet drag's `end`
+   * and a crashed renderer re-fit the view from it — the release's own prefs
+   * write re-fits it too, but only when the position changed, and a drag's
+   * window-wide surface must never outlive its gesture.
+   */
+  let lastLayout: { scale: number; dock: AiDockPrefs } | null = null
   /** messages waiting for the panel's renderer to be ready (deliverToPanel) */
   const pendingPanelMessages: Array<{ channel: string; payload: unknown }> = []
   /**
@@ -162,8 +223,14 @@ export function createAiDrawerOverlay(
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        // like every hidden tab view, a hidden overlay must throttle its
-        // renderer (issue #27): the drawer's copy sleeps while nobody looks
+        // background throttling stays at its default: the view is hidden
+        // while Home is the active tab, during a presentation, and until the
+        // entry's first ready ping (the shape-known gate in applyVisibility)
+        // — those are the moments its renderer sleeps, like any hidden view
+        // (issue #27). While it shows — the drawer or the pet — it is a live
+        // surface like any visible one. The hibernation sweeper does not
+        // count it: it is not a tab, it never sleeps by idleness, and its
+        // lifetime is the window's own.
       },
     })
     view.webContents.setWindowOpenHandler(({ url }) => {
@@ -171,6 +238,13 @@ export function createAiDrawerOverlay(
       if (target) void shell.openExternal(target)
       return { action: 'deny' }
     })
+    // transparent surface (the View's own background — the documented
+    // companion of a transparent-hosting window): the pet-only state is a
+    // pet-sized view floating over the document, and everything that is not
+    // the bird must show the page straight through (the expanded state
+    // paints its own opaque panel over the same surface, so transparency
+    // costs it nothing)
+    view.setBackgroundColor('#00000000')
     // the view's URL is main-authored and constant — the panel entry is a
     // mounted React tree, not a page of links — so nothing legitimate
     // navigates it. Denying will-navigate keeps a renderer that turned
@@ -201,21 +275,33 @@ export function createAiDrawerOverlay(
     // before anything buffered here flushes into it — but only a main-frame
     // document swap does that: an in-place hop (a fragment, a pushState)
     // keeps the very React app that already signaled, and resetting there
-    // would strand the buffer with no second ping ever coming
+    // would strand the buffer with no second ping ever coming. The reset
+    // also re-hides: a reloading renderer paints a transparent blank, and a
+    // blank must never eat clicks (the replacement's ping re-shows it)
     view.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
       if (isInPlace || !isMainFrame) return
       panelReady = false
+      applyVisibility()
     })
     // a crashed renderer leaves the armed handshake and the buffered messages
     // pointing at a process that no longer exists: reset the flag and retry
     // the panel load once — the did-fail-load shape, never a loop — so the
     // replacement renderer gets its own boot and must re-signal before
-    // anything moves. A clean exit is our own teardown (destroy, the window's
-    // close): there is nothing to recover and the view is on its way out.
+    // anything moves. The reset also hides the view (applyVisibility: a dead
+    // surface must not eat clicks) until that replacement signals; a second
+    // crash after the retry stands down the same way. A clean exit is our
+    // own teardown (destroy, the window's close): there is nothing to
+    // recover and the view is on its way out.
     let crashRetried = false
     view.webContents.on('render-process-gone', (_event, details) => {
       if (details?.reason === 'clean-exit') return
       panelReady = false
+      // a pet drag's window-wide surface must not outlive its renderer: the
+      // gesture's listeners (and its end report) died with the process, so a
+      // full-window transparent view would sit over the document eating
+      // every click — re-fit the synced footprint here, whatever it is
+      refitAfterGesture()
+      applyVisibility()
       if (crashRetried || view.webContents.isDestroyed()) return
       crashRetried = true
       loadPanelUrl(view.webContents)
@@ -223,9 +309,11 @@ export function createAiDrawerOverlay(
     // a failed load leaves a dead surface floating over the document — and
     // the pet that could dismiss it lives inside the very renderer that did
     // not load. Retry once (the common failure is a dev server still
-    // booting), then report and stand down: the drawer is gone until the
-    // state flips, which is better than a blank pane nobody can close.
-    // Subframe failures (an image inside an answer) are not the panel's load.
+    // booting), then report and hide: a transparent dead view would eat
+    // every click over the document with nothing to show for it, so it stays
+    // hidden until a load succeeds (the ready ping re-shows it) — better
+    // than a blank pane nobody can close or click through. Subframe
+    // failures (an image inside an answer) are not the panel's load.
     let retried = false
     view.webContents.on(
       'did-fail-load',
@@ -236,6 +324,9 @@ export function createAiDrawerOverlay(
         if (code === -3 || retried) {
           if (code !== -3 && !panelLoaded) {
             console.warn(`[shell] ai drawer overlay failed to load (${description}): ${failedUrl}`)
+            // the stand-down: the never-loaded surface hides, and only a
+            // successful reload (or the view's recreation) brings it back
+            view.setVisible(false)
           }
           return
         }
@@ -262,6 +353,36 @@ export function createAiDrawerOverlay(
     for (const message of pendingPanelMessages.splice(0)) wc.send(message.channel, message.payload)
   }
 
+  /**
+   * The view paints only when the last sync wants it showing AND the panel
+   * copy signaled its shape (the ready ping — which is also the flush gate):
+   * every state that is not a live, shaped surface paints either nothing or
+   * a transparent blank, and a WebContentsView hit-tests and takes focus
+   * over its whole rect however transparent it paints — an invisible
+   * click-eating zone. The boot's shape-unknown blank, a reloading renderer,
+   * and a never-loaded or crashed one all stay hidden here; the entry's ping
+   * is what shows the view (and re-shows it after a reload).
+   */
+  const applyVisibility = (): void => {
+    view?.setVisible(shown && panelReady)
+  }
+
+  /**
+   * Re-fit the view to the last synced layout against the live window: the
+   * pet drag's `end` report and a crashed renderer both call this — the
+   * release's own prefs write re-fits the view too, but only when the
+   * position actually changed (the watcher dedups an identical one), and a
+   * window-wide drag surface must never outlive its gesture.
+   */
+  const refitAfterGesture = (): void => {
+    const live = view
+    if (!live || live.webContents.isDestroyed() || !lastLayout) return
+    if (shellWindow.isDestroyed()) return
+    const { width, height } = shellWindow.getContentBounds()
+    if (width <= 0 || height <= 0) return
+    live.setBounds(drawerOverlayBounds({ width, height }, lastLayout))
+  }
+
   // the window's teardown destroys its contentView's children with it — the
   // overlay's renderer dies like every tab's. Only the reference must go, or
   // a late sync would act on a dead view.
@@ -274,13 +395,24 @@ export function createAiDrawerOverlay(
   return {
     sync(state: AiDrawerOverlayState): void {
       if (shellWindow.isDestroyed()) return
-      const show = !state.dock.collapsed && state.docActive && !state.suppressed
+      // the mode this sync leaves the view in: the pet-only state is what
+      // gates the drag surface below, and the transition into it is what
+      // returns the keyboard (a drawer that collapsed under the person)
+      const nextPetMode = state.dock.collapsed
+      const wasPetMode = petMode
+      const wasShown = shown
+      // the overlay is the drawer's whole document-mode presence: it shows
+      // whenever a document tab is active, whatever the prefs say — the
+      // prefs only pick which footprint (the drawer's or the pet's own)
+      const show = state.docActive && !state.suppressed
       if (!show) {
-        // hidden, never destroyed: the prefs and the active tab decide
-        // visibility, and the panel's thread outlives both flipping back
-        const wasShown = shown
+        // hidden, never destroyed: the active tab and a presentation decide
+        // visibility, and the panel's thread outlives both flipping back.
+        // The hide is an applied change, so the mode state lands here too.
         shown = false
-        view?.setVisible(false)
+        petMode = nextPetMode
+        lastLayout = { scale: state.scale, dock: state.dock }
+        applyVisibility()
         // the composer inside the overlay held the keyboard, and a hidden
         // view keeps it: hand focus back to whatever owns the window now (the
         // TabManager's own focus verb — the active tab's view, or the shell
@@ -289,11 +421,20 @@ export function createAiDrawerOverlay(
         if (wasShown) deps.focusActiveView()
         return
       }
-      // a minimized or mid-restore window reports a degenerate rect: keep the
-      // last good bounds, the same guard layout() gives the document views
+      // a minimized or mid-restore window reports a degenerate rect: apply
+      // nothing — not the bounds, not the mode, not the visibility — and keep
+      // the last good everything. Swallowing the mode here would eat the
+      // collapse transition's focus hand-back on the next good sync (it
+      // would see the mode as already flipped), so the guard must come
+      // before any state lands.
       const { width, height } = state.window
       if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) return
       const live = view ?? (view = createView(state.scale))
+      // the mode and layout land only with the bounds they describe: the
+      // drag surface's gate and the gesture re-fit read what was actually
+      // applied, never a state the window refused
+      petMode = nextPetMode
+      lastLayout = { scale: state.scale, dock: state.dock }
       live.setBounds(drawerOverlayBounds(state.window, { scale: state.scale, dock: state.dock }))
       // the entry opts into `zoom: var(--ui-scale)` like the app frame, so
       // the drawer's content reads at the same size whichever layer hosts it
@@ -302,8 +443,17 @@ export function createAiDrawerOverlay(
       // lead every view added since it last showed (a new tab's view, a
       // browser page sibling) without anyone tracking those additions
       shellWindow.contentView.addChildView(live)
-      live.setVisible(true)
       shown = true
+      // shape-known gate: hidden until the entry's ready ping, whatever the
+      // sync wants — applied after `shown` so the gate reads this sync's
+      // intent, not the previous one's
+      applyVisibility()
+      // the drawer collapsed under the person: the panel behind the pet is
+      // hidden but this still-visible view would keep the composer's
+      // keyboard — P1-3's reasoning, the pet-only shrink's edition. Only on
+      // the real transition: a sync that already was pet-only (a petPos
+      // write) must not move anyone's focus.
+      if (wasShown && !wasPetMode && nextPetMode) deps.focusActiveView()
     },
     deliverToPanel(channel: string, payload: unknown): void {
       pendingPanelMessages.push({ channel, payload })
@@ -320,6 +470,37 @@ export function createAiDrawerOverlay(
       if (!wc || wc.isDestroyed() || sender !== wc) return
       panelReady = true
       deliverPending()
+      // the ping is also the shape-known signal: the entry knows which of
+      // its two shapes it is painting (a transparent blank never shows), so
+      // the view paints from here — including after a reload, whose
+      // navigation reset had re-hidden it
+      applyVisibility()
+    },
+    applyPetDragReport(sender: WebContents, report: AiPetDragReport): void {
+      // identity, not the arrival, vouches the sender (the channel is open
+      // to any renderer sharing the preload); the drag surface itself is
+      // renderer-territory — this only hosts it
+      const live = view
+      if (!live || live.webContents.isDestroyed() || sender !== live.webContents) return
+      if (shellWindow.isDestroyed()) return
+      if (report.start) {
+        // only the pet-only state may grow a drag surface: a drawer-shaped
+        // view must never become window-wide on a stray report
+        if (!petMode) return
+        const { width, height } = shellWindow.getContentBounds()
+        // a minimized or mid-restore window reports a degenerate rect: the
+        // report is dropped, and the renderer's own gate keeps its gesture
+        // waiting for the surface that never came
+        if (width <= 0 || height <= 0) return
+        // the drag's surface: the whole window, transparent, for the
+        // gesture's duration. The pointer cannot leave it, so the release
+        // always arrives, and its client coordinates are window-true for
+        // every input model — real or synthetic — because the surface never
+        // moves. The release's prefs write (or the end report below) is what
+        // shrinks it back.
+        live.setBounds({ x: 0, y: 0, width, height })
+      }
+      if (report.end) refitAfterGesture()
     },
     panelWebContents(): WebContents | undefined {
       const wc = view?.webContents

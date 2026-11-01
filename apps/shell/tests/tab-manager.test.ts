@@ -1660,7 +1660,7 @@ describe('tab sleep (background renderers released to free memory)', () => {
   })
 })
 
-describe('the AI drawer overlay (W2: the drawer over an active document)', () => {
+describe('the AI drawer overlay (W2: the drawer, or the pet, over an active document)', () => {
   // the manager drives an injected overlay host (the real one is
   // ai-drawer-view.ts's WebContentsView controller, unit-tested apart); a
   // plain spy shows every state the manager feeds it
@@ -1669,6 +1669,7 @@ describe('the AI drawer overlay (W2: the drawer over an active document)', () =>
     destroy: ReturnType<typeof vi.fn>
     deliverToPanel: ReturnType<typeof vi.fn>
     markPanelReadyFor: ReturnType<typeof vi.fn>
+    applyPetDragReport: ReturnType<typeof vi.fn>
     panelWebContents: ReturnType<typeof vi.fn>
   }
 
@@ -1685,6 +1686,7 @@ describe('the AI drawer overlay (W2: the drawer over an active document)', () =>
       destroy: vi.fn(),
       deliverToPanel: vi.fn(),
       markPanelReadyFor: vi.fn(),
+      applyPetDragReport: vi.fn(),
       panelWebContents: vi.fn(),
     }
     const m = new TabManager(
@@ -1703,7 +1705,9 @@ describe('the AI drawer overlay (W2: the drawer over an active document)', () =>
   /** the newest state the manager pushed */
   const lastState = (spy: OverlaySpy) => spy.sync.mock.calls.at(-1)![0] as Record<string, unknown>
 
-  it('activates the overlay when a document tab becomes active with the drawer open', () => {
+  it('activates the overlay when a document tab becomes active, drawer open or collapsed', () => {
+    // collapsed included: the pet-only overlay is the drawer's whole
+    // presence then, so the state (and the host's own shape logic) must flow
     const { m, spy } = managerWithOverlay()
     m.openDocsTab()
     expect(spy.sync).toHaveBeenCalled()
@@ -1808,7 +1812,7 @@ describe('the AI drawer overlay (W2: the drawer over an active document)', () =>
   })
 
   describe('routing the ask-intent forward (P0-2)', () => {
-    it('answers live only while a document is active, the drawer open, nothing presenting', () => {
+    it('answers live while a document is active and nothing presents, whatever the prefs', () => {
       let dock: AiDockPrefs = { width: 480, collapsed: false, petPos: null }
       const { m } = managerWithOverlay(() => dock)
       expect(m.drawerOverlayLive()).toBe(false) // Home is the active tab
@@ -1817,9 +1821,12 @@ describe('the AI drawer overlay (W2: the drawer over an active document)', () =>
       m.activateTab('home')
       expect(m.drawerOverlayLive()).toBe(false)
       m.activateTab(docs)
+      // collapsed too: the overlay is the drawer's whole document-mode
+      // presence (the pet-only shape), and the handoffs' senders open the
+      // dock before forwarding anyway
       dock = { width: 480, collapsed: true, petPos: null }
       m.layout()
-      expect(m.drawerOverlayLive()).toBe(false) // the drawer is closed
+      expect(m.drawerOverlayLive()).toBe(true)
       dock = { width: 480, collapsed: false, petPos: null }
       m.layout()
       expect(m.drawerOverlayLive()).toBe(true)
@@ -1858,6 +1865,17 @@ describe('the AI drawer overlay (W2: the drawer over an active document)', () =>
       // no host: a no-op, not a crash
       m.setDrawerOverlay(null)
       expect(() => m.markDrawerOverlayReadyFor(sender)).not.toThrow()
+    })
+
+    it('hands a pet-drag surface report to the overlay host for its own gating', () => {
+      const { m, spy } = managerWithOverlay()
+      const sender = { id: 900001 } as never
+      const report = { start: true }
+      m.applyDrawerOverlayPetDrag(sender, report)
+      expect(spy.applyPetDragReport).toHaveBeenCalledWith(sender, report)
+      // no host: a no-op, not a crash
+      m.setDrawerOverlay(null)
+      expect(() => m.applyDrawerOverlayPetDrag(sender, report)).not.toThrow()
     })
 
     it('exposes the overlay host webContents for the sender gates', () => {

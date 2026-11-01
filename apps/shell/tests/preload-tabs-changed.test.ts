@@ -256,4 +256,18 @@ describe('getAiDock / setAiDock / homeContentRect', () => {
     homeApi.askPanelReady?.()
     expect(electronMocks.send).toHaveBeenCalledWith(HOME_CHANNELS.askPanelReady)
   })
+
+  it('sends each pet-drag surface report fire-and-forget, flags included', () => {
+    // the drag's math is renderer-side: only the surface transitions ride
+    // the channel, and they ride as-is
+    electronMocks.send.mockClear()
+    homeApi.aiPetDrag?.({ start: true })
+    homeApi.aiPetDrag?.({ end: true })
+    expect(electronMocks.send).toHaveBeenNthCalledWith(1, HOME_CHANNELS.aiPetDrag, {
+      start: true,
+    })
+    expect(electronMocks.send).toHaveBeenNthCalledWith(2, HOME_CHANNELS.aiPetDrag, {
+      end: true,
+    })
+  })
 })

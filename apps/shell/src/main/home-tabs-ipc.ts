@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import type { Rectangle, WebContents } from 'electron'
 
 import { HOME_CHANNELS } from '../shared/home-api'
-import type { HomeTabsState } from '../shared/home-api'
+import type { AiPetDragReport, HomeTabsState } from '../shared/home-api'
 import type { OpenDocumentTab } from '../shared/tabs-api'
 import { normalizeAiDock } from '../shared/desktop-geometry'
 import { normalizeForwardedAskQuery, type PendingAskQuery } from '../shared/ask-forward'
@@ -172,6 +172,13 @@ export interface HomeWorkbenchIpcDeps {
    * TabManager (through index.ts) holds the overlay.
    */
   markDrawerOverlayReadyFor: (sender: WebContents) => void
+  /**
+   * Route a pet-drag surface report (`home:ai-pet-drag`) to the overlay: the
+   * sender-identity check and the pet-only mode gate both live there, so a
+   * report from any other renderer — or any other state — is a no-op before
+   * the view changes. Injected like the ready ping, for the same reason.
+   */
+  applyDrawerOverlayPetDrag: (sender: WebContents, report: AiPetDragReport) => void
 }
 
 /** a reported content-stage rect, whole-pixel and inside the window; null on anything malformed */
@@ -190,6 +197,25 @@ function asStageRect(value: unknown): Rectangle | null {
   }
   if (rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0) return null
   return rect
+}
+
+/**
+ * A pet-drag surface report, whole: an object carrying at least one of the
+ * `start`/`end` flags, each a boolean when present. Null on anything else —
+ * a dropped report costs the gesture nothing (the surface stays as the last
+ * good one), and a report that says nothing is not routed at all. The report
+ * carries no coordinates: the drag's math is entirely renderer-side, on the
+ * window-wide surface `start` hosts.
+ */
+function asPetDragReport(value: unknown): AiPetDragReport | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Partial<{ start: unknown; end: unknown }>
+  if (raw.start !== undefined && typeof raw.start !== 'boolean') return null
+  if (raw.end !== undefined && typeof raw.end !== 'boolean') return null
+  const start = raw.start === true
+  const end = raw.end === true
+  if (!start && !end) return null
+  return { ...(start ? { start: true } : {}), ...(end ? { end: true } : {}) }
 }
 
 /**
@@ -241,6 +267,17 @@ function clampStageRect(rect: Rectangle, window: { width: number; height: number
  *   the shell preload can send the channel, and the sender's identity,
  *   checked inside the overlay, is what limits the effect to the overlay's
  *   own renderer (another renderer's ping must not arm its flush).
+ * - `home:ai-pet-drag`: the overlay's pet-only view reporting its pet drag's
+ *   surface transitions — `start` when the gesture begins (main expands the
+ *   view to the whole window for its duration: static and window-wide, the
+ *   pointer cannot leave it and its client coordinates are its window
+ *   position whatever the input device, so the renderer's drag math is exact
+ *   for real pointers and synthetic or assistive trajectories alike) and
+ *   `end` when it finishes (main re-fits the synced footprint). The report
+ *   is validated whole and carries no coordinates; the overlay checks the
+ *   sender's identity and, for `start`, the pet-only state before anything
+ *   changes. The dragged position persists through the ordinary
+ *   `home:ai-dock-set` write, whose watcher re-syncs every copy.
  *
  * Known limitation (accepted): dirtiness is resolved per push, and a
  * document turning dirty or clean all by itself (an edit, an autosave) is not
@@ -278,5 +315,9 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
   })
   ipcMain.on(HOME_CHANNELS.askPanelReady, (event) => {
     deps.markDrawerOverlayReadyFor(event.sender)
+  })
+  ipcMain.on(HOME_CHANNELS.aiPetDrag, (event, raw: unknown) => {
+    const report = asPetDragReport(raw)
+    if (report) deps.applyDrawerOverlayPetDrag(event.sender, report)
   })
 }

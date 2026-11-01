@@ -208,12 +208,16 @@ export function createShellWindow(deps: ShellWindowDeps): void {
   manager.setClosedListener((closed) => deps.onTabsClosed(closed))
   // W2: the AI drawer's native overlay — while a document tab is active, the
   // HTML drawer cannot paint above the document's WebContentsView, so the
-  // manager drives this sibling view (the ask panel's standalone mount) from
-  // the same layout/activation passes that fit the document under it. The
-  // view's lifetime is the window's own: it is created lazily on the first
-  // document-mode drawer open and dies with the shell like every tab view.
-  // The focus verb is injected for the overlay's hide path (P1-3): the
-  // composer inside it held the keyboard, and a hidden view would keep it.
+  // manager drives this sibling view (the ask panel's standalone mount, and
+  // the floating pet itself while the drawer is collapsed) from the same
+  // layout/activation passes that fit the document under it. The view's
+  // lifetime is the window's own: it is created lazily on the first
+  // document-mode moment and dies with the shell like every tab view. The
+  // focus verb is injected for the overlay's hide and pet-only shrink paths
+  // (P1-3): the composer inside it held the keyboard, and a hidden — or
+  // pet-sized — view would keep it. The pet drag needs no wiring here: its
+  // surface requests ride the home:ai-pet-drag channel and its commit is the
+  // renderer's ordinary aiDock write.
   manager.setDrawerOverlay(
     createAiDrawerOverlay(win, { focusActiveView: () => manager.focusActiveView() }),
   )

@@ -6136,9 +6136,13 @@ registerHomeWorkbenchIpc({
   },
   // P0-2: while a document tab is active, the drawer the person sees is the
   // native overlay's panel copy (Home's HTML copy is display:none under the
-  // document), so an ask-intent handoff is routed there. Main decides by its
-  // own live truth rather than trusting the forwarding renderer's view of the
-  // active tab — a deep link that lands while a switch to Home is still
+  // document), so an ask-intent handoff is routed there — the drawer's prefs
+  // no longer gate it: the overlay is the drawer's whole document-mode
+  // presence (collapsed included, when it shrinks to the floating pet), the
+  // panel copy stays mounted behind the pet, and every handoff's sender opens
+  // the dock first anyway, so the question lands expanded. Main decides by
+  // its own live truth rather than trusting the forwarding renderer's view of
+  // the active tab — a deep link that lands while a switch to Home is still
   // propagating would otherwise park the question in a drawer nobody can see.
   forwardAskQuery: (query) => {
     const manager = tabManager
@@ -6147,14 +6151,16 @@ registerHomeWorkbenchIpc({
       manager.deliverToDrawerOverlay(HOME_CHANNELS.askForwarded, query)
       return
     }
-    // not the overlay's moment (Home active, the drawer closed over Home, or
-    // the tab switched between the handoff and here): the shell renderer's
-    // own panel is the drawer the person sees — bounce it back
+    // not the overlay's moment (Home active, or the tab switched between the
+    // handoff and here): the shell renderer's own panel is the drawer the
+    // person sees — bounce it back
     sendToShellRenderer(HOME_CHANNELS.askForwarded, query)
   },
   // the shell renderer already received the original browser:ask-about push;
   // this route only exists so the overlay's panel parks the annotation where
-  // the person can see it, so there is nothing to bounce
+  // the person can see it (pet-only included — the panel is mounted behind
+  // the pet and Home's dock-open write precedes the forward), so there is
+  // nothing to bounce
   forwardBrowserAskAbout: (note) => {
     if (tabManager?.drawerOverlayLive()) {
       tabManager.deliverToDrawerOverlay(BROWSER_CHANNELS.askAbout, note)
@@ -6165,6 +6171,12 @@ registerHomeWorkbenchIpc({
   // for it — a flush keyed on the load alone would beat the panel's listeners
   markDrawerOverlayReadyFor: (sender) => {
     tabManager?.markDrawerOverlayReadyFor(sender)
+  },
+  // the overlay pet's drag surface: the overlay checks the sender and its own
+  // pet-only state, hosts the gesture on a window-wide view, and the release
+  // shrinks it back — the position persists through the ordinary aiDock write
+  applyDrawerOverlayPetDrag: (sender, report) => {
+    tabManager?.applyDrawerOverlayPetDrag(sender, report)
   },
 })
 registerDroppedFilesIpc()
@@ -6516,13 +6528,19 @@ app.whenReady().then(async () => {
   // resize or activation happens to trigger a layout pass. That pass is also
   // what re-fits the drawer's native overlay view over the active document
   // (ai-drawer-view.ts, mounted by the TabManager wiring): a drawer opened,
-  // closed or resized while a document is showing lands here, and the layout
-  // hands the new state to the overlay along with the document geometry. The
-  // same settled value is broadcast to the Home renderer, whose drawer copy
-  // must follow a write another surface made (the overlay's own pet).
+  // closed, resized or pet-dragged while a document is showing lands here,
+  // and the layout hands the new state to the overlay along with the document
+  // geometry. The broadcasts go out BEFORE the layout on purpose: the
+  // overlay's renderer flips its shape (drawer or pet) on the broadcast while
+  // the layout hands the view its new bounds — sending them first closes the
+  // gap to the same beat, so the two never paint a half-flipped frame (a
+  // transparent drawer hole, or a panel crammed into the pet rect). The
+  // settled value reaches the Home renderer and the overlay's own panel copy
+  // alike: the pet-only mode IS this broadcast's consumer.
   watchAiDock(APP_SETTINGS_PATH(), (dock) => {
-    tabManager?.layout()
     sendToShellRenderer(HOME_CHANNELS.aiDockChanged, dock)
+    tabManager?.drawerOverlayWebContents()?.send(HOME_CHANNELS.aiDockChanged, dock)
+    tabManager?.layout()
   })
   createShellWindow()
   // deferred to ready: labels need currentLang(), which reads app.getLocale()

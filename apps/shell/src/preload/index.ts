@@ -743,6 +743,11 @@ const homeApi: HomeApi = {
   askPanelReady() {
     ipcRenderer.send(HOME_CHANNELS.askPanelReady)
   },
+  // the pet drag's live reports: fire-and-forget too — the view follows the
+  // pointer on main, and the commit's persistence is main's store write
+  aiPetDrag(report) {
+    ipcRenderer.send(HOME_CHANNELS.aiPetDrag, report)
+  },
   homeContentRect(rect) {
     ipcRenderer.send(HOME_CHANNELS.contentRect, rect)
   },

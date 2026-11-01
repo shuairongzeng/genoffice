@@ -492,6 +492,25 @@ export interface SystemPresenceSettings {
   closeToTraySupported: boolean
 }
 
+/**
+ * The pet drag's surface requests (`home:ai-pet-drag`): the pet-only pet's
+ * drag runs in a surface main temporarily expands to the whole window,
+ * because a pet-sized renderer cannot capture the pointer and a view that
+ * *follows* the pointer would make the drag's math depend on the input
+ * device (a real pointer's client coordinates shift with the moved view, a
+ * synthetic or assistive trajectory's do not — only a static, window-wide
+ * surface makes every event's client position the pointer's window
+ * position, for every input model). `start` asks main for that surface;
+ * `end` returns it. The dragged position itself never rides this channel:
+ * the release persists it through the ordinary `home:ai-dock-set` write.
+ */
+export interface AiPetDragReport {
+  /** the gesture began: expand the view to the whole window for its duration */
+  start?: boolean
+  /** the gesture ended: re-fit the view to the synced footprint */
+  end?: boolean
+}
+
 export interface HomeApi {
   /** unified recents across document types, newest first (paged) */
   recents(query?: RecentQuery): Promise<RecentPage>
@@ -651,6 +670,18 @@ export interface HomeApi {
    * main bounced back because the overlay was not the drawer's live host.
    */
   onForwardedAskQuery?(handler: (query: PendingAskQuery) => void): () => void
+  /**
+   * Report the pet-only pet's drag surface transitions (`home:ai-pet-drag`):
+   * `start` asks main to expand the overlay view to the whole window for the
+   * gesture — the pointer then cannot leave the renderer (the release always
+   * arrives) and its client coordinates are its window position whatever the
+   * input device — and `end` returns the view to the synced footprint. The
+   * dragged position never rides this channel: the release persists it
+   * through the ordinary `home:ai-dock-set` write. Fire-and-forget like
+   * homeContentRect, and guard-checked the same way: a stale preload without
+   * the channel keeps the pet click-only, never a dead boot.
+   */
+  aiPetDrag?(report: AiPetDragReport): void
   /**
    * Tell main this surface's panel finished booting and its subscriptions are
    * armed (`home:ask-panel-ready`): the native overlay's standalone mount is
@@ -1197,6 +1228,12 @@ export const HOME_CHANNELS = {
    *  messages main buffered for it may flush (see the ready handshake,
    *  main/ai-drawer-view.ts) */
   askPanelReady: 'home:ask-panel-ready',
+  /** renderer → main: the pet-only pet's drag surface transitions — `start`
+   *  expands the overlay view to the whole window for the gesture (the
+   *  pointer cannot leave it, and its client coordinates are window-true
+   *  whatever the input device), `end` re-fits the synced footprint; the
+   *  position persists through the ordinary aiDock write */
+  aiPetDrag: 'home:ai-pet-drag',
   systemPresenceGet: 'home:system-presence-get',
   systemPresenceSetLoginItem: 'home:system-presence-set-login-item',
   systemPresenceSetCloseToTray: 'home:system-presence-set-close-to-tray',

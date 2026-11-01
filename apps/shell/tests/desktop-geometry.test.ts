@@ -5,11 +5,14 @@ import {
   AI_DOCK_WIDTH_MAX,
   AI_DOCK_WIDTH_MIN,
   DESKTOP_HEADER_HEIGHT,
+  PET_MARGIN,
+  PET_SIZE,
   aiDockWidth,
   desktopHeaderHeight,
   documentContentBounds,
   drawerOverlayBounds,
   normalizeAiDock,
+  petOverlayBounds,
 } from '../src/shared/desktop-geometry'
 
 /**
@@ -21,8 +24,11 @@ import {
  * while closed) and only the boot-time fallback subtracts an open drawer.
  * While a document is active the drawer's host is the W2 native overlay view,
  * whose bounds drawerOverlayBounds shapes: the window's right edge, the
- * drawer's scaled width, the full height. The constants mirror the
- * renderer's own values (home.css / AiDock.tsx) and must move with them.
+ * drawer's scaled width, the full height — or, while collapsed, the pet-only
+ * footprint (petOverlayBounds: the pet's own position, the pet's own size
+ * plus a shadow margin, clamped the way the renderer's pet clamps). The
+ * constants mirror the renderer's own values (home.css / AiDock.tsx) and must
+ * move with them.
  */
 
 describe('desktopHeaderHeight', () => {
@@ -117,15 +123,15 @@ describe('drawerOverlayBounds', () => {
     ).toEqual({ x: 800 - AI_DOCK_WIDTH_DEFAULT, y: 0, width: AI_DOCK_WIDTH_DEFAULT, height: 600 })
   })
 
-  it('is zero-wide at the right edge while the drawer is closed', () => {
-    // the caller decides visibility from the same pref; a collapsed drawer
-    // just shapes nothing
+  it('is the pet-only footprint while the drawer is collapsed (the pet is the presence)', () => {
+    // the overlay stays up whenever a document shows; collapsed it shrinks to
+    // the pet: the default perch, pet-sized plus the shadow margin
     expect(
       drawerOverlayBounds(
         { width: 800, height: 600 },
         { dock: { width: 400, collapsed: true, petPos: null } },
       ),
-    ).toEqual({ x: 800, y: 0, width: 0, height: 600 })
+    ).toEqual(petOverlayBounds({ width: 800, height: 600 }, {}, null))
   })
 
   it('scales the stored CSS width with the interface scale', () => {
@@ -169,6 +175,58 @@ describe('drawerOverlayBounds', () => {
         { dock: { width: 400, collapsed: false, petPos: null } },
       ),
     ).toEqual({ x: 0, y: 0, width: 0, height: 0 })
+  })
+})
+
+describe('petOverlayBounds', () => {
+  it('anchors the default perch at the exactly pet-sized bottom-right corner', () => {
+    // the pet's own top-left sits where Home's HTML pet perches for a null
+    // petPos (window - PET_SIZE - PET_MARGIN), and the view is EXACTLY the
+    // pet's box: a view hit-tests over its whole rect however transparent it
+    // paints, so the intercept area must equal the painted bird — no
+    // invisible margin may eat the page's clicks
+    expect(petOverlayBounds({ width: 800, height: 600 }, {}, null)).toEqual({
+      x: 800 - PET_SIZE.width - PET_MARGIN,
+      y: 600 - PET_SIZE.height - PET_MARGIN,
+      width: PET_SIZE.width,
+      height: PET_SIZE.height,
+    })
+  })
+
+  it('places the view at the stored pet position (the same spot Home paints it)', () => {
+    expect(petOverlayBounds({ width: 800, height: 600 }, {}, { x: 120, y: 80 })).toEqual({
+      x: 120,
+      y: 80,
+      width: PET_SIZE.width,
+      height: PET_SIZE.height,
+    })
+  })
+
+  it('scales the pet and the position with the interface scale', () => {
+    // petPos is zoomed-chrome space: 120 CSS px at 150% is 180 window px, and
+    // the pet's own box grows the same way
+    expect(
+      petOverlayBounds({ width: 800, height: 600 }, { scale: 1.5 }, { x: 120, y: 80 }),
+    ).toEqual({
+      x: 180,
+      y: 120,
+      width: Math.round(PET_SIZE.width * 1.5),
+      height: Math.round(PET_SIZE.height * 1.5),
+    })
+  })
+
+  it('clamps a pet position that would hang off an edge, like the renderer pet', () => {
+    // the clamp uses PET_SIZE (the pet's own box, exactly the view): the
+    // pet's window position obeys the same rule Home's pet obeys, and the
+    // view stays whole on the window with it — the shadow clips instead
+    expect(petOverlayBounds({ width: 800, height: 600 }, {}, { x: 900, y: 700 })).toEqual({
+      x: 800 - PET_SIZE.width,
+      y: 600 - PET_SIZE.height,
+      width: PET_SIZE.width,
+      height: PET_SIZE.height,
+    })
+    expect(petOverlayBounds({ width: 800, height: 600 }, {}, { x: -50, y: -50 }).x).toBe(0)
+    expect(petOverlayBounds({ width: 800, height: 600 }, {}, { x: -50, y: -50 }).y).toBe(0)
   })
 })
 

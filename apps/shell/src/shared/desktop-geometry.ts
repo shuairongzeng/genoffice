@@ -6,8 +6,12 @@
  * right-edge drawer that overlays the content, so it reserves no width in any
  * state and nothing here subtracts space for the pet. While a document tab is
  * active the drawer's host is a native overlay view (main/ai-drawer-view.ts),
- * shaped by drawerOverlayBounds below. No Electron or DOM imports so the main
- * process, the renderer and unit tests all share it.
+ * shaped by drawerOverlayBounds below — and while the drawer is collapsed
+ * that view shrinks to the pet itself (petOverlayBounds), the drawer's whole
+ * presence then. The pet's own geometry (size, margin, clamp) lives here for
+ * the same reason: two layers perch the bird and must agree on it. No
+ * Electron or DOM imports so the main process, the renderer and unit tests
+ * all share it.
  *
  * The renderer's measured stage rect (reported over `home:content-rect`) is
  * the primary source for where a document view sits — the desktop's own
@@ -49,7 +53,14 @@ export interface AiDockPrefs {
   width: number
   /** true: the drawer is closed — the pet floats alone, no panel showing */
   collapsed: boolean
-  /** the pet's window position; null = the default bottom-right corner */
+  /**
+   * The pet's top-left corner in the `zoom`ed chrome coordinate space — NOT
+   * window pixels: the pet's window position is petPos × interface scale
+   * (petOverlayBounds does that multiplication). A drag that moves the
+   * pointer Δ window px therefore moves petPos by Δ/scale — the pet follows
+   * the cursor 1:1 on screen while the stored number stays chrome-space.
+   * Null anchors the default bottom-right perch.
+   */
   petPos: AiPetPos | null
 }
 
@@ -77,20 +88,101 @@ export function aiDockWidth(dock: AiDockPrefs, scale = 1): number {
   return Math.round(css * scale)
 }
 
+/* ── the pet's geometry ──
+ * All in the `zoom`ed chrome coordinate space (the same space the drawer
+ * width lives in): the pet is content of a `zoom`ed root, so its left/top
+ * are CSS px there and its window footprint multiplies by the interface
+ * scale. The pet's own box is a fixed-size drawing (56×50 mascot plus 6px
+ * button padding), so constants describe it exactly. These live here — not
+ * in the renderer's AiDock.tsx — because two layers perch the same bird
+ * (Home's HTML pet and the native overlay's pet-only view) and both must
+ * size and clamp it identically; AiDock re-exports them so its own import
+ * sites keep working. */
+
+/** the pet button's size in chrome CSS px (the mascot SVG plus its padding) */
+export const PET_SIZE = { width: 68, height: 62 } as const
+
+/** the pet's default gap from the window's right and bottom edges */
+export const PET_MARGIN = 16
+
 /**
- * The W2 native overlay drawer's bounds in window (content-area) pixels: the
- * right edge, `aiDockWidth` wide, the full height — the same footprint the
- * renderer's HTML drawer paints when Home is the active tab (its panel is
- * `position: fixed; top: 0; right: 0; bottom: 0`, covering the embedded strip
- * too), so the drawer reads as one surface whichever layer hosts it. A drawer
- * wider than the window fills it (the HTML drawer would spill past the left
- * edge; a native view clamps instead of painting off-window). Zero while
- * collapsed — the caller decides visibility, this only shapes the footprint.
+ * Clamp a pet position into the window (and out of the open drawer's
+ * footprint, via `reservedRight`): the pet never hangs off an edge and never
+ * hides under the drawer it opens. Pure so the gesture, the geometry and the
+ * tests share one truth.
+ */
+export function clampPetPos(
+  pos: AiPetPos,
+  bounds: { width: number; height: number },
+  size: { width: number; height: number },
+  reservedRight = 0,
+): AiPetPos {
+  const maxX = Math.max(0, Math.round(bounds.width - size.width - reservedRight))
+  const maxY = Math.max(0, Math.round(bounds.height - size.height))
+  return {
+    x: Math.min(Math.max(0, Math.round(pos.x)), maxX),
+    y: Math.min(Math.max(0, Math.round(pos.y)), maxY),
+  }
+}
+
+/** the default perch: the content corner (the window's bottom-right, the stage's own) */
+export function defaultPetPos(bounds: { width: number; height: number }): AiPetPos {
+  return {
+    x: bounds.width - PET_SIZE.width - PET_MARGIN,
+    y: bounds.height - PET_SIZE.height - PET_MARGIN,
+  }
+}
+
+/**
+ * The overlay's pet-only rect in window (content-area) pixels: the view's
+ * origin is the pet's clamped top-left — the same window spot Home's HTML
+ * pet paints for the same `petPos`, so the bird does not jump between modes
+ * — and its size is EXACTLY the pet's own box. No slack is added on purpose:
+ * a WebContentsView hit-tests over its whole rect however transparent it
+ * paints, so a single margin of invisible view would sit over the page's
+ * scrollbar or the editor's status bar eating their clicks — the intercept
+ * area must equal the painted bird. The cost is the drop shadow clipping
+ * when the perch is clamped hard against an edge: a cosmetic clip nobody
+ * clicks on. This is what the collapsed drawer's overlay shrinks to: the
+ * pet is the drawer's whole presence then, and the only way back into the
+ * panel. During a pet drag the view is temporarily expanded to the whole
+ * window instead (the drag's surface — see home:ai-pet-drag), and this is
+ * what it returns to.
+ */
+export function petOverlayBounds(
+  window: { width: number; height: number },
+  layout: { scale?: number },
+  petPos: AiPetPos | null,
+): Rect {
+  const scale = layout.scale ?? 1
+  const chrome = { width: window.width / scale, height: window.height / scale }
+  const pos = clampPetPos(petPos ?? defaultPetPos(chrome), chrome, PET_SIZE)
+  return {
+    x: Math.round(pos.x * scale),
+    y: Math.round(pos.y * scale),
+    width: Math.round(PET_SIZE.width * scale),
+    height: Math.round(PET_SIZE.height * scale),
+  }
+}
+
+/**
+ * The W2 native overlay drawer's bounds in window (content-area) pixels:
+ * while the drawer is open, the right edge, `aiDockWidth` wide, the full
+ * height — the same footprint the renderer's HTML drawer paints when Home is
+ * the active tab (its panel is `position: fixed; top: 0; right: 0; bottom:
+ * 0`, covering the embedded strip too), so the drawer reads as one surface
+ * whichever layer hosts it. While the drawer is collapsed, the pet-only
+ * footprint above — the overlay is the pet's host whenever a document tab is
+ * active, so the caller shows it in both states and this only shapes the
+ * footprint. A drawer wider than the window fills it (the HTML drawer would
+ * spill past the left edge; a native view clamps instead of painting
+ * off-window).
  */
 export function drawerOverlayBounds(
   window: { width: number; height: number },
   layout: DesktopContentLayout,
 ): Rect {
+  if (layout.dock.collapsed) return petOverlayBounds(window, layout, layout.dock.petPos)
   const scale = layout.scale ?? 1
   const width = Math.min(aiDockWidth(layout.dock, scale), Math.max(0, Math.round(window.width)))
   return {

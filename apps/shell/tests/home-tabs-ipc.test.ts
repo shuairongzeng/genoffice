@@ -40,6 +40,7 @@ vi.mock('electron', () => ({ ipcMain: { handle: ipcMainMock.handle, on: ipcMainM
 const forwardAskQuery = vi.fn()
 const forwardBrowserAskAbout = vi.fn()
 const markDrawerOverlayReadyFor = vi.fn()
+const applyDrawerOverlayPetDrag = vi.fn()
 
 import {
   collectHomeTabsState,
@@ -361,6 +362,7 @@ describe('registerHomeWorkbenchIpc', () => {
       forwardAskQuery,
       forwardBrowserAskAbout,
       markDrawerOverlayReadyFor,
+      applyDrawerOverlayPetDrag,
     })
   }
 
@@ -496,6 +498,7 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
     forwardAskQuery.mockClear()
     forwardBrowserAskAbout.mockClear()
     markDrawerOverlayReadyFor.mockClear()
+    applyDrawerOverlayPetDrag.mockClear()
     registerHomeWorkbenchIpc({
       appSettingsPath: () => '/unused/app-settings.json',
       getTabManager: () => null,
@@ -503,6 +506,7 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
       forwardAskQuery,
       forwardBrowserAskAbout,
       markDrawerOverlayReadyFor,
+      applyDrawerOverlayPetDrag,
     })
   })
 
@@ -565,5 +569,35 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
     ipcMainMock.onHandlers.get('home:ask-panel-ready')!({ sender })
     expect(markDrawerOverlayReadyFor).toHaveBeenCalledTimes(1)
     expect(markDrawerOverlayReadyFor).toHaveBeenCalledWith(sender)
+  })
+
+  it('routes a validated pet-drag surface report to the dep with the event sender', () => {
+    // the overlay (through the dep) owns the sender identity check and the
+    // pet-only mode gate, so the report passes through whole
+    const sender = { id: 202 } as WebContents
+    ipcMainMock.onHandlers.get('home:ai-pet-drag')!({ sender }, { start: true })
+    expect(applyDrawerOverlayPetDrag).toHaveBeenCalledTimes(1)
+    expect(applyDrawerOverlayPetDrag).toHaveBeenCalledWith(sender, { start: true })
+    ipcMainMock.onHandlers.get('home:ai-pet-drag')!({ sender }, { end: true })
+    expect(applyDrawerOverlayPetDrag).toHaveBeenLastCalledWith(sender, { end: true })
+  })
+
+  it('drops malformed pet-drag reports whole rather than half-keeping them', () => {
+    // the report carries no coordinates: the drag's math is renderer-side —
+    // only the surface flags ride the channel, and a malformed one must cost
+    // the gesture nothing
+    const sender = { id: 202 } as WebContents
+    for (const bad of [
+      null,
+      'drag',
+      {},
+      { x: 60 },
+      { start: 'begin' },
+      { end: 1 },
+      { start: true, end: 'done' },
+    ]) {
+      ipcMainMock.onHandlers.get('home:ai-pet-drag')!({ sender }, bad)
+    }
+    expect(applyDrawerOverlayPetDrag).not.toHaveBeenCalled()
   })
 })

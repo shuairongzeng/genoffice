@@ -762,10 +762,11 @@ body.ai-pet-dragging {
 /* ── the standalone ask-panel view (?view=ask-panel) ──
  * The surface the W2 native overlay view (main/ai-drawer-view.ts) loads over
  * an active document: the panel alone fills the view, plus the floating pet
- * (the overlay's collapse control — see panel-entry.tsx). It opts into the
- * interface scale exactly like the app frame, so the drawer's content reads
- * at the same size whichever layer hosts it (the overlay's window footprint
- * is the scaled aiDockWidth; without this, its CSS would stay at 100%). */
+ * (the drawer's collapse control and, while collapsed, its whole presence —
+ * see panel-entry.tsx). It opts into the interface scale exactly like the app
+ * frame, so the drawer's content reads at the same size whichever layer hosts
+ * it (the overlay's window footprint is the scaled aiDockWidth; without this,
+ * its CSS would stay at 100%). */
 .ask-panel-entry {
   position: fixed;
   inset: 0;
@@ -775,22 +776,62 @@ body.ai-pet-dragging {
   zoom: var(--ui-scale);
 }
 
+/* the panel's wrapper: the drawer-shaped half of the two-state entry. Hidden
+   (never unmounted) while the drawer is collapsed — the panel's session and
+   subscriptions outlive the pet-only state, which is the whole reason main's
+   buffered messages can flush into them. display must be spelled out because
+   the flex rule above would otherwise out-rank the hidden attribute. */
+.ask-panel-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ask-panel-panel[hidden] {
+  display: none;
+}
+
+/* pet-only: the view has shrunk to the bird (a transparent WebContentsView),
+   so nothing but the bird may paint — html and body drop their backgrounds
+   and the document shows straight through. The expanded entry keeps its own
+   opaque surface above the same transparent view. */
+html.ask-panel-pet-only,
+html.ask-panel-pet-only body {
+  background: transparent;
+}
+
+.ask-panel-entry.ask-panel-pet-only {
+  background: transparent;
+}
+
 .ask-panel-entry .kb-ask {
   flex: 1;
   min-height: 0;
-  /* the pet's strip: the floating pet perches at the foot's right corner, so
-     the composer's send controls stay clear of it. 62 (PET_SIZE.height) +
-     16 (PET_MARGIN) — must move with AiDock.tsx's constants. Home's drawer
-     never hosts the pet inside itself (it clamps the pet outside its
-     footprint), so this arrangement is the overlay's own. */
+  /* the pet's strip: while expanded the floating pet perches at the foot's
+     right corner, so the composer's send controls stay clear of it. 62
+     (PET_SIZE.height) + 16 (PET_MARGIN) — must move with the shared pet
+     geometry in desktop-geometry.ts. Home's drawer never hosts the pet
+     inside itself (it clamps the pet outside its footprint), so this
+     arrangement is the overlay's own. */
   padding-bottom: 78px;
 }
 
-/* the overlay's pet is a button, not a draggable mascot: the position
-   gesture is Home's (the pet cannot be dragged around a drawer that is
-   itself a native view), so the grab cursor must not promise it */
+/* the pet's two perches: expanded, the drawer's foot (pointer — a click
+   retracts); pet-only, its own view's origin (grab — the drag gesture is
+   live; during a drag the inline style moves the bird across the window-wide
+   surface instead). The pet-drag body class gives the same grabbing cursor
+   Home's drag does while it lasts. */
 .ask-panel-entry .ai-pet {
   cursor: pointer;
+}
+
+.ask-panel-entry.ask-panel-pet-only .ai-pet {
+  cursor: grab;
+}
+
+body.ai-pet-dragging .ask-panel-entry .ai-pet {
+  cursor: grabbing;
 }
 
 .ask-panel-entry-error {

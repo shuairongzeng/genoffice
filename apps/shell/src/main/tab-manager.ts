@@ -8,6 +8,7 @@ import type { AiDrawerOverlay } from './ai-drawer-view'
 import type { AiDocContent } from '../../../docs/src/shared/ipc'
 import { rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
 import { HOME_CHANNELS } from '../shared/home-api'
+import type { AiPetDragReport } from '../shared/home-api'
 import {
   documentContentBounds,
   normalizeAiDock,
@@ -327,11 +328,12 @@ export class TabManager {
 
   /**
    * Install (or drop) the AI drawer's native overlay view host. The overlay
-   * appears only while the drawer is open and a non-Home tab is active, so
-   * every layout pass and activation re-decides it here: the same triggers
-   * that fit the active document (resize, restore, the renderer's stage-rect
-   * report, an interface-scale change, an `aiDock` write through
-   * watchAiDock) also re-fit the drawer floating over it.
+   * is up whenever a non-Home tab is active — drawer open (the drawer's
+   * footprint) or collapsed (the pet-only one) — so every layout pass and
+   * activation re-decides it here: the same triggers that fit the active
+   * document (resize, restore, the renderer's stage-rect report, an
+   * interface-scale change, an `aiDock` write through watchAiDock) also
+   * re-fit the drawer or pet floating over it.
    */
   setDrawerOverlay(overlay: AiDrawerOverlay | null): void {
     this.drawerOverlay = overlay
@@ -340,17 +342,22 @@ export class TabManager {
 
   /**
    * Whether the AI drawer's native overlay is the drawer's live host right
-   * now (P0-2): a non-Home tab is active, its view is not presenting over the
-   * whole window, and the drawer's prefs say the overlay shows — the same
-   * predicate sync() shows the view on. While true, Home's HTML copy is
-   * display:none under the document, so anything routed "to the drawer"
-   * belongs to the overlay's panel copy instead.
+   * now (P0-2): a non-Home tab is active and its view is not presenting over
+   * the whole window — the same predicate sync() shows the view on. The
+   * drawer's prefs no longer take part: the overlay is the drawer's whole
+   * document-mode presence (collapsed included, when it shrinks to the
+   * floating pet), so a handoff routed "to the drawer" while any document
+   * shows belongs to the overlay's panel copy even mid-collapse — its panel
+   * stays mounted behind the pet, and the handoffs' senders open the dock
+   * first anyway (Home's openAskDock write precedes every forward), so the
+   * question lands expanded. Home's own copy keeps the routing only while
+   * Home is the active tab — the genuine bounce moments.
    */
   drawerOverlayLive(): boolean {
     if (this.shellWindow.isDestroyed() || !this.drawerOverlay) return false
     const active = this.tabs.find((t) => t.id === this.activeId)
     if (!active || active.kind === 'home') return false
-    return !this.drawerOverlaySuppressed() && !this.aiDock().collapsed
+    return !this.drawerOverlaySuppressed()
   }
 
   /**
@@ -372,6 +379,16 @@ export class TabManager {
    */
   markDrawerOverlayReadyFor(wc: WebContents): void {
     this.drawerOverlay?.markPanelReadyFor(wc)
+  }
+
+  /**
+   * A pet-drag surface report arrived over `home:ai-pet-drag` from this
+   * webContents: hand it to the overlay, which decides by identity whether
+   * the sender is its own live view (and, for `start`, whether it is
+   * actually pet-only) before the view becomes a window-wide drag surface.
+   */
+  applyDrawerOverlayPetDrag(wc: WebContents, report: AiPetDragReport): void {
+    this.drawerOverlay?.applyPetDragReport(wc, report)
   }
 
   /**

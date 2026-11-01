@@ -5,14 +5,17 @@ import { AI_DOCK_WIDTH_DEFAULT, type AiDockPrefs } from '../src/shared/desktop-g
 
 /**
  * The AI drawer's native overlay host (src/main/ai-drawer-view.ts): the
- * WebContentsView that carries the drawer above an active document — mounting
- * and geometry from the `aiDock` state, topmost re-assertion, hide-not-
- * destroy transitions, the buffered panel deliveries and the ready handshake
- * that releases them, the navigation and crash hardening around the view's
- * own renderer, and the lifetime around the shell window. Electron is
- * mocked the way tab-manager.test.ts mocks it; only the controller's own
- * observable behavior is asserted (the TabManager side that drives it lives
- * in tab-manager.test.ts).
+ * WebContentsView that carries the drawer's whole document-mode presence —
+ * the drawer's footprint while open, the pet-only footprint while collapsed —
+ * with mounting and geometry from the `aiDock` state, topmost re-assertion,
+ * hide-not-destroy transitions, the transparent surface the pet-only state
+ * needs, the buffered panel deliveries and the ready handshake that releases
+ * them, the pet drag's window-wide surface (hosted on request, re-fitted on
+ * release or crash), the navigation and crash hardening around the view's
+ * own renderer, and the lifetime around the shell window. Electron is mocked
+ * the way tab-manager.test.ts mocks it; only the controller's own observable
+ * behavior is asserted (the TabManager side that drives it lives in
+ * tab-manager.test.ts).
  */
 
 /** URLs the mocked shell.openExternal received */
@@ -71,11 +74,21 @@ vi.mock('electron', () => ({
     }
     bounds: unknown[] = []
     visibles: boolean[] = []
-    setBounds(rect: unknown) {
+    /** the surface color the view last carried (the transparent pet-only view) */
+    backgroundColor = ''
+    lastBounds: { x: number; y: number; width: number; height: number } | null = null
+    setBounds(rect: { x: number; y: number; width: number; height: number }) {
       this.bounds.push(rect)
+      this.lastBounds = rect
+    }
+    getBounds(): { x: number; y: number; width: number; height: number } {
+      return this.lastBounds ?? { x: 0, y: 0, width: 0, height: 0 }
     }
     setVisible(visible: boolean) {
       this.visibles.push(visible)
+    }
+    setBackgroundColor(color: string) {
+      this.backgroundColor = color
     }
   },
 }))
@@ -93,6 +106,8 @@ interface FakeView {
   }
   bounds: unknown[]
   visibles: boolean[]
+  backgroundColor: string
+  getBounds: () => { x: number; y: number; width: number; height: number }
 }
 
 interface FakeShellWindow {
@@ -167,15 +182,85 @@ beforeEach(() => {
 })
 
 describe('mounting', () => {
-  it('creates no view while the drawer is closed', () => {
+  it('shows an exactly pet-sized view while the drawer is collapsed over a document', () => {
+    // the bug this closes: Home's HTML pet is painted under the document, so
+    // the overlay pet is the only way back into the panel — it must exist
+    // exactly while the drawer is collapsed, at the pet's own footprint.
+    // EXACTLY pet-sized: a view hit-tests over its whole rect however
+    // transparent it paints, so a single invisible margin would eat the
+    // clicks meant for the page below — the intercept area is the painted
+    // bird, and the shadow clips at the edges instead
     const overlay = createAiDrawerOverlay(win as never)
-    overlay.sync(state({ dock: { width: 480, collapsed: true, petPos: null } }))
-    expect(win.contentView.addChildView).not.toHaveBeenCalled()
+    overlay.sync(state({ dock: { width: 400, collapsed: true, petPos: null } }))
+    const view = overlayView(win)
+    // the default perch: the pet's top-left where Home's pet perches, the
+    // view exactly the pet's own box
+    expect(view.bounds.at(-1)).toEqual({
+      x: 800 - 68 - 16,
+      y: 600 - 62 - 16,
+      width: 68,
+      height: 62,
+    })
+    // hidden until the entry signals its shape: an unknown shape paints a
+    // transparent blank, and a blank must never eat clicks
+    expect(view.visibles.at(-1)).toBe(false)
+    overlay.markPanelReadyFor(view.webContents as never)
+    expect(view.visibles.at(-1)).toBe(true)
+  })
+
+  it('stays hidden through the whole boot until the panel copy signals its shape', () => {
+    // the ready ping is the shape-known gate: the view mounts on the sync
+    // but paints nothing until the entry knows whether it is the drawer or
+    // the pet — a wrong guess is a transparent full-drawer or full-window
+    // rect of dead clicks
+    const overlay = createAiDrawerOverlay(win as never)
+    overlay.sync(state())
+    const view = overlayView(win)
+    expect(view.visibles).toEqual([false])
+    // a foreign renderer's ping changes nothing (identity check)
+    overlay.markPanelReadyFor(otherWebContents() as never)
+    expect(view.visibles).toEqual([false])
+    overlay.markPanelReadyFor(view.webContents as never)
+    expect(view.visibles.at(-1)).toBe(true)
+  })
+
+  it('a reload re-hides the view until the replacement renderer re-signals', () => {
+    const overlay = createAiDrawerOverlay(win as never)
+    overlay.sync(state())
+    const view = overlayView(win)
+    overlay.markPanelReadyFor(view.webContents as never)
+    expect(view.visibles.at(-1)).toBe(true)
+    // the main-frame navigation of a reload: the old shape is gone, a blank
+    // must not eat clicks while the new entry boots
+    view.webContents.onHandlers.get('did-start-navigation')!(
+      {},
+      'genoffice-app://help/index.html?view=ask-panel',
+      false,
+      true,
+    )
+    expect(view.visibles.at(-1)).toBe(false)
+    overlay.markPanelReadyFor(view.webContents as never)
+    expect(view.visibles.at(-1)).toBe(true)
+  })
+
+  it('places the pet-only view at the stored pet position', () => {
+    const overlay = createAiDrawerOverlay(win as never)
+    overlay.sync(state({ dock: { width: 400, collapsed: true, petPos: { x: 120, y: 80 } } }))
+    expect(overlayView(win).bounds.at(-1)).toEqual({ x: 120, y: 80, width: 68, height: 62 })
+  })
+
+  it('carries a transparent surface: only the pet may paint over the page', () => {
+    const overlay = createAiDrawerOverlay(win as never)
+    overlay.sync(state({ dock: { width: 400, collapsed: true, petPos: null } }))
+    expect(overlayView(win).backgroundColor).toBe('#00000000')
   })
 
   it('creates no view while Home is the active tab', () => {
     const overlay = createAiDrawerOverlay(win as never)
     overlay.sync(state({ docActive: false }))
+    expect(win.contentView.addChildView).not.toHaveBeenCalled()
+    // collapsed or not: no document, no overlay
+    overlay.sync(state({ dock: { width: 400, collapsed: true, petPos: null }, docActive: false }))
     expect(win.contentView.addChildView).not.toHaveBeenCalled()
   })
 
@@ -201,6 +286,7 @@ describe('mounting', () => {
     overlay.sync(state({ dock: { width: 480, collapsed: false, petPos: null } }))
     const view = overlayView(win)
     expect(view.bounds.at(-1)).toEqual({ x: 320, y: 0, width: 480, height: 600 })
+    overlay.markPanelReadyFor(view.webContents as never)
     expect(view.visibles.at(-1)).toBe(true)
     expect(win.contentView.addChildView).toHaveBeenCalledTimes(1)
   })
@@ -211,6 +297,15 @@ describe('geometry', () => {
     const overlay = createAiDrawerOverlay(win as never)
     overlay.sync(state({ dock: { width: 360, collapsed: false, petPos: null }, scale: 1.5 }))
     expect(overlayView(win).bounds.at(-1)).toEqual({ x: 260, y: 0, width: 540, height: 600 })
+  })
+
+  it('scales the pet-only footprint with the interface scale', () => {
+    const overlay = createAiDrawerOverlay(win as never)
+    overlay.sync(
+      state({ dock: { width: 400, collapsed: true, petPos: { x: 100, y: 80 } }, scale: 1.5 }),
+    )
+    // the pet's chrome position and its own box both grow with the zoom
+    expect(overlayView(win).bounds.at(-1)).toEqual({ x: 150, y: 120, width: 102, height: 93 })
   })
 
   it('clamps a drawer wider than the window to the window itself', () => {
@@ -261,7 +356,8 @@ describe('geometry', () => {
 describe('z-order', () => {
   it('re-asserts the topmost position on every shown sync', () => {
     // addChildView re-adds an existing child as the topmost view, so a view
-    // added after the drawer opened (a new tab) cannot end up above it
+    // added after the overlay showed (a new tab, a browser page's annotate
+    // layer) cannot end up above it — the pet stays clickable mid-annotation
     const overlay = createAiDrawerOverlay(win as never)
     overlay.sync(state())
     const view = overlayView(win)
@@ -272,17 +368,26 @@ describe('z-order', () => {
   })
 })
 
-describe('state transitions (hide, never destroy)', () => {
-  it('hides when the drawer closes over the document, and reuses the view when it reopens', () => {
+describe('state transitions (resize, never destroy)', () => {
+  it('shrinks to the pet when the drawer closes over the document, keeping the view', () => {
     const overlay = createAiDrawerOverlay(win as never)
     overlay.sync(state())
     const view = overlayView(win)
+    overlay.markPanelReadyFor(view.webContents as never)
     overlay.sync(state({ dock: { width: 480, collapsed: true, petPos: null } }))
-    expect(view.visibles.at(-1)).toBe(false)
+    // pet-only, never destroyed: the panel's session outlives the collapse
+    expect(view.visibles.at(-1)).toBe(true)
+    expect(view.bounds.at(-1)).toEqual({
+      x: 800 - 68 - 16,
+      y: 600 - 62 - 16,
+      width: 68,
+      height: 62,
+    })
     expect(win.contentView.removeChildView).not.toHaveBeenCalled()
     expect(view.webContents.closeCount).toBe(0)
     overlay.sync(state({ dock: { width: 480, collapsed: false, petPos: null } }))
     expect(win.contentView.addChildView).toHaveBeenLastCalledWith(view)
+    expect(view.bounds.at(-1)).toEqual({ x: 320, y: 0, width: 480, height: 600 })
     expect(view.visibles.at(-1)).toBe(true)
   })
 
@@ -290,6 +395,7 @@ describe('state transitions (hide, never destroy)', () => {
     const overlay = createAiDrawerOverlay(win as never)
     overlay.sync(state())
     const view = overlayView(win)
+    overlay.markPanelReadyFor(view.webContents as never)
     overlay.sync(state({ docActive: false }))
     expect(view.visibles.at(-1)).toBe(false)
     expect(win.contentView.removeChildView).not.toHaveBeenCalled()
@@ -299,11 +405,43 @@ describe('state transitions (hide, never destroy)', () => {
     const overlay = createAiDrawerOverlay(win as never)
     overlay.sync(state())
     const view = overlayView(win)
+    overlay.markPanelReadyFor(view.webContents as never)
     overlay.sync(state({ suppressed: true }))
     expect(view.visibles.at(-1)).toBe(false)
     expect(view.webContents.closeCount).toBe(0)
     overlay.sync(state({ suppressed: false }))
     expect(view.visibles.at(-1)).toBe(true)
+  })
+
+  it('a degenerate-rect collapse applies nothing: the next good sync still hands the keyboard back', () => {
+    // a minimized/mid-restore window reports a degenerate rect exactly when
+    // the drawer is collapsing — a sync that flipped the mode state while
+    // skipping the bounds would eat the collapse's focus hand-back on the
+    // next good sync (it would see the transition as already made). The
+    // guard must apply the whole state or none of it
+    const focusActiveView = vi.fn()
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView })
+    overlay.sync(state())
+    const view = overlayView(win)
+    overlay.markPanelReadyFor(view.webContents as never)
+    // the collapse lands with a degenerate window: nothing applies
+    overlay.sync(
+      state({
+        dock: { width: 480, collapsed: true, petPos: null },
+        window: { width: 0, height: 0 },
+      }),
+    )
+    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 0, width: 400, height: 600 })
+    expect(focusActiveView).not.toHaveBeenCalled()
+    // the next good sync completes the transition, focus hand-back included
+    overlay.sync(state({ dock: { width: 480, collapsed: true, petPos: null } }))
+    expect(view.bounds.at(-1)).toEqual({
+      x: 800 - 68 - 16,
+      y: 600 - 62 - 16,
+      width: 68,
+      height: 62,
+    })
+    expect(focusActiveView).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -548,18 +686,28 @@ describe('deliveries to the panel copy (P0-2: the ask-intent forward)', () => {
   })
 })
 
-describe('focus return on hide (P1-3)', () => {
-  it('hands the keyboard back to the active view when the overlay hides', () => {
+describe('focus return on hide and pet-only shrink (P1-3)', () => {
+  it('hands the keyboard back when the drawer collapses under the person, and on hide', () => {
     const focusActiveView = vi.fn()
     const overlay = createAiDrawerOverlay(win as never, { focusActiveView })
-    overlay.sync(state())
-    const view = overlayView(win)
-    // the pet's collapse write: drawer closed over the document
+    // a first pet-only mount strands no keyboard: nothing showed before it
     overlay.sync(state({ dock: { width: 480, collapsed: true, petPos: null } }))
-    expect(view.visibles.at(-1)).toBe(false)
-    expect(focusActiveView).toHaveBeenCalledTimes(1)
-    // tab switch away and back: each real hide returns the focus once
+    expect(focusActiveView).not.toHaveBeenCalled()
+    const view = overlayView(win)
+    overlay.markPanelReadyFor(view.webContents as never)
+    // the pet's collapse write after a real drawer: the view shrinks to the
+    // pet but stays up — the composer's keyboard must not stay stranded in it
     overlay.sync(state())
+    overlay.sync(state({ dock: { width: 480, collapsed: true, petPos: null } }))
+    expect(view.visibles.at(-1)).toBe(true)
+    expect(focusActiveView).toHaveBeenCalledTimes(1)
+    // a pet-only sync that stays pet-only (a petPos write) moves nobody
+    overlay.sync(state({ dock: { width: 480, collapsed: true, petPos: { x: 10, y: 10 } } }))
+    expect(focusActiveView).toHaveBeenCalledTimes(1)
+    // re-expand: the composer takes the focus when clicked, none moved
+    overlay.sync(state())
+    expect(focusActiveView).toHaveBeenCalledTimes(1)
+    // the real hide (Home tab): focus returns once more
     overlay.sync(state({ docActive: false }))
     expect(focusActiveView).toHaveBeenCalledTimes(2)
   })
@@ -567,10 +715,10 @@ describe('focus return on hide (P1-3)', () => {
   it('leaves focus alone when the overlay was never showing', () => {
     const focusActiveView = vi.fn()
     const overlay = createAiDrawerOverlay(win as never, { focusActiveView })
-    // syncs that never showed the view must not move anyone's focus
-    overlay.sync(state({ dock: { width: 480, collapsed: true, petPos: null } }))
+    // syncs that never showed the view (Home active, a presentation) must
+    // not move anyone's focus
     overlay.sync(state({ docActive: false }))
-    overlay.sync(state({ dock: { width: 480, collapsed: true, petPos: null } }))
+    overlay.sync(state({ suppressed: true }))
     expect(focusActiveView).not.toHaveBeenCalled()
   })
 
@@ -584,8 +732,89 @@ describe('focus return on hide (P1-3)', () => {
   })
 })
 
+describe('the pet drag surface (home:ai-pet-drag → applyPetDragReport)', () => {
+  const petState = (over: Partial<AiDrawerOverlayState> = {}): AiDrawerOverlayState =>
+    state({ dock: { width: 400, collapsed: true, petPos: { x: 100, y: 100 } }, ...over })
+
+  it('hosts the gesture on a window-wide surface, and re-fits it on the end report', () => {
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    overlay.sync(petState())
+    const view = overlayView(win)
+    const wc = view.webContents as never
+    // the surface: the whole window, transparent, for the gesture's duration.
+    // Static and window-wide is the whole point — every event's client
+    // position is the pointer's window position whatever the input device,
+    // so the renderer's drag math (pointer minus grab) is exact for all of
+    // them; a view that followed the pointer would make it device-dependent
+    overlay.applyPetDragReport(wc, { start: true })
+    expect(view.bounds.at(-1)).toEqual({ x: 0, y: 0, width: 800, height: 600 })
+    // mid-gesture the surface does not move: no report can shift it, so no
+    // input model's coordinates can be invalidated by main's own movement
+    overlay.applyPetDragReport(wc, { end: false })
+    expect(view.bounds.at(-1)).toEqual({ x: 0, y: 0, width: 800, height: 600 })
+    // the end report re-fits the synced footprint (the release's own prefs
+    // write would too, but only when the position actually changed)
+    overlay.applyPetDragReport(wc, { end: true })
+    expect(view.bounds.at(-1)).toEqual({ x: 100, y: 100, width: 68, height: 62 })
+  })
+
+  it('the end report re-fits whatever the synced shape is, not only the pet', () => {
+    // a drawer-shaped view (an expansion mid-gesture, say) is restored to
+    // the drawer's footprint, not to a pet rect
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    overlay.sync(state({ dock: { width: 400, collapsed: false, petPos: null } }))
+    const view = overlayView(win)
+    overlay.applyPetDragReport(view.webContents as never, { end: true })
+    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 0, width: 400, height: 600 })
+  })
+
+  it('a sync mid-gesture re-fits the surface too (the prefs write landing)', () => {
+    // the release persists the position through the ordinary aiDock write,
+    // whose watcher lays out the view — the drag surface must not outlive
+    // that: the sync re-fits to the new petPos
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    overlay.sync(petState())
+    const view = overlayView(win)
+    overlay.applyPetDragReport(view.webContents as never, { start: true })
+    expect(view.bounds.at(-1)).toEqual({ x: 0, y: 0, width: 800, height: 600 })
+    overlay.sync(petState({ dock: { width: 400, collapsed: true, petPos: { x: 300, y: 200 } } }))
+    expect(view.bounds.at(-1)).toEqual({ x: 300, y: 200, width: 68, height: 62 })
+  })
+
+  it('ignores a surface report from a webContents that is not the overlay view', () => {
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    overlay.sync(petState())
+    const view = overlayView(win)
+    const other = otherWebContents()
+    overlay.applyPetDragReport(other as never, { start: true })
+    // not grown, not shrunk — identity, not the arrival, vouches the sender
+    expect(view.bounds.at(-1)).toEqual({ x: 100, y: 100, width: 68, height: 62 })
+  })
+
+  it('ignores a start report while the drawer is expanded (no window-wide drawer)', () => {
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    overlay.sync(state())
+    const view = overlayView(win)
+    overlay.applyPetDragReport(view.webContents as never, { start: true })
+    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 0, width: 400, height: 600 })
+  })
+
+  it('a crashed renderer collapses a window-wide drag surface with it', () => {
+    // the gesture's listeners (and its end report) die with the process: a
+    // full-window transparent view left behind would eat every click over
+    // the document, so the crash re-fits the synced footprint itself
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    overlay.sync(petState())
+    const view = overlayView(win)
+    overlay.applyPetDragReport(view.webContents as never, { start: true })
+    expect(view.bounds.at(-1)).toEqual({ x: 0, y: 0, width: 800, height: 600 })
+    view.webContents.onHandlers.get('render-process-gone')!({}, { reason: 'crashed' })
+    expect(view.bounds.at(-1)).toEqual({ x: 100, y: 100, width: 68, height: 62 })
+  })
+})
+
 describe('load failures (P2: the failed panel URL)', () => {
-  it('retries the panel URL once when the load fails, and gives up after that', () => {
+  it('retries the panel URL once when the load fails, then reports and hides', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const overlay = createAiDrawerOverlay(win as never)
@@ -594,14 +823,20 @@ describe('load failures (P2: the failed panel URL)', () => {
       const fail = (code: number): void => {
         view.webContents.onHandlers.get('did-fail-load')!({}, code, 'ERR', 'https://x', true)
       }
+      // never loaded, never signaled: the shape-known gate already keeps it
+      // hidden — a transparent dead view must not eat the document's clicks
+      expect(view.visibles).toEqual([false])
       expect(view.webContents.loadURLs).toHaveLength(1)
       // a real failure (not ERR_ABORTED) retries once
       fail(-21)
       expect(view.webContents.loadURLs).toHaveLength(2)
-      // the retry failing too: reported, not looped
+      // the retry failing too: reported, not looped — and the stand-down
+      // hides the dead surface; only a successful load (whose ping re-shows)
+      // or the view's recreation brings it back
       fail(-21)
       expect(view.webContents.loadURLs).toHaveLength(2)
       expect(warn).toHaveBeenCalledTimes(1)
+      expect(view.visibles.at(-1)).toBe(false)
     } finally {
       warn.mockRestore()
     }
