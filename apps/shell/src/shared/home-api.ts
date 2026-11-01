@@ -511,6 +511,38 @@ export interface AiPetDragReport {
   end?: boolean
 }
 
+/**
+ * The doc-mode dock's hot-edge reports (`home:dock-hot-edge`): the dock
+ * overlay is one native view that is either the 3px strip along the window's
+ * bottom edge (its rest state, invisible) or the revealed dock rect. The
+ * entry reports `enter` when a pointer enters its surface — from the strip
+ * that is the summon, from the dock it is the re-enter that cancels a
+ * pending hide — and `leave` when the pointer departs the revealed dock,
+ * which arms the short grace timer (diagonal travel toward an icon must not
+ * flicker-hide). Identity-checked by the overlay: only its own live
+ * webContents may drive the state machine.
+ */
+export interface DockHotEdgeReport {
+  /** a pointer entered the overlay's surface (summon, or re-enter cancel) */
+  enter?: boolean
+  /** the pointer left the revealed dock (arms the grace hide) */
+  leave?: boolean
+}
+
+/**
+ * One routed dock action (`home:dock-action`, delivered to Home as
+ * `home:dock-nav`): the doc-mode dock's clicks whose outcome lives in Home's
+ * own surface — the nav view switches and the settings/templates launchers
+ * — so main activates the Home tab and hands the intent over in the same
+ * beat (the intent lands before the tab rise, the same ordering the dock
+ * open write uses). The ask item needs no routing: its prefs write is the
+ * drawer overlay's own contract, which already works over documents.
+ */
+export type DockNavIntent =
+  | { kind: 'nav'; view: 'desktop' | 'recent' | 'starred' }
+  | { kind: 'settings'; section: 'general' | 'plugins' }
+  | { kind: 'templates' }
+
 export interface HomeApi {
   /** unified recents across document types, newest first (paged) */
   recents(query?: RecentQuery): Promise<RecentPage>
@@ -682,6 +714,36 @@ export interface HomeApi {
    * the channel keeps the pet click-only, never a dead boot.
    */
   aiPetDrag?(report: AiPetDragReport): void
+  /**
+   * Report the doc-mode dock overlay's hot-edge transitions
+   * (`home:dock-hot-edge`): `enter` from the strip summons the dock (and
+   * cancels a pending hide), `leave` from the revealed dock arms the grace
+   * timer. Fire-and-forget; the overlay identity-checks the sender.
+   */
+  dockHotEdge?(report: DockHotEdgeReport): void
+  /**
+   * Run one routed dock action (`home:dock-action`): main validates the
+   * intent, delivers it to Home over `home:dock-nav` and activates the Home
+   * tab, so the clicked surface is actually visible. The ask item bypasses
+   * this entirely (its own prefs write).
+   */
+  dockAction?(intent: DockNavIntent): Promise<void>
+  /**
+   * A routed dock action landed (`home:dock-nav`): Home performs the view
+   * switch, the settings request or the templates opening — the tab rise
+   * follows in the same beat, so the outcome is visible the moment the
+   * person's click said it should be.
+   */
+  onDockNav?(handler: (intent: DockNavIntent) => void): () => void
+  /**
+   * Pull a dock-nav intent that was routed while this renderer's
+   * {@link onDockNav} subscription was not yet armed (the cold-boot race: the
+   * push can beat Home's mount): main buffers the intent alongside the push
+   * and answers it exactly once — null when nothing is pending. Called right
+   * after the subscription attaches, so a click that beat the mount still
+   * performs.
+   */
+  takeDockNavPending?(): Promise<DockNavIntent | null>
   /**
    * Tell main this surface's panel finished booting and its subscriptions are
    * armed (`home:ask-panel-ready`): the native overlay's standalone mount is
@@ -1234,6 +1296,21 @@ export const HOME_CHANNELS = {
    *  whatever the input device), `end` re-fits the synced footprint; the
    *  position persists through the ordinary aiDock write */
   aiPetDrag: 'home:ai-pet-drag',
+  /** renderer → main: the doc-mode dock overlay's hot-edge transitions —
+   *  `enter` from the strip summons the dock (or cancels a pending hide),
+   *  `leave` from the revealed dock arms the grace timer */
+  dockHotEdge: 'home:dock-hot-edge',
+  /** renderer → main: one routed doc-mode dock action (nav / settings /
+   *  templates) — main activates the Home tab and delivers the intent */
+  dockAction: 'home:dock-action',
+  /** main → renderer: the routed dock action Home performs (the view switch,
+   *  the settings request, the templates opening) as the Home tab rises */
+  dockNav: 'home:dock-nav',
+  /** renderer → main: Home's mount-time pull of a dock-nav intent that landed
+   *  before its `home:dock-nav` subscription armed (the cold-boot race) —
+   *  answers the buffered intent once and clears it, null when none is
+   *  pending */
+  dockNavPending: 'home:dock-nav-pending',
   systemPresenceGet: 'home:system-presence-get',
   systemPresenceSetLoginItem: 'home:system-presence-set-login-item',
   systemPresenceSetCloseToTray: 'home:system-presence-set-close-to-tray',

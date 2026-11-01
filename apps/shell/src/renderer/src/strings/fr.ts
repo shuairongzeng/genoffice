@@ -9,6 +9,9 @@ export const fr: Dict = {
   navRecent: 'Récents',
   navStarred: 'Favoris',
   navAsk: 'Demander à l’IA',
+  sidebarCollapse: 'Réduire la barre latérale',
+  sidebarExpand: 'Développer la barre latérale',
+  dockLabel: 'Dock',
   askThreadsTitle: 'Conversations',
   askThreadDelete: 'Supprimer la conversation « {label} »',
   askThreadDeleteConfirm:

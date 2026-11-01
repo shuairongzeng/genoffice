@@ -12,6 +12,7 @@ import type { UpdateUiState } from '../shared/update-api'
 import { normalizeAiPanelPrefs } from '@genoffice/ui/ai-panel-prefs'
 import type {
   AccountLoginEvent,
+  DockNavIntent,
   AccountStatus,
   CloudProjectsSnapshot,
   DefaultAppStatus,
@@ -747,6 +748,36 @@ const homeApi: HomeApi = {
   // pointer on main, and the commit's persistence is main's store write
   aiPetDrag(report) {
     ipcRenderer.send(HOME_CHANNELS.aiPetDrag, report)
+  },
+  // the doc-mode dock overlay's hot-edge reports: fire-and-forget like the
+  // pet drag's, because the overlay's state machine only consumes the flags
+  dockHotEdge(report) {
+    ipcRenderer.send(HOME_CHANNELS.dockHotEdge, report)
+  },
+  // a routed dock action: invoke (main validates, activates Home and
+  // delivers the intent there) — the round trip is the click's ack
+  async dockAction(intent) {
+    await ipcRenderer.invoke(HOME_CHANNELS.dockAction, intent)
+  },
+  onDockNav(handler) {
+    const listener = (_event: IpcRendererEvent, intent: unknown) => {
+      // main-authored and validated before the send; the branch is defense
+      // in depth for a malformed payload, same guard as every push
+      if (
+        intent &&
+        typeof intent === 'object' &&
+        typeof (intent as DockNavIntent).kind === 'string'
+      ) {
+        handler(intent as DockNavIntent)
+      }
+    }
+    ipcRenderer.on(HOME_CHANNELS.dockNav, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.dockNav, listener)
+  },
+  // the mount-time pull of a dock-nav intent that beat this renderer's
+  // subscription: main answers the buffered intent once, null when none
+  async takeDockNavPending() {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.dockNavPending)) as DockNavIntent | null
   },
   homeContentRect(rect) {
     ipcRenderer.send(HOME_CHANNELS.contentRect, rect)

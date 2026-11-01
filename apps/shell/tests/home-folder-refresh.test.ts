@@ -153,8 +153,9 @@ async function click(el: Element | null | undefined): Promise<void> {
 
 async function openFolderView(): Promise<void> {
   // the folder tree lives on the recents surface; the root row selects it
-  const recent = [...container.querySelectorAll<HTMLButtonElement>('.sidebar-nav button')].find(
-    (b) => b.querySelector('.nav-label')?.textContent === 'Recent',
+  // (the nav items migrated to the fisheye dock — Recent is a dock item now)
+  const recent = [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].find(
+    (b) => b.getAttribute('aria-label') === 'Recent',
   )
   await click(recent)
   await click(container.querySelector('.tree-row[title="/root"]'))
@@ -237,8 +238,8 @@ describe('the folder tree reveals Home under a covering document tab', () => {
 
   /** land on Recent and clear the raise the landing itself performed */
   async function landOnRecent(): Promise<void> {
-    const recent = [...container.querySelectorAll<HTMLButtonElement>('.sidebar-nav button')].find(
-      (b) => b.querySelector('.nav-label')?.textContent === 'Recent',
+    const recent = [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].find(
+      (b) => b.getAttribute('aria-label') === 'Recent',
     )
     await click(recent)
     tabsActivate.mockClear()

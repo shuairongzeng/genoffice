@@ -113,8 +113,9 @@ async function typeQuery(text: string) {
 }
 
 async function clickNav(label: string) {
-  const button = [...container.querySelectorAll<HTMLButtonElement>('.sidebar-nav button')].find(
-    (b) => b.querySelector('.nav-label')?.textContent === label,
+  // the nav items migrated to the fisheye dock — Recent is a dock item now
+  const button = [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].find(
+    (b) => b.getAttribute('aria-label') === label,
   )
   expect(button).toBeTruthy()
   await act(async () => button!.click())

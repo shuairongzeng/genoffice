@@ -2,7 +2,12 @@ import { ipcMain } from 'electron'
 import type { Rectangle, WebContents } from 'electron'
 
 import { HOME_CHANNELS } from '../shared/home-api'
-import type { AiPetDragReport, HomeTabsState } from '../shared/home-api'
+import type {
+  AiPetDragReport,
+  DockHotEdgeReport,
+  DockNavIntent,
+  HomeTabsState,
+} from '../shared/home-api'
 import type { OpenDocumentTab } from '../shared/tabs-api'
 import { normalizeAiDock } from '../shared/desktop-geometry'
 import { normalizeForwardedAskQuery, type PendingAskQuery } from '../shared/ask-forward'
@@ -179,6 +184,27 @@ export interface HomeWorkbenchIpcDeps {
    * the view changes. Injected like the ready ping, for the same reason.
    */
   applyDrawerOverlayPetDrag: (sender: WebContents, report: AiPetDragReport) => void
+  /**
+   * Route the doc-mode dock overlay's hot-edge report to the overlay: the
+   * sender identity check and the strip/dock state machine both live there,
+   * so a report from any other renderer is a no-op before anything moves.
+   */
+  reportDockHotEdge: (sender: WebContents, report: DockHotEdgeReport) => void
+  /**
+   * Route one validated doc-mode dock action: main activates the Home tab and
+   * delivers the intent to Home over `home:dock-nav` (the ordering is the
+   * wiring's business — the intent first, then the tab rise, the same beat
+   * the dock-open write uses). Injected because only index.ts holds the
+   * window and the tab manager.
+   */
+  dockNavAction: (intent: DockNavIntent) => void
+  /**
+   * Take the dock-nav intent buffered for Home's mount-time pull: answers (and
+   * clears) the intent routed while Home's `home:dock-nav` subscription was
+   * not yet armed — null when nothing is pending. Injected because the buffer
+   * lives where the routing does (index.ts).
+   */
+  takeDockNavPending: () => DockNavIntent | null
 }
 
 /** a reported content-stage rect, whole-pixel and inside the window; null on anything malformed */
@@ -216,6 +242,49 @@ function asPetDragReport(value: unknown): AiPetDragReport | null {
   const end = raw.end === true
   if (!start && !end) return null
   return { ...(start ? { start: true } : {}), ...(end ? { end: true } : {}) }
+}
+
+/**
+ * A hot-edge report, whole: an object carrying at least one of the
+ * `enter`/`leave` flags, each a boolean when present. Null on anything else
+ * — the state machine must never move on a half-parsed report.
+ */
+function asDockHotEdgeReport(value: unknown): DockHotEdgeReport | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Partial<{ enter: unknown; leave: unknown }>
+  if (raw.enter !== undefined && typeof raw.enter !== 'boolean') return null
+  if (raw.leave !== undefined && typeof raw.leave !== 'boolean') return null
+  const enter = raw.enter === true
+  const leave = raw.leave === true
+  if (!enter && !leave) return null
+  return { ...(enter ? { enter: true } : {}), ...(leave ? { leave: true } : {}) }
+}
+
+/** the nav views a dock action may name */
+const DOCK_NAV_VIEWS = ['desktop', 'recent', 'starred'] as const
+/** the settings sections a dock action may open */
+const DOCK_SETTINGS_SECTIONS = ['general', 'plugins'] as const
+
+/**
+ * A dock action, whole: the discriminated intent the doc-mode dock's items
+ * send. Null on anything else — the routing must never guess a kind from a
+ * malformed payload.
+ */
+function asDockNavIntent(value: unknown): DockNavIntent | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Partial<{ kind: unknown; view: unknown; section: unknown }>
+  if (raw.kind === 'nav') {
+    if (typeof raw.view !== 'string') return null
+    if (!(DOCK_NAV_VIEWS as readonly string[]).includes(raw.view)) return null
+    return { kind: 'nav', view: raw.view as (typeof DOCK_NAV_VIEWS)[number] }
+  }
+  if (raw.kind === 'settings') {
+    if (typeof raw.section !== 'string') return null
+    if (!(DOCK_SETTINGS_SECTIONS as readonly string[]).includes(raw.section)) return null
+    return { kind: 'settings', section: raw.section as (typeof DOCK_SETTINGS_SECTIONS)[number] }
+  }
+  if (raw.kind === 'templates') return { kind: 'templates' }
+  return null
 }
 
 /**
@@ -278,6 +347,22 @@ function clampStageRect(rect: Rectangle, window: { width: number; height: number
  *   sender's identity and, for `start`, the pet-only state before anything
  *   changes. The dragged position persists through the ordinary
  *   `home:ai-dock-set` write, whose watcher re-syncs every copy.
+ * - `home:dock-hot-edge`: the doc-mode dock overlay's renderer reporting the
+ *   pointer's transitions over its surface — `enter` (from the 3px strip
+ *   that is the summon, or from the revealed dock that is the re-enter
+ *   cancelling a pending hide) and `leave` (arming the ~250ms grace before
+ *   the dock hides back to the strip). Validated whole; the overlay checks
+ *   the sender's identity before its state machine moves.
+ * - `home:dock-action`: one routed doc-mode dock click (nav view, settings,
+ *   templates) — validated whole, then activated-and-delivered by the
+ *   injected dep: Home performs the intent over `home:dock-nav` as the Home
+ *   tab rises, so the clicked surface is visible. The ask item never rides
+ *   this channel; its prefs write is the drawer overlay's own contract.
+ * - `home:dock-nav-pending`: Home's mount-time pull of a routed intent that
+ *   beat its `home:dock-nav` subscription (the cold-boot race — main routed
+ *   the click while the renderer was still loading, and a push nobody is
+ *   listening for is lost). The dep answers the buffered intent once and
+ *   clears it; null when nothing is pending.
  *
  * Known limitation (accepted): dirtiness is resolved per push, and a
  * document turning dirty or clean all by itself (an edit, an autosave) is not
@@ -320,4 +405,13 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
     const report = asPetDragReport(raw)
     if (report) deps.applyDrawerOverlayPetDrag(event.sender, report)
   })
+  ipcMain.on(HOME_CHANNELS.dockHotEdge, (event, raw: unknown) => {
+    const report = asDockHotEdgeReport(raw)
+    if (report) deps.reportDockHotEdge(event.sender, report)
+  })
+  ipcMain.handle(HOME_CHANNELS.dockAction, (_event, raw: unknown) => {
+    const intent = asDockNavIntent(raw)
+    if (intent) deps.dockNavAction(intent)
+  })
+  ipcMain.handle(HOME_CHANNELS.dockNavPending, () => deps.takeDockNavPending())
 }

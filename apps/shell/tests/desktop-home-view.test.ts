@@ -82,9 +82,10 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 
+/** the dock item carrying this label — the nav items migrated there */
 function nav(label: string): HTMLButtonElement {
-  return [...container.querySelectorAll<HTMLButtonElement>('.sidebar-nav button')].find(
-    (button) => button.querySelector('.nav-label')?.textContent === label,
+  return [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].find(
+    (button) => button.getAttribute('aria-label') === label,
   )!
 }
 
@@ -94,20 +95,29 @@ async function click(button: HTMLButtonElement) {
 }
 
 function selected(): string[] {
-  return [...container.querySelectorAll('.sidebar-nav .active .nav-label')].map(
-    (label) => label.textContent!,
+  return [...container.querySelectorAll('.dock-item[aria-current="true"]')].map((item) =>
+    (item as HTMLElement).getAttribute('aria-label')!,
   )
 }
 
 describe('Home opens on the desktop', () => {
-  it('the Desktop nav item sits first in the sidebar and is active on launch', () => {
-    const labels = [...container.querySelectorAll('.sidebar-nav .nav-label')].map(
-      (label) => label.textContent,
+  it('the Desktop dock item sits first in the dock and is active on launch', () => {
+    const labels = [...container.querySelectorAll('.dock-item')].map((item) =>
+      (item as HTMLElement).getAttribute('aria-label'),
     )
-    expect(labels[0]).toBe('Desktop')
-    expect(labels.slice(1)).toEqual(['Recent', 'Starred', 'Ask AI'])
+    expect(labels).toEqual([
+      'Desktop',
+      'Recent',
+      'Starred',
+      'Settings',
+      'Templates',
+      'Plugins',
+      'Ask AI',
+    ])
+    // separators between the nav, launcher and ask groups
+    expect(container.querySelectorAll('.dock-separator')).toHaveLength(2)
     expect(selected()).toEqual(['Desktop'])
-    expect(nav('Desktop').getAttribute('aria-current')).toBe('page')
+    expect(nav('Desktop').getAttribute('aria-current')).toBe('true')
     // the content area is the desktop, not the recents list
     expect(container.querySelector('.desktop-surface')).toBeTruthy()
     expect(container.querySelector('.desktop-icons')).toBeTruthy()

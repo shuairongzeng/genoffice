@@ -4,6 +4,7 @@ import { htmlDir, htmlLang } from '@genoffice/i18n'
 import { AppFrame } from './AppFrame'
 import { LocaleProvider } from './locale'
 import { AskPanelEntry, isAskPanelView } from './panel-entry'
+import { DockEntry, isDockView } from './dock-entry'
 import '@genoffice/ui/tokens.css'
 import '@genoffice/ui/screentip.css'
 import '@genoffice/ui/dropdown.css'
@@ -65,6 +66,13 @@ void Promise.all([
   // it shares this boot (language, theme, panel prefs) but renders none of
   // the workbench around it.
   const isAskPanel = isAskPanelView()
+  // The dock's standalone mount (?view=dock): the fisheye dock alone, the
+  // surface the doc-mode native overlay loads above covering documents. Like
+  // the ask panel it shares this boot but renders none of the workbench —
+  // and deliberately runs no panel-entry logic: no prefs subscription, no
+  // ready ping (the ask panel's buffered-message handshake is not this
+  // surface's contract; its shape is main's state machine)
+  const isDock = isDockView()
   // fetch only the current language's dictionary before first paint; switching
   // later loads the new one before the re-render
   await loadStrings(lang)
@@ -76,6 +84,8 @@ void Promise.all([
       <LocaleProvider initial={lang}>
         {isAskPanel ? (
           <AskPanelEntry />
+        ) : isDock ? (
+          <DockEntry />
         ) : isHelp ? (
           <React.Suspense fallback={<div className="boot" />}>
             <HelpScreen />

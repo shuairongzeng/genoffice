@@ -65,6 +65,7 @@ import {
 import { readDesktopPins } from './desktop-ipc'
 import { readAiDock } from './ai-dock'
 import { createAiDrawerOverlay } from './ai-drawer-view'
+import { createDockOverlay } from './dock-overlay-view'
 import {
   collectHomeTabsState,
   createHomeTabsBroadcaster,
@@ -221,6 +222,13 @@ export function createShellWindow(deps: ShellWindowDeps): void {
   manager.setDrawerOverlay(
     createAiDrawerOverlay(win, { focusActiveView: () => manager.focusActiveView() }),
   )
+  // the doc-mode dock overlay — the 3px hot strip at the window's bottom
+  // edge that grows into the standalone fisheye dock over a covering
+  // document. Created beside the drawer's overlay and synced BEFORE it in
+  // every layout pass (the TabManager's order), so the drawer's panel and
+  // pet stay above the dock reveal. Its renderer reports over
+  // home:dock-hot-edge; its routed clicks ride home:dock-action.
+  manager.setDockOverlay(createDockOverlay(win))
   deps.setTabManager(manager)
   const stopSleepSweeper = manager.startSleepSweeper(deps.tabSleepEnabled)
   win.once('closed', stopSleepSweeper)

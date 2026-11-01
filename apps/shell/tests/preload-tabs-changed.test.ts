@@ -257,6 +257,45 @@ describe('getAiDock / setAiDock / homeContentRect', () => {
     expect(electronMocks.send).toHaveBeenCalledWith(HOME_CHANNELS.askPanelReady)
   })
 
+  it('sends the dock hot-edge reports fire-and-forget', () => {
+    electronMocks.send.mockClear()
+    homeApi.dockHotEdge?.({ enter: true })
+    homeApi.dockHotEdge?.({ leave: true })
+    expect(electronMocks.send).toHaveBeenNthCalledWith(1, HOME_CHANNELS.dockHotEdge, {
+      enter: true,
+    })
+    expect(electronMocks.send).toHaveBeenNthCalledWith(2, HOME_CHANNELS.dockHotEdge, {
+      leave: true,
+    })
+  })
+
+  it('invokes a routed dock action and replays the delivered nav intent', async () => {
+    electronMocks.send.mockClear()
+    electronMocks.invoke.mockResolvedValueOnce(undefined)
+    await homeApi.dockAction?.({ kind: 'nav', view: 'recent' })
+    expect(electronMocks.invoke).toHaveBeenCalledWith(HOME_CHANNELS.dockAction, {
+      kind: 'nav',
+      view: 'recent',
+    })
+    // the main-delivered push lands on onDockNav, validated in depth
+    const heard: unknown[] = []
+    const off = homeApi.onDockNav?.((intent) => heard.push(intent))
+    electronMocks.emit(HOME_CHANNELS.dockNav, { kind: 'templates' })
+    electronMocks.emit(HOME_CHANNELS.dockNav, 'nav')
+    off?.()
+    expect(heard).toEqual([{ kind: 'templates' }])
+    // unsubscribed: nothing more lands
+    electronMocks.emit(HOME_CHANNELS.dockNav, { kind: 'templates' })
+    expect(heard).toHaveLength(1)
+  })
+
+  it('invokes the mount-time pull of a dock-nav intent that beat the mount', async () => {
+    electronMocks.invoke.mockClear()
+    electronMocks.invoke.mockResolvedValueOnce({ kind: 'nav', view: 'recent' })
+    await expect(homeApi.takeDockNavPending?.()).resolves.toEqual({ kind: 'nav', view: 'recent' })
+    expect(electronMocks.invoke).toHaveBeenCalledWith(HOME_CHANNELS.dockNavPending)
+  })
+
   it('sends each pet-drag surface report fire-and-forget, flags included', () => {
     // the drag's math is renderer-side: only the surface transitions ride
     // the channel, and they ride as-is

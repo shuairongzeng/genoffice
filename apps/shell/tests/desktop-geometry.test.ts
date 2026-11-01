@@ -11,6 +11,9 @@ import {
   desktopHeaderHeight,
   documentContentBounds,
   drawerOverlayBounds,
+  DOCK_ITEM_COUNT,
+  DOCK_SEPARATOR_COUNT,
+  dockOverlayBounds,
   normalizeAiDock,
   petOverlayBounds,
 } from '../src/shared/desktop-geometry'
@@ -269,5 +272,98 @@ describe('normalizeAiDock', () => {
     expect(normalizeAiDock({ petPos: { x: 12, y: 'top' } }).petPos).toBeNull()
     expect(normalizeAiDock({ petPos: { x: Number.NaN, y: 4 } }).petPos).toBeNull()
     expect(normalizeAiDock({ petPos: 'corner' }).petPos).toBeNull()
+  })
+})
+
+describe('dockOverlayBounds', () => {
+  it('the strip: the full content width, a hair at the bottom edge', () => {
+    const { strip, dock } = dockOverlayBounds(
+      { width: 800, height: 600 },
+      { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT },
+    )
+    expect(strip).toEqual({ x: 0, y: 597, width: 800, height: 3 })
+    // the dock rect exists alongside; both are cut in the same call
+    expect(dock.width).toBeGreaterThan(0)
+  })
+
+  it("the dock: centered like Home's dock, pill plus fisheye headroom and tooltip room, reaching the bottom edge", () => {
+    // the pill: 7×48 icons + 8×3 gaps + 2×7 separators + 22 padding+border
+    // = 396 CSS px, 62 tall (48 + 10 padding + 2 border) + 9 bottom margin.
+    // The rect fits the pill WITH its fisheye: a hovered icon rises
+    // (1.7−1)×48 = 33.6 above its rest top and the screentip flips ~28px
+    // above that, so the height carries both and the width carries the peak
+    // growth on both sides — a rest-sized rect would clip the magnified
+    // icons and the tooltip at the view's top
+    const { dock } = dockOverlayBounds(
+      { width: 800, height: 600 },
+      { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT },
+    )
+    expect(dock).toEqual({ x: 169, y: 600 - 133, width: 463, height: 133 })
+    // the rect reaches the window's bottom edge (y + height = the window):
+    // the strip's footprint stays inside the grown view, so the summoning
+    // pointer is not evicted by the reveal
+    expect(dock.y + dock.height).toBe(600)
+  })
+
+  it('the headroom is pinned to the physics: the rect fits the peak magnification and the tooltip', () => {
+    // the ceiling the renderer's dock-math defaults to (M = 1.7, base 48)
+    // and the tooltip flip above the magnified icon (~28px) — the rect must
+    // never shrink below what a fully magnified dock plus its screentip
+    // paints, or doc mode would clip the gesture at the view's top
+    const { dock } = dockOverlayBounds(
+      { width: 1200, height: 800 },
+      { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT },
+    )
+    const pillHeight = 62
+    const pillWidth = 396
+    const rise = (1.7 - 1) * 48
+    // the rects are whole-pixel (Math.round), so the pin allows the rounding
+    // to shave a fraction — never the 33.6px of headroom itself
+    expect(dock.height).toBeGreaterThanOrEqual(pillHeight + 9 + rise + 28 - 1)
+    expect(dock.width).toBeGreaterThanOrEqual(pillWidth + 2 * rise - 1)
+  })
+
+  it('scales both shapes with the interface scale', () => {
+    const { strip, dock } = dockOverlayBounds(
+      { width: 800, height: 600 },
+      { scale: 1.5, itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT },
+    )
+    // the strip hair grows with the chrome; the pill, its headroom and its
+    // margins too
+    expect(strip).toEqual({ x: 0, y: 600 - 5, width: 800, height: 5 })
+    expect(dock).toEqual({ x: 53, y: 600 - 199, width: 695, height: 199 })
+  })
+
+  it('centers the pill on odd widths, clamped whole-pixel at the seam', () => {
+    const { dock } = dockOverlayBounds(
+      { width: 801, height: 600 },
+      { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT },
+    )
+    expect(dock.x + dock.width).toBeLessThanOrEqual(801)
+    expect(dock.x).toBe((801 - dock.width) / 2 >= 0 ? dock.x : 0)
+  })
+
+  it('clamps to the window when the pill outgrows it', () => {
+    // a 463px rect in a 300px window: the dock rect fills the width, pinned
+    // left (the same clamp the drawer's bounds take)
+    const { dock } = dockOverlayBounds(
+      { width: 300, height: 400 },
+      { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT },
+    )
+    expect(dock).toEqual({ x: 0, y: 400 - 133, width: 300, height: 133 })
+  })
+
+  it('parameterizes the composition: more items, wider pill', () => {
+    const base = dockOverlayBounds(
+      { width: 1200, height: 800 },
+      { itemCount: 7, separatorCount: 2 },
+    )
+    const wider = dockOverlayBounds(
+      { width: 1200, height: 800 },
+      { itemCount: 9, separatorCount: 2 },
+    )
+    expect(wider.dock.width - base.dock.width).toBe(2 * 48 + 2 * 3)
+    // the strip never changes with the composition
+    expect(wider.strip).toEqual(base.strip)
   })
 })

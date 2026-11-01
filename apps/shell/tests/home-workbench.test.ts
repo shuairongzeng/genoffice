@@ -353,8 +353,12 @@ describe('the AI drawer', () => {
     expect(drawer().className).toContain('doc-covered')
     // the panel stays mounted under the cover — its thread survives
     expect(container.querySelector('.kb-ask')).not.toBeNull()
-    // an ask while the document is up (the sidebar's item) records the intent
-    await click([...container.querySelectorAll<HTMLButtonElement>('.nav-item-ask')][0])
+    // an ask while the document is up (the dock's tail item) records the intent
+    await click(
+      [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].find(
+        (b) => b.getAttribute('aria-label') === 'Ask AI',
+      ),
+    )
     expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
     expect(drawer().className).toContain('open')
     expect(drawer().className).toContain('doc-covered')

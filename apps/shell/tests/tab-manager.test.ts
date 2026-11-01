@@ -205,6 +205,8 @@ import { TabManager } from '../src/main/tab-manager'
 import { HOME_CHANNELS } from '../src/shared/home-api'
 import type { TabKind } from '../src/shared/tabs-api'
 import {
+  DOCK_ITEM_COUNT,
+  DOCK_SEPARATOR_COUNT,
   AI_DOCK_WIDTH_DEFAULT,
   DESKTOP_HEADER_HEIGHT,
   type AiDockPrefs,
@@ -1672,6 +1674,12 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
     applyPetDragReport: ReturnType<typeof vi.fn>
     panelWebContents: ReturnType<typeof vi.fn>
   }
+  /** the dock overlay's spy: records the layout pass and reports it saw */
+  type DockSpy = {
+    sync: ReturnType<typeof vi.fn>
+    destroy: ReturnType<typeof vi.fn>
+    reportHotEdge: ReturnType<typeof vi.fn>
+  }
 
   function managerWithOverlay(
     dock: () => AiDockPrefs = () => ({
@@ -1865,6 +1873,90 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
       // no host: a no-op, not a crash
       m.setDrawerOverlay(null)
       expect(() => m.markDrawerOverlayReadyFor(sender)).not.toThrow()
+    })
+
+    it('drives the dock overlay from the same layout pass, with the drawer synced before it', () => {
+      // the dock overlay must end every pass topmost (a revealed dock stays
+      // clickable over an open drawer panel, matching Home's HTML stacking
+      // where the dock sits above the drawer's scrim), so the drawer's sync
+      // runs first and the dock's re-assertion follows
+      const dock: DockSpy = { sync: vi.fn(), destroy: vi.fn(), reportHotEdge: vi.fn() }
+      const drawer: OverlaySpy = {
+        sync: vi.fn(),
+        destroy: vi.fn(),
+        deliverToPanel: vi.fn(),
+        markPanelReadyFor: vi.fn(),
+        applyPetDragReport: vi.fn(),
+        panelWebContents: vi.fn(),
+      }
+      const { m } = managerWithOverlay()
+      m.openDocsTab()
+      m.setDrawerOverlay(drawer)
+      m.setDockOverlay(dock)
+      drawer.sync.mockClear()
+      dock.sync.mockClear()
+      m.layout()
+      expect(dock.sync).toHaveBeenCalled()
+      expect(drawer.sync).toHaveBeenCalled()
+      // the order in one pass: drawer before dock — the dock overlay's sync
+      // re-adds its view topmost each pass, so ending the pass on the dock
+      // mirrors Home's HTML stacking (dock above drawer)
+      const dockCall = dock.sync.mock.invocationCallOrder[0]!
+      const drawerCall = drawer.sync.mock.invocationCallOrder[0]!
+      expect(drawerCall).toBeLessThan(dockCall)
+      // the state it feeds: doc-active, not suppressed, the live geometry
+      const state = dock.sync.mock.calls[0]![0] as Record<string, unknown>
+      expect(state).toMatchObject({
+        docActive: true,
+        suppressed: false,
+        scale: 1,
+        itemCount: DOCK_ITEM_COUNT,
+        separatorCount: DOCK_SEPARATOR_COUNT,
+        window: { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
+      })
+      // no host: the sync is a no-op, not a crash
+      m.setDockOverlay(null)
+      expect(() => m.layout()).not.toThrow()
+    })
+
+    it('a plain activation syncs the dock overlay too (no layout trigger needed)', () => {
+      // verified live: activateTab is the only path an openBrowser or a tab
+      // click takes when nothing resizes, and it used to sync only the
+      // drawer's overlay — the hot strip never mounted until some layout
+      // trigger (a resize, a stage report) arrived. The dock's sync now
+      // rides the activation itself
+      const dock: DockSpy = { sync: vi.fn(), destroy: vi.fn(), reportHotEdge: vi.fn() }
+      const { m } = managerWithOverlay()
+      const docs = m.openDocsTab()
+      m.setDockOverlay(dock)
+      dock.sync.mockClear()
+      m.activateTab('home')
+      expect(dock.sync).toHaveBeenCalledTimes(1)
+      expect((dock.sync.mock.calls[0]![0] as Record<string, unknown>).docActive).toBe(false)
+      // and back onto the document: the strip mounts straight from the
+      // activation, with the full state the overlay needs
+      m.activateTab(docs)
+      expect(dock.sync).toHaveBeenCalledTimes(2)
+      expect(dock.sync.mock.calls[1]![0]).toMatchObject({
+        docActive: true,
+        suppressed: false,
+        scale: 1,
+        itemCount: DOCK_ITEM_COUNT,
+        separatorCount: DOCK_SEPARATOR_COUNT,
+        window: { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
+      })
+    })
+
+    it('hands a hot-edge report to the dock overlay host for its own gating', () => {
+      const dock: DockSpy = { sync: vi.fn(), destroy: vi.fn(), reportHotEdge: vi.fn() }
+      const { m } = managerWithOverlay()
+      m.setDockOverlay(dock)
+      const sender = { id: 900010 } as never
+      const report = { enter: true }
+      m.reportDockHotEdge(sender, report)
+      expect(dock.reportHotEdge).toHaveBeenCalledWith(sender, report)
+      m.setDockOverlay(null)
+      expect(() => m.reportDockHotEdge(sender, report)).not.toThrow()
     })
 
     it('hands a pet-drag surface report to the overlay host for its own gating', () => {

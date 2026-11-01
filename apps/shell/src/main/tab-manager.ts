@@ -5,10 +5,12 @@ import type { Rectangle, WebContents } from 'electron'
 
 import { appForKind, appIsDirty, documentApps, type AppCloseGuard } from './app-registry'
 import type { AiDrawerOverlay } from './ai-drawer-view'
+import type { DockOverlay } from './dock-overlay-view'
 import type { AiDocContent } from '../../../docs/src/shared/ipc'
 import { rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
 import { HOME_CHANNELS } from '../shared/home-api'
 import type { AiPetDragReport } from '../shared/home-api'
+import type { DockHotEdgeReport } from '../shared/home-api'
 import {
   documentContentBounds,
   normalizeAiDock,
@@ -16,6 +18,7 @@ import {
 } from '../shared/desktop-geometry'
 import type { DocumentTabKind, OpenDocumentTab, TabKind, TabSummary } from '../shared/tabs-api'
 import { intersectRect, isSettledRect } from '../shared/tab-drag-geometry'
+import { DOCK_ITEM_COUNT, DOCK_SEPARATOR_COUNT } from '../shared/desktop-geometry'
 import {
   DEFAULT_IDLE_MS,
   defaultMaxLiveTabs,
@@ -152,6 +155,12 @@ export class TabManager {
    * Null in tests and any host that does not want the overlay.
    */
   private drawerOverlay: AiDrawerOverlay | null = null
+  /**
+   * The doc-mode dock's native overlay host (the hot strip / fisheye dock
+   * above the covering document), injected like the drawer's. Null in tests
+   * and any host that does not want it.
+   */
+  private dockOverlay: DockOverlay | null = null
 
   /**
    * The command palette's global summon: Ctrl/Cmd+K in any of the shell
@@ -341,6 +350,19 @@ export class TabManager {
   }
 
   /**
+   * Install (or drop) the doc-mode dock's native overlay host — the hot
+   * strip at the bottom edge that grows into the fisheye dock. Synced in
+   * every layout pass and every activation, AFTER the drawer overlay's
+   * sync (see layout and activateTab): the dock ends each pass topmost,
+   * so a revealed dock stays clickable over an open drawer panel — the
+   * doc-mode mirror of the HTML dock's stacking.
+   */
+  setDockOverlay(overlay: DockOverlay | null): void {
+    this.dockOverlay = overlay
+    this.syncDockOverlay()
+  }
+
+  /**
    * Whether the AI drawer's native overlay is the drawer's live host right
    * now (P0-2): a non-Home tab is active and its view is not presenting over
    * the whole window — the same predicate sync() shows the view on. The
@@ -422,6 +444,39 @@ export class TabManager {
     })
   }
 
+  /**
+   * The doc-mode dock overlay's hot-edge report arrived over
+   * `home:dock-hot-edge` from this webContents: hand it to the overlay, which
+   * decides by identity whether the sender is its own live view before the
+   * strip grows into the dock (or the delayed hide arms).
+   */
+  reportDockHotEdge(wc: WebContents, report: DockHotEdgeReport): void {
+    this.dockOverlay?.reportHotEdge(wc, report)
+  }
+
+  /**
+   * Feed the dock overlay one state snapshot: whether a non-Home tab is
+   * active (the strip exists only then — over Home the HTML dock is the
+   * dock), whether that tab's view covers the whole window (the strip stands
+   * down for a presentation, like the drawer), the interface scale, the
+   * window's content size, and the dock's composition (the shared geometry's
+   * pill math sizes the view).
+   */
+  private syncDockOverlay(): void {
+    const overlay = this.dockOverlay
+    if (!overlay || this.shellWindow.isDestroyed()) return
+    const { width, height } = this.shellWindow.getContentBounds()
+    const active = this.tabs.find((t) => t.id === this.activeId)
+    overlay.sync({
+      docActive: active !== undefined && active.kind !== 'home',
+      suppressed: this.drawerOverlaySuppressed(),
+      scale: this.uiScale(),
+      window: { width, height },
+      itemCount: DOCK_ITEM_COUNT,
+      separatorCount: DOCK_SEPARATOR_COUNT,
+    })
+  }
+
   /** the active tab's view is covering the whole window (a presentation) */
   private drawerOverlaySuppressed(): boolean {
     if (this.htmlFullScreenId !== null && this.htmlFullScreenId === this.activeId) return true
@@ -488,6 +543,14 @@ export class TabManager {
     // scale change or an aiDock write all landed here, and the drawer over
     // the document must follow each of them
     this.syncDrawerOverlay()
+    // the dock's overlay rides the same pass, AFTER the drawer's: both
+    // re-assert their view topmost on a shown sync, and the dock must end
+    // the pass on top — a revealed dock stays clickable over an open drawer
+    // panel, matching the HTML dock's stacking over the drawer's scrim (the
+    // reveal re-asserts topmost between passes for the same reason). The
+    // cost is the 3px strip riding above the drawer overlay's own bottom
+    // edge — chrome nobody clicks
+    this.syncDockOverlay()
   }
 
   /**
@@ -757,6 +820,12 @@ export class TabManager {
     // activation added or revealed must end up below the overlay, which the
     // sync's topmost re-add guarantees
     this.syncDrawerOverlay()
+    // the dock's strip follows the same activation (mounted for a document,
+    // stood down over Home) in the same order layout() uses — after the
+    // drawer's sync, so the dock ends the pass topmost. Without this a plain
+    // activation with no layout trigger (openBrowser, a tab click) mounts no
+    // hot edge until something resizes
+    this.syncDockOverlay()
     this.onChanged()
   }
 

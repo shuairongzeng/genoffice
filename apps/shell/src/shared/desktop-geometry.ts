@@ -246,3 +246,132 @@ export function documentContentBounds(
     height: Math.max(0, Math.round(window.height - header)),
   }
 }
+
+// ── the doc-mode dock overlay (the hot strip that grows into the dock) ──
+
+/**
+ * The dock overlay's shape constants, mirroring the dock's own chrome so the
+ * native view frames the pill exactly: home.css's `.dock` rules (padding,
+ * gap, separator, border, the bottom margin) and the renderer dock-math's
+ * base icon size. Must move with them — the entry renders the real Dock
+ * inside the view these numbers size, so a drift shows as a clipped or
+ * overshooting pill.
+ */
+
+/** the dock pill's icon pitch at rest (mirrors dock-math's base size) */
+const DOCK_OVERLAY_BASE = 48
+/** the pill's horizontal padding + hairline borders, CSS px */
+const DOCK_OVERLAY_H_PADDING = 10 + 10 + 1 + 1
+/** the pill's vertical padding + borders, CSS px (above + below the row) */
+const DOCK_OVERLAY_V_PADDING = 5 + 7 + 1 + 1
+/** the flex gap between the pill's children, CSS px */
+const DOCK_OVERLAY_GAP = 3
+/** one separator's footprint: 1px rule + 3px margins each side, CSS px */
+const DOCK_OVERLAY_SEPARATOR = 3 + 1 + 3
+/** the pill's float above the window's bottom edge, CSS px (home.css margin) */
+const DOCK_OVERLAY_BOTTOM = 9
+/** the hot strip's thickness, CSS px */
+const DOCK_OVERLAY_STRIP = 3
+/**
+ * The dock's peak magnification M, mirroring dock-math's default: the rect
+ * must fit the pill WITH its fisheye, so the physics' ceiling sizes the
+ * headroom.
+ */
+const DOCK_OVERLAY_MAX_SCALE = 1.7
+/**
+ * Room above a magnified icon for the screentip, CSS px: the tooltip flips
+ * above the hovered item, and a rect that ends at the icon's scaled top
+ * would clip it out of the view — invisible in doc mode.
+ */
+const DOCK_OVERLAY_TOOLTIP_ROOM = 28
+
+/**
+ * The dock's item count — 3 nav + 3 launchers + the ask tail. Mirrors the
+ * renderer's dock groups (Home's and the doc-mode entry's, which share the
+ * composition); the overlay's pill math sizes the view from it.
+ */
+export const DOCK_ITEM_COUNT = 7
+
+/** the separators between those groups (nav | launchers | ask) */
+export const DOCK_SEPARATOR_COUNT = 2
+
+/** the pill's size in CSS px for a given composition */
+function dockPillSize(
+  itemCount: number,
+  separatorCount: number,
+): {
+  width: number
+  height: number
+} {
+  const children = itemCount + separatorCount
+  const gaps = Math.max(0, children - 1) * DOCK_OVERLAY_GAP
+  const width =
+    DOCK_OVERLAY_H_PADDING +
+    itemCount * DOCK_OVERLAY_BASE +
+    gaps +
+    separatorCount * DOCK_OVERLAY_SEPARATOR
+  return { width, height: DOCK_OVERLAY_BASE + DOCK_OVERLAY_V_PADDING }
+}
+
+/**
+ * The doc-mode dock overlay's two rects in window (content-area) pixels:
+ *
+ * - `strip`: the hot edge — the full content width, a hair over the window's
+ *   bottom, invisible (the entry's surface is transparent) and 3px thin. It
+ *   exists only to catch a pointer-enter along the bottom and report it; the
+ *   3px band it intercepts is the last 3px of the document, a tradeoff
+ *   accepted in exchange for a summonable dock (documented in
+ *   dock-overlay-view.ts).
+ * - `dock`: the revealed dock — horizontally centered like Home's dock
+ *   (left 50% + translateX(-50%)), the pill floating `DOCK_OVERLAY_BOTTOM`
+ *   above the bottom edge, and the rect extending DOWN TO the window's
+ *   bottom edge so it contains the strip's footprint: the pointer that
+ *   summoned the dock stays inside the grown view instead of tripping a
+ *   leave-and-flicker the moment the reveal lands.
+ *
+ * The rect fits the pill WITH its fisheye, not the pill at rest: a hovered
+ * icon rises (M−1)·base above its rest top (the slot anchors the baseline,
+ * the transform grows upward only), the pill's ends widen as neighbors
+ * shift, and the screentip flips ~28px above the magnified icon — a
+ * rest-sized rect would clip all three at the view's top. So the height
+ * carries the magnification headroom and the tooltip room above the pill,
+ * and the width carries the peak growth on both sides. The cost is honest:
+ * the extra margin is transparent but still hit-tests (a native view eats
+ * clicks over its whole rect), so the entry reports leave from the pill's
+ * actual painted box rather than the rect — see dock-entry.tsx.
+ *
+ * Both scale by the interface scale like every chrome band; a window
+ * narrower than the pill clamps the dock rect to the window (the pill then
+ * centers over a clipped view — the same clamp the drawer's bounds take).
+ */
+export function dockOverlayBounds(
+  window: { width: number; height: number },
+  layout: { scale?: number; itemCount: number; separatorCount: number },
+): { strip: Rect; dock: Rect } {
+  const scale = layout.scale ?? 1
+  const pill = dockPillSize(layout.itemCount, layout.separatorCount)
+  // how far a magnified icon rises above its rest top, CSS px
+  const magnifyHeadroom = (DOCK_OVERLAY_MAX_SCALE - 1) * DOCK_OVERLAY_BASE
+  const stripHeight = Math.max(1, Math.round(DOCK_OVERLAY_STRIP * scale))
+  const pillWidth = Math.min(
+    Math.round((pill.width + 2 * magnifyHeadroom) * scale),
+    Math.max(0, Math.round(window.width)),
+  )
+  const dockHeight = Math.round(
+    (pill.height + DOCK_OVERLAY_BOTTOM + magnifyHeadroom + DOCK_OVERLAY_TOOLTIP_ROOM) * scale,
+  )
+  return {
+    strip: {
+      x: 0,
+      y: Math.max(0, Math.round(window.height) - stripHeight),
+      width: Math.max(0, Math.round(window.width)),
+      height: stripHeight,
+    },
+    dock: {
+      x: Math.max(0, Math.round((window.width - pillWidth) / 2)),
+      y: Math.max(0, Math.round(window.height) - dockHeight),
+      width: pillWidth,
+      height: dockHeight,
+    },
+  }
+}

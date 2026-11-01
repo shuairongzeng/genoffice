@@ -267,6 +267,7 @@ import type {
   AutoSaveDefault,
   AuthorNameSetting,
   DeepLinkPayload,
+  DockNavIntent,
   NewFileOpts,
   DocTheme,
   StarPromptShow,
@@ -6124,6 +6125,9 @@ registerHomeTabsIpc({
 })
 // the workbench's dock and stage channels: the docked AI panel's prefs
 // (app-settings.json `aiDock`) and the renderer's measured content-stage rect
+// the dock-nav intent routed while Home's renderer was still mounting (its
+// `home:dock-nav` listener not yet armed); drained by Home's mount-time pull
+let pendingDockNav: DockNavIntent | null = null
 registerHomeWorkbenchIpc({
   appSettingsPath: APP_SETTINGS_PATH,
   getTabManager: () => tabManager,
@@ -6177,6 +6181,33 @@ registerHomeWorkbenchIpc({
   // shrinks it back — the position persists through the ordinary aiDock write
   applyDrawerOverlayPetDrag: (sender, report) => {
     tabManager?.applyDrawerOverlayPetDrag(sender, report)
+  },
+  // the doc-mode dock overlay's state machine: the overlay checks the sender
+  // and the strip/dock shape; the identity gate means a foreign renderer's
+  // report is a no-op
+  reportDockHotEdge: (sender, report) => {
+    tabManager?.reportDockHotEdge(sender, report)
+  },
+  // a routed doc-mode dock action: the intent lands in Home BEFORE the tab
+  // rise (the same-beat ordering the dock-open write uses — Home flips its
+  // state as it becomes visible, never one broadcast late), then the Home
+  // tab activates so the clicked surface is actually seen. The push can
+  // beat Home's subscription (cold boot: the renderer is still mounting, and
+  // a push nobody is listening for is lost), so the intent is buffered here
+  // too — Home pulls the buffer once its subscription is armed
+  // (takeDockNavPending below) and this buffer drains on that pull
+  dockNavAction: (intent) => {
+    pendingDockNav = intent
+    sendToShellRenderer(HOME_CHANNELS.dockNav, intent)
+    tabManager?.openHomeTab()
+  },
+  // the cold-boot pull: answer the buffered intent exactly once (the
+  // return-and-clear makes the push the fast path once armed and this the
+  // gap-filler for the clicks that beat the mount)
+  takeDockNavPending: () => {
+    const pending = pendingDockNav
+    pendingDockNav = null
+    return pending
   },
 })
 registerDroppedFilesIpc()

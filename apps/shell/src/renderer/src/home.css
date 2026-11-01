@@ -131,11 +131,13 @@ body.mac .sidebar {
 .sidebar-logo {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 9px;
   padding: 0 8px;
   margin-bottom: 20px;
   /* the logo band is the left column's share of the window drag surface (the
-     retired native strip's job); the logo itself is not interactive */
+     retired native strip's job); the logo itself is not interactive, and the
+     collapse control opts back out of the drag region to stay clickable */
   -webkit-app-region: drag;
 }
 
@@ -144,6 +146,226 @@ body.mac .sidebar {
   height: 28px;
   width: auto;
   filter: invert(var(--logo-invert));
+}
+
+/* the sidebar's collapse control (its header edge) and the collapsed rail's
+ * expand control: the rail folds the tree/todo/login away and leaves a slim
+ * strip with the one chevron, so the desktop and the dock can own the view
+ * without the column's furniture */
+.sidebar-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-6);
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-collapse-btn:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+}
+
+.sidebar-collapse-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* RTL mirrors the collapse chevrons: the button carries only the arrow, so
+ * flipping the button flips the direction without fighting the Chevron's
+ * inline rotation */
+[dir='rtl'] .sidebar-collapse-btn {
+  transform: scaleX(-1);
+}
+
+/* the collapsed rail: everything but the expand control folds away (the
+ * direct-children rule below), the column shrinks to a strip, and the stage
+ * re-reports its rect so the documents re-fit beside it */
+.sidebar.collapsed {
+  width: 44px;
+  padding: 18px 8px 16px;
+  align-items: center;
+}
+
+.sidebar.collapsed > *:not(.sidebar-expand-btn) {
+  display: none;
+}
+
+.sidebar-expand-btn {
+  flex-shrink: 0;
+}
+
+/* ── the macOS-style fisheye dock (the workbench's primary launcher) ──
+ * A frosted-glass pill pinned to the window's bottom center, floating above
+ * the wallpaper like the floating pet does over documents: the frosted tokens
+ * the app's overlays share (a translucent --surface over a blurred backdrop),
+ * the pill's margin from the window's bottom edge, a hairline border and the
+ * chrome lift. The magnification itself is math (dock-math.ts) applied by
+ * the gesture layer (Dock.tsx), which writes slot widths and item transforms
+ * imperatively; these rules own the rest geometry: the slot pitch at rest
+ * (--dock-base), the bottom-anchored growth (the slot's flex-end baseline and
+ * the button's matching transform-origin), and the 120ms collapse the way
+ * OUT only — the way in is the pointer's own 1:1. */
+.dock {
+  position: fixed;
+  left: 50%;
+  bottom: 9px;
+  transform: translateX(-50%);
+  /* above the drawer's whole context — scrim AND panel (40): the open
+   * drawer's full-window mask would otherwise swallow every dock click and
+   * the fisheye with it (the dock is the launcher; macOS keeps it reachable
+   * over windows, and the drawer's panel concedes the overlap band at the
+   * dock's right end). Still below the pet (45), the star prompt (60), the
+   * settings modal (70) and the dialogs (100) — the pet stays the drawer's
+   * own topmost affordance */
+  z-index: 43;
+  --dock-base: 48px;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 5px 10px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 66%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  box-shadow:
+    0 10px 30px rgb(0 0 0 / 16%),
+    0 1px 3px rgb(0 0 0 / 10%);
+}
+
+/* ── the dock's standalone mount (?view=dock) ──
+ * The surface the doc-mode native overlay (main/dock-overlay-view.ts) loads:
+ * the entry fills the view — which main cuts as either the 3px hot strip or
+ * the dock rect — and paints nothing of its own (html and body drop their
+ * backgrounds through the dock-view class the entry toggles on <html>).
+ * The Dock pill inside keeps its fixed left-50%/bottom-9 geometry, which
+ * lands exactly inside the dock rect; in the strip shape the pill sits above
+ * the 3px surface and the view clips it away — the rest state is invisible.
+ *
+ * The root's geometry is the surface's contract, verified live the hard way:
+ * hit-testing needs GEOMETRY, not pixels — a transparent root still catches
+ * pointerenter — but only where its box actually is. The root must therefore
+ * cover the view's whole viewport in BOTH shapes (3px and 71px alike), or
+ * the strip hit-tests nothing (elementFromPoint over it returns null), the
+ * hot-edge report never fires, the dock never reveals — while the native
+ * view still swallows those 3px of document clicks. So: fixed at the
+ * viewport's origin, sized by the longhand insets AND the vw/vh pair —
+ * belt and braces, each covering the other — with html/body filling the
+ * viewport behind it (height 100%) so the flow chain matches. The root also
+ * carries the hot-edge listeners (pointerenter/leave) that drive main's
+ * grow/shrink state machine. */
+.dock-entry {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  /* the ask-panel contract: the entry opts into the interface scale, so the
+   * pill's CSS px are chrome px (48 renders at 48 × scale like every chrome
+   * band) and the fisheye's σ conversion (chromeScale) has a variable to
+   * read. The vw/vh pair and the insets stay honest under zoom — Chromium
+   * evaluates viewport units in the zoomed space (Home's 100vh .home inside
+   * the zoomed .app-frame fills exactly), and 0 insets scale to 0 */
+  zoom: var(--ui-scale);
+}
+
+html.dock-view,
+html.dock-view body {
+  height: 100%;
+  background: transparent;
+}
+
+/* doc mode: the pill's frosted glass cannot frost here — backdrop-filter
+ * samples this renderer's own backdrop, and over a transparent native view
+ * that is nothing (the document behind is a different view), so the glass
+ * renders as a bare translucent tint over live text. The entry's pill goes
+ * opaque on the drawer panel's surface token instead: visual parity with the
+ * surface it floats beside, and the blur/border/shadow chrome stays */
+.dock-view .dock {
+  background: var(--surface);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.dock-separator {
+  align-self: stretch;
+  width: 1px;
+  margin: 8px 3px;
+  background: color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.dock-slot {
+  position: relative;
+  width: var(--dock-base);
+  height: var(--dock-base);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.dock-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dock-base);
+  height: var(--dock-base);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-12);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  /* the magnification grows upward only: the slot's bottom edge is the
+   * baseline and this origin matches it, so the icon rises over the pill
+   * instead of sinking into it */
+  transform-origin: 50% 100%;
+}
+
+.dock-item svg {
+  width: 100%;
+  height: 100%;
+}
+
+.dock-item:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.dock-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* the nav indicator dot (macOS style): under the icon, inside the pill's
+ * bottom padding, and on the SLOT — never inside the transformed button, or
+ * the magnification would move it with the icon */
+.dock-dot {
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text);
+  transform: translateX(-50%);
+}
+
+/* the way OUT only: the leave animates the collapse over 120ms; the gesture
+ * layer drops the class on the next enter, so tracking stays 1:1 */
+.dock.dock-collapsing .dock-slot {
+  transition: width 0.12s ease;
+}
+
+.dock.dock-collapsing .dock-item {
+  transition: transform 0.12s ease;
 }
 
 .sidebar-nav {

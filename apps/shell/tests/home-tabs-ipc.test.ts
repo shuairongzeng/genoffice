@@ -41,6 +41,9 @@ const forwardAskQuery = vi.fn()
 const forwardBrowserAskAbout = vi.fn()
 const markDrawerOverlayReadyFor = vi.fn()
 const applyDrawerOverlayPetDrag = vi.fn()
+const reportDockHotEdge = vi.fn()
+const dockNavAction = vi.fn()
+const takeDockNavPending = vi.fn()
 
 import {
   collectHomeTabsState,
@@ -363,6 +366,9 @@ describe('registerHomeWorkbenchIpc', () => {
       forwardBrowserAskAbout,
       markDrawerOverlayReadyFor,
       applyDrawerOverlayPetDrag,
+      reportDockHotEdge,
+      dockNavAction,
+      takeDockNavPending,
     })
   }
 
@@ -499,6 +505,9 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
     forwardBrowserAskAbout.mockClear()
     markDrawerOverlayReadyFor.mockClear()
     applyDrawerOverlayPetDrag.mockClear()
+    reportDockHotEdge.mockClear()
+    dockNavAction.mockClear()
+    takeDockNavPending.mockClear()
     registerHomeWorkbenchIpc({
       appSettingsPath: () => '/unused/app-settings.json',
       getTabManager: () => null,
@@ -507,6 +516,9 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
       forwardBrowserAskAbout,
       markDrawerOverlayReadyFor,
       applyDrawerOverlayPetDrag,
+      reportDockHotEdge,
+      dockNavAction,
+      takeDockNavPending,
     })
   })
 
@@ -580,6 +592,67 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
     expect(applyDrawerOverlayPetDrag).toHaveBeenCalledWith(sender, { start: true })
     ipcMainMock.onHandlers.get('home:ai-pet-drag')!({ sender }, { end: true })
     expect(applyDrawerOverlayPetDrag).toHaveBeenLastCalledWith(sender, { end: true })
+  })
+
+  it('routes a validated hot-edge report to the dep with the event sender', () => {
+    // the overlay (through the dep) owns the identity check and the
+    // strip/dock state machine; only its own renderer's report moves it
+    const sender = { id: 210 } as WebContents
+    ipcMainMock.onHandlers.get('home:dock-hot-edge')!({ sender }, { enter: true })
+    expect(reportDockHotEdge).toHaveBeenCalledTimes(1)
+    expect(reportDockHotEdge).toHaveBeenCalledWith(sender, { enter: true })
+    ipcMainMock.onHandlers.get('home:dock-hot-edge')!({ sender }, { leave: true })
+    expect(reportDockHotEdge).toHaveBeenLastCalledWith(sender, { leave: true })
+  })
+
+  it('drops malformed hot-edge reports whole', () => {
+    const sender = { id: 210 } as WebContents
+    for (const bad of [null, 'edge', {}, { enter: 'in' }, { leave: 1 }]) {
+      ipcMainMock.onHandlers.get('home:dock-hot-edge')!({ sender }, bad)
+    }
+    expect(reportDockHotEdge).not.toHaveBeenCalled()
+  })
+
+  it('routes a validated dock action to the nav-routing dep', () => {
+    const invoke = (channel: string, ...args: unknown[]): unknown =>
+      ipcMainMock.handlers.get(channel)!(undefined, ...args)
+    invoke('home:dock-action', { kind: 'nav', view: 'recent' })
+    expect(dockNavAction).toHaveBeenCalledWith({ kind: 'nav', view: 'recent' })
+    invoke('home:dock-action', { kind: 'settings', section: 'plugins' })
+    expect(dockNavAction).toHaveBeenLastCalledWith({ kind: 'settings', section: 'plugins' })
+    invoke('home:dock-action', { kind: 'templates' })
+    expect(dockNavAction).toHaveBeenLastCalledWith({ kind: 'templates' })
+  })
+
+  it('answers the mount-time dock-nav pull from the injected buffer dep', () => {
+    // the cold-boot race: Home pulls the intent that beat its subscription,
+    // and the dep (index.ts's buffer) answers and clears in one move
+    takeDockNavPending
+      .mockReturnValueOnce({ kind: 'nav', view: 'recent' })
+      .mockReturnValueOnce(null)
+    expect(invoke('home:dock-nav-pending')).toEqual({ kind: 'nav', view: 'recent' })
+    expect(invoke('home:dock-nav-pending')).toBeNull()
+    expect(takeDockNavPending).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops malformed dock actions whole rather than guessing a kind', () => {
+    const invoke = (channel: string, ...args: unknown[]): unknown =>
+      ipcMainMock.handlers.get(channel)!(undefined, ...args)
+    // (extra keys are tolerated like every validator here — only the
+    // fields the routing reads are judged)
+    for (const bad of [
+      null,
+      'nav',
+      {},
+      { kind: 'ask' },
+      { kind: 'nav' },
+      { kind: 'nav', view: 'cloud' },
+      { kind: 'settings' },
+      { kind: 'settings', section: 'account' },
+    ]) {
+      invoke('home:dock-action', bad)
+    }
+    expect(dockNavAction).not.toHaveBeenCalled()
   })
 
   it('drops malformed pet-drag reports whole rather than half-keeping them', () => {

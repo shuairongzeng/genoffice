@@ -99,9 +99,10 @@ afterEach(async () => {
   container.remove()
   vi.unstubAllGlobals()
 })
+/** the dock item carrying this label — the nav items migrated there */
 function nav(label: string): HTMLButtonElement {
-  return [...container.querySelectorAll<HTMLButtonElement>('.sidebar-nav button')].find(
-    (button) => button.querySelector('.nav-label')?.textContent === label,
+  return [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].find(
+    (button) => button.getAttribute('aria-label') === label,
   )!
 }
 async function click(button: HTMLButtonElement) {
@@ -109,8 +110,8 @@ async function click(button: HTMLButtonElement) {
   await act(async () => button.click())
 }
 function selected(): string[] {
-  return [...container.querySelectorAll('.sidebar-nav .active .nav-label')].map(
-    (label) => label.textContent!,
+  return [...container.querySelectorAll('.dock-item[aria-current="true"]')].map((item) =>
+    (item as HTMLElement).getAttribute('aria-label')!,
   )
 }
 
@@ -129,7 +130,7 @@ describe('Home sidebar navigation', () => {
     expect(fetch).not.toHaveBeenCalled()
     await click(nav(from))
     expect(selected()).toEqual([from])
-    expect(nav(from).getAttribute('aria-current')).toBe('page')
+    expect(nav(from).getAttribute('aria-current')).toBe('true')
     expect(container.querySelector('.content')?.textContent).toContain('brief.docx')
     if (from === 'Starred')
       expect(container.querySelector('.content')?.textContent).not.toContain('budget.xlsx')
@@ -254,5 +255,195 @@ describe('the sidebar reveals Home under a covering document tab', () => {
     await click(nav('Starred'))
     expect(selected()).toEqual(['Starred'])
     expect(tabsActivate).not.toHaveBeenCalled()
+  })
+})
+
+describe('the slimmed sidebar', () => {
+  it('carries no nav items anymore: the dock is their home now', async () => {
+    // not signed in: the cloud entry (the one nav the approved dock contents
+    // do not carry) is absent too, so the sidebar-nav list is empty
+    expect(container.querySelectorAll('.sidebar-nav .nav-item')).toHaveLength(0)
+    // and the dock holds the migrated set
+    expect(
+      [...container.querySelectorAll('.dock-item')].map((i) => i.getAttribute('aria-label')),
+    ).toEqual(['Desktop', 'Recent', 'Starred', 'Settings', 'Templates', 'Plugins', 'Ask AI'])
+  })
+
+  it('keeps the folder panel and the todo widget', async () => {
+    // the sidebar's remaining furniture: the tree panel's head and the todo
+    // quick-capture card — the dock took the navigation, not the work tools
+    expect(container.querySelector('.folder-panel-title')?.textContent).toBe('Folders')
+    expect(container.querySelector('.todo-panel')).toBeTruthy()
+  })
+
+  it('collapses to the rail and hides the furniture', async () => {
+    const collapse = container.querySelector<HTMLButtonElement>('.sidebar-collapse-btn')!
+    expect(collapse).toBeTruthy()
+    await click(collapse)
+    const sidebar = container.querySelector('.sidebar')!
+    expect(sidebar.className).toContain('collapsed')
+    // the rail: the expand control is the one visible child (CSS folds the
+    // tree/todo/login away — the .collapsed > *:not(.sidebar-expand-btn)
+    // rule — so jsdom still sees them in the DOM, hidden by stylesheet)
+    expect(sidebar.querySelector('.sidebar-expand-btn')).toBeTruthy()
+    // the persisted choice is already written (the local prefs pattern)
+    expect(localStorage.getItem('home.sidebar')).toBe('true')
+  })
+
+  it('the collapsed rail persists between mounts and expands back', async () => {
+    await click(container.querySelector<HTMLButtonElement>('.sidebar-collapse-btn')!)
+    await act(async () => root.unmount())
+    container.remove()
+    container = document.createElement('div')
+    document.body.append(container)
+    root = createRoot(container)
+    await act(async () =>
+      root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
+    )
+    // the fresh mount read the persisted rail
+    const sidebar = container.querySelector('.sidebar')!
+    expect(sidebar.className).toContain('collapsed')
+    expect(sidebar.querySelector('.sidebar-expand-btn')).toBeTruthy()
+    // expanding restores the furniture and forgets the rail
+    await click(container.querySelector<HTMLButtonElement>('.sidebar-expand-btn')!)
+    expect(container.querySelector('.sidebar')!.className).not.toContain('collapsed')
+    expect(container.querySelector('.folder-panel-title')).toBeTruthy()
+    expect(localStorage.getItem('home.sidebar')).toBe('false')
+  })
+})
+
+describe('the doc-mode dock nav (home:dock-nav)', () => {
+  let dockNavHandler:
+    | ((intent: {
+        kind: 'nav' | 'settings' | 'templates'
+        view?: 'desktop' | 'recent' | 'starred'
+        section?: 'general' | 'plugins'
+      }) => void)
+    | null = null
+
+  /**
+   * Mount with a stubbed mount-time pull (the cold-boot race: a routed click
+   * can beat the subscription, and main answers the buffered intent here);
+   * omitted means an empty buffer.
+   */
+  async function mountWithDockNav(
+    pull:
+      | (() => Promise<{
+          kind: 'nav' | 'settings' | 'templates'
+          view?: 'desktop' | 'recent' | 'starred'
+          section?: 'general' | 'plugins'
+        } | null>)
+      | null = null,
+  ): Promise<void> {
+    const dockNavPull = pull ?? (async () => null)
+    window.aiOffice = {
+      ...window.aiOffice,
+      onDockNav: (
+        handler: (intent: {
+          kind: 'nav' | 'settings' | 'templates'
+          view?: 'desktop' | 'recent' | 'starred'
+          section?: 'general' | 'plugins'
+        }) => void,
+      ) => {
+        dockNavHandler = handler
+        return () => {
+          dockNavHandler = null
+        }
+      },
+      takeDockNavPending: () => dockNavPull(),
+      templatesList: async () => [
+        {
+          id: 't1',
+          title: 'Weekly report',
+          description: 'A clean start',
+          kind: 'docx',
+          category: 'business',
+        },
+      ],
+    } as unknown as Window['aiOffice']
+    await act(async () => root.unmount())
+    container.remove()
+    container = document.createElement('div')
+    document.body.append(container)
+    root = createRoot(container)
+    await act(async () =>
+      root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
+    )
+    expect(dockNavHandler).not.toBeNull()
+  }
+
+  it('a nav intent switches the surface, ready for the tab rise', async () => {
+    await mountWithDockNav()
+    await click(nav('Desktop'))
+    await act(async () => dockNavHandler!({ kind: 'nav', view: 'recent' }))
+    expect(container.querySelector('.home')!.className).not.toContain('desktop-mode')
+    expect(selected()).toEqual(['Recent'])
+    await act(async () => dockNavHandler!({ kind: 'nav', view: 'starred' }))
+    expect(selected()).toEqual(['Starred'])
+    await act(async () => dockNavHandler!({ kind: 'nav', view: 'desktop' }))
+    expect(container.querySelector('.home')!.className).toContain('desktop-mode')
+    // no tab churn of its own: the activation is main's half of the contract
+    expect(tabsActivate).not.toHaveBeenCalled()
+  })
+
+  it('a settings intent opens the settings modal on the named section', async () => {
+    await mountWithDockNav()
+    await act(async () => dockNavHandler!({ kind: 'settings', section: 'plugins' }))
+    const active = container.querySelector('.set-nav-item.active')
+    expect(active?.textContent).toContain('Plugins')
+    await act(async () => dockNavHandler!({ kind: 'settings', section: 'general' }))
+    expect(container.querySelector('.set-nav-item.active')?.textContent).toContain('General')
+  })
+
+  it('a templates intent opens the template gallery', async () => {
+    await mountWithDockNav()
+    await act(async () => dockNavHandler!({ kind: 'templates' }))
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    expect(container.querySelector('.tg-card')).toBeTruthy()
+    expect(container.querySelector('.tg-card-title')?.textContent).toBe('Weekly report')
+  })
+
+  it('pulls a cold-boot intent that beat the subscription', async () => {
+    // main buffered the click while this renderer was still loading — the
+    // push was lost, and the mount's pull performs it anyway
+    await mountWithDockNav(async () => ({ kind: 'nav', view: 'starred' }))
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    expect(selected()).toEqual(['Starred'])
+    expect(container.querySelector('.home')!.className).not.toContain('desktop-mode')
+  })
+
+  it('arms the subscription before the pull resolves, so nothing in between is lost', async () => {
+    let resolvePull!: (
+      intent: {
+        kind: 'nav' | 'settings' | 'templates'
+        view?: 'desktop' | 'recent' | 'starred'
+        section?: 'general' | 'plugins'
+      } | null,
+    ) => void
+    const pull = new Promise<{
+      kind: 'nav' | 'settings' | 'templates'
+      view?: 'desktop' | 'recent' | 'starred'
+      section?: 'general' | 'plugins'
+    } | null>((resolve) => {
+      resolvePull = resolve
+    })
+    await mountWithDockNav(() => pull)
+    // the pull is still pending, the subscription is already armed: a push
+    // landing in the gap is heard the ordinary way
+    expect(dockNavHandler).not.toBeNull()
+    await act(async () => dockNavHandler!({ kind: 'nav', view: 'starred' }))
+    expect(selected()).toEqual(['Starred'])
+    // and the pull draining the same intent afterwards is idempotent — the
+    // worst case of the subscribe-then-pull order is one intent performed
+    // twice, never one lost
+    resolvePull({ kind: 'nav', view: 'starred' })
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    expect(selected()).toEqual(['Starred'])
   })
 })

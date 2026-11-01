@@ -9,6 +9,7 @@ import { placeFolderMenu } from './folder-menu-position'
 import type {
   AccountStatus,
   AiDockPrefs,
+  DockNavIntent,
   FolderRoot,
   HomeApi,
   HomeTabEntry,
@@ -30,6 +31,16 @@ import { CommandPalette } from './CommandPalette'
 import { normalizeAskDeepLink, type AskQueryOrigin, type PendingAskQuery } from './ask-intent'
 import { DesktopView } from './DesktopView'
 import { DESKTOP_STRINGS } from './desktop-strings'
+import { Dock, type DockItem } from './Dock'
+import {
+  DockAskIcon,
+  DockDesktopIcon,
+  DockRecentIcon,
+  DockStarredIcon,
+  GearGlyph,
+  PlugGlyph,
+  TemplatesGlyph,
+} from './app-glyphs'
 import { TodoWidget } from './TodoWidget'
 import { bindRecentsChanged, onFilesChanged } from './file-events'
 import { aiSetupNeeded } from './ai-setup-state'
@@ -106,6 +117,31 @@ const GREET_ASK_KEYS = [
   'greetAsk6',
 ] as const satisfies readonly StringKey[]
 
+// ── the sidebar's collapsed rail: the local prefs pattern the AI dock's
+// boot state uses (localStorage as the session-scoped copy) — a UI-only
+// shape with no main-process consumer yet, so no app-settings channel is
+// spent on it; a failed write costs the choice this session only ──
+
+/** where the sidebar's collapsed state lives between mounts */
+const SIDEBAR_PREFS_KEY = 'home.sidebar'
+
+/** the persisted collapsed flag; false for anything unreadable */
+function readLocalSidebarCollapsed(): boolean {
+  try {
+    return JSON.parse(localStorage.getItem(SIDEBAR_PREFS_KEY) ?? 'null') === true
+  } catch {
+    return false
+  }
+}
+
+function writeLocalSidebarCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(SIDEBAR_PREFS_KEY, JSON.stringify(collapsed))
+  } catch {
+    // quota / private mode: the choice lasts this session only
+  }
+}
+
 // ── Main component ──────────────────────────────────────
 
 export function Home() {
@@ -138,6 +174,17 @@ export function Home() {
   // non-null only while the folder surface is up, exactly like the old flag set
   const selectedFolder = surface === 'folder' ? viewState.folder : null
   const [filter, setFilter] = useState('all')
+
+  // the sidebar's collapsed rail (the dock took its nav, so the tree panel can
+  // fold away when the desktop is the whole show): persisted through the same
+  // local prefs pattern the drawer's boot state uses — see the module foot
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readLocalSidebarCollapsed())
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((collapsed) => {
+      writeLocalSidebarCollapsed(!collapsed)
+      return !collapsed
+    })
+  }, [])
 
   // ── the workbench: the AI drawer (overlay) and the embedded tab strip ──
   // The drawer's prefs persist in app-settings.json through the `aiDock`
@@ -886,13 +933,15 @@ export function Home() {
   // the hand-written switchers also performed (selection / menus are shared
   // row state, not view-mode state, so they stay here with the wiring) ──
 
-  const changeView = (next: 'recent' | 'starred') => {
+  // stable (every captured setter is stable) so the dock-nav subscription
+  // below can hold one handler across renders
+  const changeView = useCallback((next: 'recent' | 'starred') => {
     dispatchView({ type: 'show-list', list: next })
     writeLaunchView(next)
     setSelected(new Set())
     setRowMenu(null)
     setGroupFilter(null)
-  }
+  }, [])
 
   /** the desktop nav item and the genoffice://desktop link: the icon desktop
    *  takes over the content area (a callback so the deep-link subscription
@@ -997,6 +1046,43 @@ export function Home() {
     },
     [docTabActive, openAskDock],
   )
+  // the doc-mode dock's routed clicks (home:dock-nav): main delivers the
+  // intent and activates the Home tab in the same beat, so the handler only
+  // performs the outcome — the view switch, the settings request or the
+  // templates opening — and the person sees it the moment the tab rises.
+  // The push can beat this subscription (cold boot: main routed the click
+  // while this renderer was still mounting, and a push nobody listens for
+  // is lost), so the mount arms the subscription FIRST and then pulls
+  // main's buffer of the same beat — the subscribe-then-pull order means
+  // the worst case is one intent performed twice (idempotent: the same view
+  // switch, the same settings request, the same gallery), never one lost
+  const performDockNav = useCallback(
+    (intent: DockNavIntent) => {
+      if (intent.kind === 'nav') {
+        if (intent.view === 'desktop') showDesktop()
+        else changeView(intent.view)
+        return
+      }
+      if (intent.kind === 'settings') {
+        setSettingsRequest({ section: intent.section })
+        return
+      }
+      setTemplatesOpen(true)
+    },
+    [showDesktop, changeView],
+  )
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    const unsubscribe = api?.onDockNav?.(performDockNav)
+    void api
+      ?.takeDockNavPending?.()
+      .then((intent) => {
+        if (intent) performDockNav(intent)
+      })
+      .catch(() => undefined)
+    return unsubscribe
+  }, [performDockNav])
+
   // genoffice://ask?q=… and friends: the main process forwards deep links over
   // the home:deep-link channel. Softened because a preload from before the
   // contract shipped simply has no onDeepLink — the palette path above works
@@ -2147,121 +2233,114 @@ export function Home() {
     activateWorkTab('home')
   }, [showDesktop, activateWorkTab])
 
+  /**
+   * The dock's contents: the nav group (view switches, carrying the sidebar's
+   * reveal semantics — raiseHomeTab under a covering document tab), the
+   * launcher group (the desktop icons' own handlers and glyphs: settings,
+   * templates, plugins), and the ask tail (the drawer's open verb, which
+   * works in doc mode through the native overlay and so never raises). The
+   * active flags are the same predicates the sidebar's nav badges used.
+   */
+  const dockGroups: readonly (readonly DockItem[])[] = [
+    [
+      {
+        id: 'dock:desktop',
+        label: DESKTOP_STRINGS[lang].navDesktop,
+        icon: <DockDesktopIcon />,
+        active: desktopMode,
+        onSelect: () => {
+          raiseHomeTab()
+          showDesktop()
+        },
+      },
+      {
+        id: 'dock:recent',
+        label: t('navRecent'),
+        icon: <DockRecentIcon />,
+        active: activeNav === 'recent',
+        onSelect: () => {
+          raiseHomeTab()
+          changeView('recent')
+        },
+      },
+      {
+        id: 'dock:starred',
+        label: t('navStarred'),
+        icon: <DockStarredIcon />,
+        active: activeNav === 'starred',
+        onSelect: () => {
+          raiseHomeTab()
+          changeView('starred')
+        },
+      },
+    ],
+    [
+      {
+        id: 'dock:settings',
+        label: DESKTOP_STRINGS[lang].appSettings,
+        icon: <GearGlyph />,
+        onSelect: () => openSettings({ section: 'general' }),
+      },
+      {
+        id: 'dock:templates',
+        label: DESKTOP_STRINGS[lang].appTemplates,
+        icon: <TemplatesGlyph />,
+        onSelect: openTemplates,
+      },
+      {
+        id: 'dock:plugins',
+        label: DESKTOP_STRINGS[lang].appPlugins,
+        icon: <PlugGlyph />,
+        onSelect: () => openSettings({ section: 'plugins' }),
+      },
+    ],
+    [
+      {
+        id: 'dock:ask',
+        label: t('navAsk'),
+        icon: <DockAskIcon />,
+        onSelect: openAskDock,
+      },
+    ],
+  ]
+
   return (
     <div className={`home${desktopMode ? ' desktop-mode' : ''}`}>
       {desktopMode && (
         <div className="home-desktop-backdrop" aria-hidden="true" ref={setBackdropHost} />
       )}
       {desktopMode && <div className="sidebar-glass" aria-hidden="true" />}
-      <aside className="sidebar">
+      <aside className={`sidebar${sidebarCollapsed ? ' collapsed' : ''}`}>
+        {/* the collapsed rail: the expand control stands alone in it; the
+              tree, todos and login row fold away (CSS hides them) */}
+        {sidebarCollapsed && (
+          <button
+            type="button"
+            className="sidebar-collapse-btn sidebar-expand-btn"
+            aria-label={t('sidebarExpand')}
+            title={t('sidebarExpand')}
+            onClick={toggleSidebar}
+          >
+            <Chevron open />
+          </button>
+        )}
         <div className="sidebar-logo">
           <img className="logo-lockup" src={logoLockup} alt="GenOffice" />
+          <button
+            type="button"
+            className="sidebar-collapse-btn"
+            aria-label={t('sidebarCollapse')}
+            aria-expanded={!sidebarCollapsed}
+            title={t('sidebarCollapse')}
+            onClick={toggleSidebar}
+          >
+            <Chevron open={false} />
+          </button>
         </div>
+        {/* the nav items migrated to the fisheye dock (below): what remains
+            here is the cloud entry — the one nav the approved dock contents
+            do not carry — so a signed-in person keeps their way in */}
         <nav className="sidebar-nav">
-          <button
-            className={`nav-item${desktopMode ? ' active' : ''}`}
-            aria-current={desktopMode ? 'page' : undefined}
-            onClick={() => {
-              raiseHomeTab()
-              showDesktop()
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <rect
-                x="1.8"
-                y="1.8"
-                width="5.4"
-                height="5.4"
-                rx="1.4"
-                stroke="currentColor"
-                strokeWidth="1.3"
-              />
-              <rect
-                x="8.8"
-                y="1.8"
-                width="5.4"
-                height="5.4"
-                rx="1.4"
-                stroke="currentColor"
-                strokeWidth="1.3"
-              />
-              <rect
-                x="1.8"
-                y="8.8"
-                width="5.4"
-                height="5.4"
-                rx="1.4"
-                stroke="currentColor"
-                strokeWidth="1.3"
-              />
-              <rect
-                x="8.8"
-                y="8.8"
-                width="5.4"
-                height="5.4"
-                rx="1.4"
-                stroke="currentColor"
-                strokeWidth="1.3"
-              />
-            </svg>
-            <span className="nav-label">{DESKTOP_STRINGS[lang].navDesktop}</span>
-          </button>
-          <button
-            className={`nav-item${activeNav === 'recent' ? ' active' : ''}`}
-            aria-current={activeNav === 'recent' ? 'page' : undefined}
-            onClick={() => {
-              raiseHomeTab()
-              changeView('recent')
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <circle cx="8" cy="8" r="6.2" stroke="currentColor" strokeWidth="1.3" />
-              <path
-                d="M8 4.8V8l2.2 1.6"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinecap="round"
-              />
-            </svg>
-            <span className="nav-label">{t('navRecent')}</span>
-            <span className="nav-count">{navCounts.recent}</span>
-          </button>
-          <button
-            className={`nav-item${activeNav === 'starred' ? ' active' : ''}`}
-            aria-current={activeNav === 'starred' ? 'page' : undefined}
-            onClick={() => {
-              raiseHomeTab()
-              changeView('starred')
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path
-                d="M8 1.9l1.9 3.85 4.25.62-3.07 3 .72 4.23L8 11.6l-3.8 2 .72-4.23-3.07-3 4.25-.62z"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinejoin="round"
-              />
-            </svg>
-            <span className="nav-label">{t('navStarred')}</span>
-            <span className="nav-count">{navCounts.starred}</span>
-          </button>
-          <button className="nav-item nav-item-ask" onClick={openAskDock} title={t('dockExpand')}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path
-                d="M14 10.5c0 .9-.7 1.6-1.6 1.6H5.4L2 14.5V3.6C2 2.7 2.7 2 3.6 2h8.8c.9 0 1.6.7 1.6 1.6z"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M5 6.2h6M5 8.6h4"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinecap="round"
-              />
-            </svg>
-            <span className="nav-label">{t('navAsk')}</span>
-          </button>
           {loggedIn && (
             <button
               className={`nav-item${cloudMode && !selectedFolder ? ' active' : ''}`}
@@ -2310,6 +2389,10 @@ export function Home() {
           openRequest={settingsRequest}
         />
       </aside>
+      {/* the primary launcher: a macOS-style fisheye dock pinned to the
+          window's bottom center over whatever the content stage shows; its
+          nav items carry the sidebar's old reveal contract (raiseHomeTab) */}
+      <Dock groups={dockGroups} ariaLabel={t('dockLabel')} />
       <div className="home-body">
         <HomeTabs
           lang={lang}
