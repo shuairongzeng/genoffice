@@ -180,7 +180,9 @@
   z-index: 35;
   border: 1px solid var(--accent);
   border-radius: 2px;
-  background: var(--accent-soft);
+  /* no fill — the band is a bare outline; a whisper of halo keeps the line
+   * legible over busy wallpapers without forming a tint block */
+  box-shadow: 0 0 0 1px var(--accent-soft);
   pointer-events: none;
 }
 
