@@ -287,8 +287,8 @@ describe('dockOverlayBounds', () => {
   })
 
   it("the dock: centered like Home's dock, pill plus fisheye headroom and tooltip room, reaching the bottom edge", () => {
-    // the pill: 7×48 icons + 8×3 gaps + 2×7 separators + 22 padding+border
-    // = 396 CSS px, 62 tall (48 + 10 padding + 2 border) + 9 bottom margin.
+    // the pill: 7×48 icons + 8×3 gaps + 2×7 separators + 32 padding+border
+    // = 406 CSS px, 72 tall (48 + 22 padding + 2 border) + 9 bottom margin.
     // The rect fits the pill WITH its fisheye: a hovered icon rises
     // (1.7−1)×48 = 33.6 above its rest top and the screentip flips ~28px
     // above that, so the height carries both and the width carries the peak
@@ -298,7 +298,7 @@ describe('dockOverlayBounds', () => {
       { width: 800, height: 600 },
       { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT },
     )
-    expect(dock).toEqual({ x: 169, y: 600 - 133, width: 463, height: 133 })
+    expect(dock).toEqual({ x: 164, y: 600 - 143, width: 473, height: 143 })
     // the rect reaches the window's bottom edge (y + height = the window):
     // the strip's footprint stays inside the grown view, so the summoning
     // pointer is not evicted by the reveal
@@ -314,8 +314,8 @@ describe('dockOverlayBounds', () => {
       { width: 1200, height: 800 },
       { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT },
     )
-    const pillHeight = 62
-    const pillWidth = 396
+    const pillHeight = 72
+    const pillWidth = 406
     const rise = (1.7 - 1) * 48
     // the rects are whole-pixel (Math.round), so the pin allows the rounding
     // to shave a fraction — never the 33.6px of headroom itself
@@ -331,7 +331,7 @@ describe('dockOverlayBounds', () => {
     // the strip hair grows with the chrome; the pill, its headroom and its
     // margins too
     expect(strip).toEqual({ x: 0, y: 600 - 5, width: 800, height: 5 })
-    expect(dock).toEqual({ x: 53, y: 600 - 199, width: 695, height: 199 })
+    expect(dock).toEqual({ x: 45, y: 600 - 214, width: 710, height: 214 })
   })
 
   it('centers the pill on odd widths, clamped whole-pixel at the seam', () => {
@@ -350,7 +350,7 @@ describe('dockOverlayBounds', () => {
       { width: 300, height: 400 },
       { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT },
     )
-    expect(dock).toEqual({ x: 0, y: 400 - 133, width: 300, height: 133 })
+    expect(dock).toEqual({ x: 0, y: 400 - 143, width: 300, height: 143 })
   })
 
   it('parameterizes the composition: more items, wider pill', () => {
@@ -375,7 +375,7 @@ describe('dockOverlayBounds', () => {
       { width: 800, height: 600 },
       { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT, baseSize: 64 },
     )
-    expect(dock).toEqual({ x: 101, y: 440, width: 598, height: 160 })
+    expect(dock).toEqual({ x: 96, y: 430, width: 608, height: 170 })
   })
 
   it('the strength slider sizes the headroom: M 2.0 grows, M 1.2 shrinks', () => {
@@ -383,16 +383,16 @@ describe('dockOverlayBounds', () => {
       { width: 800, height: 600 },
       { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT, maxScale: 2 },
     )
-    // headroom (2−1)×48 = 48 both sides: 396+96 wide, 62+9+48+28 tall
-    expect(strong.dock.width).toBe(492)
-    expect(strong.dock.height).toBe(147)
+    // headroom (2−1)×48 = 48 both sides: 406+96 wide, 72+9+48+28 tall
+    expect(strong.dock.width).toBe(502)
+    expect(strong.dock.height).toBe(157)
     const gentle = dockOverlayBounds(
       { width: 800, height: 600 },
       { itemCount: DOCK_ITEM_COUNT, separatorCount: DOCK_SEPARATOR_COUNT, maxScale: 1.2 },
     )
-    // headroom 0.2×48 = 9.6: 396+19.2 wide, 62+9+9.6+28 tall
-    expect(gentle.dock.width).toBe(415)
-    expect(gentle.dock.height).toBe(109)
+    // headroom 0.2×48 = 9.6: 406+19.2 wide, 72+9+9.6+28 tall
+    expect(gentle.dock.width).toBe(425)
+    expect(gentle.dock.height).toBe(119)
   })
 
   it('junk or absent sizes fall back to the dock-math defaults', () => {

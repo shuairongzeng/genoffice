@@ -262,9 +262,9 @@ export function documentContentBounds(
 /** the dock pill's icon pitch at rest (dock-prefs' single-sourced default) */
 const DOCK_OVERLAY_BASE = DOCK_BASE_DEFAULT
 /** the pill's horizontal padding + hairline borders, CSS px */
-const DOCK_OVERLAY_H_PADDING = 10 + 10 + 1 + 1
+const DOCK_OVERLAY_H_PADDING = 15 + 15 + 1 + 1
 /** the pill's vertical padding + borders, CSS px (above + below the row) */
-const DOCK_OVERLAY_V_PADDING = 5 + 7 + 1 + 1
+const DOCK_OVERLAY_V_PADDING = 10 + 12 + 1 + 1
 /** the flex gap between the pill's children, CSS px */
 const DOCK_OVERLAY_GAP = 3
 /** one separator's footprint: 1px rule + 3px margins each side, CSS px */

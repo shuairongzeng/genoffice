@@ -229,15 +229,23 @@ body.mac .sidebar {
   display: flex;
   align-items: flex-end;
   gap: 3px;
-  padding: 5px 10px 7px;
+  padding: 10px 15px 12px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--surface) 66%, transparent);
-  -webkit-backdrop-filter: blur(18px) saturate(1.6);
-  backdrop-filter: blur(18px) saturate(1.6);
+  /* the real frosted glass (macOS): enough surface share that the pill reads
+   * as frosted light over the wallpaper, a deep blur with only a whisper of
+   * saturation (a strong boost turns colorful backdrops neon — the pill must
+   * pastel-ize, not amplify), and the top sheen line. The share and the sheen
+   * are tokenized so the dark theme's variants are a one-line retune. */
+  --dock-glass-share: 46%;
+  --dock-glass-sheen: rgb(255 255 255 / 25%);
+  background: color-mix(in srgb, var(--surface) var(--dock-glass-share), transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(1.25);
+  backdrop-filter: blur(28px) saturate(1.25);
   border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   box-shadow:
-    0 10px 30px rgb(0 0 0 / 16%),
-    0 1px 3px rgb(0 0 0 / 10%);
+    inset 0 1px 0 var(--dock-glass-sheen),
+    0 12px 32px rgb(0 0 0 / 12%),
+    0 1px 3px rgb(0 0 0 / 8%);
   /* the brand tile colors (the squircle icons below): the launcher tiles
    * mirror desktop.css's own exactly (slate/green/orange/blue); the nav rows
    * have no desktop counterpart, so the dock picks from the same family —
@@ -254,6 +262,21 @@ body.mac .sidebar {
    * transform is the centering translate, which the hidden state carries
    * along */
   transition: transform 0.25s ease;
+}
+
+/* Dark theme's glass: the same share (the surface token already carries the
+ * hue, and over a dark aurora a hair more would read as paint, not glass),
+ * with the top sheen dimmed — a 25% white line on near-black glass glares.
+ * Both selectors follow the theme token pattern above: explicit dark, then
+ * system dark without an explicit preference. */
+[data-theme='dark'] .dock {
+  --dock-glass-sheen: rgb(255 255 255 / 18%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) .dock {
+    --dock-glass-sheen: rgb(255 255 255 / 18%);
+  }
 }
 
 /* the auto-hide rest state: the whole pill slides below the window edge
@@ -292,7 +315,8 @@ body.mac .sidebar {
  * The root's geometry is the surface's contract, verified live the hard way:
  * hit-testing needs GEOMETRY, not pixels — a transparent root still catches
  * pointerenter — but only where its box actually is. The root must therefore
- * cover the view's whole viewport in BOTH shapes (3px and 71px alike), or
+ * cover the view's whole viewport in BOTH shapes (the 3px strip and the
+ * dock rect alike), or
  * the strip hit-tests nothing (elementFromPoint over it returns null), the
  * hot-edge report never fires, the dock never reveals — while the native
  * view still swallows those 3px of document clicks. So: fixed at the
@@ -326,12 +350,19 @@ html.dock-view body {
 
 /* doc mode: the pill's frosted glass cannot frost here — backdrop-filter
  * samples this renderer's own backdrop, and over a transparent native view
- * that is nothing (the document behind is a different view), so the glass
- * renders as a bare translucent tint over live text. The entry's pill goes
- * opaque on the drawer panel's surface token instead: visual parity with the
- * surface it floats beside, and the blur/border/shadow chrome stays */
+ * that is nothing (the document behind is a different view) — so the glass
+ * is PRE-MIXED instead: the same 46% surface share the Home pill composites
+ * live, baked over the wallpaper family's base (the aurora blend the
+ * desktop's own surface derives from). That is the honest solid equivalent
+ * of the translucent pill — one flat color, no backdrop sampling, no
+ * half-broken glass — while the blur-free sheen line and hairline border
+ * keep the shape reading as the same pill. */
 .dock-view .dock {
-  background: var(--surface);
+  background: color-mix(
+    in srgb,
+    var(--surface) 46%,
+    color-mix(in srgb, var(--bg-content) 96%, #0f7fff)
+  );
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }

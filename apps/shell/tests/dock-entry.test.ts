@@ -296,16 +296,49 @@ describe('Part A: the dock stays reachable over an open drawer (the stylesheet c
     expect(fill ?? '').toMatch(/background:\s*transparent\s*;/)
   })
 
-  it('the doc-mode pill is opaque: the glass cannot frost over a transparent view', () => {
+  it('the doc-mode pill is pre-mixed glass: no backdrop sampling, no half-broken glass', () => {
     // backdrop-filter samples this renderer's own backdrop, and over a
     // transparent native view that is nothing (the document behind is a
-    // different view) — the glass would render as a bare translucent tint
-    // over live text, so the entry pins the pill to the surface token with
-    // the filter off (Home's own glass is untouched)
+    // different view) — so the glass is BAKED: the same 46% surface share
+    // the Home pill composites live, pre-blended over the wallpaper
+    // family's base. One flat color, chromatically honest
     const pill = blockOf('.dock-view .dock')
-    expect(pill).toMatch(/background:\s*var\(--surface\)\s*;/)
+    expect(pill).toMatch(/background:\s*color-mix\(/)
+    expect(pill).toMatch(/var\(--surface\) 46%/)
+    expect(pill).toMatch(/color-mix\(in srgb, var\(--bg-content\) 96%, #0f7fff\)/)
     expect(pill).toMatch(/-webkit-backdrop-filter:\s*none\s*;/)
     expect(pill).toMatch(/backdrop-filter:\s*none\s*;/)
+  })
+
+  it('the Home pill is real frosted glass: the share, the blur, the sheen', () => {
+    // the macOS look: a mid surface share (low enough to transmit the
+    // wallpaper's hue, high enough to pastel-ize it — 32% read as a neon
+    // bar over colorful wallpapers), a deep blur with only a whisper of
+    // saturation, and the top sheen line. The pin holds the constants so a
+    // future "fix" cannot quietly turn the glass back into a tinted bar
+    const dock = blockOf('.dock')
+    expect(dock).toMatch(/--dock-glass-share:\s*46%\s*;/)
+    expect(dock).toMatch(/--dock-glass-sheen:\s*rgb\(255 255 255 \/ 25%\)\s*;/)
+    expect(dock).toMatch(
+      /background:\s*color-mix\(in srgb, var\(--surface\) var\(--dock-glass-share\), transparent\)/,
+    )
+    expect(dock).toMatch(/-webkit-backdrop-filter:\s*blur\(28px\) saturate\(1\.25\)\s*;/)
+    expect(dock).toMatch(/backdrop-filter:\s*blur\(28px\) saturate\(1\.25\)\s*;/)
+    // the sheen rides the shadow stack's inset line, ahead of the softened
+    // drop shadow; the hairline border stays
+    expect(dock).toMatch(/box-shadow:\s*\n?\s*inset 0 1px 0 var\(--dock-glass-sheen\),/)
+    expect(dock).toMatch(/0 12px 32px rgb\(0 0 0 \/ 12%\)/)
+    expect(dock).toMatch(/border:\s*1px solid/)
+    // dark theme dims the sheen (a bright top line glares on dark glass),
+    // both the explicit and the system-dark selectors
+    const dark = blockOf("[data-theme='dark'] .dock")
+    expect(dark).toMatch(/--dock-glass-sheen:\s*rgb\(255 255 255 \/ 18%\)\s*;/)
+    const systemDark =
+      /:root:not\(\[data-theme='light'\]\):not\(\[data-theme='dark'\]\) \.dock\s*\{[^}]*\}/.exec(
+        css,
+      )?.[0]
+    expect(systemDark, 'the system-dark selector retunes the sheen too').toBeTruthy()
+    expect(systemDark ?? '').toMatch(/--dock-glass-sheen:\s*rgb\(255 255 255 \/ 18%\)\s*;/)
   })
 
   it('the context menu rides the interface scale (chrome px like the pill)', () => {
