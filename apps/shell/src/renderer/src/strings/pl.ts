@@ -2,14 +2,9 @@ import type { Dict } from './zh'
 
 export const pl: Dict = {
   ok: 'OK',
-  addFolderRoot: 'Dodaj folder…',
-  removeFolderRoot: 'Usuń z listy',
-  rootUnavailable: 'Niedostępny',
   navRecent: 'Ostatnie',
   navStarred: 'Ulubione',
   navAsk: 'Zapytaj AI',
-  sidebarCollapse: 'Zwiń panel boczny',
-  sidebarExpand: 'Rozwiń panel boczny',
   dockLabel: 'Dock',
   dockMenuOpen: 'Otwórz',
   dockMenuClose: 'Zamknij kartę',
@@ -167,7 +162,6 @@ export const pl: Dict = {
   // Folders panel
   folders: 'Foldery',
   newFolder: 'Nowy folder',
-  newSubfolder: 'Nowy podfolder',
   untitledFolder: 'Folder bez nazwy',
   folderType: 'Folder',
   moveToFolder: 'Przenieś do folderu…',
@@ -201,8 +195,6 @@ export const pl: Dict = {
     'Folder docelowy już zawiera {n} elementów o tych samych nazwach. Co chcesz zrobić?',
   conflictKeepBoth: 'Zachowaj oba',
   conflictReplace: 'Zastąp',
-  rootUnusable: 'Domyślna lokalizacja zapisu jest niedostępna, więc nie można wyświetlić folderów.',
-  pickSaveDir: 'Wybierz lokalizację zapisu',
   deleteModalTitle: 'Usuwanie plików',
   deleteConfirmOne: 'Przenieść „{name}” do kosza?',
   deleteConfirmMany: 'Przenieść te pliki ({n}) do kosza?',

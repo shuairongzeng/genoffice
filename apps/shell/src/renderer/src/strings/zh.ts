@@ -1,15 +1,10 @@
 /** home-screen dictionary; zh defines the key set, every other language must match it */
 export const zh = {
   ok: '确定',
-  addFolderRoot: '添加文件夹…',
-  removeFolderRoot: '从列表移除',
-  rootUnavailable: '不可用',
   // Sidebar navigation
   navRecent: '最近',
   navStarred: '收藏',
   navAsk: 'AI 问答',
-  sidebarCollapse: '收起侧边栏',
-  sidebarExpand: '展开侧边栏',
   dockLabel: 'Dock',
   dockMenuOpen: '打开',
   dockMenuClose: '关闭标签',
@@ -161,7 +156,6 @@ export const zh = {
   // Folders panel
   folders: '文件夹',
   newFolder: '新建文件夹',
-  newSubfolder: '新建子文件夹',
   untitledFolder: '未命名文件夹',
   folderType: '文件夹',
   moveToFolder: '移动到文件夹…',
@@ -194,8 +188,6 @@ export const zh = {
   conflictBodyMany: '目标文件夹里已有 {n} 个同名项目。要怎么处理？',
   conflictKeepBoth: '保留两者',
   conflictReplace: '替换',
-  rootUnusable: '默认保存位置不可用，无法显示文件夹。',
-  pickSaveDir: '重新选择保存位置',
   // Delete confirmation dialog
   deleteModalTitle: '删除文件',
   deleteConfirmOne: '确定将"{name}"移到废纸篓？',

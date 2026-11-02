@@ -280,7 +280,7 @@ function asDockHotEdgeReport(value: unknown): DockHotEdgeReport | null {
 }
 
 /** the nav views a dock action may name */
-const DOCK_NAV_VIEWS = ['desktop', 'recent', 'starred'] as const
+const DOCK_NAV_VIEWS = ['desktop', 'recent', 'starred', 'cloud'] as const
 /** the settings sections a dock action may open */
 const DOCK_SETTINGS_SECTIONS = ['general', 'plugins'] as const
 /** the open targets a dock close action may name (the context menu's 关闭标签) */
@@ -344,8 +344,8 @@ function clampStageRect(rect: Rectangle, window: { width: number; height: number
  *   fallback geometry re-fits immediately.
  * - `home:content-rect`: the renderer's measured content-stage rect — the
  *   exact area an embedded document's WebContentsView fills (the embedded
- *   strip's height and the sidebar's width live in the renderer's layout, so
- *   measuring beats deriving). Malformed reports are dropped whole; a rect
+ *   strip's height lives in the renderer's layout, so measuring beats
+ *   deriving). Malformed reports are dropped whole; a rect
  *   that overruns the window's current content area is clamped inside it
  *   rather than bounding a document view partly past the window edge.
  * - `home:ask-forward`/`home:browser-ask-about-forward` (P0-2): the

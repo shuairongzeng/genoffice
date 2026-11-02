@@ -2,15 +2,10 @@ import type { Dict } from './zh'
 
 export const ru: Dict = {
   ok: 'ОК',
-  addFolderRoot: 'Добавить папку…',
-  removeFolderRoot: 'Убрать из списка',
-  rootUnavailable: 'Недоступно',
   // Sidebar navigation
   navRecent: 'Недавние',
   navStarred: 'Избранное',
   navAsk: 'Спросить ИИ',
-  sidebarCollapse: 'Свернуть боковую панель',
-  sidebarExpand: 'Развернуть боковую панель',
   dockLabel: 'Dock',
   dockMenuOpen: 'Открыть',
   dockMenuClose: 'Закрыть вкладку',
@@ -173,7 +168,6 @@ export const ru: Dict = {
   // Folders panel
   folders: 'Папки',
   newFolder: 'Новая папка',
-  newSubfolder: 'Новая подпапка',
   untitledFolder: 'Папка без названия',
   folderType: 'Папка',
   moveToFolder: 'Переместить в папку…',
@@ -206,8 +200,6 @@ export const ru: Dict = {
   conflictBodyMany: 'В целевой папке уже есть {n} элементов с такими же именами. Что сделать?',
   conflictKeepBoth: 'Оставить оба',
   conflictReplace: 'Заменить',
-  rootUnusable: 'Папка сохранения по умолчанию недоступна, поэтому папки нельзя показать.',
-  pickSaveDir: 'Выбрать папку сохранения',
   // Delete confirmation dialog
   deleteModalTitle: 'Удаление файлов',
   deleteConfirmOne: 'Переместить «{name}» в корзину?',

@@ -40,31 +40,25 @@ export interface FileRowActions {
   /** starred rows can be moved into a named group (the GroupPicker modal) */
   pickGroup: (paths: string[]) => void
   /** drag-over / drag-leave / drop handlers for one folder row */
-  dropProps: (
-    dir: string,
-    opts: { autoExpand: boolean },
-  ) => {
+  dropProps: (dir: string) => {
     onDragOver: (event: ReactDragEvent) => void
     onDragLeave: (event: ReactDragEvent) => void
     onDrop: (event: ReactDragEvent) => void
   }
-  expandTo: (dir: string) => void
   selectFolder: (dir: string) => void
-  setFolderRenaming: (
-    value: { path: string; where: 'tree' | 'table'; value: string } | null,
-  ) => void
+  setFolderRenaming: (value: { path: string; where: 'table'; value: string } | null) => void
   commitRenameFolder: () => void
   setFolderMenu: (
     menu: {
       path: string
-      where: 'tree' | 'table'
+      where: 'table'
       x: number
       y: number
       above: number
       align: 'start' | 'end'
     } | null,
   ) => void
-  startRenameFolder: (entry: { path: string; name: string }, where: 'tree' | 'table') => void
+  startRenameFolder: (entry: { path: string; name: string }, where: 'table') => void
   confirmDeleteFolder: (dir: string | null) => void
 }
 
@@ -298,9 +292,9 @@ export function FileRow({
 
 export interface SubfolderRowProps {
   entry: FolderEntry
-  /** the folder row currently hovered by a drag (sidebar or table) */
+  /** the folder row currently hovered by a drag (a table row) */
   dropTarget: string | null
-  renaming: { path: string; where: 'tree' | 'table'; value: string } | null
+  renaming: { path: string; where: 'table'; value: string } | null
   folderMenuOpen: boolean
   folderMenuWrapRef: Ref<HTMLDivElement>
   folderMenuPopRef: Ref<HTMLDivElement>
@@ -331,15 +325,13 @@ export function SubfolderRow({
         tabIndex={0}
         draggable={!isRenaming}
         onDragStart={(e) => actions.dragStart(e, [entry.path])}
-        {...actions.dropProps(entry.path, { autoExpand: false })}
+        {...actions.dropProps(entry.path)}
         onClick={() => {
           if (isRenaming) return
-          actions.expandTo(entry.path)
           actions.selectFolder(entry.path)
         }}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && event.target === event.currentTarget) {
-            actions.expandTo(entry.path)
             actions.selectFolder(entry.path)
           }
         }}
@@ -421,7 +413,6 @@ export function SubfolderRow({
                 role="menuitem"
                 onClick={() => {
                   actions.setFolderMenu(null)
-                  actions.expandTo(entry.path)
                   actions.selectFolder(entry.path)
                 }}
               >

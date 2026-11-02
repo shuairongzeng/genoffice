@@ -14,9 +14,6 @@
   --timeline-user-text: #5a6170;
   /* lift for the active segment in gray-track tab pills */
   --shadow-pill: 0 1px 2px rgb(0 0 0 / 8%);
-
-  /* genoffice-logo.svg is pure black-and-white; dark themes flip it to 1 */
-  --logo-invert: 0;
 }
 
 /* ── Dark mode overrides ─────────────────────────────────── */
@@ -32,7 +29,6 @@
   --timeline-user-bg: #2a2a3a;
   --timeline-user-text: #b0b0c0;
   --shadow-pill: 0 1px 2px rgb(0 0 0 / 40%);
-  --logo-invert: 1;
 }
 
 /* System dark: no data-theme or data-theme="system" — follow OS preference */
@@ -47,7 +43,6 @@
     --timeline-user-bg: #2a2a3a;
     --timeline-user-text: #b0b0c0;
     --shadow-pill: 0 1px 2px rgb(0 0 0 / 40%);
-    --logo-invert: 1;
   }
 }
 
@@ -111,94 +106,11 @@ body.vib .home {
   height: 100vh;
 }
 
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  width: 232px;
-  padding: 18px 12px 16px;
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
-}
-
-/* macOS traffic lights (titleBarStyle: hiddenInset) sit over the sidebar's
-   top-left corner now that no native strip precedes it — keep the logo below
-   them, the way the retired strip's spacer did */
-body.mac .sidebar {
-  padding-top: 46px;
-}
-
-.sidebar-logo {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 9px;
-  padding: 0 8px;
-  margin-bottom: 20px;
-  /* the logo band is the left column's share of the window drag surface (the
-     retired native strip's job); the logo itself is not interactive, and the
-     collapse control opts back out of the drag region to stay clickable */
-  -webkit-app-region: drag;
-}
-
-.logo-lockup {
-  display: block;
-  height: 28px;
-  width: auto;
-  filter: invert(var(--logo-invert));
-}
-
-/* the sidebar's collapse control (its header edge) and the collapsed rail's
- * expand control: the rail folds the tree/todo/login away and leaves a slim
- * strip with the one chevron, so the desktop and the dock can own the view
- * without the column's furniture */
-.sidebar-collapse-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-6);
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-
-.sidebar-collapse-btn:hover {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--text);
-}
-
-.sidebar-collapse-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-/* RTL mirrors the collapse chevrons: the button carries only the arrow, so
- * flipping the button flips the direction without fighting the Chevron's
- * inline rotation */
-[dir='rtl'] .sidebar-collapse-btn {
-  transform: scaleX(-1);
-}
-
-/* the collapsed rail: everything but the expand control folds away (the
- * direct-children rule below), the column shrinks to a strip, and the stage
- * re-reports its rect so the documents re-fit beside it */
-.sidebar.collapsed {
-  width: 44px;
-  padding: 18px 8px 16px;
-  align-items: center;
-}
-
-.sidebar.collapsed > *:not(.sidebar-expand-btn) {
-  display: none;
-}
-
-.sidebar-expand-btn {
-  flex-shrink: 0;
+/* macOS traffic lights (titleBarStyle: hiddenInset) sit over the tab strip's
+   left end now that the retired sidebar no longer owns that corner — keep
+   the first tab clear of them, the way the logo band below them used to */
+body.mac .work-tabs {
+  padding-left: 84px;
 }
 
 /* ── the macOS-style fisheye dock (the workbench's primary launcher) ──
@@ -248,9 +160,10 @@ body.mac .sidebar {
     0 1px 3px rgb(0 0 0 / 8%);
   /* the brand tile colors (the squircle icons below): the launcher tiles
    * mirror desktop.css's own exactly (slate/green/orange/blue); the nav rows
-   * have no desktop counterpart, so the dock picks from the same family —
-   * sky for the desktop, indigo for recents, amber for the star. Per
-   * CLAUDE.md these live only on custom-property lines */
+   * and the cloud launcher have no desktop counterpart, so the dock picks
+   * from the same family — sky for the desktop, indigo for recents, amber
+   * for the star, a deeper azure for the cloud. Per CLAUDE.md these live
+   * only on custom-property lines */
   --dock-tile-desktop: #0ea5e9;
   --dock-tile-recent: #6366f1;
   --dock-tile-starred: #f59e0b;
@@ -258,6 +171,7 @@ body.mac .sidebar {
   --dock-tile-templates: #16a34a;
   --dock-tile-plugins: #f97316;
   --dock-tile-ask: #0f7fff;
+  --dock-tile-cloud: #2563eb;
   /* the auto-hide slide (设置 ▸ 自动隐藏程序坞): the root's only other
    * transform is the centering translate, which the hidden state carries
    * along */
@@ -458,6 +372,10 @@ html.dock-view body {
   --tile-color: var(--dock-tile-ask);
 }
 
+.dock-tile-cloud {
+  --tile-color: var(--dock-tile-cloud);
+}
+
 /* ── the launch bounce ──
  * macOS bounces a launching icon STEADILY — the same height, the same
  * period, until the app answers; an ease-out decay would read as giving up.
@@ -588,163 +506,6 @@ html.dock-view body {
   transition: transform 0.12s ease;
 }
 
-.sidebar-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 8px;
-  background: none;
-  font: inherit;
-  font-size: 14px;
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-}
-
-.nav-item:hover {
-  background: var(--bg-hover);
-}
-
-.nav-item.active {
-  background: var(--bg-hover);
-  font-weight: 600;
-}
-
-.nav-item svg {
-  flex-shrink: 0;
-  color: var(--text-primary);
-}
-
-.nav-label {
-  flex-shrink: 0;
-}
-
-.nav-count {
-  margin-left: auto;
-  min-width: 22px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ---- bottom-left account entry (today = Genspark login, later = signup/account system) ---- */
-/* clicking it opens the settings modal (settings.css) directly, which hosts
-   login/logout plus preferences (language / theme / save location / update channel) */
-
-.account-entry {
-  position: relative;
-  margin-top: auto;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.account-btn {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 7px 8px;
-  border: none;
-  border-radius: 10px;
-  background: none;
-  font: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.account-btn:hover {
-  background: var(--surface-subtle);
-}
-
-.account-avatar {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--avatar-bg);
-  color: var(--text-muted);
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.account-avatar.logged-in {
-  background: linear-gradient(135deg, #3d7ff5, #1b58cf);
-  color: #fff;
-}
-
-.account-avatar.waiting {
-  color: var(--accent);
-}
-
-.account-badge {
-  position: absolute;
-  top: -1px;
-  right: -1px;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  border: 2px solid var(--chrome-bg);
-  background: var(--danger);
-}
-
-.account-spinner {
-  animation: account-spin 0.9s linear infinite;
-}
-
-@keyframes account-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.account-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.25;
-  flex: 1;
-}
-
-.account-chevron {
-  flex-shrink: 0;
-  margin-left: auto;
-  color: var(--text-muted);
-}
-
-.account-name {
-  font-size: 14px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.account-sub {
-  font-size: 12px;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.account-sub.error {
-  color: #b3261e;
-}
-
 /* one-line rescue hint while waiting for the browser sign-in (auto-open may have failed) */
 .login-hint {
   position: absolute;
@@ -763,6 +524,19 @@ html.dock-view body {
 }
 
 /* class selectors so the per-button font-size below is not out-specified by a descendant rule */
+
+/* the host's device-code rescue hint: the account row it anchored to is
+   retired with the sidebar, so while a login runs with the modal closed the
+   hint floats at the window's bottom-left (the dock is centered; the corner
+   is free) */
+.login-hint.login-hint-floating {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  width: auto;
+  z-index: 46;
+}
+
 .login-hint-open,
 .login-hint-copy {
   border: none;
@@ -809,7 +583,7 @@ html.dock-view body {
 }
 
 /* ── the workbench frame: content column, embedded tab strip, AI dock ──
- * Home is a persistent bench, not one tab's page: beside the sidebar, the
+ * Home is a persistent bench, not one tab's page: under the tab strip,
  * window splits into the content column (the embedded document tab strip on
  * top, the content stage under it) and the docked AI panel on the right. The
  * stage's rect is what the main process bounds the active document's
@@ -817,7 +591,7 @@ html.dock-view body {
 
 .home-body {
   position: relative;
-  /* above the lifted wallpaper backdrop (z 0) and the sidebar glass (z 1) */
+  /* above the lifted wallpaper backdrop (z 0) */
   z-index: 2;
   flex: 1;
   min-width: 0;
@@ -860,10 +634,9 @@ html.dock-view body {
 
 /* while a Home popover is open the chrome bands must deliver presses (drag
    regions swallow them), so outside-press dismissal can see presses on the
-   blank track, the drawer head and the logo band */
+   blank track and the drawer head */
 html.genoffice-popover-open .work-tabs,
-html.genoffice-popover-open .ai-drawer-head,
-html.genoffice-popover-open .sidebar-logo {
+html.genoffice-popover-open .ai-drawer-head {
   -webkit-app-region: no-drag;
 }
 
@@ -1871,7 +1644,7 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
   background: var(--surface-subtle);
 }
 
-/* checked rows keep the same gray as the sidebar's active item */
+/* checked rows keep the same gray as an active nav surface */
 .recent-row:has(.row-check:checked) .recent-item {
   background: var(--bg-hover);
 }
@@ -2187,93 +1960,11 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
   margin-top: 24px;
 }
 
-/* ── Folders sidebar ─────────────────────────────────── */
+/* ── Folders (the folder views' rows and their shared menu) ─────── */
 
-.sidebar-divider {
-  height: 1px;
-  margin: 12px 0;
-  background: var(--border-subtle);
-}
-
-.folder-panel {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1;
-}
-
-.folder-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 10px 6px;
-}
-
-.folder-panel-title {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--text-muted);
-}
-
-.folder-add-btn,
-.folder-more-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    background 0.1s,
-    color 0.1s;
-}
-
-.folder-add-btn:hover {
-  background: var(--surface-subtle);
-  color: var(--text);
-}
-
-.folder-panel.drop-target {
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
-  border-radius: 8px;
-}
-
-.folder-panel-actions {
-  display: flex;
-  gap: 2px;
-}
-
-.tree-row.unavailable .tree-name {
-  color: var(--text-tertiary);
-}
-
-.tree-hint {
-  margin-left: auto;
-  padding-right: 4px;
-  font-size: 11px;
-  color: var(--text-tertiary);
-  white-space: nowrap;
-}
-
-.folder-unusable {
-  padding: 4px 10px;
-  font-size: 13px;
-  color: var(--text-tertiary);
-  line-height: 1.5;
-}
-
-.folder-unusable .btn {
-  margin-top: 8px;
-  font-size: 13px;
-  padding: 5px 10px;
-}
-
+/* the move picker's tree rows (FolderPicker.tsx) share the retired sidebar
+   tree's chevron/rename chrome — kept here for that consumer; the sidebar's
+   own rows are gone */
 .folder-rename-input {
   width: 100%;
   padding: 3px 6px;
@@ -2283,67 +1974,12 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
   font-size: 14px;
   outline: none;
   background: var(--surface);
-  color: var(--text);
 }
 
 .folder-rename-input.inline {
   flex: 1;
   min-width: 0;
   width: auto;
-}
-
-.tree,
-.tree-children {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.tree {
-  overflow-y: auto;
-  padding: 0 2px;
-}
-
-.tree-item {
-  position: relative;
-}
-
-.tree-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 4px 8px 4px 8px;
-  border-radius: 8px;
-  margin-bottom: 1px;
-  cursor: pointer;
-  user-select: none;
-  outline: none;
-}
-
-.tree-row:hover {
-  background: var(--bg-hover);
-}
-
-.tree-row.active {
-  background: var(--bg-hover);
-}
-
-.tree-row.active .tree-name {
-  font-weight: 600;
-}
-
-.tree-row:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-/* drag hover: an inset ring in the accent color, same for sidebar and table rows */
-.tree-row.drop-target,
-.recent-item.drop-target {
-  box-shadow: inset 0 0 0 2px var(--accent);
-  background: var(--accent-soft);
 }
 
 .tree-chevron {
@@ -2363,43 +1999,6 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
 
 .tree-chevron:hover {
   background: var(--bg-hover-strong);
-  color: var(--text);
-}
-
-.tree-icon {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  color: var(--text-primary);
-}
-
-.tree-name {
-  flex: 1;
-  min-width: 0;
-  font-size: 14px;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* the "..." button only shows on hover / while its menu is open */
-.folder-menu-wrap {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  opacity: 0;
-  transition: opacity 0.1s;
-}
-
-.tree-row:hover .folder-menu-wrap,
-.folder-menu-wrap:has([aria-expanded='true']) {
-  opacity: 1;
-}
-
-.folder-more-btn:hover,
-.folder-more-btn[aria-expanded='true'] {
-  background: var(--bg-hover-accent);
   color: var(--text);
 }
 
@@ -2445,16 +2044,64 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
   background: var(--danger-bg);
 }
 
-/* ── Todos sidebar widget ─────────────────────────────────── */
+/* the floating wrapper the desktop mounts the todo card in: a glass card
+ * like the dock's own (the pill's frosted tokens), a drag handle band on
+ * its head, and a free position the card persists itself (the desktop's
+ * grid math is for icons; a card with its own two numbers is the smaller
+ * honest mechanism — see todo-card.tsx). Stacks above the wallpaper and
+ * the icons' labels, below the dock (43) and the menus (44). */
+.desktop-todo {
+  position: absolute;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: 264px;
+  max-height: 60%;
+  padding: 8px 10px 10px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 18%),
+    0 10px 28px rgb(0 0 0 / 14%);
+}
 
-/* a compact quick-capture card sitting under the folder tree: same quiet
-   header, same row rhythm as the tree above it, so the sidebar reads as one
-   column */
+/* the handle: the card's whole head band, cursor and all; the input and
+ * rows below stay interactive (the drag never starts from them) */
+.desktop-todo-head {
+  display: flex;
+  align-items: baseline;
+  padding: 2px 10px 6px;
+  cursor: grab;
+  user-select: none;
+}
+
+.desktop-todo-head.dragging {
+  cursor: grabbing;
+}
+
+/* the card is dragged, not selected: the rows keep their own affordances */
+.desktop-todo.dragging {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 18%),
+    0 18px 40px rgb(0 0 0 / 22%);
+}
+
+/* ── Todos card ───────────────────────────────────────── */
+
+/* ── the todo card (desktop furniture) ───────────────────
+ * The retired sidebar's quick-capture card, now floating on the desktop
+ * surface (desktop mode only — the macOS route: the card is desktop
+ * furniture like the icons, not list-view chrome). Same row rhythm as
+ * before; the wrapper (home.css .desktop-todo) owns the floating glass,
+ * the position and the drag handle, the panel inside stays the card.
+ */
 .todo-panel {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  margin-top: 10px;
 }
 
 .todo-head {
@@ -2470,7 +2117,7 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
   color: var(--text-muted);
 }
 
-/* the count of open items, in the sidebar count column's style */
+/* the count of open items */
 .todo-count {
   margin-left: auto;
   min-width: 22px;
@@ -2504,7 +2151,7 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
   list-style: none;
   margin: 0;
   padding: 0 2px;
-  /* a long list scrolls inside the card instead of eating the sidebar */
+  /* a long list scrolls inside the card instead of eating the desktop */
   max-height: 224px;
   overflow-y: auto;
 }
@@ -3199,14 +2846,7 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
   color: var(--text-secondary);
 }
 
-/* right-aligned to match the sidebar count column (22px, centered digits) */
-.nav-external {
-  flex-shrink: 0;
-  margin-left: auto;
-  margin-right: 4px;
-  color: var(--text-muted);
-}
-
+/* right-aligned count column (22px, centered digits) */
 .cloud-refresh-btn {
   flex-shrink: 0;
   display: flex;
@@ -3283,13 +2923,9 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
 }
 
 /* Motion accessibility: suppress all animation for users who opt out */
-/* PowerPoint-sized minimum window (720px): the fixed 232px sidebar and the
-   eight-column file grid no longer fit side by side */
+/* PowerPoint-sized minimum window (720px): the eight-column file grid no
+   longer fits */
 @media (max-width: 900px) {
-  .sidebar {
-    width: 200px;
-  }
-
   .content {
     padding: 28px 20px 40px;
   }
@@ -3511,15 +3147,6 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
 html[dir='rtl'] .quick-sub {
   direction: ltr;
   unicode-bidi: isolate;
-}
-
-/* macOS traffic lights live in the window's top-left corner; under RTL the
-   content column is the leading (left) column and scrolls, so its rows and
-   hover actions would slide under the close/minimize/zoom buttons. LTR never
-   hits this because the left sidebar occupies that corner for its full
-   height — mirror the same clearance on the content column. */
-html[dir='rtl'] body.mac .content {
-  padding-left: 76px;
 }
 
 /* Card titles are brand names (LTR runs): under the RTL UI their ellipsis
@@ -4300,4 +3927,9 @@ button.kb-ask-card-name:hover {
   margin: 0;
   font-size: var(--text-caption, 12px);
   color: var(--text-tertiary);
+}
+
+/* the drag grip inside the card's head band */
+.desktop-todo-grip {
+  opacity: 0.55;
 }

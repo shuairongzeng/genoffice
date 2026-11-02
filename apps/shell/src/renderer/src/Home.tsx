@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
-import type { DragEvent as ReactDragEvent, ReactElement } from 'react'
-import logoLockup from './assets/genoffice-logo.svg'
+import type { DragEvent as ReactDragEvent } from 'react'
 import { AiDock, normalizeAiDockPrefs, readLocalAiDockPrefs, writeLocalAiDockPrefs } from './AiDock'
 import { normalizeDockPrefs, type DockOpenState, type DockPrefs } from '../../shared/dock-prefs'
 import { useDockBounce } from './dock-bounce'
@@ -36,6 +35,7 @@ import { DesktopView } from './DesktopView'
 import { DESKTOP_STRINGS } from './desktop-strings'
 import { Dock, type DockItem, type DockMenuEntry } from './Dock'
 import {
+  CloudGlyph,
   DockAskIcon,
   DockDesktopIcon,
   DockRecentIcon,
@@ -44,10 +44,10 @@ import {
   PlugGlyph,
   TemplatesGlyph,
 } from './app-glyphs'
-import { TodoWidget } from './TodoWidget'
+import { TodoCard } from './todo-card'
 import { bindRecentsChanged, onFilesChanged } from './file-events'
 import { aiSetupNeeded } from './ai-setup-state'
-import { AccountEntry } from './AccountEntry'
+import { SettingsModalHost } from './settings-modal-host'
 import { CloudProjectsView } from './CloudProjectsView'
 import { DropToOpenOverlay } from './DropToOpenOverlay'
 import { FolderPicker } from './FolderPicker'
@@ -57,25 +57,19 @@ import { FileSearchBox, FileSearchHeading, FileSearchResults } from './HomeSearc
 import { useFolderListings } from './useFolderListings'
 import { ConfirmDialog, useConfirm } from './ConfirmDialog'
 import {
-  Chevron,
-  DRAG_EXPAND_DELAY_MS,
   DRAG_PATHS_MIME,
   EmptyHint,
   FILTERS,
   FolderIcon,
-  MoreDots,
   OPEN_LOCAL_EXTENSIONS,
   SortCheck,
   baseName,
-  crumbsOf,
   dirOf,
   fileName,
   fixedViewportWidth,
   isUnder,
   matchesFilter,
-  readTreeState,
   rootOf,
-  writeTreeState,
 } from './home-shared'
 import { homeViewReducer, initialHomeViewState, readLaunchView, writeLaunchView } from './home-view'
 
@@ -120,31 +114,6 @@ const GREET_ASK_KEYS = [
   'greetAsk6',
 ] as const satisfies readonly StringKey[]
 
-// ── the sidebar's collapsed rail: the local prefs pattern the AI dock's
-// boot state uses (localStorage as the session-scoped copy) — a UI-only
-// shape with no main-process consumer yet, so no app-settings channel is
-// spent on it; a failed write costs the choice this session only ──
-
-/** where the sidebar's collapsed state lives between mounts */
-const SIDEBAR_PREFS_KEY = 'home.sidebar'
-
-/** the persisted collapsed flag; false for anything unreadable */
-function readLocalSidebarCollapsed(): boolean {
-  try {
-    return JSON.parse(localStorage.getItem(SIDEBAR_PREFS_KEY) ?? 'null') === true
-  } catch {
-    return false
-  }
-}
-
-function writeLocalSidebarCollapsed(collapsed: boolean): void {
-  try {
-    localStorage.setItem(SIDEBAR_PREFS_KEY, JSON.stringify(collapsed))
-  } catch {
-    // quota / private mode: the choice lasts this session only
-  }
-}
-
 // ── Main component ──────────────────────────────────────
 
 export function Home() {
@@ -157,7 +126,7 @@ export function Home() {
   const [entries, setEntries] = useState<RecentEntry[]>([])
   /** total count under the current view + filter (not just the loaded rows) */
   const [listTotal, setListTotal] = useState(0)
-  /** sidebar Recent / Starred counts under the active type filter */
+  /** Recent / Starred counts under the active type filter (empty-state copy) */
   const [navCounts, setNavCounts] = useState({ recent: 0, starred: 0 })
   const [loadingMore, setLoadingMore] = useState(false)
   // ── view-mode state machine ──
@@ -177,17 +146,6 @@ export function Home() {
   // non-null only while the folder surface is up, exactly like the old flag set
   const selectedFolder = surface === 'folder' ? viewState.folder : null
   const [filter, setFilter] = useState('all')
-
-  // the sidebar's collapsed rail (the dock took its nav, so the tree panel can
-  // fold away when the desktop is the whole show): persisted through the same
-  // local prefs pattern the drawer's boot state uses — see the module foot
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readLocalSidebarCollapsed())
-  const toggleSidebar = useCallback(() => {
-    setSidebarCollapsed((collapsed) => {
-      writeLocalSidebarCollapsed(!collapsed)
-      return !collapsed
-    })
-  }, [])
 
   // ── the workbench: the AI drawer (overlay) and the embedded tab strip ──
   // The drawer's prefs persist in app-settings.json through the `aiDock`
@@ -331,24 +289,21 @@ export function Home() {
     if (typeof api.tabsClose === 'function') void api.tabsClose(id).catch(() => undefined)
     else window.aiOfficeTabs?.close(id)
   }, [])
-  // the reveal verb below is a stable callback the sidebar's handlers capture
+  // the reveal verb below is a stable callback the dock's handlers capture
   // once, so the flag it gates on is read through a ref kept live per render
   const docTabActiveRef = useRef(docTabActive)
   docTabActiveRef.current = docTabActive
 
   /**
-   * The sidebar's reveal verb — the one mechanism every sidebar navigation
-   * whose outcome is content in Home's own surface calls alongside its view
-   * switch (the same verb the work-tab strip's desktop item performs; the
-   * palette's summon does the same). A document tab's native view covers the
-   * whole content stage while the sidebar itself stays clickable — it is the
-   * one Home region the covering view never reaches — so without this the
-   * click flips the view state underneath the document: the recent list
-   * "opens" where nobody can see it, and the person reports the left panel
-   * as blocked by the document. It no-ops while Home already is the active
-   * tab, and it is deliberately absent from the sidebar's self-contained
-   * outcomes — tree expansion, inline rename, the ⋯ menu, drag hover never
-   * call it, so a drag over the tree can never yank the tab.
+   * The dock's reveal verb — the one mechanism every dock navigation whose
+   * outcome is content in Home's own surface calls alongside its view switch
+   * (the same verb the work-tab strip's desktop item performs; the palette's
+   * summon does the same). A document tab's native view covers the whole
+   * content stage, and the dock's own surface is the one Home region the
+   * covering view never reaches (the doc-mode overlay view), so without this
+   * the click flips the view state underneath the document: the recent list
+   * "opens" where nobody can see it, and the person reports the dock as
+   * blocked by the document. It no-ops while Home already is the active tab.
    */
   const raiseHomeTab = useCallback(() => {
     if (!docTabActiveRef.current) return
@@ -383,7 +338,7 @@ export function Home() {
   // ── the desktop's lifted wallpaper ──
   // Home mounts the backdrop host at its root while the desktop view is
   // active; DesktopView portals its wallpaper layers in, so the whole window
-  // (sidebar included) sits on the wallpaper and the sidebar wears its glass
+  // sits on the wallpaper
   // pane. Leaving the desktop unmounts both — the list views see none of it.
   const [backdropHost, setBackdropHost] = useState<HTMLDivElement | null>(null)
   // ── Starred groups (named buckets the Starred view can filter on) ──
@@ -455,7 +410,7 @@ export function Home() {
   const [accountName, setAccountName] = useState('')
   // Genspark Projects is web-account data, so its nav entry only shows when logged in
   const [loggedIn, setLoggedIn] = useState(false)
-  // single source of account state: AccountEntry reports every change (initial
+  // single source of account state: the settings modal host reports every change (initial
   // load, login, logout), keeping the greeting name and the nav entry in sync
   const handleAccountStatus = useCallback((s: AccountStatus | null) => {
     const on = s?.loggedIn ?? false
@@ -504,11 +459,7 @@ export function Home() {
   const root = roots[0] ?? null
   const canMove = roots.some((r) => r.usable)
   const editableAt = (path: string) => rootOf(path, roots)?.usable !== false
-  const [panelDrop, setPanelDrop] = useState(false)
-  const [treeState] = useState(readTreeState)
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(treeState.expanded))
   // a root without a saved layout of its own is opened once when first seen
-  const seededRoot = useRef<string | null>(null)
   const {
     listings,
     load: loadFolder,
@@ -518,76 +469,48 @@ export function Home() {
     tracked: trackedFolder,
   } = useFolderListings()
   // open folder menu: path + fixed-position anchor (viewport coords), so the
-  // popup can escape the scrollable tree without the tree losing overflow-y
+  // popup can escape the scrollable table without the table losing overflow-y
   const [folderMenu, setFolderMenu] = useState<{
     path: string
-    where: 'tree' | 'table'
+    where: 'table'
     x: number
     y: number
     above: number
     align: 'start' | 'end'
   } | null>(null)
-  const menuOpenAt = (where: 'tree' | 'table', path: string) =>
-    folderMenu?.where === where && folderMenu.path === path
   const folderMenuWrapRef = useRef<HTMLDivElement>(null)
   const folderMenuPopRef = useRef<HTMLDivElement>(null)
   const [folderRenaming, setFolderRenaming] = useState<{
     path: string
-    where: 'tree' | 'table'
+    where: 'table'
     value: string
   } | null>(null)
-  // inline "new folder" input in the tree, under this parent
-  const [creating, setCreating] = useState<{ parent: string } | null>(null)
-  const [newFolderName, setNewFolderName] = useState('')
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<string | null>(null)
   // move-to-folder picker for these paths; then the conflict prompt for the ones that collided
   const [movePicker, setMovePicker] = useState<string[] | null>(null)
   const [conflict, setConflict] = useState<{ paths: string[]; targetDir: string } | null>(null)
-  // folder row currently hovered by a drag (sidebar or table)
+  // folder row currently hovered by a drag (a table row)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
-  const dragExpandTimer = useRef<number | null>(null)
 
   const loadRoot = useCallback(() => {
     void window.aiOffice.folderRoots().then((next) => {
       setRoots((prev) => {
         if (prev[0] && prev[0].path !== next[0]?.path) {
-          // the default save folder changed in settings: the old tree is meaningless
+          // the default save folder changed in settings: the old folder views
+          // are meaningless
           resetFolders()
           dispatchView({ type: 'set-folder', dir: null })
-          setExpanded(new Set(next.map((r) => r.path)))
-        } else if (prev.length > 0) {
-          // a folder just added opens so its contents show right away
-          const known = new Set(prev.map((r) => r.path))
-          const added = next.filter((r) => !known.has(r.path)).map((r) => r.path)
-          if (added.length > 0) setExpanded((e) => new Set([...e, ...added]))
         }
         // an unchanged answer keeps the previous array's identity: the
-        // expanded-listings effect below keys on it, and a fresh identity on
-        // every focus refresh would re-list every expanded folder — the exact
-        // cost the focus dirty-check exists to avoid
+        // folder-view effects below key on it, and a fresh identity on every
+        // focus refresh would re-list every open folder — the exact cost the
+        // focus dirty-check exists to avoid
         return sameRootList(prev, next) ? prev : next
       })
     })
   }, [resetFolders])
 
   useEffect(loadRoot, [loadRoot])
-
-  useEffect(() => {
-    if (root?.usable) writeTreeState({ expanded: [...expanded], root: root.path })
-  }, [expanded, root])
-
-  useEffect(() => {
-    if (!root?.usable) return
-    if (seededRoot.current !== root.path) {
-      seededRoot.current = root.path
-      if (treeState.root !== root.path) {
-        // a layout saved for another root is not ours: start from the root rows
-        setExpanded(new Set(roots.map((r) => r.path)))
-        return
-      }
-    }
-    for (const dir of expanded) loadFolder(dir)
-  }, [root, roots, expanded, loadFolder, treeState])
 
   useEffect(() => {
     if (selectedFolder) loadFolder(selectedFolder)
@@ -639,8 +562,8 @@ export function Home() {
   const reload = (keepCount: boolean) => {
     const seq = ++requestSeq.current
     const ext = filter === 'all' ? undefined : filter
-    // the group pills only scope the Starred view's own list; the sidebar
-    // counters and the other view stay group-agnostic
+    // the group pills only scope the Starred view's own list; the counters
+    // and the other view stay group-agnostic
     const group = view === 'starred' && groupFilter ? groupFilter : undefined
     const limit = keepCount ? Math.max(entriesLen.current, PAGE_SIZE) : PAGE_SIZE
     const primary = view === 'recent' ? window.aiOffice.recents : window.aiOffice.starred
@@ -996,6 +919,15 @@ export function Home() {
     setRowMenu(null)
   }, [])
 
+  /** the cloud launcher's switch (the retired sidebar item's verb, verbatim):
+   *  the Genspark projects take over the content area like a selected folder */
+  const showCloud = useCallback(() => {
+    dispatchView({ type: 'show-cloud' })
+    writeLaunchView('cloud')
+    setSelected(new Set())
+    setRowMenu(null)
+  }, [])
+
   const changeFilter = (key: string) => {
     setFilter(key)
     setSelected(new Set())
@@ -1017,7 +949,7 @@ export function Home() {
 
   /**
    * The drawer's one focus verb — everything that used to switch to the ask
-   * surface now performs it: the sidebar's Ask AI item, the desktop's ask
+   * surface now performs it: the dock's Ask AI item, the desktop's ask
    * tile, the palette's fallback and the ask deep link. Opening is a prefs
    * write, the composer focus is a seq bump the panel consumes, and no
    * surface moves — the drawer overlays the content, it never displaces it.
@@ -1103,6 +1035,7 @@ export function Home() {
     (intent: DockNavIntent) => {
       if (intent.kind === 'nav') {
         if (intent.view === 'desktop') showDesktop()
+        else if (intent.view === 'cloud') showCloud()
         else changeView(intent.view)
         return
       }
@@ -1120,7 +1053,7 @@ export function Home() {
       }
       setTemplatesOpen(true)
     },
-    [showDesktop, changeView],
+    [showDesktop, showCloud, changeView],
   )
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
@@ -1185,25 +1118,6 @@ export function Home() {
   const openTemplates = useCallback(() => setTemplatesOpen(true), [])
   const openSettings = useCallback((target: SettingsTarget) => setSettingsRequest(target), [])
   const openFolderView = useCallback((root: FolderRoot) => selectFolder(root.path), [selectFolder])
-
-  const toggleExpanded = (dir: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(dir)) next.delete(dir)
-      else next.add(dir)
-      return next
-    })
-  }
-
-  const expandTo = (dir: string) => {
-    const owner = rootOf(dir, roots)
-    if (!owner) return
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      for (const crumb of crumbsOf(owner, dir)) next.add(crumb.path)
-      return next
-    })
-  }
 
   const toggleSelect = (path: string, on: boolean) => {
     setSelected((prev) => {
@@ -1282,37 +1196,13 @@ export function Home() {
 
   // ── Folder actions ──
 
-  const startCreateFolder = (parent: string) => {
-    setFolderMenu(null)
-    expandTo(parent)
-    setCreating({ parent })
-    setNewFolderName('')
-  }
-
   // inline inputs commit on Enter or blur and cancel on Escape; the blur an
-  // unmount may fire reads the edit from refs mirrored during render, so a
-  // finished or cancelled edit is a no-op (see FolderPicker.commitCreate)
-  const creatingFolderRef = useRef<{ parent: string; name: string } | null>(null)
-  creatingFolderRef.current = creating ? { parent: creating.parent, name: newFolderName } : null
+  // unmount may fire reads the edit from a ref mirrored during render, so a
+  // finished or cancelled edit is a no-op
   const folderRenamingRef = useRef(folderRenaming)
   folderRenamingRef.current = folderRenaming
 
-  const commitCreateFolder = async () => {
-    const pending = creatingFolderRef.current
-    creatingFolderRef.current = null
-    const name = pending?.name.trim()
-    setCreating(null)
-    setNewFolderName('')
-    if (!pending || !name) return
-    const result = await window.aiOffice.createFolder(pending.parent, name)
-    if (!result.ok) {
-      void alertBox(result.error ?? t('renameFailed'))
-      return
-    }
-    invalidateFolders([pending.parent])
-  }
-
-  const startRenameFolder = (entry: { path: string; name: string }, where: 'tree' | 'table') => {
+  const startRenameFolder = (entry: { path: string; name: string }, where: 'table') => {
     setFolderMenu(null)
     setRowMenu(null)
     setFolderRenaming({ path: entry.path, where, value: entry.name })
@@ -1332,10 +1222,9 @@ export function Home() {
     }
     if (result.path) {
       const renamed = result.path
-      // selection / expansion follow the renamed folder (and anything inside it)
+      // the selection follows the renamed folder (and anything inside it)
       const rebase = (p: string) =>
         p === pending.path || isUnder(pending.path, p) ? renamed + p.slice(pending.path.length) : p
-      setExpanded((prev) => new Set([...prev].map(rebase)))
       if (selectedFolder) dispatchView({ type: 'set-folder', dir: rebase(selectedFolder) })
     }
     refresh()
@@ -1403,38 +1292,24 @@ export function Home() {
     }
   }
 
-  const clearDragExpand = () => {
-    if (dragExpandTimer.current !== null) {
-      window.clearTimeout(dragExpandTimer.current)
-      dragExpandTimer.current = null
-    }
-  }
-
-  const folderDropProps = (dir: string, { autoExpand }: { autoExpand: boolean }) => ({
+  // the table rows' drop surface (moving files into the folder the row
+  // names) — the tree's own hover-expand is gone with the tree; the drop
+  // itself is exactly what it was
+  const folderDropProps = (dir: string) => ({
     onDragOver: (event: ReactDragEvent) => {
       if (rootOf(dir, roots)?.usable === false) return
       if (!event.dataTransfer.types.includes(DRAG_PATHS_MIME)) return
       event.preventDefault()
       event.dataTransfer.dropEffect = 'move'
-      if (dropTarget !== dir) {
-        setDropTarget(dir)
-        clearDragExpand()
-        if (autoExpand && !expanded.has(dir)) {
-          dragExpandTimer.current = window.setTimeout(() => {
-            setExpanded((prev) => new Set([...prev, dir]))
-          }, DRAG_EXPAND_DELAY_MS)
-        }
-      }
+      if (dropTarget !== dir) setDropTarget(dir)
     },
     onDragLeave: (event: ReactDragEvent) => {
       if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
       if (dropTarget === dir) setDropTarget(null)
-      clearDragExpand()
     },
     onDrop: (event: ReactDragEvent) => {
       event.preventDefault()
       setDropTarget(null)
-      clearDragExpand()
       const paths = readDragPaths(event).filter((p) => p !== dir && !isUnder(p, dir))
       if (paths.length > 0) void doMove(paths, dir, 'ask')
     },
@@ -1534,7 +1409,8 @@ export function Home() {
     )
   }
 
-  // ── Sidebar folder tree ──
+  // ── the folder roots' own verbs (the desktop carries them now: the
+  // surface menu's add entry, the root icon's remove) ──
 
   const addFolderRoot = () => {
     void window.aiOffice.addFolderRoot().then((added) => {
@@ -1548,321 +1424,7 @@ export function Home() {
     if (selectedFolder && isUnder(path, selectedFolder)) {
       dispatchView({ type: 'set-folder', dir: null })
     }
-    setExpanded((prev) => new Set([...prev].filter((dir) => !isUnder(path, dir))))
     void window.aiOffice.removeFolderRoot(path).then(loadRoot)
-  }
-
-  // folders dragged in from the OS join the tree in place; documents open as they do anywhere else
-  const panelDropProps = {
-    onDragOver: (event: ReactDragEvent) => {
-      if (!event.dataTransfer.types.includes('Files')) return
-      event.preventDefault()
-      event.dataTransfer.dropEffect = 'link'
-      if (!panelDrop) setPanelDrop(true)
-    },
-    onDragLeave: (event: ReactDragEvent) => {
-      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
-      setPanelDrop(false)
-    },
-    onDrop: (event: ReactDragEvent) => {
-      if (!event.dataTransfer.types.includes('Files')) return
-      event.preventDefault()
-      setPanelDrop(false)
-      const paths = Array.from(event.dataTransfer.files)
-        .map((file) => window.aiOffice.pathForFile(file))
-        .filter(Boolean)
-      if (paths.length === 0) return
-      void window.aiOffice.dropFolderRoots(paths).then((added) => {
-        if (added.length > 0) loadRoot()
-      })
-    },
-  }
-
-  const renderFolderMenu = (entry: { path: string; name: string }, rootEntry?: FolderRoot) => (
-    <div
-      className="folder-menu-wrap"
-      ref={menuOpenAt('tree', entry.path) ? folderMenuWrapRef : undefined}
-    >
-      <button
-        className="folder-more-btn"
-        aria-label={t('folderMoreActions', { name: entry.name })}
-        aria-expanded={menuOpenAt('tree', entry.path)}
-        onClick={(e) => {
-          e.stopPropagation()
-          if (menuOpenAt('tree', entry.path)) {
-            setFolderMenu(null)
-            return
-          }
-          const rect = e.currentTarget.getBoundingClientRect()
-          setFolderMenu({
-            path: entry.path,
-            where: 'tree',
-            x: rect.right,
-            y: rect.bottom + 4,
-            above: rect.top - 4,
-            align: 'end',
-          })
-        }}
-      >
-        <MoreDots />
-      </button>
-      {folderMenu && menuOpenAt('tree', entry.path) && (
-        <div className="folder-menu" role="menu" ref={folderMenuPopRef}>
-          {editableAt(entry.path) && (
-            <button role="menuitem" onClick={() => startCreateFolder(entry.path)}>
-              {t('newSubfolder')}
-            </button>
-          )}
-          {!rootEntry && editableAt(entry.path) && (
-            <button role="menuitem" onClick={() => startRenameFolder(entry, 'tree')}>
-              {t('rename')}
-            </button>
-          )}
-          {!rootEntry && editableAt(entry.path) && (
-            <button role="menuitem" onClick={() => startMove([entry.path])}>
-              {t('moveToFolder')}
-            </button>
-          )}
-          {(rootEntry?.readable ?? true) && (
-            <button
-              role="menuitem"
-              onClick={() => {
-                setFolderMenu(null)
-                void window.aiOffice.revealPath(entry.path)
-              }}
-            >
-              {t('revealInFolder')}
-            </button>
-          )}
-          {!rootEntry && editableAt(entry.path) && (
-            <>
-              <div className="row-menu-divider" />
-              <button
-                role="menuitem"
-                className="danger"
-                onClick={() => {
-                  setFolderMenu(null)
-                  setConfirmDeleteFolder(entry.path)
-                }}
-              >
-                {t('deleteFolder')}
-              </button>
-            </>
-          )}
-          {rootEntry?.removable && (
-            <>
-              <div className="row-menu-divider" />
-              <button role="menuitem" onClick={() => removeFolderRoot(entry.path)}>
-                {t('removeFolderRoot')}
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  )
-
-  const renderNewFolderInput = (depth: number) => (
-    <li className="tree-item">
-      <div className="tree-row" style={{ paddingLeft: 8 + depth * 14 }}>
-        <span className="tree-chevron" aria-hidden="true" />
-        <span className="tree-icon" aria-hidden="true">
-          <FolderIcon />
-        </span>
-        <input
-          className="folder-rename-input inline"
-          autoFocus
-          placeholder={t('untitledFolder')}
-          value={newFolderName}
-          onChange={(e) => setNewFolderName(e.target.value)}
-          onBlur={() => void commitCreateFolder()}
-          onKeyDown={(e) => {
-            e.stopPropagation()
-            if (e.nativeEvent.isComposing) return
-            if (e.key === 'Enter') void commitCreateFolder()
-            if (e.key === 'Escape') {
-              setCreating(null)
-              setNewFolderName('')
-            }
-          }}
-        />
-      </div>
-    </li>
-  )
-
-  function renderTreeNode(
-    entry: { path: string; name: string; hasSubfolders: boolean },
-    depth: number,
-  ): ReactElement {
-    const rootEntry = roots.find((r) => r.path === entry.path)
-    const isRoot = rootEntry !== undefined
-    const unavailable = rootEntry !== undefined && !rootEntry.readable
-    const isOpen = expanded.has(entry.path) && !unavailable
-    const children = listings.get(entry.path)?.folders ?? []
-    const isActive = selectedFolder === entry.path
-    const isRenaming = folderRenaming?.where === 'tree' && folderRenaming.path === entry.path
-    const showChevron = !unavailable && (isRoot || entry.hasSubfolders || children.length > 0)
-    return (
-      <li key={entry.path} className="tree-item">
-        <div
-          className={`tree-row${isActive ? ' active' : ''}${dropTarget === entry.path ? ' drop-target' : ''}${unavailable ? ' unavailable' : ''}`}
-          style={{ paddingLeft: 8 + depth * 14 }}
-          role="treeitem"
-          aria-selected={isActive}
-          aria-expanded={showChevron ? isOpen : undefined}
-          tabIndex={0}
-          title={isRoot ? entry.path : undefined}
-          onClick={() => {
-            if (!unavailable) {
-              raiseHomeTab()
-              selectFolder(entry.path)
-            }
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !unavailable) {
-              raiseHomeTab()
-              selectFolder(entry.path)
-            }
-            if (e.key === 'ArrowRight' && !isOpen) toggleExpanded(entry.path)
-            if (e.key === 'ArrowLeft' && isOpen) toggleExpanded(entry.path)
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault()
-            setFolderMenu({
-              path: entry.path,
-              where: 'tree',
-              x: e.clientX + 2,
-              y: e.clientY + 2,
-              above: e.clientY + 2,
-              align: 'start',
-            })
-          }}
-          draggable={!isRoot && !isRenaming}
-          onDragStart={(e) => onRowDragStart(e, [entry.path])}
-          {...folderDropProps(entry.path, { autoExpand: true })}
-        >
-          <button
-            className="tree-chevron"
-            tabIndex={-1}
-            aria-hidden="true"
-            style={{ visibility: showChevron ? undefined : 'hidden' }}
-            onClick={(e) => {
-              e.stopPropagation()
-              toggleExpanded(entry.path)
-            }}
-          >
-            <Chevron open={isOpen} />
-          </button>
-          <span className="tree-icon" aria-hidden="true">
-            <FolderIcon open={isOpen} />
-          </span>
-          {isRenaming ? (
-            <input
-              className="folder-rename-input inline"
-              value={folderRenaming.value}
-              autoFocus
-              onFocus={(e) => e.target.select()}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) =>
-                setFolderRenaming({ path: entry.path, where: 'tree', value: e.target.value })
-              }
-              onBlur={() => void commitRenameFolder()}
-              onKeyDown={(e) => {
-                e.stopPropagation()
-                if (e.nativeEvent.isComposing) return
-                if (e.key === 'Enter') void commitRenameFolder()
-                if (e.key === 'Escape') setFolderRenaming(null)
-              }}
-            />
-          ) : (
-            <span className="tree-name">{entry.name}</span>
-          )}
-          {unavailable && <span className="tree-hint">{t('rootUnavailable')}</span>}
-          {renderFolderMenu(entry, rootEntry)}
-        </div>
-        {isOpen && (children.length > 0 || creating?.parent === entry.path) && (
-          <ul className="tree-children" role="group">
-            {creating?.parent === entry.path && renderNewFolderInput(depth + 1)}
-            {children.map((child) => renderTreeNode(child, depth + 1))}
-          </ul>
-        )}
-      </li>
-    )
-  }
-
-  function renderFolderPanel() {
-    const createIn = selectedFolder ?? root?.path
-    const canCreate = createIn !== undefined && rootOf(createIn, roots)?.usable === true
-    return (
-      <div className={`folder-panel${panelDrop ? ' drop-target' : ''}`} {...panelDropProps}>
-        <div className="folder-panel-head">
-          <span className="folder-panel-title">{t('folders')}</span>
-          <div className="folder-panel-actions">
-            {roots.length > 0 && (
-              <button
-                className="folder-add-btn folder-add-root-btn"
-                data-tip={t('addFolderRoot')}
-                aria-label={t('addFolderRoot')}
-                onClick={addFolderRoot}
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1" />
-                  <path d="M2 13h10" />
-                  <path d="m9 16 3-3-3-3" />
-                </svg>
-              </button>
-            )}
-            {canCreate && (
-              <button
-                className="folder-add-btn folder-new-btn"
-                data-tip={t('newFolder')}
-                aria-label={t('newFolder')}
-                onClick={() => startCreateFolder(createIn)}
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                  <path
-                    d="M7 1v12M1 7h12"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            )}
-          </div>
-        </div>
-        <ul className="tree" role="tree">
-          {root && !root.usable ? (
-            <li className="folder-unusable">
-              <p>{t('rootUnusable')}</p>
-              <button
-                className="btn btn-secondary"
-                onClick={() => void window.aiOffice.pickDefaultSaveDir().then(() => loadRoot())}
-              >
-                {t('pickSaveDir')}
-              </button>
-            </li>
-          ) : (
-            root && renderTreeNode({ path: root.path, name: root.name, hasSubfolders: true }, 0)
-          )}
-          {roots
-            .slice(1)
-            .map((r) =>
-              renderTreeNode({ path: r.path, name: r.name, hasSubfolders: r.readable }, 0),
-            )}
-        </ul>
-      </div>
-    )
   }
 
   // ── File row rendering (shared by the plain view and the folder view) ──
@@ -1888,7 +1450,6 @@ export function Home() {
     deleteFiles,
     pickGroup: (paths) => setGroupPicker(paths),
     dropProps: folderDropProps,
-    expandTo,
     selectFolder,
     setFolderRenaming: setFolderRenaming,
     commitRenameFolder,
@@ -2272,10 +1833,10 @@ export function Home() {
 
   const activeNav = desktopMode ? 'desktop' : !selectedFolder && !cloudMode ? view : null
 
-  /** the embedded strip's desktop item: the same surface switch the sidebar's
+  /** the embedded strip's desktop item: the same surface switch the dock's
    *  Desktop item performs, plus the home tab rising in the main process's
    *  strip — an active document yields the stage back to the desktop. The
-   *  rise is unconditional here where the sidebar's is guarded (raiseHomeTab
+   *  rise is unconditional here where the dock's is guarded (raiseHomeTab
    *  no-ops when Home already shows): this item lives in the strip, whose
    *  whole job is tab switching, and clicking it always means "hand the
    *  stage back" */
@@ -2285,21 +1846,22 @@ export function Home() {
   }, [showDesktop, activateWorkTab])
 
   /**
-   * The dock's contents: the nav group (view switches, carrying the sidebar's
-   * reveal semantics — raiseHomeTab under a covering document tab), the
-   * launcher group (the desktop icons' own handlers and glyphs: settings,
-   * templates, plugins), and the ask tail (the drawer's open verb, which
-   * works in doc mode through the native overlay and so never raises). The
-   * active flags are the same predicates the sidebar's nav badges used; the
-   * running dots and context menus are the macOS operability layer.
+   * The dock's contents: the nav group (view switches, carrying the reveal
+   * semantics — raiseHomeTab under a covering document tab), the launcher
+   * group (the cloud launcher when signed in, then the desktop icons' own
+   * handlers and glyphs: settings, templates, plugins), and the ask tail
+   * (the drawer's open verb, which works in doc mode through the native
+   * overlay and so never raises). The active flags are the showing-view
+   * predicates; the running dots and context menus are the macOS
+   * operability layer.
    */
-  // the settings modal's live state, reported up by AccountEntry (the modal
+  // the settings modal's live state, reported up by the host (the modal
   // lives inside it): the running dots and the doc-mode overlay's report
   // both need the truth, not the open request
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsTarget['section']>('general')
   // the doc-mode overlay's close verb routes back here (a dock-nav intent);
-  // the counter is the imperative signal — AccountEntry closes on the bump
+  // the counter is the imperative signal — the modal host closes on the bump
   const [settingsCloseSeq, setSettingsCloseSeq] = useState(0)
 
   // ── the dock's open-target report (`home:dock-open`): which targets are
@@ -2310,13 +1872,25 @@ export function Home() {
   const dockOpen: DockOpenState = {
     view:
       !docTabActive &&
-      (activeNav === 'desktop' || activeNav === 'recent' || activeNav === 'starred')
-        ? activeNav
+      (activeNav === 'desktop' ||
+        activeNav === 'recent' ||
+        activeNav === 'starred' ||
+        (cloudMode && !selectedFolder ? 'cloud' : null))
+        ? activeNav === 'recent' || activeNav === 'starred'
+          ? activeNav
+          : activeNav === 'desktop'
+            ? 'desktop'
+            : cloudMode && !selectedFolder
+              ? 'cloud'
+              : null
         : null,
     settings: settingsModalOpen,
     plugins: settingsModalOpen && settingsSection === 'plugins',
     templates: templatesOpen,
     ask: !dock.collapsed,
+    // the cloud launcher's gate: a signed-in person keeps their way in, and
+    // the doc-mode overlay's composition (main's item count) follows it
+    loggedIn,
   }
   const dockOpenRef = useRef(dockOpen)
   dockOpenRef.current = dockOpen
@@ -2324,7 +1898,14 @@ export function Home() {
     const api = window.aiOffice as Partial<HomeApi>
     if (typeof api.reportDockOpen !== 'function') return
     api.reportDockOpen(dockOpenRef.current)
-  }, [dockOpen.view, dockOpen.settings, dockOpen.plugins, dockOpen.templates, dockOpen.ask])
+  }, [
+    dockOpen.view,
+    dockOpen.settings,
+    dockOpen.plugins,
+    dockOpen.templates,
+    dockOpen.ask,
+    dockOpen.loggedIn,
+  ])
 
   // ── Home-mode auto-hide (设置 ▸ 自动隐藏程序坞): the pill slides below
   // the window edge once the pointer leaves (a short grace, the same idea
@@ -2456,6 +2037,34 @@ export function Home() {
       },
     ],
     [
+      // the cloud launcher (云项目): the retired sidebar's one nav item the
+      // dock did not carry, now a launcher in its own right — visible only
+      // while signed in (the report's loggedIn gate, mirroring the old
+      // sidebar gating), its dot lit while the projects view is showing
+      ...(loggedIn
+        ? [
+            {
+              id: 'dock:cloud',
+              label: t('navCloud'),
+              icon: <CloudGlyph />,
+              tile: 'cloud',
+              running: cloudMode && !selectedFolder,
+              menu: [
+                {
+                  label: t('navCloud'),
+                  onSelect: () => {
+                    raiseHomeTab()
+                    showCloud()
+                  },
+                },
+              ],
+              onSelect: () => {
+                raiseHomeTab()
+                showCloud()
+              },
+            } as DockItem,
+          ]
+        : []),
       {
         id: 'dock:settings',
         label: DESKTOP_STRINGS[lang].appSettings,
@@ -2522,94 +2131,20 @@ export function Home() {
       {desktopMode && (
         <div className="home-desktop-backdrop" aria-hidden="true" ref={setBackdropHost} />
       )}
-      {desktopMode && <div className="sidebar-glass" aria-hidden="true" />}
-      <aside className={`sidebar${sidebarCollapsed ? ' collapsed' : ''}`}>
-        {/* the collapsed rail: the expand control stands alone in it; the
-              tree, todos and login row fold away (CSS hides them) */}
-        {sidebarCollapsed && (
-          <button
-            type="button"
-            className="sidebar-collapse-btn sidebar-expand-btn"
-            aria-label={t('sidebarExpand')}
-            title={t('sidebarExpand')}
-            onClick={toggleSidebar}
-          >
-            <Chevron open />
-          </button>
-        )}
-        <div className="sidebar-logo">
-          <img className="logo-lockup" src={logoLockup} alt="GenOffice" />
-          <button
-            type="button"
-            className="sidebar-collapse-btn"
-            aria-label={t('sidebarCollapse')}
-            aria-expanded={!sidebarCollapsed}
-            title={t('sidebarCollapse')}
-            onClick={toggleSidebar}
-          >
-            <Chevron open={false} />
-          </button>
-        </div>
-        {/* the nav items migrated to the fisheye dock (below): what remains
-            here is the cloud entry — the one nav the approved dock contents
-            do not carry — so a signed-in person keeps their way in */}
-        <nav className="sidebar-nav">
-          {loggedIn && (
-            <button
-              className={`nav-item${cloudMode && !selectedFolder ? ' active' : ''}`}
-              onClick={() => {
-                raiseHomeTab()
-                dispatchView({ type: 'show-cloud' })
-                writeLaunchView('cloud')
-                setSelected(new Set())
-                setRowMenu(null)
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path
-                  d="M8 1.8l1.55 4.65L14.2 8l-4.65 1.55L8 14.2 6.45 9.55 1.8 8l4.65-1.55z"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span className="nav-label">{t('navCloud')}</span>
-              <svg
-                className="nav-external"
-                width="13"
-                height="13"
-                viewBox="0 0 16 16"
-                fill="none"
-                aria-hidden="true"
-              >
-                <path
-                  d="M6.5 3.5H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13.5h7A1.5 1.5 0 0 0 12.5 12V9.5M9.5 2.5h4v4M13 3l-5.5 5.5"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          )}
-        </nav>
-        <div className="sidebar-divider" />
-        {renderFolderPanel()}
-        <TodoWidget lang={lang} />
-        <AccountEntry
-          onStatusChange={handleAccountStatus}
-          onFileSearchSettingsChange={() => setRerankSettingsTick((n) => n + 1)}
-          openRequest={settingsRequest}
-          closeRequest={settingsCloseSeq}
-          onOpenChange={setSettingsModalOpen}
-          onSectionChange={setSettingsSection}
-        />
-      </aside>
+      {desktopMode && <TodoCard lang={lang} />}
+      <SettingsModalHost
+        onStatusChange={handleAccountStatus}
+        onFileSearchSettingsChange={() => setRerankSettingsTick((n) => n + 1)}
+        openRequest={settingsRequest}
+        closeRequest={settingsCloseSeq}
+        onOpenChange={setSettingsModalOpen}
+        onSectionChange={setSettingsSection}
+      />
       {/* the primary launcher: a macOS-style fisheye dock pinned to the
           window's bottom center over whatever the content stage shows; its
-          nav items carry the sidebar's old reveal contract (raiseHomeTab).
-          The prefs (设置 ▸ 程序坞) drive its physics and shape; auto-hide
-          slides it below the edge with the hot zone below as the summon */}
+          nav items carry the reveal contract (raiseHomeTab). The prefs
+          (设置 ▸ 程序坞) drive its physics and shape; auto-hide slides it
+          below the edge with the hot zone below as the summon */}
       <Dock
         groups={dockGroups}
         ariaLabel={t('dockLabel')}
@@ -2664,6 +2199,8 @@ export function Home() {
               onOpenTemplates={openTemplates}
               onOpenSettings={openSettings}
               onOpenFolder={openFolderView}
+              onAddFolderRoot={addFolderRoot}
+              onRemoveFolderRoot={removeFolderRoot}
               backdropHost={backdropHost}
             />
           ) : selectedFolder && rootOf(selectedFolder, roots)?.readable ? (

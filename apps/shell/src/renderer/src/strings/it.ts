@@ -2,14 +2,9 @@ import type { Dict } from './zh'
 
 export const it: Dict = {
   ok: 'OK',
-  addFolderRoot: 'Aggiungi cartella…',
-  removeFolderRoot: "Rimuovi dall'elenco",
-  rootUnavailable: 'Non disponibile',
   navRecent: 'Recenti',
   navStarred: 'Preferiti',
   navAsk: 'Chiedi all’IA',
-  sidebarCollapse: 'Comprimi la barra laterale',
-  sidebarExpand: 'Espandi la barra laterale',
   dockLabel: 'Dock',
   dockMenuOpen: 'Apri',
   dockMenuClose: 'Chiudi scheda',
@@ -170,7 +165,6 @@ export const it: Dict = {
   // Folders panel
   folders: 'Cartelle',
   newFolder: 'Nuova cartella',
-  newSubfolder: 'Nuova sottocartella',
   untitledFolder: 'Cartella senza titolo',
   folderType: 'Cartella',
   moveToFolder: 'Sposta nella cartella…',
@@ -204,9 +198,6 @@ export const it: Dict = {
     'La cartella di destinazione contiene già {n} elementi con gli stessi nomi. Cosa vuoi fare?',
   conflictKeepBoth: 'Mantieni entrambi',
   conflictReplace: 'Sostituisci',
-  rootUnusable:
-    'La posizione di salvataggio predefinita non è disponibile, quindi le cartelle non possono essere mostrate.',
-  pickSaveDir: 'Scegli posizione di salvataggio',
   deleteModalTitle: 'Elimina file',
   deleteConfirmOne: 'Spostare "{name}" nel cestino?',
   deleteConfirmMany: 'Spostare questi {n} file nel cestino?',

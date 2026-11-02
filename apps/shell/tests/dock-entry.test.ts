@@ -587,3 +587,46 @@ describe('the ask launch bounce (already-open guard)', () => {
     expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
   })
 })
+
+describe('the cloud launcher (login-gated, doc-mode intent)', () => {
+  it('is absent while the account is signed out', async () => {
+    await mountEntry()
+    expect(item('Genspark Projects')).toBeUndefined()
+  })
+
+  it('appears signed in, routes the cloud nav intent, and carries the running dot', async () => {
+    await mountEntry()
+    // the report's loggedIn gate mounts the eighth launcher
+    await pushDockOpen({
+      view: 'cloud',
+      settings: false,
+      plugins: false,
+      templates: false,
+      ask: false,
+      loggedIn: true,
+    })
+    const cloud = item('Genspark Projects')
+    expect(cloud).toBeTruthy()
+    // the running dot: the cloud view is the showing one
+    expect(cloud.closest('.dock-slot')!.querySelector('.dock-dot')).not.toBeNull()
+    // the click routes through the dock-action intent (nav cloud)
+    await act(async () => cloud.click())
+    expect(actions).toEqual([{ kind: 'nav', view: 'cloud' }])
+    // the context menu's verb routes the same intent
+    await act(async () => {
+      cloud.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 120,
+          clientY: 560,
+        }),
+      )
+    })
+    await act(async () => document.body.querySelector('.dock-menu button')!.click())
+    expect(actions).toEqual([
+      { kind: 'nav', view: 'cloud' },
+      { kind: 'nav', view: 'cloud' },
+    ])
+  })
+})

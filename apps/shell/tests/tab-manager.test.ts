@@ -1977,6 +1977,32 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
       expect(() => m.reportDockHotEdge(sender, report)).not.toThrow()
     })
 
+    it('feeds the dock overlay the live item count (the cloud launcher joins)', () => {
+      // the composition is shell state: logged in widens the pill by one —
+      // the overlay's rect is cut from the count every sync
+      const dock: DockSpy = {
+        sync: vi.fn(),
+        destroy: vi.fn(),
+        reportHotEdge: vi.fn(),
+        webContents: vi.fn(),
+      }
+      const m = new TabManager(
+        shellWindow as never,
+        () => onChanged(),
+        (kind) => applyMenuFor(kind),
+        undefined,
+        () => 1,
+        () => normalizeAiDock(undefined),
+        () => normalizeDockPrefs(undefined),
+        () => DOCK_ITEM_COUNT + 1,
+      )
+      m.openDocsTab()
+      m.setDockOverlay(dock)
+      const state = dock.sync.mock.calls[0]![0] as Record<string, unknown>
+      expect(state.itemCount).toBe(DOCK_ITEM_COUNT + 1)
+      expect(state.separatorCount).toBe(DOCK_SEPARATOR_COUNT)
+    })
+
     it('feeds the dock overlay the live prefs, and exposes its webContents', () => {
       // 设置 ▸ 程序坞: the icon size and strength re-cut the overlay's rect
       // from every sync, the same way the aiDock getter re-fits the drawer

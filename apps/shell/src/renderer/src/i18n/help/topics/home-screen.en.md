@@ -1,16 +1,19 @@
 # The Home screen: where your files live
 
-Home is GenOffice's start page: a navigation sidebar on the left, file lists and quick-create cards on the right.
+Home is GenOffice's start page: the desktop with your icons and the dock at the bottom edge, file lists and quick-create cards in the middle.
 
 ![The Home screen](img/home-screen.png)
 
-## Sidebar navigation
+## The dock
 
-- **Recent**: files you opened recently. Each row is stamped with when — today, yesterday, or the date.
-- **Starred**: files you starred. Hover a file row and click the star to add or remove it. The ⋯ menu's **Move to group** sorts starred files into named groups; the Starred view filters by them.
-- **Ask AI**: the knowledge-base panel — ask questions and get answers cited from your starred files (see below).
-- **Genspark Projects**: after signing in to your Genspark account, shows the projects you created with Genspark AI on the web; click one to continue editing in the browser. Search, sort by time, refresh and load-more are supported.
-- **Folders**: directories you add to the sidebar with **Add folder…**, or drag in from the file manager. Each becomes a root you can open, create subfolders in, rename and remove; one that goes offline shows as unavailable and can be taken off the list. **New folder** makes another one.
+The dock along the window's bottom edge is the launcher, macOS-style: icons magnify as the pointer passes over them, a dot marks the view you are in, and you can drag the icons to reorder them (within their group) or right-click one for its menu. Settings → Dock turns the magnification off, changes the icon size and strength, or slides the dock away until you hover the bottom edge.
+
+- **Desktop, Recent, Starred**: switch between the surfaces. Double-click a file anywhere to open it.
+- **Genspark Projects** (after signing in to your Genspark account): shows the projects you created with Genspark AI on the web; click one to continue editing in the browser. Search, sort by time, refresh and load-more are supported.
+- **Settings, Templates, Plugins**: the launchers — the settings window, the template gallery, the plugins pane.
+- **Ask AI**: opens the knowledge-base panel — ask questions and get answers cited from your starred files (see below).
+
+The desktop itself carries your icons: app tiles, the files you opened recently, folder roots, and the todo quick-capture card (drag the card by its handle; the placement persists). Right-click the empty desktop for **New**, sort and view options, refresh, **Add folder to desktop…**, wallpaper and properties; right-click a folder root to take it off the desktop (the folder itself is never touched). Folders open as their own view — browse, create subfolders, rename and move from there. Dragging files in from the file manager pins them as aliases.
 
 There is no Trash entry here. Deleted files go to the system trash, and restoring one is the OS's business.
 
@@ -29,7 +32,7 @@ Each row shows an icon, the file name, modification time and more. The row's **�
 
 ### Several files at once
 
-Tick the checkbox on a row, or ⌘/ctrl-click, to build a selection; the header checkbox selects everything currently listed, and a bar above the list reports how many are selected with **Move to folder…** and **Delete files** for the whole set. You can also drag a multi-selection onto a folder in the sidebar.
+Tick the checkbox on a row, or ⌘/ctrl-click, to build a selection; the header checkbox selects everything currently listed, and a bar above the list reports how many are selected with **Move to folder…** and **Delete files** for the whole set. You can also drag a multi-selection onto a folder row in the folder view.
 
 ## Search
 
@@ -42,7 +45,7 @@ The search box at the top matches two things at once:
 
 The cards above the lists create a new document in one step. Clicking a card creates a file of that type and opens its editor — start writing right away, or let the AI draft for you (every editor has an **AI button** in its ribbon, and **Ask AI** in the selection context menu).
 
-The new file lands in the folder currently selected in the sidebar; with no selection it goes to the default folder.
+The new file lands in the folder view you are in; outside any folder it goes to the default folder.
 
 What each card does:
 

@@ -547,7 +547,7 @@ export interface DockHotEdgeReport {
  * focus from the document the person is reading would be the wrong verb.
  */
 export type DockNavIntent =
-  | { kind: 'nav'; view: 'desktop' | 'recent' | 'starred' }
+  | { kind: 'nav'; view: 'desktop' | 'recent' | 'starred' | 'cloud' }
   | { kind: 'settings'; section: 'general' | 'plugins' }
   | { kind: 'templates' }
   | { kind: 'close'; target: 'settings' | 'templates' | 'plugins' }

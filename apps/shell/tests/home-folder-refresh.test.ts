@@ -49,13 +49,16 @@ const file = (starredFlag: boolean): RecentEntry => ({
 const listing = (): FolderListing => ({
   dir: '/root',
   mtimeMs: 7,
-  folders: [],
+  folders: [{ path: '/root/sub', name: 'sub', mtimeMs: 2, hasSubfolders: false }],
   files: [file(starred)],
 })
 const listFolder = vi.fn(async (dir: string, knownMtimeMs?: number): Promise<FolderListing> => {
   asked.push({ dir, knownMtimeMs })
   if (knownMtimeMs === 7) {
     return { dir, mtimeMs: 7, folders: [], files: [], unchanged: true }
+  }
+  if (dir === '/root/sub') {
+    return { dir: '/root/sub', mtimeMs: 3, folders: [], files: [file(starred)] }
   }
   return listing()
 })
@@ -152,13 +155,20 @@ async function click(el: Element | null | undefined): Promise<void> {
 }
 
 async function openFolderView(): Promise<void> {
-  // the folder tree lives on the recents surface; the root row selects it
-  // (the nav items migrated to the fisheye dock — Recent is a dock item now)
-  const recent = [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].find(
-    (b) => b.getAttribute('aria-label') === 'Recent',
+  // the folder view opens from the desktop's root icons now (the retired
+  // tree's way in, restated): the dock's Desktop item, then the root icon
+  const desktop = [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].find(
+    (b) => b.getAttribute('aria-label') === 'Desktop',
   )
-  await click(recent)
-  await click(container.querySelector('.tree-row[title="/root"]'))
+  await click(desktop)
+  const icon = [...container.querySelectorAll<HTMLElement>('.desktop-icon-item')].find(
+    (el) => el.getAttribute('title') === '/root',
+  )
+  expect(icon, 'the root folder icon').toBeTruthy()
+  await act(async () => {
+    icon!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+  })
+  await flush()
   // the folder view's rows are on screen
   expect(container.querySelector('.recent-table .star-btn')).toBeTruthy()
 }
@@ -236,43 +246,40 @@ describe('the folder tree reveals Home under a covering document tab', () => {
     await flush(2)
   }
 
-  /** land on Recent and clear the raise the landing itself performed */
-  async function landOnRecent(): Promise<void> {
-    const recent = [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].find(
-      (b) => b.getAttribute('aria-label') === 'Recent',
-    )
-    await click(recent)
+  // the tree's reveal contract, restated for its surviving half: the folder
+  // view's own rows (subfolder rows in the table) carry the listing's outcome,
+  // so their click raises the home tab under a covering document; the row's
+  // ⋯ menu and a drag hover stay in-table and never raise. The tree's chevron
+  // and its sidebar-internal self-containment retired with the tree.
+  async function landOnFolderView(): Promise<void> {
+    await openFolderView()
     tabsActivate.mockClear()
   }
 
-  it('a folder row click raises the home tab (its listing must be seen)', async () => {
-    // the row's outcome is the folder listing in the content stage — the very
-    // surface the covering document hides — so the click raises the home tab
-    // alongside the switch, or the listing opens where nobody can see it
+  it('a subfolder row click is an in-surface navigation, never a raise', async () => {
+    // the retired tree lived in the sidebar — the one region a covering
+    // document never reached — so its rows owed the raise. The folder view's
+    // rows live INSIDE the stage the document covers (unreachable while it
+    // is up, and already the visible surface when it is not): the raise duty
+    // moved to the ways in — the dock's items and the desktop's root icons
+    // (their own tests pin it). A row switching to a sibling folder must
+    // never yank the tab on its own.
     await pushDocTab()
-    await landOnRecent()
-    await click(container.querySelector('.tree-row[title="/root"]'))
-    expect(tabsActivate).toHaveBeenCalledTimes(1)
-    expect(tabsActivate).toHaveBeenCalledWith('home')
-    // and the listing itself opened underneath, ready for the raised tab
-    expect(container.querySelector('.recent-table .star-btn')).toBeTruthy()
-  })
-
-  it('the chevron expands without raising anything', async () => {
-    // the tree's own expand/collapse is visible inside the sidebar: it must
-    // never yank the tab — the chevron stops the row's click
-    await pushDocTab()
-    await landOnRecent()
-    await click(container.querySelector('.tree-row[title="/root"] .tree-chevron'))
+    await landOnFolderView()
+    const row = container.querySelector<HTMLElement>('.recent-item.folder-item')
+    expect(row, 'a subfolder row in the folder view').toBeTruthy()
+    await click(row)
     expect(tabsActivate).not.toHaveBeenCalled()
+    // the switch itself happened — the nested listing is on screen
+    expect(container.querySelector('.recent-table')).toBeTruthy()
   })
 
   it('the ⋯ menu opens without raising anything', async () => {
-    // the folder menu is sidebar-internal (new subfolder, reveal, rename…):
-    // its button stops the row's click too
+    // the folder menu is table-internal (reveal, rename, move…): its button
+    // stops the row's click too
     await pushDocTab()
-    await landOnRecent()
-    await click(container.querySelector('.tree-row[title="/root"] .folder-more-btn'))
+    await landOnFolderView()
+    await click(container.querySelector('.recent-item.folder-item .more-btn'))
     expect(tabsActivate).not.toHaveBeenCalled()
     expect(container.querySelector('.folder-menu')).toBeTruthy()
   })
@@ -281,8 +288,8 @@ describe('the folder tree reveals Home under a covering document tab', () => {
     // drag-and-drop hover is a gesture in flight, not a navigation: it must
     // never activate the tab it happens to pass over
     await pushDocTab()
-    await landOnRecent()
-    const row = container.querySelector<HTMLElement>('.tree-row[title="/root"]')!
+    await landOnFolderView()
+    const row = container.querySelector<HTMLElement>('.recent-item.folder-item')!
     const transfer = {
       // the app's own drag MIME, so the folder target actually engages
       types: ['application/x-genoffice-paths'],

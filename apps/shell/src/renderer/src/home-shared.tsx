@@ -169,7 +169,7 @@ export const FILTERS: { key: string; label: StringKey }[] = [
   { key: 'html', label: 'filterHtml' },
 ]
 
-/** sidebar filter keys that stand for a family of extensions (mirrors recent-files.ts) */
+/** filter keys that stand for a family of extensions (mirrors recent-files.ts) */
 export const FILTER_FAMILY: Record<string, readonly string[]> = {
   docx: ['docx', 'doc', 'odt', 'ott'],
   xlsx: ['xlsx', 'xlsm', 'xls', 'csv', 'tsv', 'ods', 'ots'],

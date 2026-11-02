@@ -2,15 +2,10 @@ import type { Dict } from './zh'
 
 export const fr: Dict = {
   ok: 'OK',
-  addFolderRoot: 'Ajouter un dossier…',
-  removeFolderRoot: 'Retirer de la liste',
-  rootUnavailable: 'Indisponible',
   // Sidebar navigation
   navRecent: 'Récents',
   navStarred: 'Favoris',
   navAsk: 'Demander à l’IA',
-  sidebarCollapse: 'Réduire la barre latérale',
-  sidebarExpand: 'Développer la barre latérale',
   dockLabel: 'Dock',
   dockMenuOpen: 'Ouvrir',
   dockMenuClose: 'Fermer onglet',
@@ -176,7 +171,6 @@ export const fr: Dict = {
   // Folders panel
   folders: 'Dossiers',
   newFolder: 'Nouveau dossier',
-  newSubfolder: 'Nouveau sous-dossier',
   untitledFolder: 'Dossier sans titre',
   folderType: 'Dossier',
   moveToFolder: 'Déplacer vers un dossier…',
@@ -210,9 +204,6 @@ export const fr: Dict = {
     'Le dossier cible contient déjà {n} éléments portant les mêmes noms. Que souhaitez-vous faire ?',
   conflictKeepBoth: 'Conserver les deux',
   conflictReplace: 'Remplacer',
-  rootUnusable:
-    "L'emplacement d'enregistrement par défaut est indisponible ; les dossiers ne peuvent pas être affichés.",
-  pickSaveDir: "Choisir un emplacement d'enregistrement",
   // Delete confirmation dialog
   deleteModalTitle: 'Supprimer les fichiers',
   deleteConfirmOne: 'Déplacer « {name} » vers la corbeille ?',

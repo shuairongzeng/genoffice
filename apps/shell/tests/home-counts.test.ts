@@ -16,7 +16,7 @@ afterEach(() => {
 })
 
 describe('home visible counts', () => {
-  it('uses the filtered total for the sidebar count', () => {
+  it('uses the filtered total for the empty-state count', () => {
     const dir = mkdtempSync(join(tmpdir(), 'shell-counts-'))
     tempDirs.push(dir)
     const docPath = join(dir, 'notes.docx')

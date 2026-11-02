@@ -9,7 +9,7 @@ import type { RecentEntry } from '../src/shared/home-api'
 
 /**
  * The Home shell around the desktop view: the Desktop nav item sits on top of
- * the sidebar, the desktop is the view Home opens by default, and the last
+ * the chrome, the desktop is the view Home opens by default, and the last
  * top-level nav the person chose is what the next launch opens.
  */
 
@@ -132,12 +132,14 @@ describe('Home opens on the desktop', () => {
     expect(container.querySelector('.kb-ask')).not.toBeNull()
   })
 
-  it('the wallpaper backdrop is lifted to the Home root, glass on the sidebar', () => {
+  it('the wallpaper backdrop is lifted to the Home root, the whole window on it', () => {
     expect(container.querySelector('.home')!.className).toContain('desktop-mode')
     // the host Home mounts at its root carries the desktop's backdrop (aurora
-    // behind the default look), and the sidebar wears its glass pane
+    // behind the default look) — the sidebar that wore its own glass pane is
+    // retired, so the wallpaper IS the window's whole look now
     expect(container.querySelector('.home-desktop-backdrop')).toBeTruthy()
-    expect(container.querySelector('.sidebar-glass')).toBeTruthy()
+    expect(container.querySelector('.sidebar-glass')).toBeNull()
+    expect(container.querySelector('.sidebar')).toBeNull()
     expect(container.querySelector('.home-desktop-backdrop .desktop-backdrop')).toBeTruthy()
     expect(container.querySelector('.home-desktop-backdrop .desktop-aurora-a')).toBeTruthy()
     // the surface itself carries no backdrop of its own anymore
@@ -147,15 +149,13 @@ describe('Home opens on the desktop', () => {
   it('leaving the desktop returns the window to the plain list-view look', async () => {
     await click(nav('Recent'))
     expect(container.querySelector('.home')!.className).not.toContain('desktop-mode')
-    // the lifted wallpaper, its host and the sidebar glass all unmount
+    // the lifted wallpaper and its host unmount with the desktop view
     expect(container.querySelector('.home-desktop-backdrop')).toBeNull()
-    expect(container.querySelector('.sidebar-glass')).toBeNull()
     expect(container.querySelector('.desktop-backdrop')).toBeNull()
     expect(container.querySelector('.desktop-surface')).toBeNull()
     expect(container.querySelector('.recent-table')).toBeTruthy()
     await click(nav('Desktop'))
     expect(container.querySelector('.home-desktop-backdrop .desktop-backdrop')).toBeTruthy()
-    expect(container.querySelector('.sidebar-glass')).toBeTruthy()
   })
 
   it('the desktop shows the icon set: apps and the newest recents', () => {
@@ -228,7 +228,9 @@ describe('the launch view persists', () => {
     expect(container.querySelector('.desktop-surface')).toBeTruthy()
   })
 
-  it('a folder picked in the tree takes over the content area from the desktop', async () => {
+  it('a folder root icon takes over the content area from the desktop', async () => {
+    // the retired tree's way in, restated: the root's own desktop icon
+    // opens the folder view (double-click or the menu's Open)
     window.aiOffice = {
       ...window.aiOffice,
       folderRoots: async () => [
@@ -245,8 +247,12 @@ describe('the launch view persists', () => {
       root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
     )
     await act(async () => {
-      const row = container.querySelector<HTMLElement>('.tree-row')
-      row?.click()
+      // the FOLDER root icon, not the Docs app tile that shares the label:
+      // the folder's title carries its path
+      const icon = [...container.querySelectorAll<HTMLElement>('.desktop-icon-item')].find(
+        (el) => el.getAttribute('title') === '/docs',
+      )
+      icon?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
     })
     expect(container.querySelector('.desktop-surface')).toBeNull()
     expect(container.querySelector('.recent-table')).toBeTruthy()

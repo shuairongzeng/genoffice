@@ -2,14 +2,9 @@ import type { Dict } from './zh'
 
 export const nl: Dict = {
   ok: 'OK',
-  addFolderRoot: 'Map toevoegen…',
-  removeFolderRoot: 'Uit lijst verwijderen',
-  rootUnavailable: 'Niet beschikbaar',
   navRecent: 'Recent',
   navStarred: 'Favorieten',
   navAsk: 'Vraag het de AI',
-  sidebarCollapse: 'Zijbalk samenvouwen',
-  sidebarExpand: 'Zijbalk uitvouwen',
   dockLabel: 'Dock',
   dockMenuOpen: 'Openen',
   dockMenuClose: 'Tabblad sluiten',
@@ -169,7 +164,6 @@ export const nl: Dict = {
   // Folders panel
   folders: 'Mappen',
   newFolder: 'Nieuwe map',
-  newSubfolder: 'Nieuwe submap',
   untitledFolder: 'Naamloze map',
   folderType: 'Map',
   moveToFolder: 'Verplaatsen naar map…',
@@ -202,9 +196,6 @@ export const nl: Dict = {
   conflictBodyMany: 'De doelmap bevat al {n} items met dezelfde namen. Wat wilt u doen?',
   conflictKeepBoth: 'Beide behouden',
   conflictReplace: 'Vervangen',
-  rootUnusable:
-    'De standaard opslaglocatie is niet beschikbaar, dus mappen kunnen niet worden getoond.',
-  pickSaveDir: 'Opslaglocatie kiezen',
   deleteModalTitle: 'Bestanden verwijderen',
   deleteConfirmOne: '"{name}" naar de prullenbak verplaatsen?',
   deleteConfirmMany: 'Deze {n} bestanden naar de prullenbak verplaatsen?',

@@ -2,15 +2,10 @@ import type { Dict } from './zh'
 
 export const ko: Dict = {
   ok: '확인',
-  addFolderRoot: '폴더 추가…',
-  removeFolderRoot: '목록에서 제거',
-  rootUnavailable: '사용할 수 없음',
   // Sidebar navigation
   navRecent: '최근 사용',
   navStarred: '즐겨찾기',
   navAsk: 'AI 질문',
-  sidebarCollapse: '사이드바 접기',
-  sidebarExpand: '사이드바 펼치기',
   dockLabel: 'Dock',
   dockMenuOpen: '열기',
   dockMenuClose: '탭 닫기',
@@ -172,7 +167,6 @@ export const ko: Dict = {
   // Folders panel
   folders: '폴더',
   newFolder: '새 폴더',
-  newSubfolder: '하위 폴더 만들기',
   untitledFolder: '제목 없는 폴더',
   folderType: '폴더',
   moveToFolder: '폴더로 이동…',
@@ -205,8 +199,6 @@ export const ko: Dict = {
   conflictBodyMany: '대상 폴더에 같은 이름의 항목이 {n}개 있습니다. 어떻게 할까요?',
   conflictKeepBoth: '둘 다 유지',
   conflictReplace: '바꾸기',
-  rootUnusable: '기본 저장 위치를 사용할 수 없어 폴더를 표시할 수 없습니다.',
-  pickSaveDir: '저장 위치 다시 선택',
   // Delete confirmation dialog
   deleteModalTitle: '파일 삭제',
   deleteConfirmOne: '"{name}"을(를) 휴지통으로 이동하시겠습니까?',

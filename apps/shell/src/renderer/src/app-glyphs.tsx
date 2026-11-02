@@ -67,12 +67,8 @@ export function GearGlyph(): React.JSX.Element {
   )
 }
 
-// ── the dock's nav icons: the exact artwork the sidebar nav carried (the
-// items migrate to the dock, their glyphs travel with them; the launcher
-// glyphs above are shared with the desktop tiles) ──
-// ── the dock's nav icons: the exact artwork the sidebar nav carried (the
-// items migrate to the dock, their glyphs travel with them; the launcher
-// glyphs come from app-glyphs.tsx, shared with the desktop tiles) ──
+// ── the dock's nav icons: line-art glyphs distinct from the squircle
+// launcher tiles — the views are switches, not apps ──
 
 export function DockDesktopIcon(): React.JSX.Element {
   return (
@@ -149,6 +145,27 @@ export function DockAskIcon(): React.JSX.Element {
         strokeLinejoin="round"
       />
       <path d="M5 6.2h6M5 8.6h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// the cloud launcher (云项目): the Genspark web projects surface — a cloud
+// with the spark the brand's project tiles carry, so the launcher family
+// reads as one set (same 32×32 stroke weights as the launchers above)
+export function CloudGlyph(): React.JSX.Element {
+  return (
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M7 18a4.5 4.5 0 0 1-.5-8.97 5.5 5.5 0 0 1 10.66-1.4A4.28 4.28 0 0 1 17.5 18H7z"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 9.2l.95 2.85L15.8 13l-2.85.95L12 16.8l-.95-2.85L8.2 13l2.85-.95L12 9.2z"
+        fill="currentColor"
+        opacity="0.9"
+      />
     </svg>
   )
 }

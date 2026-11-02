@@ -100,15 +100,17 @@ describe('sameDockPrefs (the watcher dedup gate)', () => {
 })
 
 describe('asDockOpenState (the report validation)', () => {
-  it('accepts a whole report and reads it back typed', () => {
+  it('accepts a whole report and reads it back typed, cloud view included', () => {
     const state = {
       view: 'recent',
       settings: true,
       plugins: false,
       templates: true,
       ask: false,
+      loggedIn: true,
     }
     expect(asDockOpenState(state)).toEqual(state)
+    expect(asDockOpenState({ ...state, view: 'cloud' })).toEqual({ ...state, view: 'cloud' })
     expect(asDockOpenState(DOCK_OPEN_NONE)).toEqual(DOCK_OPEN_NONE)
   })
 
@@ -118,10 +120,11 @@ describe('asDockOpenState (the report validation)', () => {
       'open',
       {},
       { view: null },
-      { view: 'cloud', settings: true, plugins: true, templates: true, ask: true },
-      { view: null, settings: 'yes', plugins: true, templates: true, ask: true },
-      { view: null, settings: true, plugins: true, templates: true },
+      { view: 'gdrive', settings: true, plugins: true, templates: true, ask: true, loggedIn: true },
+      { view: null, settings: 'yes', plugins: true, templates: true, ask: true, loggedIn: true },
+      { view: null, settings: true, plugins: true, templates: true, loggedIn: true },
       { view: null, settings: true, plugins: true, templates: true, ask: undefined },
+      { view: null, settings: true, plugins: true, templates: true, ask: true },
     ]) {
       expect(asDockOpenState(bad)).toBeNull()
     }

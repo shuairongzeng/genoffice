@@ -2,14 +2,9 @@ import type { Dict } from './zh'
 
 export const zhTW: Dict = {
   ok: '確定',
-  addFolderRoot: '加入資料夾…',
-  removeFolderRoot: '從清單移除',
-  rootUnavailable: '無法使用',
   navRecent: '最近',
   navStarred: '收藏',
   navAsk: 'AI 問答',
-  sidebarCollapse: '收起側邊欄',
-  sidebarExpand: '展開側邊欄',
   dockLabel: 'Dock',
   dockMenuOpen: '開啟',
   dockMenuClose: '關閉標籤',
@@ -159,7 +154,6 @@ export const zhTW: Dict = {
   // Folders panel
   folders: '資料夾',
   newFolder: '新增資料夾',
-  newSubfolder: '新增子資料夾',
   untitledFolder: '未命名資料夾',
   folderType: '資料夾',
   moveToFolder: '移至資料夾…',
@@ -192,8 +186,6 @@ export const zhTW: Dict = {
   conflictBodyMany: '目標資料夾中已有 {n} 個同名項目。要如何處理？',
   conflictKeepBoth: '保留兩者',
   conflictReplace: '取代',
-  rootUnusable: '預設儲存位置無法使用，無法顯示資料夾。',
-  pickSaveDir: '重新選擇儲存位置',
   deleteModalTitle: '刪除檔案',
   deleteConfirmOne: '確定將「{name}」移至垃圾桶？',
   deleteConfirmMany: '確定將以下 {n} 個檔案移至垃圾桶？',

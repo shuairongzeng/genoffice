@@ -110,11 +110,15 @@ export function sameDockPrefs(a: DockPrefs, b: DockPrefs): boolean {
  *
  * `view` is the Home view currently showing, null while a document covers
  * Home (the overlay only lives in that state, so its nav dots read null —
- * none of those views is showing — while Home's own dock carries the truth).
- * `ask` is the drawer's open state, shared with the aiDock prefs.
+ * none of those views is showing — while Home's own dock carries the
+ * truth); 'cloud' rides the same field for the cloud launcher's running
+ * dot. `loggedIn` gates the cloud launcher itself (a signed-in person keeps
+ * their way in; the logged-out dock simply has one item fewer — the overlay
+ * rect's item count follows it). `ask` is the drawer's open state, shared
+ * with the aiDock prefs.
  */
 export interface DockOpenState {
-  view: 'desktop' | 'recent' | 'starred' | null
+  view: 'desktop' | 'recent' | 'starred' | 'cloud' | null
   /** the settings modal is open (设置中心) */
   settings: boolean
   /** the plugins pane is the settings modal's open section (插件) */
@@ -123,6 +127,8 @@ export interface DockOpenState {
   templates: boolean
   /** the AI drawer is open (AI 问答) */
   ask: boolean
+  /** the Genspark account is signed in (the cloud launcher's gate) */
+  loggedIn: boolean
 }
 
 /** the report every consumer starts from until Home's first one arrives */
@@ -132,26 +138,37 @@ export const DOCK_OPEN_NONE: DockOpenState = {
   plugins: false,
   templates: false,
   ask: false,
+  loggedIn: false,
 }
 
 /** a DockOpenState, whole: every field present and well-typed, null on anything else */
 export function asDockOpenState(value: unknown): DockOpenState | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Partial<Record<keyof DockOpenState, unknown>>
-  for (const key of ['view', 'settings', 'plugins', 'templates', 'ask'] as const) {
+  for (const key of ['view', 'settings', 'plugins', 'templates', 'ask', 'loggedIn'] as const) {
     if (raw[key] === undefined) return null
   }
   const view = raw.view
-  if (view !== null && view !== 'desktop' && view !== 'recent' && view !== 'starred') return null
+  if (
+    view !== null &&
+    view !== 'desktop' &&
+    view !== 'recent' &&
+    view !== 'starred' &&
+    view !== 'cloud'
+  ) {
+    return null
+  }
   if (typeof raw.settings !== 'boolean') return null
   if (typeof raw.plugins !== 'boolean') return null
   if (typeof raw.templates !== 'boolean') return null
   if (typeof raw.ask !== 'boolean') return null
+  if (typeof raw.loggedIn !== 'boolean') return null
   return {
     view,
     settings: raw.settings,
     plugins: raw.plugins,
     templates: raw.templates,
     ask: raw.ask,
+    loggedIn: raw.loggedIn,
   }
 }

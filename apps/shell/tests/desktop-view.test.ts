@@ -112,6 +112,8 @@ const props = {
   onOpenTemplates: vi.fn(),
   onOpenSettings: vi.fn(),
   onOpenFolder: vi.fn(),
+  onAddFolderRoot: vi.fn(),
+  onRemoveFolderRoot: vi.fn(),
 }
 
 beforeEach(() => {
@@ -927,7 +929,38 @@ describe('DesktopView — context menu', () => {
     await contextMenu('Docs')
     expect(menuButtons()).toEqual(['Open', 'Reset position'])
     await contextMenu('Work')
-    expect(menuButtons()).toEqual(['Open', 'Properties', 'Reset position'])
+    // a folder ROOT carries the remove-from-desktop verb (the retired
+    // tree's ⋯ entry, moved onto the root's own icon)
+    expect(menuButtons()).toEqual([
+      'Open',
+      'Properties',
+      'Remove folder from desktop',
+      'Reset position',
+    ])
+  })
+
+  it('the surface menu’s add-folder entry runs the host verb (the retired tree’s + button)', async () => {
+    await render()
+    await surfaceContextMenu()
+    const add = [...host.querySelectorAll<HTMLButtonElement>('.desktop-menu button')].find((b) =>
+      b.textContent?.includes('Add folder to desktop'),
+    )
+    expect(add).toBeTruthy()
+    await click(add)
+    expect(props.onAddFolderRoot).toHaveBeenCalledTimes(1)
+    expect(host.querySelector('.desktop-menu')).toBeNull()
+  })
+
+  it('a folder root icon’s menu removes the root through the host verb', async () => {
+    await render()
+    await contextMenu('Work')
+    const remove = [...host.querySelectorAll<HTMLButtonElement>('.folder-menu button')].find((b) =>
+      b.textContent?.includes('Remove folder from desktop'),
+    )
+    expect(remove).toBeTruthy()
+    await click(remove)
+    expect(props.onRemoveFolderRoot).toHaveBeenCalledWith('/docs/Work')
+    expect(host.querySelector('.folder-menu')).toBeNull()
   })
 
   it('an outside press closes the open menu', async () => {
@@ -1201,6 +1234,7 @@ describe('DesktopView — the empty-surface menu', () => {
       'Sort by',
       'View',
       'Refresh',
+      'Add folder to desktop…',
       'Change wallpaper',
       'Properties',
     ])

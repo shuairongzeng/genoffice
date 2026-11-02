@@ -2,14 +2,9 @@ import type { Dict } from './zh'
 
 export const en: Dict = {
   ok: 'OK',
-  addFolderRoot: 'Add folder…',
-  removeFolderRoot: 'Remove from list',
-  rootUnavailable: 'Not available',
   navRecent: 'Recent',
   navStarred: 'Starred',
   navAsk: 'Ask AI',
-  sidebarCollapse: 'Collapse the sidebar',
-  sidebarExpand: 'Expand the sidebar',
   dockLabel: 'Dock',
   dockMenuOpen: 'Open',
   dockMenuClose: 'Close tab',
@@ -166,7 +161,6 @@ export const en: Dict = {
   // Folders panel
   folders: 'Folders',
   newFolder: 'New folder',
-  newSubfolder: 'New subfolder',
   untitledFolder: 'Untitled folder',
   folderType: 'Folder',
   moveToFolder: 'Move to folder…',
@@ -200,8 +194,6 @@ export const en: Dict = {
     'The target folder already contains {n} items with the same names. What would you like to do?',
   conflictKeepBoth: 'Keep both',
   conflictReplace: 'Replace',
-  rootUnusable: 'The default save location is unavailable, so folders cannot be shown.',
-  pickSaveDir: 'Choose a save location',
   deleteModalTitle: 'Delete Files',
   deleteConfirmOne: 'Move "{name}" to the Trash?',
   deleteConfirmMany: 'Move these {n} files to the Trash?',

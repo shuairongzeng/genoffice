@@ -2,14 +2,9 @@ import type { Dict } from './zh'
 
 export const vi: Dict = {
   ok: 'Đồng ý',
-  addFolderRoot: 'Thêm thư mục…',
-  removeFolderRoot: 'Xóa khỏi danh sách',
-  rootUnavailable: 'Không khả dụng',
   navRecent: 'Gần đây',
   navStarred: 'Đã gắn sao',
   navAsk: 'Hỏi AI',
-  sidebarCollapse: 'Thu gọn thanh bên',
-  sidebarExpand: 'Mở rộng thanh bên',
   dockLabel: 'Dock',
   dockMenuOpen: 'Mở',
   dockMenuClose: 'Đóng thẻ',
@@ -166,7 +161,6 @@ export const vi: Dict = {
   // Folders panel
   folders: 'Thư mục',
   newFolder: 'Thư mục mới',
-  newSubfolder: 'Thư mục con mới',
   untitledFolder: 'Thư mục chưa đặt tên',
   folderType: 'Thư mục',
   moveToFolder: 'Di chuyển vào thư mục…',
@@ -199,8 +193,6 @@ export const vi: Dict = {
   conflictBodyMany: 'Thư mục đích đã chứa {n} mục có cùng tên. Bạn muốn làm gì?',
   conflictKeepBoth: 'Giữ cả hai',
   conflictReplace: 'Thay thế',
-  rootUnusable: 'Vị trí lưu mặc định không khả dụng, do đó không thể hiển thị thư mục.',
-  pickSaveDir: 'Chọn vị trí lưu',
   deleteModalTitle: 'Xóa tệp',
   deleteConfirmOne: 'Chuyển "{name}" vào Thùng rác?',
   deleteConfirmMany: 'Chuyển {n} tệp này vào Thùng rác?',

@@ -2,14 +2,9 @@ import type { Dict } from './zh'
 
 export const hi: Dict = {
   ok: 'ठीक है',
-  addFolderRoot: 'फ़ोल्डर जोड़ें…',
-  removeFolderRoot: 'सूची से हटाएँ',
-  rootUnavailable: 'उपलब्ध नहीं',
   navRecent: 'हाल के',
   navStarred: 'तारांकित',
   navAsk: 'AI से पूछें',
-  sidebarCollapse: 'साइडबार सिकोड़ें',
-  sidebarExpand: 'साइडबार विस्तारित करें',
   dockLabel: 'Dock',
   dockMenuOpen: 'खोलें',
   dockMenuClose: 'टैब बंद करें',
@@ -168,7 +163,6 @@ export const hi: Dict = {
   // Folders panel
   folders: 'फ़ोल्डर',
   newFolder: 'नया फ़ोल्डर',
-  newSubfolder: 'नया सब-फ़ोल्डर',
   untitledFolder: 'बिना नाम का फ़ोल्डर',
   folderType: 'फ़ोल्डर',
   moveToFolder: 'फ़ोल्डर में ले जाएँ…',
@@ -202,8 +196,6 @@ export const hi: Dict = {
     'लक्ष्य फ़ोल्डर में पहले से इन्हीं नामों के {n} आइटम हैं। आप क्या करना चाहेंगे?',
   conflictKeepBoth: 'दोनों रखें',
   conflictReplace: 'बदलें',
-  rootUnusable: 'डिफ़ॉल्ट सेव स्थान उपलब्ध नहीं है, इसलिए फ़ोल्डर नहीं दिखाए जा सकते।',
-  pickSaveDir: 'सेव स्थान चुनें',
   deleteModalTitle: 'फ़ाइलें हटाएँ',
   deleteConfirmOne: '"{name}" को ट्रैश में ले जाएँ?',
   deleteConfirmMany: 'इन {n} फ़ाइलों को ट्रैश में ले जाएँ?',

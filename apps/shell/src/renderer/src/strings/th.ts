@@ -2,15 +2,10 @@ import type { Dict } from './zh'
 
 export const th: Dict = {
   ok: 'ตกลง',
-  addFolderRoot: 'เพิ่มโฟลเดอร์…',
-  removeFolderRoot: 'นำออกจากรายการ',
-  rootUnavailable: 'ไม่พร้อมใช้งาน',
   // Sidebar navigation
   navRecent: 'ล่าสุด',
   navStarred: 'รายการโปรด',
   navAsk: 'ถาม AI',
-  sidebarCollapse: 'ย่อแถบด้านข้าง',
-  sidebarExpand: 'ขยายแถบด้านข้าง',
   dockLabel: 'Dock',
   dockMenuOpen: 'เปิด',
   dockMenuClose: 'ปิดแท็บ',
@@ -168,7 +163,6 @@ export const th: Dict = {
   // Folders panel
   folders: 'โฟลเดอร์',
   newFolder: 'โฟลเดอร์ใหม่',
-  newSubfolder: 'สร้างโฟลเดอร์ย่อย',
   untitledFolder: 'โฟลเดอร์ไม่มีชื่อ',
   folderType: 'โฟลเดอร์',
   moveToFolder: 'ย้ายไปยังโฟลเดอร์…',
@@ -201,8 +195,6 @@ export const th: Dict = {
   conflictBodyMany: 'โฟลเดอร์ปลายทางมีรายการชื่อเดียวกัน {n} รายการ ต้องการทำอย่างไร',
   conflictKeepBoth: 'เก็บทั้งคู่',
   conflictReplace: 'แทนที่',
-  rootUnusable: 'ตำแหน่งบันทึกเริ่มต้นใช้งานไม่ได้ จึงแสดงโฟลเดอร์ไม่ได้',
-  pickSaveDir: 'เลือกตำแหน่งบันทึกใหม่',
   // Delete confirmation dialog
   deleteModalTitle: 'ลบไฟล์',
   deleteConfirmOne: 'ย้าย "{name}" ไปยังถังขยะหรือไม่',

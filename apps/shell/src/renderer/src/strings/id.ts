@@ -2,15 +2,10 @@ import type { Dict } from './zh'
 
 export const id: Dict = {
   ok: 'OK',
-  addFolderRoot: 'Tambah folder…',
-  removeFolderRoot: 'Hapus dari daftar',
-  rootUnavailable: 'Tidak tersedia',
   // Sidebar navigation
   navRecent: 'Terbaru',
   navStarred: 'Berbintang',
   navAsk: 'Tanya AI',
-  sidebarCollapse: 'Ringkaskan bilah samping',
-  sidebarExpand: 'Perluas bilah samping',
   dockLabel: 'Dock',
   dockMenuOpen: 'Buka',
   dockMenuClose: 'Tutup tab',
@@ -174,7 +169,6 @@ export const id: Dict = {
   // Folders panel
   folders: 'Folder',
   newFolder: 'Folder baru',
-  newSubfolder: 'Subfolder baru',
   untitledFolder: 'Folder tanpa judul',
   folderType: 'Folder',
   moveToFolder: 'Pindahkan ke folder…',
@@ -208,9 +202,6 @@ export const id: Dict = {
     'Folder tujuan sudah berisi {n} item dengan nama yang sama. Apa yang ingin Anda lakukan?',
   conflictKeepBoth: 'Simpan keduanya',
   conflictReplace: 'Ganti',
-  rootUnusable:
-    'Lokasi penyimpanan default tidak tersedia, sehingga folder tidak dapat ditampilkan.',
-  pickSaveDir: 'Pilih lokasi penyimpanan',
   // Delete confirmation dialog
   deleteModalTitle: 'Hapus File',
   deleteConfirmOne: 'Pindahkan "{name}" ke tempat sampah?',

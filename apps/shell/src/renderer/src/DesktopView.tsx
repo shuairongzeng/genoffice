@@ -192,8 +192,20 @@ export interface DesktopViewProps {
   readonly onOpenSettings: (target: SettingsTarget) => void
   /** open one folder root's list view */
   readonly onOpenFolder: (root: FolderRoot) => void
+  /**
+   * The surface menu's add-folder verb: Home's addFolderRoot (the picker
+   * flow, then the roots reload) — the retired sidebar tree's + button,
+   * moved to the surface the folder icons already live on
+   */
+  readonly onAddFolderRoot: () => void
+  /**
+   * A folder root icon's remove-from-desktop verb: Home's removeFolderRoot
+   * (the root leaves the list; the disk is never touched) — the retired
+   * tree's ⋯ entry, moved onto the root's own icon
+   */
+  readonly onRemoveFolderRoot: (path: string) => void
   /** the Home-root node the wallpaper backdrop portals into, so it paints
-   * behind the sidebar too; undefined (standalone) renders it in place */
+   * behind every surface; undefined (standalone) renders it in place */
   readonly backdropHost?: HTMLDivElement | null
 }
 
@@ -393,6 +405,8 @@ export function DesktopView({
   onOpenTemplates,
   onOpenSettings,
   onOpenFolder,
+  onAddFolderRoot,
+  onRemoveFolderRoot,
   backdropHost,
 }: DesktopViewProps): ReactElement {
   const s = desktopStrings(lang)
@@ -1521,6 +1535,12 @@ export function DesktopView({
   const menuPath = menuIcon && (menuIcon.kind === 'file' || menuIcon.alias) ? menuIcon.path : null
   /** file and folder icons get a Properties dialog; app icons do not */
   const menuPropsIcon = menuIcon && menuIcon.kind !== 'app' ? menuIcon : null
+  /** the icon is a folder ROOT (a roots-list icon, not a dragged-in alias):
+   *  its menu carries the remove-from-desktop verb the retired tree's ⋯ had */
+  const menuRootPath =
+    menuIcon && menuIcon.kind === 'folder' && !menuIcon.alias
+      ? (roots.find((root) => root.path === menuIcon.path)?.path ?? null)
+      : null
 
   // ── the multi-selection menu: right-click inside a 2+ selection ──
   // The menu acts on the whole selection, in grid order. Every row decides
@@ -1709,6 +1729,22 @@ export function DesktopView({
     setSurfaceSub(null)
     reloadRecents()
   }, [reloadRecents])
+
+  /** the surface menu's add-folder verb: Home owns the picker flow */
+  const addFolderRoot = useCallback(() => {
+    setSurfaceMenu(null)
+    setSurfaceSub(null)
+    onAddFolderRoot()
+  }, [onAddFolderRoot])
+
+  /** a root folder icon's remove verb: Home owns the roots list */
+  const removeFolderRoot = useCallback(
+    (path: string) => {
+      setMenu(null)
+      onRemoveFolderRoot(path)
+    },
+    [onRemoveFolderRoot],
+  )
 
   const openWallpaperCenter = useCallback(() => {
     setSurfaceMenu(null)
@@ -1938,7 +1974,7 @@ export function DesktopView({
   }
 
   /** the wallpaper backdrop: lifted to the Home root through the portal host
-   * Home provides (so the sidebar sits on it too), or rendered in place when
+   * Home provides (so the whole window sits on it), or rendered in place when
    * the view stands alone. Null while Home's host node is committing. */
   const backdrop = (
     <div className="desktop-backdrop" ref={backdropRef} aria-hidden="true">
@@ -2139,6 +2175,14 @@ export function DesktopView({
                 {s.menuRemove}
               </button>
             )}
+            {menuIcon !== undefined && menuRootPath !== null && (
+              // the retired tree's ⋯ entry, on the root's own icon: the
+              // folder leaves the roots list (and the desktop with it);
+              // the disk is never touched — removeFolderRoot's contract
+              <button role="menuitem" onClick={() => removeFolderRoot(menuRootPath)}>
+                {s.menuRemoveRoot}
+              </button>
+            )}
             <div className="row-menu-divider" />
             <button role="menuitem" onClick={() => resetPosition(menu.id)}>
               {s.menuReset}
@@ -2328,6 +2372,11 @@ export function DesktopView({
             <div className="row-menu-divider" />
             <button role="menuitem" onClick={refreshRecents}>
               {s.menuRefresh}
+            </button>
+            {/* the retired sidebar tree's + button: adding a folder root is
+                the surface's own verb now, next to the refresh it reloads */}
+            <button role="menuitem" onClick={addFolderRoot}>
+              {s.menuAddFolder}
             </button>
             <button role="menuitem" onClick={openWallpaperCenter}>
               {s.menuWallpaper}

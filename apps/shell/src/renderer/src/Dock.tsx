@@ -89,7 +89,7 @@ export interface DockItem {
   readonly id: string
   /** the tooltip (data-tip, the app's screentip system) and the a11y label */
   readonly label: string
-  /** the icon artwork — the same assets the sidebar nav / desktop tiles use */
+  /** the icon artwork — the same assets the desktop tiles / nav rows use */
   readonly icon: ReactNode
   /**
    * The squircle tile's color key (the desktop tiles' own: 'settings',

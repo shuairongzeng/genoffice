@@ -288,6 +288,7 @@ import { startRendererWatchdog } from './renderer-watchdog'
 import { watchAiDock } from './ai-dock'
 import { watchDockPrefs } from './dock-prefs'
 import { DOCK_OPEN_NONE } from '../shared/dock-prefs'
+import { DOCK_ITEM_COUNT } from '../shared/desktop-geometry'
 import {
   notifyHomeTabsChanged,
   registerHomeTabsIpc,
@@ -4077,6 +4078,11 @@ const shellWindowDeps: ShellWindowDeps = {
   appSettingsPath: APP_SETTINGS_PATH,
   userDataDir: () => app.getPath('userData'),
   uiScale: () => currentUiScale,
+  // the dock's live composition: the cached open-target report knows the
+  // login state, and the logged-in cloud launcher is the eighth pill item —
+  // the closure reads the live cache so every layout pass cuts the rect
+  // from the composition that is actually mounted
+  dockItemCount: () => DOCK_ITEM_COUNT + (cachedDockOpen.loggedIn ? 1 : 0),
   tabSleepEnabled,
   untitledTitle: (kind) =>
     kind === 'help'
@@ -6223,11 +6229,16 @@ registerHomeWorkbenchIpc({
   // view. Home reports on change only, so a static state costs one send.
   // The identity gate is reportHotEdge's lesson: only the shell window's
   // own webContents (Home, the surface that owns the targets) may state
-  // which are open — any other renderer sharing the preload is ignored
+  // which are open — any other renderer sharing the preload is ignored.
+  // A login flip changes the dock's composition (the cloud launcher), so
+  // the pass also re-lays the tab manager out: the overlay's rect re-cuts
+  // from the new item count the same beat the pill re-renders
   applyDockOpen: (sender, state) => {
     if (!shellWindow || shellWindow.isDestroyed() || sender !== shellWindow.webContents) return
+    const compositionChanged = state.loggedIn !== cachedDockOpen.loggedIn
     cachedDockOpen = state
     tabManager?.dockOverlayWebContents()?.send(HOME_CHANNELS.dockOpen, state)
+    if (compositionChanged) tabManager?.layout()
   },
   // the overlay dock's mount-time pull: the cached report (all-closed until
   // Home's first one — the state is a fact, not an event, so unlike the

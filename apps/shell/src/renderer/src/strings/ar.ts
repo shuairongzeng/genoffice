@@ -2,15 +2,10 @@ import type { Dict } from './zh'
 
 export const ar: Dict = {
   ok: 'موافق',
-  addFolderRoot: 'إضافة مجلد…',
-  removeFolderRoot: 'إزالة من القائمة',
-  rootUnavailable: 'غير متاح',
   // Sidebar navigation
   navRecent: 'الأخيرة',
   navStarred: 'المفضلة',
   navAsk: 'اسأل الذكاء الاصطناعي',
-  sidebarCollapse: 'طيّ الشريط الجانبي',
-  sidebarExpand: 'توسيع الشريط الجانبي',
   dockLabel: 'Dock',
   dockMenuOpen: 'فتح',
   dockMenuClose: 'إغلاق علامة التبويب',
@@ -170,7 +165,6 @@ export const ar: Dict = {
   // Folders panel
   folders: 'المجلدات',
   newFolder: 'مجلد جديد',
-  newSubfolder: 'مجلد فرعي جديد',
   untitledFolder: 'مجلد بدون اسم',
   folderType: 'مجلد',
   moveToFolder: 'نقل إلى مجلد…',
@@ -203,8 +197,6 @@ export const ar: Dict = {
   conflictBodyMany: 'يحتوي المجلد الهدف بالفعل على {n} عناصر بالأسماء نفسها. ماذا تريد أن تفعل؟',
   conflictKeepBoth: 'الاحتفاظ بكليهما',
   conflictReplace: 'استبدال',
-  rootUnusable: 'موقع الحفظ الافتراضي غير متاح، لذا لا يمكن عرض المجلدات.',
-  pickSaveDir: 'اختيار موقع الحفظ',
   // Delete confirmation dialog
   deleteModalTitle: 'حذف الملفات',
   deleteConfirmOne: 'هل تريد نقل "{name}" إلى سلة المهملات؟',

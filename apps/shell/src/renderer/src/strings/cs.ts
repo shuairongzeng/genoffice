@@ -2,14 +2,9 @@ import type { Dict } from './zh'
 
 export const cs: Dict = {
   ok: 'OK',
-  addFolderRoot: 'Přidat složku…',
-  removeFolderRoot: 'Odebrat ze seznamu',
-  rootUnavailable: 'Nedostupné',
   navRecent: 'Nedávné',
   navStarred: 'Oblíbené',
   navAsk: 'Zeptat se AI',
-  sidebarCollapse: 'Sbalit postranní panel',
-  sidebarExpand: 'Rozbalit postranní panel',
   dockLabel: 'Dock',
   dockMenuOpen: 'Otevřít',
   dockMenuClose: 'Zavřít kartu',
@@ -167,7 +162,6 @@ export const cs: Dict = {
   // Folders panel
   folders: 'Složky',
   newFolder: 'Nová složka',
-  newSubfolder: 'Nová podsložka',
   untitledFolder: 'Složka bez názvu',
   folderType: 'Složka',
   moveToFolder: 'Přesunout do složky…',
@@ -200,8 +194,6 @@ export const cs: Dict = {
   conflictBodyMany: 'Cílová složka již obsahuje {n} položek se stejnými názvy. Co chcete udělat?',
   conflictKeepBoth: 'Zachovat obě',
   conflictReplace: 'Nahradit',
-  rootUnusable: 'Výchozí umístění pro ukládání není dostupné, složky proto nelze zobrazit.',
-  pickSaveDir: 'Zvolit umístění pro ukládání',
   deleteModalTitle: 'Odstranit soubory',
   deleteConfirmOne: 'Přesunout „{name}“ do koše?',
   deleteConfirmMany: 'Přesunout těchto {n} souborů do koše?',

@@ -10,12 +10,12 @@ import { LocaleProvider } from '../src/renderer/src/locale'
 import type { HomeTabEntry, RecentEntry } from '../src/shared/home-api'
 
 /**
- * The Home sidebar's navigation contract (src/renderer/src/Home.tsx): the nav
- * items and the folder tree switch the surface the content stage shows, the
- * Ask AI item opens the drawer instead, and — the doc-mode half — while a
- * document tab's native view covers the stage every view-switching sidebar
- * click must also raise the home tab (raiseHomeTab), or it flips state
- * underneath the covering document where nobody can see it.
+ * The Home surface's navigation contract (src/renderer/src/Home.tsx): the
+ * dock's nav items switch the surface the content stage shows, the Ask AI
+ * item opens the drawer instead, and — the doc-mode half — while a document
+ * tab's native view covers the stage every view-switching dock click must
+ * also raise the home tab (raiseHomeTab), or it flips state underneath the
+ * covering document where nobody can see it.
  */
 
 let root: Root
@@ -117,7 +117,7 @@ function selected(): string[] {
   )
 }
 
-describe('Home sidebar navigation', () => {
+describe('Home dock navigation', () => {
   it.each(['Recent', 'Starred'])('Ask AI opens the drawer without leaving %s', async (from) => {
     await click(nav(from))
     expect(selected()).toEqual([from])
@@ -189,7 +189,7 @@ describe('Home sidebar navigation', () => {
   })
 })
 
-describe('the sidebar reveals Home under a covering document tab', () => {
+describe('the dock reveals Home under a covering document tab', () => {
   /** a docs tab active over the Home surface, the way the main process pushes it */
   async function pushDocTab(): Promise<void> {
     await act(async () =>
@@ -223,10 +223,10 @@ describe('the sidebar reveals Home under a covering document tab', () => {
   it.each(['Desktop', 'Recent', 'Starred'])(
     '%s raises the home tab when a document covers the surface',
     async (label) => {
-      // the bug this closes: the sidebar is the one Home region a covering
-      // document view leaves clickable, so its view switches must raise the
-      // home tab or they flip state underneath the document — the person
-      // sees nothing change and calls the left panel blocked
+      // the bug this closes: the dock is the one Home region a covering
+      // document view leaves clickable (its native overlay), so its view
+      // switches must raise the home tab or they flip state underneath the
+      // document — the person sees nothing change and calls the dock blocked
       await pushDocTab()
       tabsActivate.mockClear()
       await click(nav(label))
@@ -260,57 +260,31 @@ describe('the sidebar reveals Home under a covering document tab', () => {
   })
 })
 
-describe('the slimmed sidebar', () => {
-  it('carries no nav items anymore: the dock is their home now', async () => {
-    // not signed in: the cloud entry (the one nav the approved dock contents
-    // do not carry) is absent too, so the sidebar-nav list is empty
-    expect(container.querySelectorAll('.sidebar-nav .nav-item')).toHaveLength(0)
-    // and the dock holds the migrated set
+describe('the sidebar is gone: the desktop and the dock are the whole chrome', () => {
+  it('renders no sidebar at all, and the dock carries the full launcher set', async () => {
+    // not signed in: the cloud launcher is absent (the login gate), and the
+    // retired column left nothing behind — no rail, no logo band, no glass
+    expect(container.querySelector('.sidebar')).toBeNull()
+    expect(container.querySelector('.sidebar-glass')).toBeNull()
+    expect(container.querySelector('.sidebar-logo')).toBeNull()
+    expect(container.querySelector('.todo-panel')).toBeNull()
+    expect(localStorage.getItem('home.sidebar')).toBeNull()
+    // the dock holds the migrated set
     expect(
       [...container.querySelectorAll('.dock-item')].map((i) => i.getAttribute('aria-label')),
     ).toEqual(['Desktop', 'Recent', 'Starred', 'Settings', 'Templates', 'Plugins', 'Ask AI'])
   })
 
-  it('keeps the folder panel and the todo widget', async () => {
-    // the sidebar's remaining furniture: the tree panel's head and the todo
-    // quick-capture card — the dock took the navigation, not the work tools
-    expect(container.querySelector('.folder-panel-title')?.textContent).toBe('Folders')
-    expect(container.querySelector('.todo-panel')).toBeTruthy()
-  })
-
-  it('collapses to the rail and hides the furniture', async () => {
-    const collapse = container.querySelector<HTMLButtonElement>('.sidebar-collapse-btn')!
-    expect(collapse).toBeTruthy()
-    await click(collapse)
-    const sidebar = container.querySelector('.sidebar')!
-    expect(sidebar.className).toContain('collapsed')
-    // the rail: the expand control is the one visible child (CSS folds the
-    // tree/todo/login away — the .collapsed > *:not(.sidebar-expand-btn)
-    // rule — so jsdom still sees them in the DOM, hidden by stylesheet)
-    expect(sidebar.querySelector('.sidebar-expand-btn')).toBeTruthy()
-    // the persisted choice is already written (the local prefs pattern)
-    expect(localStorage.getItem('home.sidebar')).toBe('true')
-  })
-
-  it('the collapsed rail persists between mounts and expands back', async () => {
-    await click(container.querySelector<HTMLButtonElement>('.sidebar-collapse-btn')!)
-    await act(async () => root.unmount())
-    container.remove()
-    container = document.createElement('div')
-    document.body.append(container)
-    root = createRoot(container)
-    await act(async () =>
-      root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
+  it('the desktop carries the todo card (and the list views do not)', async () => {
+    // the quick-capture card is desktop furniture now — macOS widgets live
+    // on the desktop, not in a chrome column
+    expect(container.querySelector('.desktop-todo')).toBeNull()
+    const desktop = [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].find(
+      (b) => b.getAttribute('aria-label') === 'Desktop',
     )
-    // the fresh mount read the persisted rail
-    const sidebar = container.querySelector('.sidebar')!
-    expect(sidebar.className).toContain('collapsed')
-    expect(sidebar.querySelector('.sidebar-expand-btn')).toBeTruthy()
-    // expanding restores the furniture and forgets the rail
-    await click(container.querySelector<HTMLButtonElement>('.sidebar-expand-btn')!)
-    expect(container.querySelector('.sidebar')!.className).not.toContain('collapsed')
-    expect(container.querySelector('.folder-panel-title')).toBeTruthy()
-    expect(localStorage.getItem('home.sidebar')).toBe('false')
+    await click(desktop)
+    expect(container.querySelector('.desktop-todo .todo-panel')).toBeTruthy()
+    expect(container.querySelector('.desktop-todo .todo-input')).toBeTruthy()
   })
 })
 
@@ -566,6 +540,7 @@ describe('the dock prefs surface (设置 ▸ 程序坞) and the open-target repo
       plugins: false,
       templates: false,
       ask: false,
+      loggedIn: false,
     })
     // opening the settings modal (the dock's own launcher) flips the report,
     // and the plugins SECTION is the pane it opened on
@@ -709,5 +684,56 @@ describe('the dock surface fixes (gallery refetch, auto-hide pin, zone click)', 
     expect(dock.classList.contains('dock-hidden')).toBe(true)
     await act(async () => zone.click())
     expect(dock.classList.contains('dock-hidden')).toBe(false)
+  })
+})
+
+describe('the cloud launcher on the Home dock', () => {
+  const DESKTOP = (): HTMLButtonElement =>
+    [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].find(
+      (b) => b.getAttribute('aria-label') === 'Genspark Projects',
+    )!
+
+  it('is gated by the login state: absent signed out, present signed in', async () => {
+    await act(async () => root.unmount())
+    container.remove()
+    window.aiOffice = {
+      ...window.aiOffice,
+      accountStatus: async () => ({ loggedIn: false }),
+    } as unknown as Window['aiOffice']
+    container = document.createElement('div')
+    document.body.append(container)
+    root = createRoot(container)
+    await act(async () =>
+      root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
+    )
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    expect(container.querySelectorAll('.dock-item')).toHaveLength(7)
+    // signed in: the eighth launcher joins, and the switch shows the view
+    const status = {
+      ...window.aiOffice,
+      accountStatus: async () => ({ loggedIn: true }),
+    } as unknown as Window['aiOffice']
+    await act(async () => root.unmount())
+    container.remove()
+    window.aiOffice = status
+    container = document.createElement('div')
+    document.body.append(container)
+    root = createRoot(container)
+    await act(async () =>
+      root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
+    )
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    expect(container.querySelectorAll('.dock-item')).toHaveLength(8)
+    await act(async () => DESKTOP().click())
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    // the cloud surface took over the stage: its sync/cache bridge answers
+    // and the view renders its body (the error card here — no network)
+    expect(container.querySelector('.cloud-rows, .proj-empty, .load-more')).toBeTruthy()
   })
 })

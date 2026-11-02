@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DockNavIntent, HomeApi } from '../../shared/home-api'
 import type { DockOpenState } from '../../shared/home-api'
 import {
+  CloudGlyph,
   DockAskIcon,
   DockDesktopIcon,
   DockRecentIcon,
@@ -100,6 +101,7 @@ export function DockEntry(): React.JSX.Element {
     plugins: false,
     templates: false,
     ask: false,
+    loggedIn: false,
   })
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
@@ -267,6 +269,25 @@ export function DockEntry(): React.JSX.Element {
       },
     ],
     [
+      // the cloud launcher: the retired sidebar's one nav the dock did not
+      // carry — visible while the report says the account is signed in,
+      // its dot lit while the projects view is showing (view === 'cloud'),
+      // routed through the same nav intent the doc-mode nav items use
+      ...(dockOpen.loggedIn
+        ? [
+            {
+              id: 'dock:cloud',
+              label: t('navCloud'),
+              icon: <CloudGlyph />,
+              tile: 'cloud',
+              running: dockOpen.view === 'cloud',
+              menu: [
+                { label: t('navCloud'), onSelect: () => route({ kind: 'nav', view: 'cloud' }) },
+              ],
+              onSelect: () => route({ kind: 'nav', view: 'cloud' }),
+            } as DockItem,
+          ]
+        : []),
       {
         id: 'dock:settings',
         label: DESKTOP_STRINGS[lang].appSettings,

@@ -287,9 +287,11 @@ const DOCK_OVERLAY_MAX_SCALE = DOCK_MAX_SCALE_DEFAULT
 const DOCK_OVERLAY_TOOLTIP_ROOM = 28
 
 /**
- * The dock's item count — 3 nav + 3 launchers + the ask tail. Mirrors the
- * renderer's dock groups (Home's and the doc-mode entry's, which share the
- * composition); the overlay's pill math sizes the view from it.
+ * The dock's base item count — 3 nav + 3 launchers + the ask tail. Mirrors
+ * the renderer's dock groups (Home's and the doc-mode entry's, which share
+ * the composition); the overlay's pill math sizes the view from it. The
+ * logged-in cloud launcher is the count's one live addition — the shell
+ * feeds the overlay a getter that adds it (see TabManager's dockItemCount).
  */
 export const DOCK_ITEM_COUNT = 7
 

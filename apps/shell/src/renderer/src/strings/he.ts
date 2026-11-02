@@ -2,14 +2,9 @@ import type { Dict } from './zh'
 
 export const he: Dict = {
   ok: 'אישור',
-  addFolderRoot: 'הוספת תיקייה…',
-  removeFolderRoot: 'הסרה מהרשימה',
-  rootUnavailable: 'לא זמין',
   navRecent: 'אחרונים',
   navStarred: 'מועדפים',
   navAsk: 'שאל את ה-AI',
-  sidebarCollapse: 'קפל את סרגל הצד',
-  sidebarExpand: 'הרחב את סרגל הצד',
   dockLabel: 'Dock',
   dockMenuOpen: 'פתח',
   dockMenuClose: 'סגור לשונית',
@@ -164,7 +159,6 @@ export const he: Dict = {
   // Folders panel
   folders: 'תיקיות',
   newFolder: 'תיקייה חדשה',
-  newSubfolder: 'תת-תיקייה חדשה',
   untitledFolder: 'תיקייה ללא שם',
   folderType: 'תיקייה',
   moveToFolder: 'העברה לתיקייה…',
@@ -197,8 +191,6 @@ export const he: Dict = {
   conflictBodyMany: 'תיקיית היעד כבר מכילה {n} פריטים באותם שמות. מה לעשות?',
   conflictKeepBoth: 'לשמור את שניהם',
   conflictReplace: 'להחליף',
-  rootUnusable: 'מיקום השמירה המוגדר כברירת מחדל אינו זמין, ולכן לא ניתן להציג תיקיות.',
-  pickSaveDir: 'בחירת מיקום שמירה',
   deleteModalTitle: 'מחיקת קבצים',
   deleteConfirmOne: 'להעביר את "{name}" לאשפה?',
   deleteConfirmMany: 'להעביר את {n} הקבצים האלה לאשפה?',

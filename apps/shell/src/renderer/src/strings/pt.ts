@@ -2,14 +2,9 @@ import type { Dict } from './zh'
 
 export const pt: Dict = {
   ok: 'OK',
-  addFolderRoot: 'Adicionar pasta…',
-  removeFolderRoot: 'Remover da lista',
-  rootUnavailable: 'Indisponível',
   navRecent: 'Recentes',
   navStarred: 'Favoritos',
   navAsk: 'Perguntar à IA',
-  sidebarCollapse: 'Recolher a barra lateral',
-  sidebarExpand: 'Expandir a barra lateral',
   dockLabel: 'Dock',
   dockMenuOpen: 'Abrir',
   dockMenuClose: 'Fechar aba',
@@ -169,7 +164,6 @@ export const pt: Dict = {
   // Folders panel
   folders: 'Pastas',
   newFolder: 'Nova pasta',
-  newSubfolder: 'Nova subpasta',
   untitledFolder: 'Pasta sem título',
   folderType: 'Pasta',
   moveToFolder: 'Mover para pasta…',
@@ -203,9 +197,6 @@ export const pt: Dict = {
     'A pasta de destino já contém {n} itens com os mesmos nomes. O que deseja fazer?',
   conflictKeepBoth: 'Manter ambos',
   conflictReplace: 'Substituir',
-  rootUnusable:
-    'O local de salvamento padrão está indisponível, por isso as pastas não podem ser exibidas.',
-  pickSaveDir: 'Escolher local de salvamento',
   deleteModalTitle: 'Excluir arquivos',
   deleteConfirmOne: 'Mover "{name}" para a lixeira?',
   deleteConfirmMany: 'Mover estes {n} arquivos para a lixeira?',

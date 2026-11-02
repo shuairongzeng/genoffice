@@ -91,6 +91,13 @@ export interface ShellWindowDeps {
   userDataDir: () => string
   /** the interface scale the tab strip and the Windows caption band are sized from */
   uiScale: () => number
+  /**
+   * The dock's live item count (the cloud launcher joins the seven
+   * always-there items once the account is signed in — the state the
+   * cached open-target report holds): the overlay's rect is cut from it on
+   * every layout pass.
+   */
+  dockItemCount: () => number
   tabSleepEnabled: () => boolean
   /** the localized untitled-title for a fresh tab of that kind (registry keys resolve in index) */
   untitledTitle: (kind: TabKind) => string
@@ -199,6 +206,9 @@ export function createShellWindow(deps: ShellWindowDeps): void {
     // the magnification strength re-cut the doc-mode overlay's rect from
     // every sync, so a settings write re-fits the view on the next layout
     () => readDockPrefs(deps.appSettingsPath()),
+    // the dock's live composition: the logged-in cloud launcher widens the
+    // pill by one item, and the overlay's rect follows it every pass
+    deps.dockItemCount,
   )
   // The desktop's tab strip renders in the Home layer, so it gets the tab
   // state pushed (docs dirtiness resolved, detached editors flagged) instead

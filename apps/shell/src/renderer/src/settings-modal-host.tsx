@@ -5,16 +5,23 @@ import { SettingsModal } from './SettingsModal'
 import type { SettingsTarget } from './SettingsModal'
 import { skillUpdateDue } from './IntegrationsPane'
 
-// ── Account entry (bottom-left) ──────────────────────────
-// Currently the Genspark (gsk) login entry; to be upgraded to a signup/account system later.
-// Clicking it opens the settings modal directly (SettingsModal.tsx), which hosts
-// login/logout plus preferences (language, theme, save location, update channel).
+// ── the settings modal's host ────────────────────────────
+// The retired sidebar's account entry owned the modal; the modal outlived it.
+// This host keeps that half: it opens on every existing opener (the dock's
+// 设置中心 launcher, the ask panel's scope CTA, deep links through Home's
+// settingsRequest), reports its live state up (the dock's running dots and
+// the doc-mode open-target report), and carries the Genspark login
+// machinery the modal's account section needs — the polling, the device-code
+// rescue, the logout guard. The account ROW is gone with the sidebar: the
+// login surface is the modal's own account section, and while a device-code
+// login runs with the modal closed, the rescue hint floats at the window's
+// bottom-left (the dock is centered; the corner is free).
 
 const LOGIN_POLL_MS = 2500
 /** fallback deadline when the CLI does not report expires_in (device codes live ~300s) */
 const LOGIN_MAX_WAIT_MS = 300_000
 
-export function AccountEntry({
+export function SettingsModalHost({
   onStatusChange,
   onFileSearchSettingsChange,
   openRequest,
@@ -46,7 +53,9 @@ export function AccountEntry({
   const [waiting, setWaiting] = useState(false)
   // incremented on login retry, resetting the polling timer
   const [loginNonce, setLoginNonce] = useState(0)
-  const [loginError, setLoginError] = useState<
+  // the login failure kind (its text fed the retired account row; the
+  // state stays so the polling's transitions keep one shape)
+  const [, setLoginError] = useState<
     'timeout' | 'launch' | 'network' | 'expired' | 'failed' | null
   >(null)
   // auth URL reported by the login CLI — rescue entry when the browser did not open
@@ -128,19 +137,6 @@ export function AccountEntry({
     return () => clearInterval(timer)
   }, [waiting, loginNonce])
 
-  const loggedIn = status?.loggedIn ?? false
-  const email = status?.email ?? ''
-  const initial = email ? email[0].toUpperCase() : loggedIn ? 'G' : '?'
-  const errorText = loginError
-    ? {
-        timeout: t('loginTimeout'),
-        launch: t('loginLaunchFailed'),
-        network: t('loginNetworkError'),
-        expired: t('loginExpired'),
-        failed: t('loginFailed'),
-      }[loginError]
-    : null
-
   const doLogout = () => {
     setLoggingOut(true)
     statusSeq.current++
@@ -187,7 +183,6 @@ export function AccountEntry({
     setTarget(to)
     setSettingsOpen(true)
   }, [])
-  const handleClick = () => openSettings(null)
   useEffect(() => {
     if (openRequest) openSettings(openRequest)
   }, [openRequest, openSettings])
@@ -205,7 +200,7 @@ export function AccountEntry({
   }, [settingsOpen, onOpenChange])
 
   return (
-    <div className="account-entry">
+    <>
       {settingsOpen && (
         <SettingsModal
           status={status}
@@ -229,7 +224,7 @@ export function AccountEntry({
         />
       )}
       {!settingsOpen && waiting && authUrl && (
-        <div className="login-hint" role="status">
+        <div className="login-hint login-hint-floating" role="status">
           <button className="login-hint-open" onClick={openLoginUrl}>
             {t('loginOpenShort')}
           </button>
@@ -274,81 +269,6 @@ export function AccountEntry({
           </button>
         </div>
       )}
-      <button
-        className="account-btn"
-        onClick={handleClick}
-        aria-haspopup="dialog"
-        aria-expanded={settingsOpen}
-        data-tip={
-          loggedIn
-            ? email || t('loggedInGenspark')
-            : waiting
-              ? t('waitingLogin')
-              : (errorText ?? t('loginGenspark'))
-        }
-        aria-label={t('settings')}
-      >
-        <span
-          className={`account-avatar${loggedIn ? ' logged-in' : ''}${waiting ? ' waiting' : ''}`}
-        >
-          {waiting ? (
-            <svg
-              className="account-spinner"
-              width="14"
-              height="14"
-              viewBox="0 0 16 16"
-              aria-hidden="true"
-            >
-              <circle
-                cx="8"
-                cy="8"
-                r="6"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                fill="none"
-                strokeDasharray="26"
-                strokeDashoffset="18"
-                strokeLinecap="round"
-              />
-            </svg>
-          ) : (
-            initial
-          )}
-          {skillUpdate && (
-            <span className="account-badge" role="img" aria-label={t('intgUpdateDue')} />
-          )}
-        </span>
-        <span className="account-text">
-          <span className="account-name">
-            {loggedIn
-              ? email
-                ? email.split('@')[0]
-                : t('loggedIn')
-              : waiting
-                ? t('waitingShort')
-                : t('login')}
-          </span>
-          {!loggedIn && !waiting && errorText && (
-            <span className="account-sub error">{errorText}</span>
-          )}
-        </span>
-        <svg
-          className="account-chevron"
-          width="14"
-          height="14"
-          viewBox="0 0 16 16"
-          fill="none"
-          aria-hidden="true"
-        >
-          <path
-            d="M5 6.2 8 3.4l3 2.8M5 9.8l3 2.8 3-2.8"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-    </div>
+    </>
   )
 }

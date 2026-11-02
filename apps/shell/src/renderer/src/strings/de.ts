@@ -2,15 +2,10 @@ import type { Dict } from './zh'
 
 export const de: Dict = {
   ok: 'OK',
-  addFolderRoot: 'Ordner hinzufügen…',
-  removeFolderRoot: 'Aus der Liste entfernen',
-  rootUnavailable: 'Nicht verfügbar',
   // Sidebar navigation
   navRecent: 'Zuletzt verwendet',
   navStarred: 'Favoriten',
   navAsk: 'KI fragen',
-  sidebarCollapse: 'Seitenleiste einklappen',
-  sidebarExpand: 'Seitenleiste ausklappen',
   dockLabel: 'Dock',
   dockMenuOpen: 'Öffnen',
   dockMenuClose: 'Tab schließen',
@@ -177,7 +172,6 @@ export const de: Dict = {
   // Folders panel
   folders: 'Ordner',
   newFolder: 'Neuer Ordner',
-  newSubfolder: 'Neuer Unterordner',
   untitledFolder: 'Unbenannter Ordner',
   folderType: 'Ordner',
   moveToFolder: 'In Ordner verschieben…',
@@ -211,9 +205,6 @@ export const de: Dict = {
     'Der Zielordner enthält bereits {n} gleichnamige Elemente. Wie möchten Sie fortfahren?',
   conflictKeepBoth: 'Beide behalten',
   conflictReplace: 'Ersetzen',
-  rootUnusable:
-    'Der Standard-Speicherort ist nicht verfügbar, daher können keine Ordner angezeigt werden.',
-  pickSaveDir: 'Speicherort wählen',
   // Delete confirmation dialog
   deleteModalTitle: 'Dateien löschen',
   deleteConfirmOne: '„{name}“ in den Papierkorb verschieben?',

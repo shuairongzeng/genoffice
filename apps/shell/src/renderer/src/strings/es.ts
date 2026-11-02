@@ -2,15 +2,10 @@ import type { Dict } from './zh'
 
 export const es: Dict = {
   ok: 'Aceptar',
-  addFolderRoot: 'Añadir carpeta…',
-  removeFolderRoot: 'Quitar de la lista',
-  rootUnavailable: 'No disponible',
   // Sidebar navigation
   navRecent: 'Recientes',
   navStarred: 'Destacados',
   navAsk: 'Preguntar a la IA',
-  sidebarCollapse: 'Contraer la barra lateral',
-  sidebarExpand: 'Expandir la barra lateral',
   dockLabel: 'Dock',
   dockMenuOpen: 'Abrir',
   dockMenuClose: 'Cerrar pestaña',
@@ -177,7 +172,6 @@ export const es: Dict = {
   // Folders panel
   folders: 'Carpetas',
   newFolder: 'Nueva carpeta',
-  newSubfolder: 'Nueva subcarpeta',
   untitledFolder: 'Carpeta sin título',
   folderType: 'Carpeta',
   moveToFolder: 'Mover a carpeta…',
@@ -211,9 +205,6 @@ export const es: Dict = {
     'La carpeta de destino ya contiene {n} elementos con el mismo nombre. ¿Qué quieres hacer?',
   conflictKeepBoth: 'Conservar ambos',
   conflictReplace: 'Reemplazar',
-  rootUnusable:
-    'La ubicación de guardado predeterminada no está disponible, así que no se pueden mostrar las carpetas.',
-  pickSaveDir: 'Elegir ubicación de guardado',
   // Delete confirmation dialog
   deleteModalTitle: 'Eliminar archivos',
   deleteConfirmOne: '¿Mover "{name}" a la papelera?',

@@ -295,10 +295,10 @@
 
 /* Home mounts this node at its root while the desktop view is active; the
  * DesktopView portals its .desktop-backdrop in here, so the wallpaper (and
- * the aurora behind it) covers the whole window — sidebar included — while
- * every fixed-position surface (menus, the settings modal, the command
- * palette) still stacks above it. z-index 0 keeps it under the sidebar (2)
- * and the glass pane (1); pointer-events none keeps it pure scenery. */
+ * the aurora behind it) covers the whole window while every fixed-position
+ * surface (menus, the settings modal, the command palette) still stacks
+ * above it. z-index 0 keeps it under the stage; pointer-events none keeps
+ * it pure scenery. */
 .home.desktop-mode {
   position: relative;
 }
@@ -309,31 +309,6 @@
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
-}
-
-/* the sidebar's glass pane in desktop mode. A sibling *under* the sidebar,
- * never a property of it: backdrop-filter would make the sidebar a
- * containing block for its fixed-positioned folder menus (offset by the
- * sidebar's own box), while the sibling blurs exactly the wallpaper both
- * share a parent with. */
-.home.desktop-mode .sidebar-glass {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  /* the sidebar's own width (home.css) */
-  width: 232px;
-  z-index: 1;
-  pointer-events: none;
-  background: color-mix(in srgb, var(--surface) 62%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(1.35);
-  backdrop-filter: blur(16px) saturate(1.35);
-}
-
-.home.desktop-mode .sidebar {
-  position: relative;
-  z-index: 2;
-  border-right-color: color-mix(in srgb, var(--border) 55%, transparent);
 }
 
 /* ── backdrop layers ──────────────────────────────────── */

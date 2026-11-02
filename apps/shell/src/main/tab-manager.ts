@@ -231,6 +231,14 @@ export class TabManager {
      * re-fits the drawer.
      */
     private readonly dockPrefs: () => DockPrefs = () => normalizeDockPrefs(undefined),
+    /**
+     * The dock's live item count: the pill's composition decides the
+     * overlay's rect width. A getter rather than a constant because the
+     * composition is state the shell holds (today: the logged-in cloud
+     * launcher joining the seven always-there items); the default stands
+     * for hosts (tests) that do not model the gate.
+     */
+    private readonly dockItemCount: () => number = () => DOCK_ITEM_COUNT,
   ) {
     // Layout once synchronously for macOS/Windows (bounds are already correct),
     // then once more on the next tick. On Linux/X11, `resize` fires before the
@@ -492,7 +500,7 @@ export class TabManager {
       suppressed: this.drawerOverlaySuppressed(),
       scale: this.uiScale(),
       window: { width, height },
-      itemCount: DOCK_ITEM_COUNT,
+      itemCount: this.dockItemCount(),
       separatorCount: DOCK_SEPARATOR_COUNT,
       // the pill's live shape: the icon-size and strength sliders (设置 ▸
       // 程序坞) size both the pill the entry renders and the rect cut here

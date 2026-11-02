@@ -2,15 +2,10 @@ import type { Dict } from './zh'
 
 export const ja: Dict = {
   ok: 'OK',
-  addFolderRoot: 'フォルダーを追加…',
-  removeFolderRoot: 'リストから削除',
-  rootUnavailable: '利用不可',
   // Sidebar navigation
   navRecent: '最近使用',
   navStarred: 'お気に入り',
   navAsk: 'AIに質問',
-  sidebarCollapse: 'サイドバーを折りたたむ',
-  sidebarExpand: 'サイドバーを展開',
   dockLabel: 'Dock',
   dockMenuOpen: '開く',
   dockMenuClose: 'タブを閉じる',
@@ -174,7 +169,6 @@ export const ja: Dict = {
   // Folders panel
   folders: 'フォルダー',
   newFolder: '新しいフォルダー',
-  newSubfolder: 'サブフォルダーを作成',
   untitledFolder: '名称未設定フォルダー',
   folderType: 'フォルダー',
   moveToFolder: 'フォルダーに移動…',
@@ -207,8 +201,6 @@ export const ja: Dict = {
   conflictBodyMany: '移動先には同じ名前の項目が {n} 件あります。どうしますか？',
   conflictKeepBoth: '両方を残す',
   conflictReplace: '置き換える',
-  rootUnusable: '既定の保存先が利用できないため、フォルダーを表示できません。',
-  pickSaveDir: '保存先を選び直す',
   // Delete confirmation dialog
   deleteModalTitle: 'ファイルの削除',
   deleteConfirmOne: '「{name}」をゴミ箱に移動しますか？',

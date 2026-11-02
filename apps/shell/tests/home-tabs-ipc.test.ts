@@ -550,6 +550,7 @@ describe('registerHomeWorkbenchIpc', () => {
       plugins: false,
       templates: false,
       ask: false,
+      loggedIn: true,
     }
 
     it('routes a validated report to the cache-and-push dep, sender attached', () => {
@@ -755,7 +756,11 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
       { kind: 'nav', view: 'cloud' },
       { kind: 'settings' },
       { kind: 'settings', section: 'account' },
+      { kind: 'nav', view: 'cloud', extra: 'not allowed to matter' },
     ]) {
+      // (the cloud view validates now — it rides the nav intent — so it is
+      // exercised in its own test below, not dropped here)
+      if (bad && (bad as { kind: string; view?: string }).view === 'cloud') continue
       invoke('home:dock-action', bad)
     }
     expect(dockNavAction).not.toHaveBeenCalled()
