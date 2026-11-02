@@ -68,6 +68,23 @@ export type {
   BrowserTabSnapshot,
 } from './browser-skill'
 export {
+  MAX_SHELL_PATH_CHARS,
+  MAX_SHELL_TAB_ID_CHARS,
+  MAX_SHELL_URL_CHARS,
+  MAX_SURFACE_PATH_CHARS,
+  MAX_SURFACE_TABS,
+  MAX_SURFACE_TITLE_CHARS,
+  MAX_SURFACE_URL_CHARS,
+  SHELL_LIST_TABS_TOOL,
+  SHELL_NAVIGATE_TOOL,
+  SHELL_OPEN_BROWSER_TOOL,
+  SHELL_OPEN_PATH_TOOL,
+  SHELL_SWITCH_TAB_TOOL,
+  createShellSkill,
+  formatSurfaceSection,
+} from './shell-skill'
+export type { ShellSkillDeps, SurfaceTab, SurfaceViewer } from './shell-skill'
+export {
   createAttachmentsSkill,
   ATTACHMENT_IMAGE_EXTS,
   ATTACHMENT_READ_CHUNK_CHARS,

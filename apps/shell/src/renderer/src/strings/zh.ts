@@ -26,6 +26,8 @@ export const zh = {
   askToolCreate: '生成文档',
   askToolCli: '构建文件',
   askToolBrowser: '正在操作网页',
+
+  askToolShell: '正在操作桌面',
   askBrowserNote: '网页标注',
   askBrowserNoteClear: '移除网页标注',
   askBrowserNoteDraft: '关于网页 {url} 上标注的内容「{content}」：',

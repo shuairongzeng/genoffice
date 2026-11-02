@@ -248,6 +248,52 @@ export async function notIndexedPaths(
   return paths.filter((_, i) => !indexed[i])
 }
 
+/**
+ * The shell operator open_path gate: the kb:read verdicts applied to the one
+ * path the tool was asked to open. The request itself stands in for a round
+ * scope (the path is the selection), so the verdict is the corpus's — starred,
+ * indexed, or under the folders scope's roots — and, off-corpus, the location
+ * whitelist a desktop selection can genuinely come from (a folder root, a
+ * desktop alias, a recent, a star) with a supported office type on disk. The
+ * agent cannot open an arbitrary absolute path the desktop never surfaced;
+ * the caller re-runs this on the realpath so a symlink cannot smuggle an
+ * out-of-scope target past the location verdict.
+ */
+export async function kbOpenPathAllows(
+  path: string,
+  sources: {
+    /** async index membership; false when the index is unavailable */
+    indexHas: (path: string) => boolean | Promise<boolean>
+    starred: readonly string[]
+    recents: readonly string[]
+    aliases: readonly string[]
+    insideAnyRoot: (path: string) => boolean
+    scope: KbScope
+    scopeFolders: readonly string[]
+    statFile: (path: string) => { isFile: () => boolean } | null
+  },
+): Promise<boolean> {
+  const starred = sources.starred.includes(path)
+  const indexed = await Promise.resolve(sources.indexHas(path)).catch(() => false)
+  const inCorpus =
+    sources.scope === 'starred'
+      ? starred
+      : sources.scope === 'folders'
+        ? isUnderAnyRoot(path, sources.scopeFolders) && (starred || indexed)
+        : starred || indexed
+  const locationAllowed =
+    sources.insideAnyRoot(path) ||
+    sources.aliases.includes(path) ||
+    sources.recents.includes(path) ||
+    starred
+  return kbReadAllows(path, {
+    inCorpus,
+    scopePaths: [path],
+    locationAllowed,
+    statFile: sources.statFile,
+  })
+}
+
 /** one corpus entry as the AI (and the panel) sees it */
 export interface KbFile {
   /** absolute path — also the citation target (filenav:///abs/path) */

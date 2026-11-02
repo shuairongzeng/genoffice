@@ -26,6 +26,8 @@ export const en: Dict = {
   askToolCreate: 'Creating a document',
   askToolCli: 'Building a file',
   askToolBrowser: 'Working on the web page',
+
+  askToolShell: 'Operating the desktop',
   askBrowserNote: 'Web annotation',
   askBrowserNoteClear: 'Remove the web annotation',
   askBrowserNoteDraft: 'About the annotation "{content}" on {url}: ',

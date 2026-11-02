@@ -15,6 +15,7 @@ import {
   createIpcTransport,
   createKnowledgeBaseSkill,
   createProxiedAppsSkill,
+  createShellSkill,
   RUN_GENOFFICE_TOOL,
   skillContextVars,
   withAttachedSkills,
@@ -31,6 +32,7 @@ import {
   type KbFileInfo,
   type KbSearchHit,
   type ProxiedAppManifest,
+  type SurfaceTab,
 } from '@genoffice/agent-core'
 import {
   AI_CONFIRM_LABELS,
@@ -167,6 +169,7 @@ const TOOL_NOTE_LABEL = {
   create: 'askToolCreate',
   cli: 'askToolCli',
   browser: 'askToolBrowser',
+  shell: 'askToolShell',
 } as const
 
 /** Collapsible thinking block for one answer: open while the run streams,
@@ -619,6 +622,7 @@ export function KbAskPanel({
   onPendingQueryConsumed,
   focusSignal,
   onEscapeCollapse,
+  surfaceRole = 'home',
 }: {
   /**
    * The transcript this mount owns (P0-1): project-store takes the id
@@ -648,6 +652,13 @@ export function KbAskPanel({
    * in Home's mount, where AiDock owns the Esc key itself.
    */
   onEscapeCollapse?: () => void
+  /**
+   * Which mount's copy this panel is (the surface context's visibility line
+   * differs): 'home' — the docked drawer beside the Home desktop — or
+   * 'overlay' — the floating drawer over the document/browser tab the person
+   * is actually looking at (panel-entry.tsx). Defaults to Home's.
+   */
+  surfaceRole?: 'home' | 'overlay'
 }): React.JSX.Element {
   const { t, lang } = useI18n()
   // the in-app replacement for the native confirm on thread delete (and any
@@ -724,6 +735,28 @@ export function KbAskPanel({
    * flips the browser tools in and out without rebuilding the loop.
    */
   const browserTabsRef = useRef<BrowserTabSnapshot[]>([])
+  /**
+   * The surface context the agent loop's "current surface" prompt section is
+   * built from: every open tab with its url/filePath, pulled over
+   * `home:surface-tabs` (main composes the strip, the detached windows and
+   * the browser pages' URLs — one truth the shell operator tools read too).
+   * Refreshed on mount, on every tab change, and awaited before every send —
+   * the loop re-reads the composed prompt before each model request, so the
+   * section follows the surface without rebuilding anything.
+   */
+  const surfaceTabsRef = useRef<readonly SurfaceTab[] | null>(null)
+  const refreshSurfaceTabs = (): Promise<void> => {
+    const pull = window.aiOffice.getSurfaceTabs?.()
+    if (!pull) return Promise.resolve()
+    return pull
+      .then((tabs: readonly SurfaceTab[]) => {
+        surfaceTabsRef.current = tabs
+      })
+      .catch(() => {
+        // a failed pull keeps the last snapshot: the section degrades to the
+        // last known surface, never to a wrong one
+      })
+  }
   const refreshBrowserTabs = (): void => {
     if (typeof window.aiOfficeTabs?.list !== 'function') return
     void window.aiOfficeTabs
@@ -1155,11 +1188,14 @@ export function KbAskPanel({
     // the desktop loop's first manifest snapshot; tab changes re-pull so the
     // read tools follow what is actually open (sends refresh it again too)
     refreshAppManifest()
-    // the browser skill's gate starts from the same tab list snapshot
+    // the browser skill's gate starts from the same tab list snapshot; the
+    // surface context starts from its own pull (the loop's prompt reads it)
     refreshBrowserTabs()
+    void refreshSurfaceTabs()
     const offTabsChanged = window.aiOfficeTabs?.onChanged(() => {
       refreshAppManifest()
       refreshBrowserTabs()
+      void refreshSurfaceTabs()
     })
     refreshSettings()
     void window.aiOffice
@@ -1218,6 +1254,31 @@ export function KbAskPanel({
       clickElement: (selector) =>
         browserBridgeCall(BROWSER_CLICK_TOOL, { selector }) as Promise<BrowserActionResult>,
     })
+    // the shell operator skill: the surface context (live, per send) plus the
+    // desktop's own actions — open a browser tab, navigate the active one,
+    // list/switch tabs, open a local file. UNGATED by design (the reasoning
+    // lives in the skill's prompt); the executor rides the same agent channel
+    // the browser skill uses, so the main-side sender gate covers it. The
+    // open_browser callback seeds the browser skill's live gate the moment a
+    // tab exists — the model's next call is usually a read of the page it
+    // just opened, and that read must not degrade to "no browser tab"
+    const shellSkill = createShellSkill({
+      surfaceTabs: () => surfaceTabsRef.current,
+      viewer: surfaceRole,
+      execute: (tool, input) => browserBridgeCall(tool, input),
+      onBrowserTabOpened: (tabId) => {
+        if (!browserTabsRef.current.some((tab) => tab.id === tabId)) {
+          browserTabsRef.current = [
+            ...browserTabsRef.current,
+            { id: tabId, title: '', active: true },
+          ]
+        }
+        refreshBrowserTabs()
+        // the surface section re-reads the ref per model request: pull now so
+        // the very next turn already describes the tab this one opened
+        void refreshSurfaceTabs()
+      },
+    })
     loopRef.current = new AgentLoop({
       transport: createIpcTransport<AiSettings>({
         onStream: (listener) => window.aiOffice.onAiStream(listener),
@@ -1255,6 +1316,7 @@ export function KbAskPanel({
         cliSkill,
         appSkill,
         browserSkill,
+        shellSkill,
       ]),
       events: {
         onText: (text) => patchLast({ text }),
@@ -1559,6 +1621,10 @@ export function KbAskPanel({
     // a browser tab opened mid-conversation flips the browser tools in on the
     // next model request: the snapshot must be as fresh as the manifest's
     refreshBrowserTabs()
+    // the surface context rides this send: the pull is awaited below (with
+    // the corpus and the images) so the loop's very first model request
+    // already reads the surface as it is now, not as the last send saw it
+    const surfaceFresh = refreshSurfaceTabs()
     // the parked annotation question is answered by this send: the card goes,
     // with it the scaffold (the question text itself already carries the
     // content and the evidence line). The note's pin-time shot survives the
@@ -1643,6 +1709,9 @@ export function KbAskPanel({
         withSkillBodies(instruction, skills),
         collectImages(files),
         readNoteImage(),
+        // the surface pull lands before the run starts: the loop re-reads the
+        // composed prompt per model request, and the first one follows this
+        surfaceFresh,
       ])
       if (askSeqRef.current !== seq) return
       const handle = loopRef.current!.run(text, noteImage ? [...images, noteImage] : images)

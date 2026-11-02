@@ -28,6 +28,8 @@ export const ar: Dict = {
   askToolCreate: 'جارٍ إنشاء مستند',
   askToolCli: 'جارٍ إنشاء ملف',
   askToolBrowser: 'التعامل مع صفحة الويب',
+
+  askToolShell: 'جارٍ التحكم بسطح المكتب',
   askBrowserNote: 'تعليق الويب',
   askBrowserNoteClear: 'إزالة تعليق الويب',
   askBrowserNoteDraft: 'بخصوص التعليق "{content}" على {url}: ',

@@ -27,6 +27,8 @@ export const he: Dict = {
   askToolCreate: 'יוצר מסמך',
   askToolCli: 'יוצר קובץ',
   askToolBrowser: 'פועל בדף האינטרנט',
+
+  askToolShell: 'מפעיל את שולחן העבודה',
   askBrowserNote: 'הערת דף אינטרנט',
   askBrowserNoteClear: 'הסרת הערת דף האינטרנט',
   askBrowserNoteDraft: 'לגבי ההערה "{content}" ב-{url}: ',

@@ -28,6 +28,8 @@ export const it: Dict = {
   askToolCreate: 'Creazione di un documento',
   askToolCli: 'Creazione di un file',
   askToolBrowser: 'Azione sulla pagina web',
+
+  askToolShell: 'Sto operando sul desktop',
   askBrowserNote: 'Annotazione web',
   askBrowserNoteClear: 'Rimuovi l’annotazione web',
   askBrowserNoteDraft: 'Riguardo all’annotazione "{content}" su {url}: ',

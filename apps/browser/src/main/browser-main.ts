@@ -551,11 +551,29 @@ export function teardownBrowserTab(contents: WebContents): void {
 
 // ── actions the shell can drive from outside IPC (window-lifecycle) ────────
 
-/** load a resolved URL into the tab's page view (target=_blank's new tab) */
-export function browserNavigate(contents: WebContents, url: string): void {
+/**
+ * load a resolved URL into the tab's page view (target=_blank's new tab).
+ * Returns the load's commit promise: it resolves when the page finished
+ * loading (did-finish-load) and rejects when the load failed
+ * (did-fail-load) — the agent's navigate reports that outcome instead of
+ * pretending the address alone means the page arrived. A tab with no live
+ * page resolves at once.
+ */
+export function browserNavigate(contents: WebContents, url: string): Promise<void> {
   const tab = tabs.get(contents.id)
-  if (!tab || tab.page.webContents.isDestroyed()) return
-  void tab.page.webContents.loadURL(url)
+  if (!tab || tab.page.webContents.isDestroyed()) return Promise.resolve()
+  return tab.page.webContents.loadURL(url)
+}
+
+/**
+ * The tab's page URL (empty while the tab has no page yet or is gone). The
+ * dock's agent tooling reads it through the app-registry's sibling import in
+ * the shell (browser-agent.ts) — the chrome webContents is the handle both
+ * sides already share.
+ */
+export function browserTabUrlOf(chrome: WebContents): string {
+  const tab = tabs.get(chrome.id)
+  return tab && !tab.page.webContents.isDestroyed() ? tab.page.webContents.getURL() : ''
 }
 
 /**

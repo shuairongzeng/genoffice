@@ -162,6 +162,28 @@ export interface McpStatus {
   error?: string
 }
 
+/**
+ * One open tab as the surface context reports it (`home:surface-tabs`): the
+ * shell strip's tabs and the detached editor windows both satisfy it. The
+ * agent loop's "current surface" prompt section is built from this — the
+ * model learns which tab the person is looking at, which document is open,
+ * and what else a `shell:switch_tab` away (agent-core's SurfaceTab is the
+ * structural twin this answer feeds).
+ */
+export interface SurfaceTabInfo {
+  id: string
+  /** the tab's app family ('home' | 'browser' | 'docs' | … | 'help') */
+  kind: string
+  title: string
+  active: boolean
+  /** browser tabs: the page's current URL */
+  url?: string
+  /** document tabs: the absolute path behind the tab (absent while untitled) */
+  filePath?: string
+  /** the tab lives in its own OS window (a detached editor) */
+  detached?: boolean
+}
+
 /** a recent file entry shown on the home screen; type derives from the extension */
 export interface RecentEntry {
   path: string
@@ -787,6 +809,16 @@ export interface HomeApi {
   /** main's cached open-target report (or the all-closed default) for a mount-time pull */
   takeDockOpen?(): Promise<DockOpenState>
   /**
+   * The live surface context (`home:surface-tabs`): every open tab with its
+   * kind, title, active flag, and — for browser tabs the page's URL, for
+   * document tabs the file path. The panels pull this per send (and follow the
+   * tabs push where the mount hears it) to feed the agent loop's
+   * "current surface" prompt section, so the model knows which tab the person
+   * is looking at. Callable from both panel mounts — the shell renderer and
+   * the drawer overlay's standalone copy (the shell preload is shared).
+   */
+  getSurfaceTabs?(): Promise<readonly SurfaceTabInfo[]>
+  /**
    * Tell main this surface's panel finished booting and its subscriptions are
    * armed (`home:ask-panel-ready`): the native overlay's standalone mount is
    * the caller today, and only then does main flush the messages it buffered
@@ -1327,6 +1359,10 @@ export const HOME_CHANNELS = {
    *  to the overlay's panel copy (the shell renderer already received the
    *  original browser:ask-about) */
   browserAskAboutForward: 'home:browser-ask-about-forward',
+  /** renderer → main: pull the live surface context (the tabs with their
+   *  urls/paths) — both panel mounts call this per send; the prompt section it
+   *  feeds is refreshed live with it */
+  surfaceTabs: 'home:surface-tabs',
   /** renderer → main: the overlay view's panel copy finished booting — its
    *  subscriptions (home:ask-forwarded, browser:ask-about) are armed, so the
    *  messages main buffered for it may flush (see the ready handshake,

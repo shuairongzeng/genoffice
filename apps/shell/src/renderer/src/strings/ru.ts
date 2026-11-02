@@ -29,6 +29,8 @@ export const ru: Dict = {
   askToolCreate: 'Создание документа',
   askToolCli: 'Создание файла',
   askToolBrowser: 'Действие на веб-странице',
+
+  askToolShell: 'Действие на рабочем столе',
   askBrowserNote: 'Веб-аннотация',
   askBrowserNoteClear: 'Удалить веб-аннотацию',
   askBrowserNoteDraft: 'Об аннотации «{content}» на {url}: ',

@@ -27,6 +27,8 @@ export const th: Dict = {
   askToolCreate: 'กำลังสร้างเอกสาร',
   askToolCli: 'กำลังสร้างไฟล์',
   askToolBrowser: 'กำลังจัดการหน้าเว็บ',
+
+  askToolShell: 'กำลังควบคุมเดสก์ท็อป',
   askBrowserNote: 'คำอธิบายประกอบหน้าเว็บ',
   askBrowserNoteClear: 'ลบคำอธิบายประกอบหน้าเว็บ',
   askBrowserNoteDraft: 'เกี่ยวกับคำอธิบายประกอบ "{content}" บน {url}: ',

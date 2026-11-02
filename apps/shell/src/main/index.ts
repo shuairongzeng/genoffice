@@ -237,6 +237,11 @@ import {
   uniquePathIn,
   unmarkSheetsUnsavedNew,
 } from './app-registry'
+// the browser app's main module, imported directly (the same resolved file
+// browser-agent and the registry both link): the shell operator tools need
+// its navigation entry and the tab's page-URL getter, and the registry's
+// re-export table stays untouched
+import * as browserModule from '../../../browser/src/main/browser-main'
 import {
   applyMcpSettings,
   clearMcpLogs,
@@ -257,6 +262,8 @@ import { createSheetsControl, installSheetsBridge } from './mcp/sheets-bridge'
 import { createOpenDocumentsControl, createOpenTargetResolver } from './mcp/open-documents-bridge'
 import { registerAppSkillIpc } from './mcp/app-skill-proxy'
 import { registerBrowserSkillIpc } from './browser-agent'
+import { collectSurfaceTabs, urlOfWith, type SurfaceContextDeps } from './surface-context'
+import { kbOpenPathAllows, normalizeKbScope, normalizeKbScopeFolders } from './knowledge-base'
 import type { BrowserPageActionConfirm } from './browser-agent'
 import { convertPdfFileToDocxLocalWithPrompt, PdfLoadError } from './pdf2docx-local'
 import { convertPdfFileToPptxLocalWithPrompt } from './pdf2pptx-local'
@@ -6132,6 +6139,43 @@ registerHomeTabsIpc({
   activateDetachedTab: activateDetached,
   closeDetachedTab: requestDetachedClose,
 })
+// the surface context's one source, shared by the home:surface-tabs channel
+// and the shell operator tools' list_tabs (one truth for both): the shell
+// strip's tabs, then the detached editor windows. The detached enumeration is
+// the lean one — no per-window dirty query, a round trip every window answers
+// over IPC that the surface reads none of, and this pull rides every send.
+const surfaceTabsSource = (): SurfaceContextDeps => ({
+  listTabs: async () => [
+    ...(tabManager?.list() ?? []).map((tab) => ({
+      id: tab.id,
+      kind: tab.kind,
+      title: tab.title,
+      active: tab.active,
+      ...(tab.filePath !== undefined ? { filePath: tab.filePath } : {}),
+    })),
+    ...(await detachedOpenDocuments({ dirty: false })).map((doc) => ({
+      id: doc.id,
+      kind: doc.kind,
+      title: doc.title,
+      active: doc.active,
+      ...(doc.filePath !== undefined ? { filePath: doc.filePath } : {}),
+      detached: true,
+    })),
+  ],
+  urlOf: urlOfWith(
+    (tabId) => tabManager?.webContentsForTab(tabId) ?? detachedWebContentsFor(tabId),
+    (chrome) => browserModule.browserTabUrlOf(chrome),
+  ),
+})
+// the surface context (`home:surface-tabs`): both panel mounts pull this
+// before every send to feed the agent loop's "current surface" prompt
+// section. No sender gate here, on purpose: the channel only answers the open
+// tabs' titles, paths and URLs — rows the desktop's own tab strips already
+// render to whoever is at the machine — and every webContents in this process
+// is the app's own code (the browser page views run sandboxed, without this
+// bridge). The channels that ACT (browserskill:execute) keep their panel
+// sender gate.
+ipcMain.handle(HOME_CHANNELS.surfaceTabs, () => collectSurfaceTabs(surfaceTabsSource()))
 // the workbench's dock and stage channels: the docked AI panel's prefs
 // (app-settings.json `aiDock`) and the renderer's measured content-stage rect
 // the dock-nav intent routed while Home's renderer was still mounting (its
@@ -6514,7 +6558,10 @@ app.whenReady().then(async () => {
   // risk:'high' fill/click calls were already gated by the dock's confirmTool
   // before they crossed this IPC, and the main-side gate below asks the person
   // once more with a native dialog — the dock's card is renderer state, this
-  // process's ask is not.
+  // process's ask is not. The same channel now also serves the shell operator
+  // tools (open_browser / navigate / list_tabs / switch_tab / open_path):
+  // user-instructed, visible, reversible acts the prompt grades as ungated,
+  // with the URL scheme gate (http/https only) enforced where the load runs.
   registerBrowserSkillIpc({
     listBrowserTabs: async () => [
       ...(await detachedOpenDocuments()).filter((doc) => doc.kind === 'browser'),
@@ -6522,6 +6569,49 @@ app.whenReady().then(async () => {
     ],
     webContentsFor: (tabId) =>
       tabManager?.webContentsForTab(tabId) ?? detachedWebContentsFor(tabId),
+    // the shell operator tools' deps: the tab strip's own operations, the
+    // surface enumeration (the same truth home:surface-tabs serves), the
+    // kb:read scope verdicts open_path consults, and the desktop's document
+    // router (a detached window showing the file is focused before a second
+    // copy ever opens)
+    openBrowserTab: (url) => {
+      const manager = tabManager
+      const id = manager ? manager.openBrowserTab() : ''
+      // fire-and-forget by design: the tool's answer is the tab id (the page
+      // settles behind it); the navigate tool is the one that awaits a load
+      if (manager && id && url !== undefined) {
+        const chrome = manager.webContentsForTab(id)
+        if (chrome && !chrome.isDestroyed()) void browserModule.browserNavigate(chrome, url)
+      }
+      return id
+    },
+    // a strip tab must come FORWARD when the model switches to it — the same
+    // reveal the home tabs-activate path does: an activation nobody can see
+    // would put the surface somewhere the person is not looking
+    activateTab: (id) => {
+      if (isDetachedTabId(id)) return activateDetached(id)
+      const ok = !!tabManager?.activateTab(id)
+      if (ok) revealShellWindow()
+      return ok
+    },
+    listSurfaceTabs: () => collectSurfaceTabs(surfaceTabsSource()),
+    // the open_path scope verdict: kb:read's corpus (starred / index / the
+    // folders scope's roots) plus the round-scope location whitelist (folder
+    // roots, desktop aliases, recents, stars) — an arbitrary absolute path
+    // the desktop never surfaced is refused (browser-agent re-runs this on
+    // the realpath, so a symlink cannot smuggle an out-of-scope target)
+    pathAllowed: (path) =>
+      kbOpenPathAllows(path, {
+        indexHas: (p) => fileIndexStore?.has(p) ?? false,
+        starred: readStarredFiles(),
+        recents: readRecentFiles(),
+        aliases: readDesktopLayout(app.getPath('userData')).aliases,
+        insideAnyRoot,
+        scope: normalizeKbScope(readAppSettings(APP_SETTINGS_PATH()).kbScope),
+        scopeFolders: normalizeKbScopeFolders(readAppSettings(APP_SETTINGS_PATH()).kbScopeFolders),
+        statFile: statMaybeFile,
+      }),
+    openPath: (path) => routeDocumentPath(path),
     // the senders the channel serves: the shell window's own renderer (the
     // dock's home) and the drawer overlay's panel copy — the standalone panel
     // a document tab leaves visible, whose AgentLoop calls the same tools and

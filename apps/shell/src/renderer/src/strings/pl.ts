@@ -27,6 +27,8 @@ export const pl: Dict = {
   askToolCreate: 'Tworzenie dokumentu',
   askToolCli: 'Tworzenie pliku',
   askToolBrowser: 'Działanie na stronie internetowej',
+
+  askToolShell: 'Działam na pulpicie',
   askBrowserNote: 'Adnotacja internetowa',
   askBrowserNoteClear: 'Usuń adnotację internetową',
   askBrowserNoteDraft: 'O adnotacji "{content}" na {url}: ',

@@ -29,6 +29,8 @@ export const id: Dict = {
   askToolCreate: 'Membuat dokumen',
   askToolCli: 'Membuat berkas',
   askToolBrowser: 'Mengerjakan halaman web',
+
+  askToolShell: 'Mengoperasikan desktop',
   askBrowserNote: 'Anotasi web',
   askBrowserNoteClear: 'Hapus anotasi web',
   askBrowserNoteDraft: 'Tentang anotasi "{content}" di {url}: ',

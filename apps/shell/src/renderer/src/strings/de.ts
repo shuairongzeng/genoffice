@@ -29,6 +29,8 @@ export const de: Dict = {
   askToolCreate: 'Dokument wird erstellt',
   askToolCli: 'Datei wird erstellt',
   askToolBrowser: 'Aktion auf der Webseite',
+
+  askToolShell: 'Bedient den Desktop',
   askBrowserNote: 'Web-Anmerkung',
   askBrowserNoteClear: 'Web-Anmerkung entfernen',
   askBrowserNoteDraft: 'Zur Anmerkung "{content}" auf {url}: ',

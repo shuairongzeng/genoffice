@@ -27,6 +27,8 @@ export const cs: Dict = {
   askToolCreate: 'Vytváření dokumentu',
   askToolCli: 'Vytváření souboru',
   askToolBrowser: 'Práce na webové stránce',
+
+  askToolShell: 'Ovládám plochu',
   askBrowserNote: 'Webová anotace',
   askBrowserNoteClear: 'Odebrat webovou anotaci',
   askBrowserNoteDraft: 'K anotaci "{content}" na {url}: ',

@@ -26,6 +26,8 @@ export const nl: Dict = {
   askToolCreate: 'Document wordt gemaakt',
   askToolCli: 'Bestand wordt gemaakt',
   askToolBrowser: 'Bezig met de webpagina',
+
+  askToolShell: 'Werkt op de desktop',
   askBrowserNote: 'Webannotatie',
   askBrowserNoteClear: 'Webannotatie verwijderen',
   askBrowserNoteDraft: 'Over de annotatie "{content}" op {url}: ',

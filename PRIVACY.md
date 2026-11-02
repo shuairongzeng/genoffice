@@ -1,10 +1,22 @@
 # GenOffice Privacy
 
-Last updated: August 26, 2026
+Last updated: November 2, 2026
 
 GenOffice opens, edits, and saves documents locally. Document editing does not
 upload files to GenOffice. AI features require a network connection and send
 requests only when you use them.
+
+## AI requests
+
+When you use an AI feature, the request sent to the configured AI provider
+includes your prompt plus the context the answer needs. The AI panel's system
+prompt carries a live "current surface" summary so answers can account for
+what you are looking at: the titles of your open tabs, the file paths of open
+documents, and the addresses of open browser tabs — the active browser tab's
+full address, background browser tabs contribute only their site name. Files
+you open with the AI panel's desktop tools are limited to the same scope the
+knowledge base reads (starred, recent, knowledge-folder, and indexed files).
+Avoiding the AI features keeps all of this on your machine.
 
 ## Usage analytics
 

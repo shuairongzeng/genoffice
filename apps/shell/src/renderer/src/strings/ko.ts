@@ -28,6 +28,8 @@ export const ko: Dict = {
   askToolCreate: '문서 생성 중',
   askToolCli: '파일 생성 중',
   askToolBrowser: '웹 페이지 작업 중',
+
+  askToolShell: '데스크톱 작업 중',
   askBrowserNote: '웹 주석',
   askBrowserNoteClear: '웹 주석 제거',
   askBrowserNoteDraft: '{url}의 주석 "{content}"에 대해: ',

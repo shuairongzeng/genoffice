@@ -28,6 +28,8 @@ export const hi: Dict = {
   askToolCreate: 'दस्तावेज़ बनाया जा रहा है',
   askToolCli: 'फ़ाइल बनाई जा रही है',
   askToolBrowser: 'वेब पेज पर कार्य कर रहा है',
+
+  askToolShell: 'डेस्कटॉप संचालित कर रहा है',
   askBrowserNote: 'वेब एनोटेशन',
   askBrowserNoteClear: 'वेब एनोटेशन हटाएँ',
   askBrowserNoteDraft: '{url} पर एनोटेशन "{content}" के बारे में: ',

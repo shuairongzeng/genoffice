@@ -225,6 +225,10 @@ export function AskPanelEntry(): React.JSX.Element | null {
       <div className="ask-panel-panel" hidden={dock.collapsed}>
         <KbAskPanel
           chatId={OVERLAY_CHAT_ID}
+          /* the surface context's visibility line: this copy floats over the
+             active document/browser tab — the person is looking at THAT, not
+             the Home desktop (the prompt section says so) */
+          surfaceRole="overlay"
           onOpenPath={(path) => void window.aiOffice.openPath(path)}
           /* this view has no list to switch: both CTAs raise the Home tab, where
              the list and the settings live — a section-specific handoff is a

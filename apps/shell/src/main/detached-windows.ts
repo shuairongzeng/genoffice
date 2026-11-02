@@ -605,12 +605,21 @@ async function confirmDetachedClose(rec: DetachedRecord): Promise<boolean> {
   return (await appForKind(rec.kind)?.requestClose(rec.view.webContents, rec.window)) ?? true
 }
 
-/** the detached editors in the same shape as TabManager.openDocuments (agent/MCP targets) */
-export async function detachedOpenDocuments(): Promise<OpenDocumentTab[]> {
+/**
+ * The detached editors in the same shape as TabManager.openDocuments (agent/MCP
+ * targets). `dirty: false` skips the per-window dirty query — the round trip
+ * every window answers — for callers that do not read the flag (the surface
+ * context's per-send pull needs only id/kind/title/path/active, and the
+ * pull's latency rides that difference).
+ */
+export async function detachedOpenDocuments(
+  opts: { dirty?: boolean } = {},
+): Promise<OpenDocumentTab[]> {
+  const wantDirty = opts.dirty !== false
   const out: OpenDocumentTab[] = []
   for (const [wcId, rec] of detached) {
     if (rec.window.isDestroyed()) continue
-    const dirty = await detachedIsDirty(rec)
+    const dirty = wantDirty ? await detachedIsDirty(rec) : false
     // the dirty query yielded: the window may have closed meanwhile
     if (rec.window.isDestroyed()) continue
     out.push({

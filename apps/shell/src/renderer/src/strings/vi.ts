@@ -27,6 +27,8 @@ export const vi: Dict = {
   askToolCreate: 'Đang tạo tài liệu',
   askToolCli: 'Đang tạo tệp',
   askToolBrowser: 'Đang thao tác trên trang web',
+
+  askToolShell: 'Đang điều khiển desktop',
   askBrowserNote: 'Chú thích web',
   askBrowserNoteClear: 'Xóa chú thích web',
   askBrowserNoteDraft: 'Về chú thích "{content}" trên {url}: ',

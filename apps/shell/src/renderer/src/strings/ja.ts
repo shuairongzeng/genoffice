@@ -28,6 +28,8 @@ export const ja: Dict = {
   askToolCreate: 'ドキュメントを作成中',
   askToolCli: 'ファイルを作成中',
   askToolBrowser: 'Webページを操作中',
+
+  askToolShell: 'デスクトップを操作中',
   askBrowserNote: 'Web注釈',
   askBrowserNoteClear: 'Web注釈を削除',
   askBrowserNoteDraft: '{url} の注釈「{content}」について:',

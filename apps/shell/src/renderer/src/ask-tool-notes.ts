@@ -5,6 +5,9 @@ import {
   LOAD_GUIDE_TOOL,
   READ_ATTACHMENT_TOOL,
   RUN_GENOFFICE_TOOL,
+  SHELL_NAVIGATE_TOOL,
+  SHELL_OPEN_PATH_TOOL,
+  SHELL_SWITCH_TAB_TOOL,
   type AgentToolCall,
 } from '@genoffice/agent-core'
 
@@ -15,7 +18,7 @@ import {
  * repeats the same action on the same target.
  */
 
-export type ToolNoteKind = 'search' | 'read' | 'create' | 'cli' | 'browser'
+export type ToolNoteKind = 'search' | 'read' | 'create' | 'cli' | 'browser' | 'shell'
 
 export interface ToolNote {
   label: string
@@ -37,6 +40,7 @@ export function toolNoteKind(call: AgentToolCall): ToolNoteKind {
   if (call.name === CREATE_DOCUMENT_TOOL) return 'create'
   if (call.name === RUN_GENOFFICE_TOOL || call.name === LOAD_GUIDE_TOOL) return 'cli'
   if (call.name.startsWith('browser:')) return 'browser'
+  if (call.name.startsWith('shell:')) return 'shell'
   return 'read'
 }
 
@@ -73,6 +77,23 @@ export function toolNoteDetail(
     const name = Number.isInteger(index) ? lookup?.(index) : undefined
     return name ? baseName(name) : undefined
   }
+  // the shell tools: the verb's own target — the address navigated to, the
+  // file opened, the tab switched to; the reads (list_tabs) need no detail
+  if (call.name.startsWith('shell:')) {
+    if (call.name === SHELL_NAVIGATE_TOOL) {
+      const url = typeof call.input.url === 'string' ? call.input.url.trim() : ''
+      return url ? `shell · ${hostOf(url)}` : 'shell'
+    }
+    if (call.name === SHELL_OPEN_PATH_TOOL) {
+      const path = typeof call.input.path === 'string' ? call.input.path.trim() : ''
+      return path ? baseName(path) : 'shell'
+    }
+    if (call.name === SHELL_SWITCH_TAB_TOOL) {
+      const id = typeof call.input.id === 'string' ? call.input.id.trim() : ''
+      return id ? `shell · ${id.slice(0, 24)}` : 'shell'
+    }
+    return undefined
+  }
   // the browser tools: a page action names its target selector; a read or
   // screenshot needs no detail (the label already says the domain)
   if (call.name.startsWith('browser:')) {
@@ -98,4 +119,13 @@ export function appendToolNote(notes: readonly ToolNote[], note: ToolNote): Tool
     return [...notes.slice(0, -1), { ...last, count: last.count + note.count }]
   }
   return [...notes, note]
+}
+
+/** the host of one address, for the navigate chip's detail (bare on failure) */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname || url
+  } catch {
+    return url.slice(0, 40)
+  }
 }

@@ -27,6 +27,8 @@ export const ms: Dict = {
   askToolCreate: 'Mencipta dokumen',
   askToolCli: 'Mencipta fail',
   askToolBrowser: 'Mengendalikan halaman web',
+
+  askToolShell: 'Mengendalikan desktop',
   askBrowserNote: 'Anotasi web',
   askBrowserNoteClear: 'Buang anotasi web',
   askBrowserNoteDraft: 'Mengenai anotasi "{content}" pada {url}: ',

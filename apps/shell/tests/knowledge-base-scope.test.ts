@@ -16,6 +16,7 @@ import {
   KB_ONLY_PATHS_MAX,
   KB_SCOPE_FOLDERS_MAX,
   isUnderAnyRoot,
+  kbOpenPathAllows,
   kbReadAllows,
   listIndexedKnowledgeFiles,
   normalizeKbScope,
@@ -341,6 +342,96 @@ describe('kbReadAllows — the read gate with a round scope', () => {
         locationAllowed: true,
         statFile,
       }),
+    ).toBe(false)
+  })
+})
+
+describe('kbOpenPathAllows — the shell open_path gate', () => {
+  let dir: string
+  const statFile = (path: string) => {
+    try {
+      return statSync(path)
+    } catch {
+      return null
+    }
+  }
+  /** the verdict sources, all-closed by default: nothing is openable */
+  const sources = (
+    over: Partial<Parameters<typeof kbOpenPathAllows>[1]> = {},
+  ): Parameters<typeof kbOpenPathAllows>[1] => ({
+    indexHas: () => false,
+    starred: [],
+    recents: [],
+    aliases: [],
+    insideAnyRoot: () => false,
+    scope: 'indexed',
+    scopeFolders: [],
+    statFile,
+    ...over,
+  })
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'genoffice-kb-open-'))
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('admits an indexed or starred file wherever it sits', async () => {
+    expect(
+      await kbOpenPathAllows('/idx/a.docx', sources({ indexHas: (p) => p === '/idx/a.docx' })),
+    ).toBe(true)
+    expect(
+      await kbOpenPathAllows('/anywhere/b.docx', sources({ starred: ['/anywhere/b.docx'] })),
+    ).toBe(true)
+  })
+
+  it('admits an off-corpus file at a whitelisted location when it is an office type on disk', async () => {
+    const file = join(dir, 'report.docx')
+    writeFileSync(file, 'x')
+    // insideAnyRoot answers for the file's own path: "is this under a root?"
+    const underRoot = (p: string) => p.startsWith(dir)
+    expect(await kbOpenPathAllows(file, sources({ insideAnyRoot: underRoot }))).toBe(true)
+    expect(await kbOpenPathAllows(file, sources({ recents: [file] }))).toBe(true)
+    expect(await kbOpenPathAllows(file, sources({ aliases: [file] }))).toBe(true)
+  })
+
+  it('refuses an arbitrary path the desktop never surfaced', async () => {
+    const file = join(dir, 'report.docx')
+    writeFileSync(file, 'x')
+    expect(await kbOpenPathAllows(file, sources())).toBe(false)
+    expect(await kbOpenPathAllows('/etc/passwd', sources())).toBe(false)
+  })
+
+  it('location alone is not enough: the type and the file must hold too', async () => {
+    const exe = join(dir, 'setup.exe')
+    writeFileSync(exe, 'x')
+    const missing = join(dir, 'missing.docx')
+    expect(await kbOpenPathAllows(exe, sources({ recents: [exe] }))).toBe(false)
+    expect(await kbOpenPathAllows(missing, sources({ recents: [missing] }))).toBe(false)
+  })
+
+  it('narrows with the folders scope: outside its roots only corpus files pass', async () => {
+    const inside = join(dir, 'inside.docx')
+    writeFileSync(inside, 'x')
+    const underRoot = (p: string) => p.startsWith(dir)
+    // inside the root: the location verdict holds on its own
+    expect(
+      await kbOpenPathAllows(
+        inside,
+        sources({ scope: 'folders', scopeFolders: [dir], insideAnyRoot: underRoot }),
+      ),
+    ).toBe(true)
+    // a star stays openable in every scope (the corpus half of the verdict)
+    expect(
+      await kbOpenPathAllows('/elsewhere/b.docx', sources({ starred: ['/elsewhere/b.docx'] })),
+    ).toBe(true)
+    // outside the root and off-corpus: refused
+    expect(
+      await kbOpenPathAllows(
+        '/elsewhere/c.docx',
+        sources({ scope: 'folders', scopeFolders: [dir] }),
+      ),
     ).toBe(false)
   })
 })

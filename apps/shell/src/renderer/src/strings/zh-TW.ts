@@ -26,6 +26,8 @@ export const zhTW: Dict = {
   askToolCreate: '生成文件',
   askToolCli: '建立檔案',
   askToolBrowser: '正在操作網頁',
+
+  askToolShell: '正在操作桌面',
   askBrowserNote: '網頁標註',
   askBrowserNoteClear: '移除網頁標註',
   askBrowserNoteDraft: '關於網頁 {url} 上標註的內容「{content}」：',

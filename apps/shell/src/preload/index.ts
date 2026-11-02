@@ -17,6 +17,7 @@ import type {
   CloudProjectsSnapshot,
   DefaultAppStatus,
   DockOpenState,
+  SurfaceTabInfo,
   DockPrefs,
   FolderListing,
   FolderRoot,
@@ -812,6 +813,12 @@ const homeApi: HomeApi = {
   },
   async takeDockOpen() {
     return (await ipcRenderer.invoke(HOME_CHANNELS.dockOpenGet)) as DockOpenState
+  },
+  // the live surface context: both panel mounts pull this per send to feed
+  // the agent loop's "current surface" prompt section
+  async getSurfaceTabs() {
+    const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.surfaceTabs)
+    return Array.isArray(result) ? (result as SurfaceTabInfo[]) : []
   },
   homeContentRect(rect) {
     ipcRenderer.send(HOME_CHANNELS.contentRect, rect)

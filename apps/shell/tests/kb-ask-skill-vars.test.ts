@@ -8,12 +8,17 @@
  * tests drive the real send path (skillText, the agent loop, the IPC
  * transport) and assert on the request that leaves for the main process,
  * which is the model-facing text.
+ *
+ * The same harness pins the surface context: the shell operator skill's
+ * "current surface" system section (per mount, refreshed per send through the
+ * getSurfaceTabs bridge) and the shell:* tool list riding the request.
  */
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { KbAskPanel } from '../src/renderer/src/KbAskPanel'
 import { LocaleProvider } from '../src/renderer/src/locale'
+import type { SurfaceTab } from '@genoffice/agent-core'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -38,7 +43,9 @@ const SKILL_BODY = [
 /** the request the transport forwards to the main process */
 interface StartedRequest {
   requestId: string
+  system: string
   messages: Array<{ role: string; text: string }>
+  tools: Array<{ name: string }>
 }
 
 type ChunkListener = (chunk: { requestId: string; type: string }) => void
@@ -48,6 +55,8 @@ let root: Root
 let started: StartedRequest[]
 let chunkListener: ChunkListener | null
 let skillText: ReturnType<typeof vi.fn>
+/** the surface snapshot the bridge answers; the panel pulls it per send */
+let surfaceTabs: readonly SurfaceTab[] | null
 
 beforeAll(() => {
   // jsdom implements no scrolling; the thread's follow-stream effect calls scrollTo
@@ -58,6 +67,7 @@ beforeEach(() => {
   started = []
   chunkListener = null
   skillText = vi.fn(async () => SKILL_BODY)
+  surfaceTabs = null
   // the panel tolerates a bridge without kb:* channels, but then it never
   // builds the loop — so the stub carries everything a real ask touches
   ;(window as unknown as { aiOffice: unknown }).aiOffice = {
@@ -67,6 +77,7 @@ beforeEach(() => {
     aiGskStatus: async () => ({ loggedIn: true }),
     onAiSettingsChanged: () => () => {},
     kbList: async () => CORPUS,
+    getSurfaceTabs: async () => surfaceTabs,
     onAiStream: (listener: ChunkListener) => {
       chunkListener = listener
       return () => {
@@ -91,7 +102,7 @@ afterEach(() => {
   delete (window as unknown as { aiOffice?: unknown }).aiOffice
 })
 
-function render(lang: 'en' | 'zh'): void {
+function render(lang: 'en' | 'zh', surfaceRole?: 'home' | 'overlay'): void {
   act(() =>
     root.render(
       createElement(
@@ -102,6 +113,7 @@ function render(lang: 'en' | 'zh'): void {
           onGoToRecents: () => {},
           onOpenModelSettings: () => {},
           onOpenScopeSettings: () => {},
+          ...(surfaceRole ? { surfaceRole } : {}),
         }),
       ),
     ),
@@ -203,5 +215,81 @@ describe('KbAskPanel skill context vars', () => {
     expect(text).toContain('Language: 中文')
     expect(text).toContain(`Today: ${new Date().toLocaleDateString('zh')}`)
     expect(text).toContain('Request: 总结收藏的笔记')
+  })
+})
+
+describe('KbAskPanel surface context', () => {
+  const SURFACE: SurfaceTab[] = [
+    { id: 'home', kind: 'home', title: 'Home', active: false },
+    {
+      id: 't1',
+      kind: 'browser',
+      title: 'Example Domain',
+      active: true,
+      url: 'https://example.com/',
+    },
+    { id: 'doc1', kind: 'word', title: 'Report', active: false, filePath: 'C:/kb/report.docx' },
+  ]
+
+  it('docks the live surface section and the shell tools into the request', async () => {
+    surfaceTabs = SURFACE
+    render('en')
+    await settle()
+    await ask('summarize the starred notes')
+
+    expect(started).toHaveLength(1)
+    const system = started[0]!.system
+    expect(system).toContain('## Current surface')
+    expect(system).toContain('Active tab: browser — "Example Domain" (https://example.com/)')
+    expect(system).toContain('- doc1 | word | Report | C:/kb/report.docx')
+    expect(system).toContain(
+      'The person is looking at the Home desktop; the AI panel is docked beside it.',
+    )
+    expect(system).toContain('## Operating the desktop')
+    const tools = started[0]!.tools.map((tool) => tool.name)
+    expect(tools).toEqual(
+      expect.arrayContaining([
+        'shell:open_browser',
+        'shell:navigate',
+        'shell:list_tabs',
+        'shell:switch_tab',
+        'shell:open_path',
+      ]),
+    )
+  })
+
+  it("speaks the overlay mount's visibility line", async () => {
+    surfaceTabs = SURFACE
+    render('en', 'overlay')
+    await settle()
+    await ask('summarize the starred notes')
+
+    const system = started[0]!.system
+    expect(system).toContain('The AI panel floats over the workspace')
+    expect(system).not.toContain('docked beside it')
+  })
+
+  it('refreshes the surface between sends: each request sees the surface as it is now', async () => {
+    surfaceTabs = [{ id: 'home', kind: 'home', title: 'Home', active: true }]
+    render('en')
+    await settle()
+    await ask('first question')
+
+    expect(started[0]!.system).toContain('Active tab: home (desktop) — "Home"')
+    surfaceTabs = SURFACE
+    await ask('second question')
+
+    expect(started).toHaveLength(2)
+    expect(started[1]!.system).toContain(
+      'Active tab: browser — "Example Domain" (https://example.com/)',
+    )
+  })
+
+  it('degrades to the no-state line before the first pull lands', async () => {
+    render('en')
+    await settle()
+    await ask('summarize the starred notes')
+
+    expect(started[0]!.system).toContain('no tab state is available right now')
   })
 })

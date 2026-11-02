@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { session } from 'electron'
 import type { WebContents } from 'electron'
 
@@ -18,6 +21,10 @@ import type { WebContents } from 'electron'
 const browserExports = vi.hoisted(() => ({
   readAnnotationsFor: undefined as undefined | ((url: string) => unknown),
   readAnnotationShot: undefined as undefined | ((id: string) => unknown),
+  // the navigate tool awaits the load's commit: the fake answers the same
+  // promise shape the real one does
+  browserNavigate: undefined as
+    undefined | ((chrome: unknown, url: string) => void | Promise<void>),
 }))
 
 vi.mock('../../browser/src/main/browser-main', () => browserExports)
@@ -55,7 +62,14 @@ import {
   BROWSER_READ_ANNOTATION_SHOT_TOOL,
   BROWSER_READ_PAGE_TOOL,
   BROWSER_SCREENSHOT_TOOL,
+  SHELL_LIST_TABS_TOOL,
+  SHELL_NAVIGATE_TOOL,
+  SHELL_OPEN_BROWSER_TOOL,
+  SHELL_OPEN_PATH_TOOL,
+  SHELL_SWITCH_TAB_TOOL,
+  createShellSkill,
   type BrowserPageRead,
+  type SurfaceTab,
 } from '@genoffice/agent-core'
 import {
   BrowserPageLinks,
@@ -64,6 +78,7 @@ import {
   executeBrowserSkillAction,
   registerBrowserSkillIpc,
   resolveActiveBrowserTab,
+  resolveAgentUrl,
   BROWSER_SKILL_CHANNEL,
   type BrowserAgentDeps,
   type BrowserAgentIpcDeps,
@@ -133,6 +148,12 @@ function depsWith(
     // the main-side confirmation is granted by default; the gate's own tests
     // inject the decisions that matter
     confirmAction: () => Promise.resolve(true),
+    // the shell operator tools: permissive fakes the shell-tool tests spy on
+    openBrowserTab: () => 't9',
+    activateTab: () => true,
+    listSurfaceTabs: () => [] as readonly SurfaceTab[],
+    pathAllowed: () => true,
+    openPath: () => true,
     ...extra,
   }
 }
@@ -942,5 +963,309 @@ describe('the browserskill:execute gate (P1-4)', () => {
     ).rejects.toThrow(/selector/)
     expect(confirm).not.toHaveBeenCalled()
     expect(page.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled()
+  })
+})
+
+describe('resolveAgentUrl (the agent navigation gate)', () => {
+  it('resolves bare domains to https and keeps full urls', () => {
+    expect(resolveAgentUrl('example.com')).toBe('https://example.com')
+    expect(resolveAgentUrl('http://example.com/page')).toBe('http://example.com/page')
+    expect(resolveAgentUrl('localhost:3000')).toBe('http://localhost:3000')
+  })
+
+  it('refuses search-shaped input: the agent passes addresses, not queries', () => {
+    expect(() => resolveAgentUrl('best pizza near me')).toThrow(/does not look like a web address/)
+    expect(() => resolveAgentUrl('')).toThrow(/non-empty web address/)
+  })
+
+  it('refuses non-web schemes: agent loads are http/https only', () => {
+    // the address bar itself accepts file:, but an agent-driven load must
+    // not — the model never walks the disk through a page view
+    expect(() => resolveAgentUrl('file:///etc/passwd')).toThrow(/web-only/)
+    expect(() => resolveAgentUrl('javascript:alert(1)')).toThrow(/does not look like|web-only/)
+    expect(() => resolveAgentUrl('about:blank')).toThrow(/does not look like|web-only/)
+  })
+})
+
+describe('the shell operator tools (ungated, validated)', () => {
+  beforeEach(() => {
+    browserExports.browserNavigate = undefined
+  })
+
+  it('open_browser delegates to the tab-strip dep and answers the tab id', async () => {
+    const openBrowserTab = vi.fn((): string => 't9')
+    const result = (await executeBrowserSkillAction(
+      depsWith(makeWc(), makeWc(), [], { openBrowserTab }),
+      SHELL_OPEN_BROWSER_TOOL,
+      {},
+    )) as { tabId: string }
+    expect(openBrowserTab).toHaveBeenCalledWith(undefined)
+    expect(result).toEqual({ tabId: 't9' })
+  })
+
+  it('open_browser validates an optional url through the agent gate', async () => {
+    const openBrowserTab = vi.fn((): string => 't9')
+    await expect(
+      executeBrowserSkillAction(
+        depsWith(makeWc(), makeWc(), [], { openBrowserTab }),
+        SHELL_OPEN_BROWSER_TOOL,
+        { url: 'file:///tmp/secret' },
+      ),
+    ).rejects.toThrow(/web-only/)
+    expect(openBrowserTab).not.toHaveBeenCalled()
+    // a bare domain resolves and rides the call
+    await executeBrowserSkillAction(
+      depsWith(makeWc(), makeWc(), [], { openBrowserTab }),
+      SHELL_OPEN_BROWSER_TOOL,
+      { url: 'example.com' },
+    )
+    expect(openBrowserTab).toHaveBeenCalledWith('https://example.com')
+  })
+
+  it('open_browser rejects a non-string url outright', async () => {
+    await expect(
+      executeBrowserSkillAction(depsWith(makeWc(), makeWc(), []), SHELL_OPEN_BROWSER_TOOL, {
+        url: 42,
+      }),
+    ).rejects.toThrow(/`url` must be a string/)
+  })
+
+  it('navigate loads the resolved url into the active tab and answers the url that committed', async () => {
+    const navigated: Array<{ chrome: number; url: string }> = []
+    browserExports.browserNavigate = (chrome: unknown, url: string) => {
+      navigated.push({ chrome: (chrome as FakeWc).id, url })
+      return Promise.resolve()
+    }
+    const chrome = makeWc()
+    // the page reports where it actually ended up (post-redirect): the tool's
+    // answer is what landed, not what was asked for
+    const page = makeWc({ getURL: () => 'https://genoffice.dev/docs' })
+    const result = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      SHELL_NAVIGATE_TOOL,
+      { url: 'genoffice.dev/docs' },
+    )) as { tabId: string; url: string }
+    expect(result).toEqual({ tabId: 't1', url: 'https://genoffice.dev/docs' })
+    expect(navigated).toEqual([{ chrome: chrome.id, url: 'https://genoffice.dev/docs' }])
+  })
+
+  it('navigate refuses a background-only surface: only a strictly active tab may be navigated', async () => {
+    browserExports.browserNavigate = () => {
+      throw new Error('must not be called')
+    }
+    const background: readonly BrowserTabLike[] = [
+      { id: 't1', kind: 'browser', title: 'Example Domain', active: false },
+      { id: 't2', kind: 'browser', title: 'Docs', active: false },
+    ]
+    await expect(
+      executeBrowserSkillAction(depsWith(makeWc(), makeWc(), background), SHELL_NAVIGATE_TOOL, {
+        url: 'https://example.com/',
+      }),
+    ).rejects.toThrow(/no browser tab is active.*shell:switch_tab.*shell:open_browser/)
+  })
+
+  it('navigate reports a failed load as a tool error', async () => {
+    browserExports.browserNavigate = () => Promise.reject(new Error('ERR_INTERNET_DISCONNECTED'))
+    await expect(
+      executeBrowserSkillAction(depsWith(makeWc(), makeWc(), [TAB]), SHELL_NAVIGATE_TOOL, {
+        url: 'https://example.com/',
+      }),
+    ).rejects.toThrow(/the page did not load: ERR_INTERNET_DISCONNECTED/)
+  })
+
+  it('navigate answers a load that never commits with the timeout error', async () => {
+    vi.useFakeTimers()
+    try {
+      browserExports.browserNavigate = () => new Promise<void>(() => {})
+      const pending = executeBrowserSkillAction(
+        depsWith(makeWc(), makeWc(), [TAB]),
+        SHELL_NAVIGATE_TOOL,
+        { url: 'https://example.com/' },
+      )
+      // the rejection handler exists before the timer fires, or the race
+      // reports itself as an unhandled rejection
+      const assertion = expect(pending).rejects.toThrow(/the navigation timed out after 8s/)
+      await vi.advanceTimersByTimeAsync(8000)
+      await assertion
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('navigate with no browser tab points the model at open_browser', async () => {
+    await expect(
+      executeBrowserSkillAction(depsWith(makeWc(), makeWc(), []), SHELL_NAVIGATE_TOOL, {
+        url: 'https://example.com/',
+      }),
+    ).rejects.toThrow(/shell:open_browser/)
+  })
+
+  it('navigate refuses non-web input before touching the tab', async () => {
+    browserExports.browserNavigate = () => {
+      throw new Error('must not be called')
+    }
+    await expect(
+      executeBrowserSkillAction(depsWith(makeWc(), makeWc(), [TAB]), SHELL_NAVIGATE_TOOL, {
+        url: 'file:///etc/passwd',
+      }),
+    ).rejects.toThrow(/web-only/)
+  })
+
+  it('list_tabs answers the surface enumeration as the bare array the skill renders', async () => {
+    const tabs: readonly SurfaceTab[] = [
+      { id: 'home', kind: 'home', title: 'Home', active: false },
+      { id: 't1', kind: 'browser', title: 'Example', active: true, url: 'https://example.com/' },
+    ]
+    const result = await executeBrowserSkillAction(
+      depsWith(makeWc(), makeWc(), [TAB], { listSurfaceTabs: () => tabs }),
+      SHELL_LIST_TABS_TOOL,
+      {},
+    )
+    // the array itself, unwrapped: the renderer skill casts this shape
+    // directly, and the seam test below holds both halves to it
+    expect(result).toEqual(tabs)
+  })
+
+  it('list_tabs crosses the seam: what main answers is what the model sees', async () => {
+    // the seam the two suites each pinned one side of — the main handler's
+    // return and the skill's consumption of it, driven together through the
+    // real executeBrowserSkillAction wiring and the real skill
+    const tabs: readonly SurfaceTab[] = [
+      { id: 'home', kind: 'home', title: 'Home', active: false },
+      {
+        id: 't1',
+        kind: 'browser',
+        title: 'Example',
+        active: true,
+        url: 'https://example.com/',
+      },
+      { id: 'doc1', kind: 'word', title: 'Report', active: false, filePath: '/docs/report.docx' },
+    ]
+    const skill = createShellSkill({
+      surfaceTabs: () => null,
+      viewer: 'home',
+      execute: (tool, input) =>
+        executeBrowserSkillAction(
+          depsWith(makeWc(), makeWc(), [TAB], { listSurfaceTabs: () => tabs }),
+          tool,
+          input,
+        ),
+    })
+    const execution = await skill.executeTool({ id: 'c1', name: SHELL_LIST_TABS_TOOL, input: {} })
+    expect(execution.isError).toBeUndefined()
+    expect(execution.summary).toBe('listed the tabs')
+    expect(execution.output).toContain('Open tabs (id | kind | title | url or file):')
+    expect(execution.output).toContain('- t1 | browser | Example | https://example.com/ | active')
+    expect(execution.output).toContain('- doc1 | word | Report | /docs/report.docx')
+    expect(execution.output).not.toContain('No tabs are open')
+  })
+
+  it('switch_tab routes the id and names an unknown one as an error', async () => {
+    const activateTab = vi.fn((): boolean => true)
+    await executeBrowserSkillAction(
+      depsWith(makeWc(), makeWc(), [], { activateTab }),
+      SHELL_SWITCH_TAB_TOOL,
+      { id: 't1' },
+    )
+    expect(activateTab).toHaveBeenCalledWith('t1')
+    await expect(
+      executeBrowserSkillAction(
+        depsWith(makeWc(), makeWc(), [], { activateTab: () => false }),
+        SHELL_SWITCH_TAB_TOOL,
+        { id: 'nope' },
+      ),
+    ).rejects.toThrow(/no open tab has the id "nope"/)
+    await expect(
+      executeBrowserSkillAction(depsWith(makeWc(), makeWc(), []), SHELL_SWITCH_TAB_TOOL, {}),
+    ).rejects.toThrow(/`id` must be/)
+  })
+
+  it('open_path routes an in-scope file (verdict on the path and its realpath)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'genoffice-open-path-'))
+    try {
+      const file = join(dir, 'report.docx')
+      writeFileSync(file, 'x')
+      const openPath = vi.fn((): boolean => true)
+      const pathAllowed = vi.fn((): boolean => true)
+      await executeBrowserSkillAction(
+        depsWith(makeWc(), makeWc(), [], { openPath, pathAllowed }),
+        SHELL_OPEN_PATH_TOOL,
+        { path: file },
+      )
+      expect(openPath).toHaveBeenCalledWith(file)
+      expect(pathAllowed).toHaveBeenCalledWith(file)
+      // the scope re-runs on the resolved path: a symlinked tmpdir (macOS
+      // /var → /private/var) is the ordinary case, not an attack
+      expect(pathAllowed).toHaveBeenCalledWith(realpathSync(file))
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("open_path refuses a path outside the desktop's file scope", async () => {
+    const openPath = vi.fn((): boolean => true)
+    await expect(
+      executeBrowserSkillAction(
+        depsWith(makeWc(), makeWc(), [], { openPath, pathAllowed: () => false }),
+        SHELL_OPEN_PATH_TOOL,
+        { path: '/etc/passwd' },
+      ),
+    ).rejects.toThrow(/outside the desktop's file scope.*[Aa]sk the person/)
+    expect(openPath).not.toHaveBeenCalled()
+  })
+
+  it('open_path refuses a relative path outright', async () => {
+    await expect(
+      executeBrowserSkillAction(depsWith(makeWc(), makeWc(), []), SHELL_OPEN_PATH_TOOL, {
+        path: 'report.docx',
+      }),
+    ).rejects.toThrow(/`path` must be absolute/)
+  })
+
+  it('open_path refuses a symlink whose target sits outside the scope', async () => {
+    const scopeDir = mkdtempSync(join(tmpdir(), 'genoffice-open-path-scope-'))
+    const outsideDir = mkdtempSync(join(tmpdir(), 'genoffice-open-path-out-'))
+    try {
+      const target = join(outsideDir, 'secret.docx')
+      writeFileSync(target, 'x')
+      const link = join(scopeDir, 'report.docx')
+      symlinkSync(target, link)
+      const openPath = vi.fn((): boolean => true)
+      // the verdict whitelists the link's own location only
+      const pathAllowed = vi.fn((p: string) => p === link)
+      await expect(
+        executeBrowserSkillAction(
+          depsWith(makeWc(), makeWc(), [], { openPath, pathAllowed }),
+          SHELL_OPEN_PATH_TOOL,
+          { path: link },
+        ),
+      ).rejects.toThrow(/resolves outside the desktop's file scope/)
+      expect(openPath).not.toHaveBeenCalled()
+    } finally {
+      rmSync(scopeDir, { recursive: true, force: true })
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  it('open_path routes the path and reports a file nothing opens', async () => {
+    const openPath = vi.fn((): boolean => true)
+    await executeBrowserSkillAction(
+      depsWith(makeWc(), makeWc(), [], { openPath }),
+      SHELL_OPEN_PATH_TOOL,
+      { path: '/docs/report.docx' },
+    )
+    expect(openPath).toHaveBeenCalledWith('/docs/report.docx')
+    await expect(
+      executeBrowserSkillAction(
+        depsWith(makeWc(), makeWc(), [], { openPath: () => false }),
+        SHELL_OPEN_PATH_TOOL,
+        { path: '/tmp/thing.unknown' },
+      ),
+    ).rejects.toThrow(/did not open/)
+    await expect(
+      executeBrowserSkillAction(depsWith(makeWc(), makeWc(), []), SHELL_OPEN_PATH_TOOL, {
+        path: '',
+      }),
+    ).rejects.toThrow(/`path` must be/)
   })
 })

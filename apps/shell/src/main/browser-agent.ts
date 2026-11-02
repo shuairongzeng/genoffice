@@ -1,6 +1,9 @@
+import { realpath } from 'node:fs/promises'
+import { isAbsolute } from 'node:path'
 import { app, ipcMain, session, webContents } from 'electron'
 import type { NativeImage, WebContents } from 'electron'
 import * as browserModule from '../../../browser/src/main/browser-main'
+import { resolveAddressInput } from '../../../browser/src/main/url-input'
 import {
   BROWSER_CLICK_TOOL,
   BROWSER_FILL_FIELD_TOOL,
@@ -10,6 +13,14 @@ import {
   MAX_ANNOTATION_ID_CHARS,
   MAX_FILL_VALUE_CHARS,
   MAX_SELECTOR_CHARS,
+  MAX_SHELL_PATH_CHARS,
+  MAX_SHELL_TAB_ID_CHARS,
+  MAX_SHELL_URL_CHARS,
+  SHELL_LIST_TABS_TOOL,
+  SHELL_NAVIGATE_TOOL,
+  SHELL_OPEN_BROWSER_TOOL,
+  SHELL_OPEN_PATH_TOOL,
+  SHELL_SWITCH_TAB_TOOL,
   formatPageOutline,
   type BrowserActionResult,
   type BrowserAnnotationShot,
@@ -18,6 +29,7 @@ import {
   type BrowserOutlineData,
   type BrowserOutlineElement,
   type BrowserScreenshot,
+  type SurfaceTab,
 } from '@genoffice/agent-core'
 
 /**
@@ -250,12 +262,17 @@ export interface BrowserTabLike {
 }
 
 /**
- * The tab the browser tools act on: the active tab when it is a browser tab,
- * else the last browser tab in the list. When several tabs share the
+ * The tab the browser READ tools act on: the active tab when it is a browser
+ * tab, else the last browser tab in the list. When several tabs share the
  * background there is no activity signal to rank them by, so "newest" is the
  * documented tiebreak — every tool result echoes the page it touched
  * (title + URL), so a wrong guess is visible and correctable by switching
  * tabs.
+ *
+ * shell:navigate deliberately does NOT use this fallback: navigation must
+ * always be visible to the person, so it acts on a strictly active tab
+ * ({@link resolveActiveOnlyBrowserTab}) and answers a guiding error when
+ * none is.
  */
 export function resolveActiveBrowserTab(
   tabs: readonly BrowserTabLike[],
@@ -265,11 +282,22 @@ export function resolveActiveBrowserTab(
   return browserTabs.find((t) => t.active) ?? browserTabs[browserTabs.length - 1]
 }
 
+/**
+ * The tab shell:navigate acts on: strictly one the surface marks active — no
+ * background-tab fallback. A navigation into a tab nobody is looking at is an
+ * invisible mutation, exactly what the ungated grade's defense excludes.
+ */
+function resolveActiveOnlyBrowserTab(tabs: readonly BrowserTabLike[]): BrowserTabLike | undefined {
+  return tabs.find((t) => t.kind === 'browser' && t.active)
+}
+
 // ── timeouts ───────────────────────────────────────────────────────────────
 
 const READ_TIMEOUT_MS = 10_000
 const ACTION_TIMEOUT_MS = 8_000
 const SCREENSHOT_TIMEOUT_MS = 10_000
+/** how long shell:navigate waits for the page load to commit before answering a timeout error */
+const NAVIGATE_COMMIT_TIMEOUT_MS = 8_000
 /** widest screenshot kept (vision models reject much larger, and the base64 bloats the context) */
 const SCREENSHOT_MAX_WIDTH = 1280
 
@@ -434,6 +462,47 @@ function pageActionScript(action: 'click' | 'fill', selector: string, value: str
 })()`
 }
 
+// ── the shell operator tools (the desktop's own actions) ───────────────────
+
+/**
+ * Resolve one agent-supplied address for a page load: the browser's own
+ * address-bar rules (a bare domain gets https, a search-shaped input is not a
+ * URL), then the agent-only scheme gate — http/https. The address bar itself
+ * also accepts file:, but an agent-driven load must not: the model never gets
+ * to walk the person's disk through a page view. Throws the model-facing
+ * refusal; exported for the tests.
+ */
+export function resolveAgentUrl(input: string): string {
+  const text = input.trim()
+  if (text === '') {
+    throw new Error('`url` must be a non-empty web address (http/https)')
+  }
+  if (text.length > MAX_SHELL_URL_CHARS) {
+    throw new Error(`\`url\` must be at most ${MAX_SHELL_URL_CHARS} characters`)
+  }
+  const resolved = resolveAddressInput(text)
+  if (resolved.kind === 'search') {
+    throw new Error(
+      `"${text.slice(0, 80)}" does not look like a web address — pass a url (a bare domain ` +
+        "gets https); plain search terms are the person's to type, not the agent's",
+    )
+  }
+  const protocol = (() => {
+    try {
+      return new URL(resolved.url).protocol
+    } catch {
+      return ''
+    }
+  })()
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    throw new Error(
+      `agent navigation is web-only (http/https) — "${protocol.replace(':', '')}" addresses are ` +
+        'refused; local files open with shell:open_path instead',
+    )
+  }
+  return resolved.url
+}
+
 // ── the executors ──────────────────────────────────────────────────────────
 
 /** what the main-process confirmation is asked about before fill/click runs */
@@ -471,6 +540,24 @@ export interface BrowserAgentDeps {
    * module's own defensive consumption. Reads the suite's own disk only.
    */
   readAnnotationShot?(id: string): BrowserAnnotationShot | null
+  // ── the shell operator tools (all UNGATED: user-instructed, visible,
+  // reversible — see the skill's prompt; the URL scheme gate stays) ──
+  /** open a browser tab (optionally at a resolved URL) and activate it; answers the tab id */
+  openBrowserTab(url?: string): string | Promise<string>
+  /** activate one tab by id (shell strip or detached); false when the id names none */
+  activateTab(id: string): boolean | Promise<boolean>
+  /** every open tab with its url/filePath — the surface context and list_tabs share it */
+  listSurfaceTabs(): Promise<readonly SurfaceTab[]> | readonly SurfaceTab[]
+  /**
+   * The kb:read verdicts for one absolute path: may the agent open it? (the
+   * scope roots / recents / stars / index corpus). The open_path tool refuses
+   * anything this returns false for — an arbitrary absolute path is not
+   * openable just because the model named it. Required on purpose: a wiring
+   * without a verdict fails closed.
+   */
+  pathAllowed(path: string): boolean | Promise<boolean>
+  /** open a local file into its app tab; false when nothing opens it */
+  openPath(path: string): boolean | Promise<boolean>
 }
 
 /** the tab + chrome + page the call resolved to, or a guiding error */
@@ -620,15 +707,28 @@ async function actOnPage(
 }
 
 /**
- * One browser skill tool call, routed to the active browser tab's page.
- * Throws structured, model-facing errors (no tab, unreachable page, timeout);
- * the renderer skill turns them into isError tool results.
+ * One browser skill tool call, routed to the active browser tab's page — or
+ * one of the shell operator tools (open_browser / navigate / list_tabs /
+ * switch_tab / open_path), which act on the workspace itself and are
+ * deliberately ungated (see the skill's prompt for the reasoning). Throws
+ * structured, model-facing errors (no tab, unreachable page, timeout, refused
+ * scheme); the renderer skill turns them into isError tool results.
  */
 export async function executeBrowserSkillAction(
   deps: BrowserAgentDeps,
   tool: string,
   input: Record<string, unknown>,
-): Promise<BrowserPageRead | BrowserScreenshot | BrowserActionResult | BrowserAnnotationShot> {
+): Promise<
+  | BrowserPageRead
+  | BrowserScreenshot
+  | BrowserActionResult
+  | BrowserAnnotationShot
+  | { tabId: string }
+  | { tabId: string; url: string }
+  | readonly SurfaceTab[]
+  | { id: string }
+  | { path: string }
+> {
   switch (tool) {
     case BROWSER_READ_PAGE_TOOL:
       return readPageOf(deps, (await resolveTarget(deps)).page)
@@ -697,6 +797,137 @@ export async function executeBrowserSkillAction(
       }
       return actOnPage(page, action, selector, value)
     }
+    // ── the shell operator tools: UNGATED by design (each is a direct
+    // execution of the person's instruction, immediately visible, trivially
+    // reversible; the page-content actions above carry the risk grade because
+    // they change a page in ways the person cannot see coming). The URL
+    // scheme gate still applies, and the ids/paths are validated whole ──
+    case SHELL_OPEN_BROWSER_TOOL: {
+      const url = input.url
+      if (url !== undefined && typeof url !== 'string') {
+        throw new Error('`url` must be a string when present')
+      }
+      const tabId = await deps.openBrowserTab(url === undefined ? undefined : resolveAgentUrl(url))
+      return { tabId }
+    }
+    case SHELL_NAVIGATE_TOOL: {
+      const url = input.url
+      if (typeof url !== 'string' || !url.trim()) {
+        throw new Error('`url` must be a non-empty web address')
+      }
+      const resolved = resolveAgentUrl(url)
+      // strictly the ACTIVE browser tab — never a background fallback: a
+      // navigation is an ungated act only because the person sees it happen,
+      // and they only see it in the tab they are looking at
+      const tabs = await deps.listBrowserTabs()
+      const tab = resolveActiveOnlyBrowserTab(tabs)
+      if (!tab) {
+        const anyBrowserTab = tabs.some((t) => t.kind === 'browser')
+        throw new Error(
+          anyBrowserTab
+            ? 'no browser tab is active — call shell:switch_tab to make one active (or ' +
+                'shell:open_browser for a new one), then navigate'
+            : 'no browser tab is open — call shell:open_browser first, then navigate',
+        )
+      }
+      const chrome = deps.webContentsFor(tab.id)
+      if (!chrome || chrome.isDestroyed()) {
+        throw new Error(
+          `the browser tab "${tab.title || tab.id}" is no longer live — switch to it or reopen the page, then try again`,
+        )
+      }
+      // the load's own outcome: browserNavigate answers the page's commit
+      // promise (resolves at did-finish-load, rejects at did-fail-load), so
+      // the tool result says what actually landed — the final URL after
+      // redirects — instead of assuming the address alone meant success
+      const page = deps.pageFor(chrome)
+      const load = browserModule.browserNavigate(chrome, resolved)
+      const settleLoad = async (): Promise<string> => {
+        try {
+          await load
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          throw new Error(
+            `the page did not load: ${message} — check the address, or read the tab with ` +
+              'browser:read_page to see what it shows now',
+            { cause: error },
+          )
+        }
+        return (page && !page.isDestroyed() && page.getURL()) || resolved
+      }
+      const finalUrl = await withTimeout(settleLoad(), NAVIGATE_COMMIT_TIMEOUT_MS, 'the navigation')
+      return { tabId: tab.id, url: finalUrl }
+    }
+    // the tab array itself, unwrapped — the skill renders it directly, and the
+    // seam test in apps/shell pins that both halves agree on this shape (a
+    // {tabs} wrapper here once made every list read "No tabs are open")
+    case SHELL_LIST_TABS_TOOL:
+      return deps.listSurfaceTabs()
+    case SHELL_SWITCH_TAB_TOOL: {
+      const id = input.id
+      if (typeof id !== 'string' || !id.trim()) {
+        throw new Error('`id` must be a non-empty string (from shell:list_tabs)')
+      }
+      if (id.length > MAX_SHELL_TAB_ID_CHARS) {
+        throw new Error(`\`id\` must be at most ${MAX_SHELL_TAB_ID_CHARS} characters`)
+      }
+      const ok = await deps.activateTab(id)
+      if (!ok) {
+        throw new Error(
+          `no open tab has the id "${id}" — call shell:list_tabs and use an id from its list`,
+        )
+      }
+      return { id }
+    }
+    case SHELL_OPEN_PATH_TOOL: {
+      const path = input.path
+      if (typeof path !== 'string' || !path.trim()) {
+        throw new Error('`path` must be a non-empty absolute path')
+      }
+      if (path.length > MAX_SHELL_PATH_CHARS) {
+        throw new Error(`\`path\` must be at most ${MAX_SHELL_PATH_CHARS} characters`)
+      }
+      // absolute only, the same rule parseKbOnlyPaths holds the kb:read
+      // scope to: a relative path is the model guessing at a working
+      // directory, and the desktop opens files by their full location
+      if (!isAbsolute(path)) {
+        throw new Error(
+          `\`path\` must be absolute: "${path.slice(0, 120)}" — pass the file's full location`,
+        )
+      }
+      // the scope gate (kb:read's verdicts): the agent opens files the person
+      // has surfaced — starred or recent, inside a knowledge folder, or
+      // indexed — never an arbitrary absolute path the desktop never knew
+      if (!(await Promise.resolve(deps.pathAllowed(path)))) {
+        throw new Error(
+          `"${path.slice(0, 120)}" is outside the desktop's file scope — the agent may open ` +
+            'files the person has surfaced (starred or recent, inside a knowledge folder, or ' +
+            'indexed). Ask the person to open this one themselves, or have them add it to the ' +
+            'knowledge base first',
+        )
+      }
+      // a symlink must not smuggle an out-of-scope target past the location
+      // verdict: resolve it and re-run the verdict on the real path
+      const resolved: string | null = await realpath(path).catch(() => null)
+      if (
+        resolved !== null &&
+        resolved !== path &&
+        !(await Promise.resolve(deps.pathAllowed(resolved)))
+      ) {
+        throw new Error(
+          `"${path.slice(0, 120)}" resolves outside the desktop's file scope — pass the ` +
+            `file's real location (${resolved.slice(0, 120)}), or ask the person to open it`,
+        )
+      }
+      const ok = await deps.openPath(path)
+      if (!ok) {
+        throw new Error(
+          `"${path.slice(0, 120)}" did not open — the file may be missing, or no app in the ` +
+            'suite reads that type. Check the path and the extension, then try again',
+        )
+      }
+      return { path }
+    }
     default:
       throw new Error(`unknown browser tool: ${tool}`)
   }
@@ -728,6 +959,17 @@ export interface BrowserAgentIpcDeps {
    * fails closed instead of silently running ungated actions.
    */
   confirmPageAction(request: BrowserPageActionConfirm): Promise<boolean>
+  // ── the shell operator tools (the same channel serves them; all ungated) ──
+  /** open a browser tab (optionally at a resolved URL) and activate it */
+  openBrowserTab(url?: string): string | Promise<string>
+  /** activate one tab by id (shell strip or detached); false when the id names none */
+  activateTab(id: string): boolean | Promise<boolean>
+  /** every open tab with its url/filePath — the surface context and list_tabs share it */
+  listSurfaceTabs(): Promise<readonly SurfaceTab[]> | readonly SurfaceTab[]
+  /** the kb:read scope verdicts for one absolute path (see BrowserAgentDeps.pathAllowed) */
+  pathAllowed(path: string): boolean | Promise<boolean>
+  /** open a local file into its app tab; false when nothing opens it */
+  openPath(path: string): boolean | Promise<boolean>
 }
 
 /**
@@ -770,6 +1012,11 @@ export function registerBrowserSkillIpc(deps: BrowserAgentIpcDeps): void {
         webContentsFor: deps.webContentsFor,
         pageFor: (chrome) => pageWcOf(links, chrome),
         confirmAction: (request) => deps.confirmPageAction(request),
+        openBrowserTab: (url) => deps.openBrowserTab(url),
+        activateTab: (id) => deps.activateTab(id),
+        listSurfaceTabs: () => deps.listSurfaceTabs(),
+        pathAllowed: (path) => deps.pathAllowed(path),
+        openPath: (path) => deps.openPath(path),
       },
       tool,
       (input ?? {}) as Record<string, unknown>,
