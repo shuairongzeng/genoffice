@@ -17,10 +17,6 @@ export const OPEN_LOCAL_EXTENSIONS =
 
 /** drag payload of home file/folder rows (JSON array of absolute paths) */
 export const DRAG_PATHS_MIME = 'application/x-genoffice-paths'
-/** hovering a collapsed folder this long while dragging expands it */
-export const DRAG_EXPAND_DELAY_MS = 600
-/** expanded folders survive a home reload; the selection is per session */
-export const TREE_STATE_KEY = 'home.folderTree'
 
 /**
  * Width of the viewport that `position: fixed` elements anchor to. The layout
@@ -146,19 +142,6 @@ export function locationLabel(path: string, roots: readonly FolderRoot[]): strin
   return parentDir(path)
 }
 
-/** the folders between root and `dir` (inclusive) */
-export function crumbsOf(root: FolderRoot, dir: string): Array<{ path: string; name: string }> {
-  const crumbs = [{ path: root.path, name: root.name }]
-  if (dir === root.path) return crumbs
-  const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : '/'
-  let acc = root.path
-  for (const part of splitPath(dir.slice(root.path.length))) {
-    acc = `${acc}${sep}${part}`
-    crumbs.push({ path: acc, name: part })
-  }
-  return crumbs
-}
-
 export const FILTERS: { key: string; label: StringKey }[] = [
   { key: 'all', label: 'filterAll' },
   { key: 'docx', label: 'filterDocs' },
@@ -247,35 +230,4 @@ export function SortCheck({ visible }: { visible: boolean }): ReactElement {
       />
     </svg>
   )
-}
-
-// ── Folder tree state (shared by the sidebar and the move picker) ──
-
-export interface TreeState {
-  expanded: string[]
-  /** the root the layout was saved for; a layout for another root is not applied */
-  root: string | null
-}
-
-export function readTreeState(): TreeState {
-  try {
-    const raw = JSON.parse(localStorage.getItem(TREE_STATE_KEY) ?? 'null') as TreeState | null
-    if (raw && Array.isArray(raw.expanded)) {
-      return {
-        expanded: raw.expanded.filter((p): p is string => typeof p === 'string'),
-        root: typeof raw.root === 'string' ? raw.root : null,
-      }
-    }
-  } catch {
-    // corrupt or absent: start collapsed
-  }
-  return { expanded: [], root: null }
-}
-
-export function writeTreeState(state: TreeState): void {
-  try {
-    localStorage.setItem(TREE_STATE_KEY, JSON.stringify(state))
-  } catch {
-    // quota / private mode: the tree just forgets its layout
-  }
 }

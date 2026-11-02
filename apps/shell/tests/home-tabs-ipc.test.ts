@@ -729,6 +729,12 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
     expect(dockNavAction).toHaveBeenLastCalledWith({ kind: 'settings', section: 'plugins' })
     invoke('home:dock-action', { kind: 'templates' })
     expect(dockNavAction).toHaveBeenLastCalledWith({ kind: 'templates' })
+    // the cloud launcher rides the nav intent (the retired sidebar item's verb)
+    invoke('home:dock-action', { kind: 'nav', view: 'cloud' })
+    expect(dockNavAction).toHaveBeenLastCalledWith({ kind: 'nav', view: 'cloud' })
+    // extra keys are tolerated like every validator here
+    invoke('home:dock-action', { kind: 'nav', view: 'cloud', extra: 'not judged' })
+    expect(dockNavAction).toHaveBeenLastCalledWith({ kind: 'nav', view: 'cloud' })
   })
 
   it('answers the mount-time dock-nav pull from the injected buffer dep', () => {
@@ -753,14 +759,10 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
       {},
       { kind: 'ask' },
       { kind: 'nav' },
-      { kind: 'nav', view: 'cloud' },
+      { kind: 'nav', view: 'gdrive' },
       { kind: 'settings' },
       { kind: 'settings', section: 'account' },
-      { kind: 'nav', view: 'cloud', extra: 'not allowed to matter' },
     ]) {
-      // (the cloud view validates now — it rides the nav intent — so it is
-      // exercised in its own test below, not dropped here)
-      if (bad && (bad as { kind: string; view?: string }).view === 'cloud') continue
       invoke('home:dock-action', bad)
     }
     expect(dockNavAction).not.toHaveBeenCalled()

@@ -5,12 +5,14 @@ import { join } from 'node:path'
 import { launchShell, closeAndSaveVideo } from './helpers'
 
 /**
- * Row menus (the ⋯ button on folder rows) are position:fixed and anchor via
- * inline top/right computed from getBoundingClientRect against the layout
- * viewport. On scaled Linux desktops window.innerWidth can disagree with that
- * viewport and pushed the menus past the window's left edge (genoffice#1946); these
- * assertions pin the menu next to its button and inside the window on every
- * platform.
+ * Row menus (the ⋯ button on the folder view's sub-folder rows) are
+ * position:fixed and anchor via inline top/right computed from
+ * getBoundingClientRect against the layout viewport. On scaled Linux
+ * desktops window.innerWidth can disagree with that viewport and pushed the
+ * menus past the window's left edge (genoffice#1946); these assertions pin the
+ * menu next to its button and inside the window on every platform. (The
+ * retired sidebar tree's row menus — the same ⋯ conventions, moved into the
+ * table that replaced the tree.)
  */
 test.describe('home row menu position', () => {
   let root: string
@@ -24,7 +26,7 @@ test.describe('home row menu position', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
-  test('the tree row menu opens below its button and inside the window', async () => {
+  test('the folder row menu opens below its button and inside the window', async () => {
     const launched = await launchShell({
       onboardingSeen: true,
       settings: { defaultSaveDir: root },
@@ -32,12 +34,13 @@ test.describe('home row menu position', () => {
     })
     const { page } = launched
     try {
-      const tree = page.locator('.folder-panel .tree')
-      const row = tree.locator('.tree-row', {
-        has: page.locator('.tree-name', { hasText: 'Clients' }),
-      })
+      // the root icon opens the folder view the sub-folder rows live in
+      const rootIcon = page.locator(`.desktop-icon-item[title="${root}"]`)
+      await expect(rootIcon).toBeVisible()
+      await rootIcon.dblclick()
+      const row = page.locator('.recent-row.folder-item', { hasText: 'Clients' })
       await expect(row).toBeVisible()
-      const more = row.locator('.folder-more-btn')
+      const more = row.locator('.more-btn')
       await more.hover()
       await more.click()
       const menu = page.locator('.folder-menu')
@@ -54,7 +57,7 @@ test.describe('home row menu position', () => {
         }
         return {
           menu: rect(document.querySelector('.folder-menu')!),
-          button: rect(document.querySelector('.folder-more-btn[aria-expanded="true"]')!),
+          button: rect(document.querySelector('.recent-row .more-btn[aria-expanded="true"]')!),
           viewport: {
             w: document.documentElement.clientWidth,
             h: document.documentElement.clientHeight,
@@ -72,7 +75,7 @@ test.describe('home row menu position', () => {
     }
   })
 
-  test('the tree right-click menu opens to the right of the pointer and inside the window', async () => {
+  test('the folder row right-click menu opens to the right of the pointer and inside the window', async () => {
     const launched = await launchShell({
       onboardingSeen: true,
       settings: { defaultSaveDir: root },
@@ -80,9 +83,10 @@ test.describe('home row menu position', () => {
     })
     const { page } = launched
     try {
-      const row = page.locator('.folder-panel .tree .tree-row', {
-        has: page.locator('.tree-name', { hasText: 'Clients' }),
-      })
+      const rootIcon = page.locator(`.desktop-icon-item[title="${root}"]`)
+      await expect(rootIcon).toBeVisible()
+      await rootIcon.dblclick()
+      const row = page.locator('.recent-row.folder-item', { hasText: 'Clients' })
       await expect(row).toBeVisible()
       const box = (await row.boundingBox())!
       const pointer = { x: box.x + 24, y: box.y + box.height / 2 }

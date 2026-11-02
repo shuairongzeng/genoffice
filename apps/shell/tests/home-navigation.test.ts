@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { defaultAiSettings } from '@genoffice/ai-provider'
-import { Home } from '../src/renderer/src/Home'
+import { Home, dockOpenViewOf } from '../src/renderer/src/Home'
 import { DOCK_AUTOHIDE_DELAY_MS } from '../src/renderer/src/dock-math'
 import { normalizeDockPrefs } from '../src/shared/dock-prefs'
 import { LocaleProvider } from '../src/renderer/src/locale'
@@ -735,5 +735,21 @@ describe('the cloud launcher on the Home dock', () => {
     // the cloud surface took over the stage: its sync/cache bridge answers
     // and the view renders its body (the error card here — no network)
     expect(container.querySelector('.cloud-rows, .proj-empty, .load-more')).toBeTruthy()
+  })
+})
+
+describe('dockOpenViewOf (the report view derivation)', () => {
+  it('names the showing surface, null while a document covers Home', () => {
+    const view = dockOpenViewOf
+    // the list views and the desktop name themselves
+    expect(view('recent', false)).toBe('recent')
+    expect(view('starred', false)).toBe('starred')
+    expect(view('desktop', false)).toBe('desktop')
+    expect(view('cloud', false)).toBe('cloud')
+    // covered: whatever Home shows, the overlay's dots read null
+    expect(view('recent', true)).toBeNull()
+    expect(view('cloud', true)).toBeNull()
+    // no surface: null
+    expect(view(null, false)).toBeNull()
   })
 })

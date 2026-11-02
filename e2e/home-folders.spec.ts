@@ -14,10 +14,13 @@ import { join } from 'node:path'
 import { launchShell, closeAndSaveVideo, screenshotPath } from './helpers'
 
 /**
- * Home "Folders" panel: the tree over the default save folder, the folder
- * view, and the create / rename / move / delete actions against the real disk.
+ * Home folders in the sidebar-less world: the desktop's folder-root icons
+ * open folder views, and the create / rename / move / delete actions run
+ * against the real disk from the folder view's rows. (The retired sidebar
+ * tree's coverage, retargeted: the root icon is the way in, the table rows
+ * are the surface the verbs live on.)
  */
-test.describe('home folders panel', () => {
+test.describe('home folders (desktop icons + folder views)', () => {
   let root: string
 
   test.beforeEach(() => {
@@ -34,7 +37,7 @@ test.describe('home folders panel', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
-  test('shows the tree, opens a folder, then creates / moves / renames / deletes on disk', async () => {
+  test('opens a root icon, then creates / moves / renames / deletes on disk', async () => {
     const launched = await launchShell({
       onboardingSeen: true,
       settings: { defaultSaveDir: root },
@@ -42,31 +45,35 @@ test.describe('home folders panel', () => {
     })
     const { page } = launched
     try {
-      const tree = page.locator('.folder-panel .tree')
-      await expect(page.locator('.folder-panel-title')).toHaveText('Folders')
-      const rootRow = tree.locator('.tree-row').first()
-      await expect(rootRow).toContainText(root.split('/').pop()!)
-      // root is expanded by default: its first-level folders are listed
-      await expect(tree.locator('.tree-name', { hasText: 'Clients' })).toBeVisible()
-      await expect(tree.locator('.tree-name', { hasText: 'Personal' })).toBeVisible()
-      await expect(tree.locator('.tree-name', { hasText: 'Contracts' })).toHaveCount(0)
+      // the desktop shows the root's icon; double-click opens its folder view
+      const rootIcon = page.locator(`.desktop-icon-item[title="${root}"]`)
+      await expect(rootIcon).toBeVisible()
+      await rootIcon.dblclick()
+      await expect(page.locator('.desktop-surface')).toHaveCount(0)
 
-      // expand Clients → its children appear
-      const clientsRow = tree.locator('.tree-row', {
-        has: page.locator('.tree-name', { hasText: 'Clients' }),
-      })
-      await clientsRow.locator('.tree-chevron').click()
-      await expect(tree.locator('.tree-name', { hasText: 'Contracts' })).toBeVisible()
+      // the root view lists its first-level folders and files
+      const list = page.locator('.recent-list')
+      await expect(list.locator('.folder-item .recent-name', { hasText: 'Clients' })).toBeVisible()
+      await expect(list.locator('.folder-item .recent-name', { hasText: 'Personal' })).toBeVisible()
+      await expect(list.locator('.recent-name', { hasText: 'report.docx' })).toBeVisible()
+      // second-level folders are NOT in the root's own listing
+      await expect(list.locator('.recent-name', { hasText: 'Contracts' })).toHaveCount(0)
 
-      // select Contracts → active tree row + its file
-      await tree.locator('.tree-name', { hasText: 'Contracts' }).click()
-      await expect(tree.locator('.tree-row.active .tree-name')).toHaveText('Contracts')
+      // enter Clients → its subfolders and files
+      await list.locator('.folder-item', { hasText: 'Clients' }).locator('.recent-name').click()
+      await expect(
+        list.locator('.folder-item .recent-name', { hasText: 'Contracts' }),
+      ).toBeVisible()
+      await expect(list.locator('.recent-name', { hasText: 'A Corp' })).toBeVisible()
+
+      // select Contracts → its file
+      await list.locator('.folder-item', { hasText: 'Contracts' }).locator('.recent-name').click()
       await expect(page.locator('.recent-list .recent-name', { hasText: 'deal.md' })).toBeVisible()
       await page.screenshot({ path: screenshotPath('home-folders-contracts') })
 
-      // new folder from the sidebar header: lands under the selected folder
-      await page.locator('.folder-new-btn').click()
-      const input = page.locator('.folder-panel .tree .folder-rename-input')
+      // new folder from the folder view toolbar: lands under the open folder
+      await page.locator('.folder-heading .folder-new-btn').click()
+      const input = page.locator('.recent-list .folder-item .rename-input')
       await input.fill('Drafts')
       await input.press('Enter')
       await expect(
@@ -115,8 +122,13 @@ test.describe('home folders panel', () => {
       await expect(page.locator('.recent-list .recent-name', { hasText: 'Final' })).toHaveCount(0)
       expect(existsSync(join(root, 'Clients', 'Contracts', 'Final'))).toBe(false)
 
-      // Personal now lists the moved file; the Recent view shows its location
-      await tree.locator('.tree-name', { hasText: 'Personal' }).click()
+      // Personal now lists the moved file, entered from the desktop root icon
+      await page.locator('.dock-item[aria-label="Desktop"]').click()
+      await rootIcon.dblclick()
+      await page
+        .locator('.recent-list .folder-item', { hasText: 'Personal' })
+        .locator('.recent-name')
+        .click()
       await expect(page.locator('.recent-list .recent-name', { hasText: 'deal.md' })).toBeVisible()
       await page.screenshot({ path: screenshotPath('home-folders-personal') })
     } finally {
@@ -124,7 +136,7 @@ test.describe('home folders panel', () => {
     }
   })
 
-  test('an added folder joins the tree in place and leaves the list without touching disk', async () => {
+  test('an added root shows as its own desktop icon and leaves without touching disk', async () => {
     const extra = realpathSync(mkdtempSync(join(tmpdir(), 'genoffice-e2e-extra-')))
     mkdirSync(join(extra, 'Projects', 'Alpha'), { recursive: true })
     writeFileSync(join(extra, 'Projects', 'plan.md'), '# plan')
@@ -135,22 +147,24 @@ test.describe('home folders panel', () => {
     })
     const { page, userDataDir } = launched
     try {
-      const tree = page.locator('.folder-panel .tree')
-      const rootRows = tree.locator(':scope > .tree-item > .tree-row')
-      await expect(rootRows).toHaveCount(2)
-      await expect(rootRows.nth(0)).toContainText(root.split('/').pop()!)
-      await expect(rootRows.nth(1)).toContainText(extra.split('/').pop()!)
+      // two root icons on the desktop, one per roots-list entry (a folder
+      // icon's title carries its path)
+      const rootIcons = page.locator(
+        `.desktop-icon-item[title="${root}"], .desktop-icon-item[title="${extra}"]`,
+      )
+      await expect(rootIcons).toHaveCount(2)
+      await expect(page.locator(`.desktop-icon-item[title="${root}"]`)).toBeVisible()
+      const extraIcon = page.locator(`.desktop-icon-item[title="${extra}"]`)
+      await expect(extraIcon).toBeVisible()
 
-      // every root row opens on a fresh profile, so the added root shows its real contents
-      await expect(rootRows.nth(1)).toHaveAttribute('aria-expanded', 'true')
-      await expect(tree.locator('.tree-name', { hasText: 'Projects' })).toBeVisible()
-      await tree.locator('.tree-name', { hasText: 'Projects' }).click()
+      // the added root's own contents show in its folder view
+      await extraIcon.dblclick()
       await expect(page.locator('.recent-list .recent-name', { hasText: 'plan.md' })).toBeVisible()
       await expect(page.locator('.recent-list .recent-name', { hasText: 'Alpha' })).toBeVisible()
 
       // edits happen where the folder really is
-      await page.locator('.folder-new-btn').click()
-      const input = page.locator('.folder-panel .tree .folder-rename-input')
+      await page.locator('.folder-heading .folder-new-btn').click()
+      const input = page.locator('.recent-list .folder-item .rename-input')
       await input.fill('Beta')
       await input.press('Enter')
       await expect(
@@ -159,12 +173,12 @@ test.describe('home folders panel', () => {
       expect(existsSync(join(extra, 'Projects', 'Beta'))).toBe(true)
       await page.screenshot({ path: screenshotPath('home-folders-extra-root') })
 
-      // remove from the list: the row goes, the setting empties, the disk is untouched
-      await rootRows.nth(1).hover()
-      await rootRows.nth(1).locator('.folder-more-btn').click()
-      await page.locator('.folder-menu button', { hasText: 'Remove from list' }).click()
-      await expect(rootRows).toHaveCount(1)
-      await expect(page.locator('.recent-list .recent-name', { hasText: 'plan.md' })).toHaveCount(0)
+      // remove from the desktop: the icon goes, the setting empties, the disk is untouched
+      await page.locator('.dock-item[aria-label="Desktop"]').click()
+      await extraIcon.click({ button: 'right' })
+      await page.locator('.folder-menu button', { hasText: 'Remove folder from desktop' }).click()
+      await expect(page.locator(`.desktop-icon-item[title="${extra}"]`)).toHaveCount(0)
+      await expect(rootIcons).toHaveCount(1)
       await expect
         .poll(() => {
           const settings = JSON.parse(readFileSync(join(userDataDir, 'app-settings.json'), 'utf8'))
@@ -187,10 +201,12 @@ test.describe('home folders panel', () => {
     })
     const { page, app } = launched
     try {
-      await page.locator('.folder-panel .tree .tree-name', { hasText: 'Personal' }).click()
-      await expect(page.locator('.folder-panel .tree .tree-row.active .tree-name')).toHaveText(
-        'Personal',
-      )
+      await page.locator(`.desktop-icon-item[title="${root}"]`).dblclick()
+      await page
+        .locator('.recent-list .folder-item', { hasText: 'Personal' })
+        .locator('.recent-name')
+        .click()
+      await expect(page.locator('.recent-list .recent-name', { hasText: 'notes.md' })).toBeVisible()
       // the blank PDF is written synchronously by the shell, so it exercises the pending-folder path
       await page.locator('.quick-card', { hasText: 'AI PDF' }).click()
       const hasPdf = (dir: string) =>
@@ -201,7 +217,7 @@ test.describe('home folders panel', () => {
       await expect(page.locator('.tab-bar .tab-item', { hasText: '.pdf' })).toBeVisible()
       // a second New from the same folder view: with genoffice#1036 nothing lands on
       // disk until the user saves — the folder only pre-selects the Save As
-      // location, so the tree view must stay clean
+      // location, so the view must stay clean
       await page.locator('.tab-bar .tab-item.tab-home').click()
       await page.locator('.quick-card', { hasText: 'AI Sheets' }).click()
       await expect(page.locator('.tab-bar .tab-item', { hasText: '.xlsx' })).toBeVisible()

@@ -204,6 +204,12 @@ export interface DesktopViewProps {
    * tree's ⋯ entry, moved onto the root's own icon
    */
   readonly onRemoveFolderRoot: (path: string) => void
+  /**
+   * The New submenu's folder verb: Home opens the default save root's own
+   * view and starts the inline new-folder input there (the retired tree
+   * header's + control — the folder view is where a created folder shows)
+   */
+  readonly onNewFolder: () => void
   /** the Home-root node the wallpaper backdrop portals into, so it paints
    * behind every surface; undefined (standalone) renders it in place */
   readonly backdropHost?: HTMLDivElement | null
@@ -373,9 +379,8 @@ const EMPTY_POSITIONS: Readonly<Record<string, IconPos>> = {}
  *
  * The wallpaper backdrop itself renders one level up: Home hands the view the
  * `backdropHost` node it mounts at its root, and the backdrop portals there so
- * the whole Home window (sidebar included) sits on it, with the sidebar
- * wearing its glass treatment (desktop.css). The fit styles ride every
- * crossfade layer so a slideshow never disagrees with itself.
+ * the whole Home window sits on it. The fit styles ride every crossfade layer
+ * so a slideshow never disagrees with itself.
  *
  * Everything the icons do goes through `window.aiOffice` or one of the
  * parent's callbacks (the docked AI panel, template gallery, settings modal,
@@ -407,6 +412,7 @@ export function DesktopView({
   onOpenFolder,
   onAddFolderRoot,
   onRemoveFolderRoot,
+  onNewFolder,
   backdropHost,
 }: DesktopViewProps): ReactElement {
   const s = desktopStrings(lang)
@@ -1535,11 +1541,13 @@ export function DesktopView({
   const menuPath = menuIcon && (menuIcon.kind === 'file' || menuIcon.alias) ? menuIcon.path : null
   /** file and folder icons get a Properties dialog; app icons do not */
   const menuPropsIcon = menuIcon && menuIcon.kind !== 'app' ? menuIcon : null
-  /** the icon is a folder ROOT (a roots-list icon, not a dragged-in alias):
-   *  its menu carries the remove-from-desktop verb the retired tree's ⋯ had */
+  /** the icon is a REMOVABLE folder ROOT (a roots-list icon, not a
+   *  dragged-in alias, and not the default save root — main no-ops that
+   *  removal, so the verb must not offer it): its menu carries the
+   *  remove-from-desktop verb the retired tree's ⋯ had */
   const menuRootPath =
     menuIcon && menuIcon.kind === 'folder' && !menuIcon.alias
-      ? (roots.find((root) => root.path === menuIcon.path)?.path ?? null)
+      ? (roots.find((root) => root.path === menuIcon.path && root.removable)?.path ?? null)
       : null
 
   // ── the multi-selection menu: right-click inside a 2+ selection ──
@@ -2307,6 +2315,17 @@ export function DesktopView({
                       {s[labelKey]}
                     </button>
                   ))}
+                  <div className="row-menu-divider" />
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setSurfaceMenu(null)
+                      setSurfaceSub(null)
+                      onNewFolder()
+                    }}
+                  >
+                    {s.menuNewFolder}
+                  </button>
                 </div>
               )}
             </div>

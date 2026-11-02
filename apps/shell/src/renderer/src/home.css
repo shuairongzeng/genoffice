@@ -531,7 +531,7 @@ html.dock-view body {
    is free) */
 .login-hint.login-hint-floating {
   position: fixed;
-  left: 12px;
+  inset-inline-start: 12px;
   bottom: 12px;
   width: auto;
   z-index: 46;
@@ -2049,7 +2049,15 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
  * its head, and a free position the card persists itself (the desktop's
  * grid math is for icons; a card with its own two numbers is the smaller
  * honest mechanism — see todo-card.tsx). Stacks above the wallpaper and
- * the icons' labels, below the dock (43) and the menus (44). */
+ * the icons' labels, below the dock (43) and the menus (44).
+ *
+ * No grid cells are reserved under it (unlike the pinned-widget band):
+ * the pinned widgets reserve cells because they ARE grid model entries
+ * whose live windows sit exactly on cells; the card's placement is free
+ * two-number geometry that the grid cannot express, its drag re-clamps to
+ * the stage on every resize, and its default perch takes the right-edge
+ * margin past the icon flow — an overlap with a long icon column is
+ * recoverable by one drag, and the placement persists. */
 .desktop-todo {
   position: absolute;
   z-index: 40;
@@ -2268,6 +2276,34 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
 
 .folder-heading {
   gap: 10px;
+}
+
+/* the folder view toolbar's new-folder button (the retired tree header's +
+   control, same quiet look; the heading is baseline-aligned so the button
+   lifts itself to the text's cap height) */
+.folder-new-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  align-self: center;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transform: translateY(1px);
+}
+
+.folder-new-btn:hover {
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.folder-new-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .folder-badge {

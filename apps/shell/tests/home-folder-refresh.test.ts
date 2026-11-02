@@ -307,3 +307,59 @@ describe('the folder tree reveals Home under a covering document tab', () => {
     expect(tabsActivate).not.toHaveBeenCalled()
   })
 })
+
+describe('the folder view creates folders in place (the retired tree verb)', () => {
+  const createFolder = vi.fn(async () => ({ ok: true, path: '/root/Drafts' }))
+
+  beforeEach(async () => {
+    window.aiOffice = {
+      ...window.aiOffice,
+      createFolder,
+    } as unknown as Window['aiOffice']
+    createFolder.mockClear()
+  })
+
+  it('the toolbar button arms the inline input; Enter creates under the open folder', async () => {
+    await openFolderView()
+    // the toolbar's + button (the retired tree header's verb)
+    const newBtn = container.querySelector<HTMLButtonElement>('.folder-new-btn')
+    expect(newBtn).toBeTruthy()
+    await click(newBtn)
+    const input = container.querySelector<HTMLInputElement>(
+      '.recent-list .folder-item .rename-input',
+    )
+    expect(input).toBeTruthy()
+    expect(input!.placeholder).toBe('Untitled folder')
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+      setter.call(input!, 'Drafts')
+      input!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => {
+      input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    // the create ran under the open folder (/root)
+    expect(createFolder).toHaveBeenCalledWith('/root', 'Drafts')
+    // the input row is gone and the listing invalidated (a fresh re-list)
+    expect(container.querySelector('.recent-list .rename-input')).toBeNull()
+    expect(asked).toContainEqual({ dir: '/root', knownMtimeMs: undefined })
+  })
+
+  it('Escape cancels the input without creating anything', async () => {
+    await openFolderView()
+    await click(container.querySelector<HTMLButtonElement>('.folder-new-btn'))
+    const input = container.querySelector<HTMLInputElement>(
+      '.recent-list .folder-item .rename-input',
+    )!
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+      setter.call(input, 'Nope')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(createFolder).not.toHaveBeenCalled()
+    expect(container.querySelector('.recent-list .rename-input')).toBeNull()
+  })
+})

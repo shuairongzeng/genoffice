@@ -114,6 +114,19 @@ const GREET_ASK_KEYS = [
   'greetAsk6',
 ] as const satisfies readonly StringKey[]
 
+/**
+ * The dock's open-target report's `view` field: the Home surface currently
+ * showing, null while a document tab covers it. Pure so the derivation is
+ * testable alone (the triple ternary it replaces was easy to misread).
+ */
+export function dockOpenViewOf(
+  surface: 'desktop' | 'recent' | 'starred' | 'cloud' | null,
+  docTabActive: boolean,
+): DockOpenState['view'] {
+  if (docTabActive) return null
+  return surface
+}
+
 // ── Main component ──────────────────────────────────────
 
 export function Home() {
@@ -485,6 +498,10 @@ export function Home() {
     where: 'table'
     value: string
   } | null>(null)
+  // the folder view's inline "new folder" input, under this parent (the
+  // retired tree's own flow, moved into the table it browses)
+  const [creating, setCreating] = useState<{ parent: string } | null>(null)
+  const [newFolderName, setNewFolderName] = useState('')
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<string | null>(null)
   // move-to-folder picker for these paths; then the conflict prompt for the ones that collided
   const [movePicker, setMovePicker] = useState<string[] | null>(null)
@@ -1202,6 +1219,34 @@ export function Home() {
   const folderRenamingRef = useRef(folderRenaming)
   folderRenamingRef.current = folderRenaming
 
+  const startCreateFolder = (parent: string) => {
+    setFolderMenu(null)
+    dispatchView({ type: 'set-folder', dir: parent })
+    setCreating({ parent })
+    setNewFolderName('')
+  }
+
+  // inline inputs commit on Enter or blur and cancel on Escape; the blur an
+  // unmount may fire reads the edit from a ref mirrored during render, so a
+  // finished or cancelled edit is a no-op (see FolderPicker.commitCreate)
+  const creatingFolderRef = useRef<{ parent: string; name: string } | null>(null)
+  creatingFolderRef.current = creating ? { parent: creating.parent, name: newFolderName } : null
+
+  const commitCreateFolder = async () => {
+    const pending = creatingFolderRef.current
+    creatingFolderRef.current = null
+    const name = pending?.name.trim()
+    setCreating(null)
+    setNewFolderName('')
+    if (!pending || !name) return
+    const result = await window.aiOffice.createFolder(pending.parent, name)
+    if (!result.ok) {
+      void alertBox(result.error ?? t('renameFailed'))
+      return
+    }
+    invalidateFolders([pending.parent])
+  }
+
   const startRenameFolder = (entry: { path: string; name: string }, where: 'table') => {
     setFolderMenu(null)
     setRowMenu(null)
@@ -1418,6 +1463,17 @@ export function Home() {
     })
   }
 
+  /**
+   * The desktop's New ▸ New folder verb: the default save root's view opens
+   * with the inline new-folder input armed — the folder view is where a
+   * created subfolder shows, and the desktop has no folder of its own to
+   * create into
+   */
+  const newFolderOnDesktop = useCallback(() => {
+    const root = roots[0]
+    if (!root?.usable) return
+    startCreateFolder(root.path)
+  }, [roots])
   /** the folder leaves the list only; whatever it held on disk stays where it is */
   const removeFolderRoot = (path: string) => {
     setFolderMenu(null)
@@ -1552,6 +1608,23 @@ export function Home() {
                 <span className="file-count">
                   {t(total === 1 ? 'itemCountOne' : 'itemCount', { n: total })}
                 </span>
+                {selectedFolder && editableAt(selectedFolder) && !creating && (
+                  <button
+                    className="folder-new-btn"
+                    data-tip={t('newFolder')}
+                    aria-label={t('newFolder')}
+                    onClick={() => startCreateFolder(selectedFolder)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <path
+                        d="M7 1v12M1 7h12"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1582,6 +1655,39 @@ export function Home() {
                 <span />
               </div>
               <ul className="recent-list">
+                {creating?.parent === selectedFolder && (
+                  <li className="recent-row">
+                    <div className="recent-item folder-item">
+                      <span className="col-check" aria-hidden="true" />
+                      <span className="recent-icon folder-badge">
+                        <FolderIcon size={22} />
+                      </span>
+                      <input
+                        className="rename-input"
+                        autoFocus
+                        placeholder={t('untitledFolder')}
+                        value={newFolderName}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => setNewFolderName(e.target.value)}
+                        onBlur={() => void commitCreateFolder()}
+                        onKeyDown={(e) => {
+                          e.stopPropagation()
+                          if (e.nativeEvent.isComposing) return
+                          if (e.key === 'Enter') void commitCreateFolder()
+                          if (e.key === 'Escape') {
+                            setCreating(null)
+                            setNewFolderName('')
+                          }
+                        }}
+                      />
+                      <span className="recent-path">{t('folderType')}</span>
+                      <span className="recent-time">—</span>
+                      <span className="recent-size">—</span>
+                      <span />
+                      <span />
+                    </div>
+                  </li>
+                )}
                 {folderSubfolders.map((entry) => (
                   <SubfolderRow
                     key={entry.path}
@@ -1869,21 +1975,14 @@ export function Home() {
   // its running dots from the push main relays and ends its launch bounce
   // on it. Reported on change only: a static state costs nothing after its
   // first send (main caches the last report either way).
+  // the surface the report names: the active nav view, or the cloud
+  // surface when it (not a folder) is showing — null while covered
+  const dockOpenView = dockOpenViewOf(
+    activeNav ?? (cloudMode && !selectedFolder ? 'cloud' : null),
+    docTabActive,
+  )
   const dockOpen: DockOpenState = {
-    view:
-      !docTabActive &&
-      (activeNav === 'desktop' ||
-        activeNav === 'recent' ||
-        activeNav === 'starred' ||
-        (cloudMode && !selectedFolder ? 'cloud' : null))
-        ? activeNav === 'recent' || activeNav === 'starred'
-          ? activeNav
-          : activeNav === 'desktop'
-            ? 'desktop'
-            : cloudMode && !selectedFolder
-              ? 'cloud'
-              : null
-        : null,
+    view: dockOpenView,
     settings: settingsModalOpen,
     plugins: settingsModalOpen && settingsSection === 'plugins',
     templates: templatesOpen,
@@ -2048,6 +2147,7 @@ export function Home() {
               label: t('navCloud'),
               icon: <CloudGlyph />,
               tile: 'cloud',
+              active: cloudMode && !selectedFolder,
               running: cloudMode && !selectedFolder,
               menu: [
                 {
@@ -2201,6 +2301,7 @@ export function Home() {
               onOpenFolder={openFolderView}
               onAddFolderRoot={addFolderRoot}
               onRemoveFolderRoot={removeFolderRoot}
+              onNewFolder={newFolderOnDesktop}
               backdropHost={backdropHost}
             />
           ) : selectedFolder && rootOf(selectedFolder, roots)?.readable ? (

@@ -114,6 +114,7 @@ const props = {
   onOpenFolder: vi.fn(),
   onAddFolderRoot: vi.fn(),
   onRemoveFolderRoot: vi.fn(),
+  onNewFolder: vi.fn(),
 }
 
 beforeEach(() => {
@@ -939,6 +940,36 @@ describe('DesktopView — context menu', () => {
     ])
   })
 
+  it('the New submenu’s folder verb routes to the host (the root’s view opens)', async () => {
+    await render()
+    await surfaceContextMenu()
+    await openSurfaceSubmenu('New')
+    await clickSurfaceButton('New folder…')
+    expect(props.onNewFolder).toHaveBeenCalledTimes(1)
+    expect(host.querySelector('.desktop-menu')).toBeNull()
+  })
+
+  it('a non-removable root icon offers no remove-from-desktop verb', async () => {
+    // the default save root is non-removable (main no-ops the removal), so
+    // the menu must not offer it
+    await act(async () => {
+      root.render(
+        createElement(DesktopView, {
+          ...props,
+          lang: 'en' as Lang,
+          roots: [{ ...rootFolder, removable: false }, extraFolder] as FolderRoot[],
+        }),
+      )
+      await Promise.resolve()
+    })
+    await contextMenu('Work')
+    expect(
+      [...host.querySelectorAll('.folder-menu button')].find((b) =>
+        b.textContent?.includes('Remove folder from desktop'),
+      ),
+    ).toBeUndefined()
+  })
+
   it('the surface menu’s add-folder entry runs the host verb (the retired tree’s + button)', async () => {
     await render()
     await surfaceContextMenu()
@@ -1120,7 +1151,15 @@ describe('DesktopView — context menu', () => {
     await surfaceContextMenu()
     expect(focusedMenuLabel()).toBe('New')
     await menuKey('ArrowRight')
-    expect(submenuButtons()).toEqual(['Docs', 'Sheets', 'Slides', 'PDF', 'Markdown', 'Web Page'])
+    expect(submenuButtons()).toEqual([
+      'Docs',
+      'Sheets',
+      'Slides',
+      'PDF',
+      'Markdown',
+      'Web Page',
+      'New folder…',
+    ])
     expect(focusedMenuLabel()).toBe('Docs')
     // ArrowLeft from inside the flyout: it closes, focus returns to its trigger
     await menuKey('ArrowLeft')
@@ -1130,7 +1169,11 @@ describe('DesktopView — context menu', () => {
     await menuKey('ArrowRight')
     await menuKey('ArrowDown')
     expect(focusedMenuLabel()).toBe('Sheets')
+    // 7 rows in the flyout now (the six types + the folder verb): five downs
+    // reach the folder verb, the sixth steps out onto Sort by
     for (let i = 0; i < 5; i++) await menuKey('ArrowDown')
+    expect(focusedMenuLabel()).toBe('New folder…')
+    await menuKey('ArrowDown')
     expect(focusedMenuLabel()).toBe('Sort by')
     // ArrowLeft from outside the flyout still closes it; focus stays put
     await menuKey('ArrowLeft')
@@ -1265,7 +1308,15 @@ describe('DesktopView — the empty-surface menu', () => {
     await render()
     await surfaceContextMenu()
     await openSurfaceSubmenu('New')
-    expect(submenuButtons()).toEqual(['Docs', 'Sheets', 'Slides', 'PDF', 'Markdown', 'Web Page'])
+    expect(submenuButtons()).toEqual([
+      'Docs',
+      'Sheets',
+      'Slides',
+      'PDF',
+      'Markdown',
+      'Web Page',
+      'New folder…',
+    ])
     // the click-opened flyout takes focus on its first item too — the same
     // effect serves the mouse path, not just the inline-end arrow
     expect(focusedMenuLabel()).toBe('Docs')

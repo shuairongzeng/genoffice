@@ -29,10 +29,10 @@ test.describe('source text files', () => {
     })
     const { app, page } = launched
     try {
-      const tree = page.locator('.folder-panel .tree')
-      const rootRow = tree.locator('.tree-row').first()
-      await expect(rootRow).toContainText(dir.split('/').pop()!)
-      await rootRow.locator('.tree-name').click()
+      // the desktop's root icon opens the folder view the file lives in
+      const rootIcon = page.locator(`.desktop-icon-item[title="${dir}"]`)
+      await expect(rootIcon).toBeVisible()
+      await rootIcon.dblclick()
 
       const row = page.locator('.recent-list .recent-name', { hasText: 'notes.txt' })
       await expect(row).toBeVisible()

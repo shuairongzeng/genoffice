@@ -180,3 +180,19 @@ describe('the desktop todo card', () => {
     expect(localStorage.getItem('home.todo-card')).toBeTruthy()
   })
 })
+
+describe('the card re-clamps when the stage resizes', () => {
+  it('a stage that shrinks pulls an off-stage placement back inside', async () => {
+    // persist a placement near the right edge of a 1200px stage
+    localStorage.setItem('home.todo-card', JSON.stringify({ left: 900, top: 400 }))
+    await mountCard()
+    expect(card().style.left).toBe('900px')
+    // the stage shrinks (a window resize): the placement re-clamps
+    Object.defineProperty(container, 'clientWidth', { value: 600, configurable: true })
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'))
+      await Promise.resolve()
+    })
+    expect(Number.parseFloat(card().style.left)).toBe(600 - 264)
+  })
+})

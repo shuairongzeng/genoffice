@@ -8,7 +8,7 @@ import type { Lang } from '@genoffice/i18n'
  */
 
 export interface TodoStrings {
-  /** the sidebar card's title */
+  /** the desktop todo card's title */
   title: string
   /** the inline add input's placeholder */
   placeholder: string

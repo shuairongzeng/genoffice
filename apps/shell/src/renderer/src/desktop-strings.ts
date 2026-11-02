@@ -8,7 +8,7 @@ import type { Lang } from '@genoffice/i18n'
  */
 
 export interface DesktopStrings {
-  /** the sidebar nav item that switches to the desktop */
+  /** the dock nav item / surface aria that names the desktop */
   navDesktop: string
   /** the six document apps' tiles (also the New submenu's items) */
   appDocs: string
@@ -39,6 +39,8 @@ export interface DesktopStrings {
   /** surface menu: add a folder root to the desktop (the retired sidebar
       tree's + button, moved here) */
   menuAddFolder: string
+  /** the New submenu's folder verb: create a subfolder in the default root's view */
+  menuNewFolder: string
   /** a folder root icon's menu: take the root off the desktop (disk untouched) */
   menuRemoveRoot: string
   menuProps: string
@@ -154,6 +156,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: '刷新',
     menuWallpaper: '更换壁纸',
     menuAddFolder: '添加文件夹到桌面…',
+    menuNewFolder: '新建文件夹…',
     menuRemoveRoot: '从桌面移除文件夹',
     menuProps: '属性',
     sortCustom: '自定义（摆位）',
@@ -245,6 +248,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Refresh',
     menuWallpaper: 'Change wallpaper',
     menuAddFolder: 'Add folder to desktop…',
+    menuNewFolder: 'New folder…',
     menuRemoveRoot: 'Remove folder from desktop',
     menuProps: 'Properties',
     sortCustom: 'Custom (drag placement)',
@@ -336,6 +340,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: '更新',
     menuWallpaper: '壁紙の変更',
     menuAddFolder: 'フォルダをデスクトップに追加…',
+    menuNewFolder: '新しいフォルダー…',
     menuRemoveRoot: 'フォルダをデスクトップから削除',
     menuProps: 'プロパティ',
     sortCustom: 'カスタム（自由配置）',
@@ -430,6 +435,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: '새로 고침',
     menuWallpaper: '배경 변경',
     menuAddFolder: '폴더를 바탕 화면에 추가…',
+    menuNewFolder: '새 폴더…',
     menuRemoveRoot: '바탕 화면에서 폴더 제거',
     menuProps: '속성',
     sortCustom: '사용자 지정(자유 배치)',
@@ -522,6 +528,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Actualiser',
     menuWallpaper: "Changer le fond d'écran",
     menuAddFolder: 'Ajouter un dossier au bureau…',
+    menuNewFolder: 'Nouveau dossier…',
     menuRemoveRoot: 'Retirer le dossier du bureau',
     menuProps: 'Propriétés',
     sortCustom: 'Personnalisé (libre)',
@@ -616,6 +623,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Aktualisieren',
     menuWallpaper: 'Hintergrund wechseln',
     menuAddFolder: 'Ordner zum Desktop hinzufügen…',
+    menuNewFolder: 'Neuer Ordner…',
     menuRemoveRoot: 'Ordner vom Desktop entfernen',
     menuProps: 'Eigenschaften',
     sortCustom: 'Benutzerdefiniert (frei)',
@@ -711,6 +719,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Actualizar',
     menuWallpaper: 'Cambiar fondo',
     menuAddFolder: 'Añadir carpeta al escritorio…',
+    menuNewFolder: 'Nueva carpeta…',
     menuRemoveRoot: 'Quitar carpeta del escritorio',
     menuProps: 'Propiedades',
     sortCustom: 'Personalizada (libre)',
@@ -804,6 +813,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'รีเฟรช',
     menuWallpaper: 'เปลี่ยนภาพพื้นหลัง',
     menuAddFolder: 'เพิ่มโฟลเดอร์ไปยังเดสก์ท็อป…',
+    menuNewFolder: 'โฟลเดอร์ใหม่…',
     menuRemoveRoot: 'ลบโฟลเดอร์ออกจากเดสก์ท็อป',
     menuProps: 'คุณสมบัติ',
     sortCustom: 'กำหนดเอง (ลากวาง)',
@@ -895,6 +905,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Segarkan',
     menuWallpaper: 'Ganti wallpaper',
     menuAddFolder: 'Tambahkan folder ke desktop…',
+    menuNewFolder: 'Folder baru…',
     menuRemoveRoot: 'Hapus folder dari desktop',
     menuProps: 'Properti',
     sortCustom: 'Kustom (bebas)',
@@ -987,6 +998,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Обновить',
     menuWallpaper: 'Сменить обои',
     menuAddFolder: 'Добавить папку на рабочий стол…',
+    menuNewFolder: 'Новая папка…',
     menuRemoveRoot: 'Убрать папку с рабочего стола',
     menuProps: 'Свойства',
     sortCustom: 'Свободно (вручную)',
@@ -1079,6 +1091,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'تحديث',
     menuWallpaper: 'تغيير الخلفية',
     menuAddFolder: 'إضافة مجلد إلى سطح المكتب…',
+    menuNewFolder: 'مجلد جديد…',
     menuRemoveRoot: 'إزالة المجلد من سطح المكتب',
     menuProps: 'خصائص',
     sortCustom: 'مخصص (سحب حر)',
@@ -1170,6 +1183,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Atualizar',
     menuWallpaper: 'Alterar papel de parede',
     menuAddFolder: 'Adicionar pasta à área de trabalho…',
+    menuNewFolder: 'Nova pasta…',
     menuRemoveRoot: 'Remover pasta da área de trabalho',
     menuProps: 'Propriedades',
     sortCustom: 'Personalizado (livre)',
@@ -1264,6 +1278,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Aggiorna',
     menuWallpaper: 'Cambia sfondo',
     menuAddFolder: 'Aggiungi cartella al desktop…',
+    menuNewFolder: 'Nuova cartella…',
     menuRemoveRoot: 'Rimuovi cartella dal desktop',
     menuProps: 'Proprietà',
     sortCustom: 'Personalizzato (libero)',
@@ -1357,6 +1372,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Odśwież',
     menuWallpaper: 'Zmień tapetę',
     menuAddFolder: 'Dodaj folder do pulpitu…',
+    menuNewFolder: 'Nowy folder…',
     menuRemoveRoot: 'Usuń folder z pulpitu',
     menuProps: 'Właściwości',
     sortCustom: 'Niestandardowo (swobodnie)',
@@ -1449,6 +1465,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Aktualizovat',
     menuWallpaper: 'Změnit tapetu',
     menuAddFolder: 'Přidat složku na plochu…',
+    menuNewFolder: 'Nová složka…',
     menuRemoveRoot: 'Odebrat složku z plochy',
     menuProps: 'Vlastnosti',
     sortCustom: 'Vlastní (volné)',
@@ -1540,6 +1557,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Vernieuwen',
     menuWallpaper: 'Achtergrond wijzigen',
     menuAddFolder: 'Map toevoegen aan bureaublad…',
+    menuNewFolder: 'Nieuwe map…',
     menuRemoveRoot: 'Map van bureaublad verwijderen',
     menuProps: 'Eigenschappen',
     sortCustom: 'Aangepast (vrij)',
@@ -1635,6 +1653,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Segar semula',
     menuWallpaper: 'Tukar kertas dinding',
     menuAddFolder: 'Tambah folder ke desktop…',
+    menuNewFolder: 'Folder baharu…',
     menuRemoveRoot: 'Buang folder dari desktop',
     menuProps: 'Sifat',
     sortCustom: 'Tersuai (bebas)',
@@ -1727,6 +1746,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'רענון',
     menuWallpaper: 'החלפת רקע',
     menuAddFolder: 'הוסף תיקייה לשולחן העבודה…',
+    menuNewFolder: 'תיקייה חדשה…',
     menuRemoveRoot: 'הסר תיקייה משולחן העבודה',
     menuProps: 'מאפיינים',
     sortCustom: 'מותאם אישית (חופשי)',
@@ -1818,6 +1838,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'रिफ्रेश',
     menuWallpaper: 'वॉलपेपर बदलें',
     menuAddFolder: 'डेस्कटॉप पर फ़ोल्डर जोड़ें…',
+    menuNewFolder: 'नया फ़ोल्डर…',
     menuRemoveRoot: 'डेस्कटॉप से फ़ोल्डर हटाएँ',
     menuProps: 'गुण',
     sortCustom: 'कस्टम (स्वतंत्र)',
@@ -1909,8 +1930,9 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuView: '檢視',
     menuRefresh: '重新整理',
     menuWallpaper: '更換桌布',
-    menuAddFolder: 'डेस्कटॉप पर फ़ोल्डर जोड़ें…',
-    menuRemoveRoot: 'डेस्कटॉप से फ़ोल्डर हटाएँ',
+    menuAddFolder: '將資料夾加到桌面…',
+    menuNewFolder: '新增資料夾…',
+    menuRemoveRoot: '從桌面移除資料夾',
     menuProps: '屬性',
     sortCustom: '自訂（擺放）',
     sortName: '名稱',
@@ -2001,6 +2023,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     menuRefresh: 'Làm mới',
     menuWallpaper: 'Đổi hình nền',
     menuAddFolder: 'Thêm thư mục vào desktop…',
+    menuNewFolder: 'Thư mục mới…',
     menuRemoveRoot: 'Xóa thư mục khỏi desktop',
     menuProps: 'Thuộc tính',
     sortCustom: 'Tùy chỉnh (tự do)',

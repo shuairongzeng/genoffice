@@ -22,7 +22,11 @@ import { TodoWidget } from './TodoWidget'
  * The drag follows the codebase's write-only discipline: the move path
  * writes the root's inline position imperatively (one element, no layout
  * reads after the single drag-start measurement), and the release commits
- * the final numbers to state and the store.
+ * the final numbers to state and the store. A stage resize re-clamps the
+ * placement (a resized window must not strand the card off-stage); no grid
+ * cells are reserved under the card — the pinned-widget band reserves
+ * cells because its widgets ARE grid model entries, while this card's
+ * placement is free geometry the grid cannot express (see home.css).
  */
 
 /** where the card's placement lives between mounts */
@@ -93,6 +97,39 @@ export function TodoCard({ lang }: { lang: Lang }): React.JSX.Element {
     })
   }, [pos])
 
+  // ── the stage's size is a moving target: a window resized (or zoom
+  // changed) under a persisted placement can strand the card off-stage or
+  // under the dock — re-clamp it on every stage resize, the same clamp the
+  // drag applies ──
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    const parent = stageOf(root)
+    if (!parent || typeof ResizeObserver !== 'function') {
+      // no observer (a stale host): the window's own resize is the fallback
+      const onWindowResize = (): void => {
+        const live = rootRef.current
+        const liveParent = live ? stageOf(live) : null
+        if (live && liveParent) {
+          setPos((prev) =>
+            prev
+              ? clampPos(prev.left, prev.top, liveParent.clientWidth, liveParent.clientHeight)
+              : prev,
+          )
+        }
+      }
+      window.addEventListener('resize', onWindowResize)
+      return () => window.removeEventListener('resize', onWindowResize)
+    }
+    const observer = new ResizeObserver(() => {
+      setPos((prev) =>
+        prev ? clampPos(prev.left, prev.top, parent.clientWidth, parent.clientHeight) : prev,
+      )
+    })
+    observer.observe(parent)
+    return () => observer.disconnect()
+  }, [])
+
   // ── the drag: the head band is the handle; the card's inline position is
   // written imperatively per move and committed on release ──
   const drag = useRef<{
@@ -132,7 +169,12 @@ export function TodoCard({ lang }: { lang: Lang }): React.JSX.Element {
       maxY,
       moved: false,
     }
-    head.setPointerCapture(event.pointerId)
+    try {
+      head.setPointerCapture(event.pointerId)
+    } catch {
+      // jsdom has no pointer capture API (and a browser can refuse a stale
+      // id): the drag still works — the move handler is on the head itself
+    }
   }
 
   const onHeadPointerMove = (event: React.PointerEvent): void => {
