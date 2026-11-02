@@ -443,6 +443,7 @@ const WORD_COUNT_THROTTLE_MS = 400
 /** consecutive follow-up passes a pass may schedule for itself */
 import { runHeadlessDocumentExport } from './headless-export'
 import { installMcpBridge } from './mcp-bridge'
+import { installHeadlessAgentBridge } from './ai/headless-agent'
 import {
   clampDocsZoom,
   DOCS_ZOOM_MAX,
@@ -1087,6 +1088,44 @@ export function App() {
     nonce: number
     autoRun?: boolean
   } | null>(null)
+  // W2: hosted in the unified shell, this app has no AI panel of its own —
+  // the global dock is the one AI face (detected once; a standalone dev run
+  // keeps the panel). Every AI entry point routes through the two helpers
+  // below so the suppression is one decision, not a dozen.
+  const [aiHostedInShell, setAiHostedInShell] = useState(false)
+  /** the helpers read the ref so a stale closure (runAiProofread's empty deps) still routes correctly */
+  const aiHostedRef = useRef(false)
+  useEffect(() => {
+    let alive = true
+    window.desktop
+      .isHostedInShell()
+      .then((hosted) => {
+        if (!alive) return
+        aiHostedRef.current = hosted
+        setAiHostedInShell(hosted)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
+  /** an AI entry with a prompt to run: hosted summons the global drawer and forwards the prompt to it; standalone opens this panel with the preset */
+  const summonAi = (text?: string): void => {
+    if (aiHostedRef.current) {
+      void window.desktop.openGlobalAi(text)
+      return
+    }
+    setShowAi(true)
+    if (text !== undefined) setAiPreset({ text, nonce: Date.now(), autoRun: true })
+  }
+  /** the plain toggle (View menu, toolbar): hosted, the global drawer IS the panel */
+  const toggleAi = (): void => {
+    if (aiHostedRef.current) {
+      void window.desktop.openGlobalAi()
+      return
+    }
+    setShowAi((v) => !v)
+  }
   // selection-scoped AI edit queue (anchors live as editor decorations)
   const [editQueue, setEditQueue] = useState<DocsEditQueueItem[]>([])
   const editQueueRef = useRef(editQueue)
@@ -5439,8 +5478,7 @@ export function App() {
     )
       return
     localStorage.setItem(AI_REWRITE_ACK_KEY, '1')
-    setShowAi(true)
-    setAiPreset({ text: t('ribbonEditorPrompt'), nonce: Date.now(), autoRun: true })
+    summonAi(t('ribbonEditorPrompt'))
   }, [])
 
   // "has unsaved changes" check shared by the close guard and autosave; refreshed on every
@@ -5830,7 +5868,7 @@ export function App() {
           zoomFit('multi')
           break
         case 'toggle-ai':
-          setShowAi((v) => !v)
+          toggleAi()
           break
         case 'toggle-dark':
           updateDarkPage(!darkPageRef.current)
@@ -6444,8 +6482,7 @@ export function App() {
     editor.view.focus()
   }
   const askSendNow = (text: string): void => {
-    setShowAi(true)
-    setAiPreset({ text, nonce: Date.now(), autoRun: true })
+    summonAi(text)
   }
 
   // AI comment tools run the same review-actions code paths as the comments pane
@@ -6826,6 +6863,44 @@ export function App() {
     [editor],
   )
 
+  // W2: the headless document agent — the global dock's document_agent tool
+  // routes a delegated task here. The deps ride a ref (assignments happen on
+  // every render) so a re-render never tears down a running task's bridge
+  // subscription; only the editor itself gates the install.
+  const headlessDepsRef = useRef({
+    settings,
+    aiCommentsAccess,
+    aiHfAccess,
+    aiPageSetupAccess,
+    aiDocExtras,
+    aiNotesAccess,
+  })
+  headlessDepsRef.current = {
+    settings,
+    aiCommentsAccess,
+    aiHfAccess,
+    aiPageSetupAccess,
+    aiDocExtras,
+    aiNotesAccess,
+  }
+  useEffect(() => {
+    if (tornDown || !editor) return
+    return installHeadlessAgentBridge({
+      getCtx: () => fileCtxRef.current,
+      getSettings: () => headlessDepsRef.current.settings,
+      getComments: () => headlessDepsRef.current.aiCommentsAccess,
+      getHf: () => headlessDepsRef.current.aiHfAccess,
+      getPageSetup: () => headlessDepsRef.current.aiPageSetupAccess,
+      getExtras: () => headlessDepsRef.current.aiDocExtras,
+      getNotes: () => headlessDepsRef.current.aiNotesAccess,
+      // staged attachments belong to the (suppressed) in-app panel's
+      // conversation; a delegated task starts with none. Every sub-agent
+      // edit lands as a pending revision regardless of the document's
+      // track-changes state — the headless runner owns that policy
+      attachments: () => [],
+    })
+  }, [tornDown, editor])
+
   const ribbonActions = useStableCallbacks({
     allocateNumId: (kind: 'bullet' | 'ordered') => allocateListNumId(kind),
     createListDef: (levels: CustomNumberingLevel[]) => {
@@ -6853,7 +6928,7 @@ export function App() {
       else if (format === 'md') void exportMarkdown()
       else exportImages()
     },
-    onToggleAi: () => setShowAi((v) => !v),
+    onToggleAi: toggleAi,
     onSection: (next: SectionSettings) => {
       // layout applies to the cursor's section; the final section's sectPr goes through SaveOptions.section (also drives canvas geometry)
       setSections((prev) =>
@@ -6929,8 +7004,7 @@ export function App() {
     onDarkPage: updateDarkPage,
     onAiPreset: (text: string) => {
       // Word's Editor / Translate start working as soon as they're clicked
-      setShowAi(true)
-      setAiPreset({ text, nonce: Date.now(), autoRun: true })
+      summonAi(text)
     },
     onHeader: (next: HeaderFooter) => commitHfAt(0, 'header', headerAreaView, next),
     onPageNumFormat: openPgNumModal,
@@ -7514,7 +7588,7 @@ export function App() {
       />
 
       <div className="app-main">
-        {doc && (
+        {doc && !aiHostedInShell && (
           <div
             className={`ai-dock${showAi ? '' : ' collapsed'}${
               !aiSidebarEnabled && !showAi ? ' ai-dock-off' : ''
@@ -8063,8 +8137,7 @@ export function App() {
           onViewImage={setViewImage}
           onSaveImageAs={saveImageAs}
           onAiPreset={(text) => {
-            setShowAi(true)
-            setAiPreset({ text, nonce: Date.now(), autoRun: true })
+            summonAi(text)
           }}
           onRestartNumbering={restartNumbering}
           onContinueNumbering={continueNumbering}

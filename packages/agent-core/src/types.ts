@@ -9,8 +9,13 @@ export interface AgentToolDef {
    * document rewrites) route through the host's confirmTool hook before they
    * execute; everything else runs as before. Absent = 'low', so existing
    * tool definitions need no change.
+   *
+   * 'always-ask' is the destructive grade (deleting a file): it routes through
+   * the same confirmTool hook on EVERY call — the host's "always allow for
+   * this conversation" affordance must never apply to it. The hook receives
+   * the tool def and can read the grade itself to hide that affordance.
    */
-  risk?: 'low' | 'high'
+  risk?: 'low' | 'high' | 'always-ask'
 }
 
 export interface AgentToolCall {

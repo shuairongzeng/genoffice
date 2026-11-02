@@ -2,6 +2,9 @@ import {
   BROWSER_CLICK_TOOL,
   BROWSER_FILL_FIELD_TOOL,
   CREATE_DOCUMENT_TOOL,
+  DELETE_FILE_TOOL,
+  DOCUMENT_AGENT_TOOL,
+  EDIT_FILE_TOOL,
   LOAD_GUIDE_TOOL,
   READ_ATTACHMENT_TOOL,
   RUN_GENOFFICE_TOOL,
@@ -18,7 +21,8 @@ import {
  * repeats the same action on the same target.
  */
 
-export type ToolNoteKind = 'search' | 'read' | 'create' | 'cli' | 'browser' | 'shell'
+export type ToolNoteKind =
+  'search' | 'read' | 'create' | 'cli' | 'browser' | 'shell' | 'edit' | 'delete' | 'docagent'
 
 export interface ToolNote {
   label: string
@@ -38,6 +42,9 @@ function baseName(path: string): string {
 export function toolNoteKind(call: AgentToolCall): ToolNoteKind {
   if (call.name === 'search_knowledge_base') return 'search'
   if (call.name === CREATE_DOCUMENT_TOOL) return 'create'
+  if (call.name === EDIT_FILE_TOOL) return 'edit'
+  if (call.name === DELETE_FILE_TOOL) return 'delete'
+  if (call.name === DOCUMENT_AGENT_TOOL) return 'docagent'
   if (call.name === RUN_GENOFFICE_TOOL || call.name === LOAD_GUIDE_TOOL) return 'cli'
   if (call.name.startsWith('browser:')) return 'browser'
   if (call.name.startsWith('shell:')) return 'shell'
@@ -70,6 +77,16 @@ export function toolNoteDetail(
   if (call.name === CREATE_DOCUMENT_TOOL) {
     const title = typeof call.input.title === 'string' ? call.input.title.trim() : ''
     return title || undefined
+  }
+  // the write tools name the file they touched: the chip says which one
+  if (call.name === EDIT_FILE_TOOL || call.name === DELETE_FILE_TOOL) {
+    const path = typeof call.input.path === 'string' ? call.input.path.trim() : ''
+    return path ? baseName(path) : undefined
+  }
+  // a delegated task's chip carries the task's opening words
+  if (call.name === DOCUMENT_AGENT_TOOL) {
+    const task = typeof call.input.task === 'string' ? call.input.task.trim() : ''
+    return task ? task.slice(0, 40) : undefined
   }
   if (call.name === 'read_knowledge_file' || call.name === READ_ATTACHMENT_TOOL) {
     const index = Number(call.input.index)

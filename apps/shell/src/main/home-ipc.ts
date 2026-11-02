@@ -1,4 +1,5 @@
 import { existsSync, renameSync, rmSync, statSync } from 'node:fs'
+import { readFile as readFileText, realpath } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { basename, dirname, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
@@ -45,12 +46,16 @@ import {
   createKnowledgeDocument,
   isUnderAnyRoot,
   KB_LIST_CAP,
+  kbOpenPathAllows,
   kbReadAllows,
+  applyKnowledgeFileEdit,
   listIndexedKnowledgeFiles,
   listKnowledgeFiles,
   normalizeKbScope,
   normalizeKbScopeFolders,
   notIndexedPaths,
+  parseKbEditRequest,
+  parseKbDeleteRequest,
   parseKbOnlyPaths,
   parseKbCreateRequest,
   readKnowledgeFilePage,
@@ -409,6 +414,96 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
       },
       req,
     )
+  })
+
+  // The write powers' scope gate: the same kb:read verdicts open_path consults
+  // (starred / recent / knowledge folder / indexed, plus the round-scope
+  // location whitelist), re-run on the realpath so a symlink whose target
+  // sits outside the scope cannot smuggle a file past the location verdict.
+  const agentFileScopeAllows = async (path: string): Promise<boolean> => {
+    const sources = {
+      indexHas: (p: string) => host.indexStore()?.has(p) ?? false,
+      starred: readStarredFiles(),
+      recents: readRecentFiles(),
+      aliases: host.desktopAliases(),
+      insideAnyRoot: (p: string) => host.insideAnyRoot(p),
+      scope: kbScope(),
+      scopeFolders: kbFolders(),
+      statFile: host.statMaybeFile,
+    }
+    if (!(await kbOpenPathAllows(path, sources))) return false
+    const resolved = await realpath(path).catch(() => null)
+    if (resolved === null || resolved === path) return true
+    return kbOpenPathAllows(resolved, sources)
+  }
+  const refuseOutOfScope = (path: string): Error =>
+    new Error(
+      `"${path.slice(0, 120)}" is outside the desktop's file scope — the AI may change files the ` +
+        'person has surfaced (starred or recent, inside a knowledge folder, or indexed). Ask the ' +
+        'person to handle this one themselves',
+    )
+
+  // edit_file: one patch-style edit of an in-scope text file. The panel's
+  // confirmation card gated it renderer-side (risk:'high', session-allowable);
+  // the scope verdict here is the boundary that keeps the write inside the
+  // corpus whatever the model asked for.
+  ipcMain.handle('kb:edit-file', async (_event, raw: unknown): Promise<unknown> => {
+    const req = parseKbEditRequest(raw)
+    // existence before the scope verdict: a missing file's honest error is
+    // "not editable", not a misleading scope refusal (the location verdict
+    // below requires existence, so the order would otherwise blur the two)
+    if (!host.statMaybeFile(req.path)?.isFile()) {
+      throw new Error(
+        `"${basename(req.path)}" is not an editable file — it may be missing; check the path`,
+      )
+    }
+    if (!(await agentFileScopeAllows(req.path))) throw refuseOutOfScope(req.path)
+    // TOCTOU: a symlink retargeted between the scope verdict and the read
+    // would edit a file the verdict never covered — re-check the realpath
+    // after reading and refuse on any change
+    const realBefore = await realpath(req.path).catch(() => null)
+    const text = await readFileText(req.path, 'utf8')
+    const realAfter = await realpath(req.path).catch(() => null)
+    if (realBefore === null || realAfter === null || realBefore !== realAfter) {
+      throw new Error(
+        `"${basename(req.path)}" moved while the edit was being prepared (its real path ` +
+          'changed) — read it again and retry',
+      )
+    }
+    return applyKnowledgeFileEdit(
+      {
+        statFile: host.statMaybeFile,
+        readFile: async () => text,
+        writeFile: (path, next) => atomicWriteFile(path, Buffer.from(next, 'utf8')),
+      },
+      req,
+    )
+  })
+
+  // delete_file: one in-scope file to the OS trash. ONE confirmation — the
+  // panel's always-ask card, by the user's explicit call (the browser write
+  // actions' second native ask was noise) — so this handler fails closed on
+  // any request that did not come through that gate: the renderer sets
+  // `confirmed` only inside the skill's executor, the code path the loop
+  // runs strictly after the card allowed. That flag is a RENDERER-ASSERTED
+  // marker — an honest guard against a wiring that forgets the gate, not
+  // proof against a compromised renderer (the one-confirm policy the user
+  // chose). A raw bridge call from anywhere else is refused here.
+  ipcMain.handle('kb:delete-file', async (_event, raw: unknown): Promise<unknown> => {
+    const req = parseKbDeleteRequest(raw)
+    if (!req.confirmed) {
+      throw new Error(
+        "delete refused: this call did not come through the panel's confirmation card",
+      )
+    }
+    if (!host.statMaybeFile(req.path)?.isFile()) {
+      throw new Error(
+        `"${basename(req.path)}" is not a file (or is already gone) — nothing was deleted`,
+      )
+    }
+    if (!(await agentFileScopeAllows(req.path))) throw refuseOutOfScope(req.path)
+    await shell.trashItem(req.path)
+    return { path: req.path }
   })
 
   // Ask AI building files: the bundled CLI, confined to the conversation's

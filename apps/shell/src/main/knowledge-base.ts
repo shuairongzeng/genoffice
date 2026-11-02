@@ -524,3 +524,140 @@ export async function createKnowledgeDocument(
   deps.recordRecent(path)
   return { path }
 }
+
+// ---- edit_file / delete_file: the ask panel's write powers over the corpus ----
+
+/** one patch-style edit: the exact text to replace, and its replacement */
+export interface KbEditRequest {
+  path: string
+  oldString: string
+  newString: string
+  /** replace every occurrence instead of requiring exactly one */
+  replaceAll?: boolean
+}
+
+/** keep in step with MAX_EDIT_PATCH_CHARS in agent-core's file-ops skill */
+export const KB_EDIT_MAX_PATCH_CHARS = 100_000
+
+/** biggest text file the edit tool loads and rewrites whole */
+export const KB_EDIT_MAX_FILE_BYTES = 1024 * 1024
+
+/** validate the renderer's payload; throws the plain message the model sees as the tool result */
+export function parseKbEditRequest(raw: unknown): KbEditRequest {
+  const req = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const path = typeof req.path === 'string' ? req.path : ''
+  if (!path) throw new Error('path must be a non-empty string')
+  if (!isAbsolute(path)) throw new Error(`path must be absolute: ${path.slice(0, 120)}`)
+  if (path.length > KB_PATH_MAX_CHARS) {
+    throw new Error(`path is too long (${path.length} > ${KB_PATH_MAX_CHARS})`)
+  }
+  const oldString = req.old_string
+  if (typeof oldString !== 'string' || oldString === '') {
+    throw new Error('old_string must be a non-empty string (quote the file exactly)')
+  }
+  if (oldString.length > KB_EDIT_MAX_PATCH_CHARS) {
+    throw new Error(`old_string is too long (${oldString.length} > ${KB_EDIT_MAX_PATCH_CHARS})`)
+  }
+  const newString = req.new_string
+  if (typeof newString !== 'string')
+    throw new Error('new_string must be a string (it may be empty)')
+  if (newString.length > KB_EDIT_MAX_PATCH_CHARS) {
+    throw new Error(`new_string is too long (${newString.length} > ${KB_EDIT_MAX_PATCH_CHARS})`)
+  }
+  if (oldString === newString) {
+    throw new Error('old_string and new_string are identical — an edit must change the text')
+  }
+  const replaceAll = req.replace_all === true
+  return { path, oldString, newString, ...(replaceAll ? { replaceAll: true } : {}) }
+}
+
+export interface KbEditDeps {
+  /** size is optional only for the host's narrow type: the real wiring passes fs.Stats */
+  statFile: (path: string) => { size?: number; isFile(): boolean } | null
+  /** the file's current text (utf8) */
+  readFile: (path: string) => Promise<string>
+  /** write the whole patched text back */
+  writeFile: (path: string, text: string) => Promise<void>
+}
+
+/** count non-overlapping occurrences of one literal needle */
+function countOccurrences(text: string, needle: string): number {
+  let count = 0
+  let at = text.indexOf(needle)
+  while (at !== -1) {
+    count++
+    at = text.indexOf(needle, at + needle.length)
+  }
+  return count
+}
+
+/**
+ * Apply one patch-style edit: the exact old-string must occur (once by
+ * default — more is ambiguous unless replace_all; none means the file moved
+ * under the model and it must re-read), and the patched text is written back
+ * as one atomic whole. The result reports what actually changed, so the
+ * model's claim about the edit is checkable.
+ */
+export async function applyKnowledgeFileEdit(
+  deps: KbEditDeps,
+  req: KbEditRequest,
+): Promise<{ path: string; occurrences: number; bytes: number }> {
+  const name = basename(req.path)
+  const stat = deps.statFile(req.path)
+  if (!stat || !stat.isFile()) {
+    throw new Error(`"${name}" is not an editable file — it may be missing; check the path`)
+  }
+  const size = stat.size ?? 0
+  if (size > KB_EDIT_MAX_FILE_BYTES) {
+    throw new Error(
+      `"${name}" is too large to edit (${Math.round(size / 1024)}KB, cap ${
+        KB_EDIT_MAX_FILE_BYTES / 1024
+      }KB)`,
+    )
+  }
+  const text = await deps.readFile(req.path)
+  if (text.includes('\0')) {
+    throw new Error(`"${name}" is not editable text (binary content)`)
+  }
+  const occurrences = countOccurrences(text, req.oldString)
+  if (occurrences === 0) {
+    throw new Error(
+      `old_string was not found in "${name}" — read the file again (read_knowledge_file) and ` +
+        'quote the current text exactly',
+    )
+  }
+  if (occurrences > 1 && req.replaceAll !== true) {
+    throw new Error(
+      `old_string matches ${occurrences} places in "${name}" — include more surrounding text so ` +
+        'it matches exactly one, or pass replace_all: true to change all of them',
+    )
+  }
+  const next =
+    req.replaceAll === true
+      ? text.split(req.oldString).join(req.newString)
+      : text.replace(req.oldString, req.newString)
+  // a patch that would leave the file empty (or blank) is a deletion wearing
+  // an edit's clothes: an empty new_string over the whole content, or the old
+  // string being the entire text. The person approved an EDIT card; a
+  // deletion gets the delete_file card with its every-time confirmation
+  if (!next.trim()) {
+    throw new Error(
+      `"${name}" would become empty — that is a deletion, not an edit. Use delete_file ` +
+        'instead (its confirmation covers deleting)',
+    )
+  }
+  await deps.writeFile(req.path, next)
+  return { path: req.path, occurrences, bytes: Buffer.byteLength(next, 'utf8') }
+}
+
+/** validate a delete payload: the path rules above, plus the confirmation fact */
+export function parseKbDeleteRequest(raw: unknown): { path: string; confirmed: boolean } {
+  const req = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const path = typeof req.path === 'string' ? req.path : ''
+  if (!path) throw new Error('path must be a non-empty string')
+  if (!isAbsolute(path)) throw new Error(`path must be absolute: ${path.slice(0, 120)}`)
+  if (path.length > KB_PATH_MAX_CHARS) {
+    throw new Error(`path is too long (${path.length} > ${KB_PATH_MAX_CHARS})`)
+  }
+  return { path, confirmed: req.confirmed === true }
+}

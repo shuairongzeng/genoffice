@@ -187,13 +187,15 @@ async function runCommand(
  * renderer was still booting would look fine in the UI yet stay unaddressable
  * over MCP for the rest of its life, because readiness is announced exactly
  * once and never re-derived.
+ *
+ * Exported for the headless agent's twin `docs:agent-ready` announce.
  */
 const READY_POLL_MS = 50
 const READY_SLOW_POLL_MS = 1_000
 const READY_FAST_WINDOW_MS = 20_000
 
-async function announceWhenLoaded(
-  deps: McpBridgeDeps,
+export async function announceWhenLoaded(
+  deps: Pick<McpBridgeDeps, 'getCtx'>,
   signal: () => void,
   isCancelled: () => boolean,
 ): Promise<void> {

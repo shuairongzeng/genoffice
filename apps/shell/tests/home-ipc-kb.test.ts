@@ -1,4 +1,12 @@
-import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,6 +27,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const handles = new Map<string, (...args: never[]) => unknown>()
 
+/** the OS trash calls the delete handler made (the electron mock's record) */
+const trashCalls = vi.hoisted(() => [] as string[])
+
 vi.mock('electron', () => ({
   app: { getPath: () => '/tmp/genoffice-home-ipc-kb' },
   BrowserWindow: class {},
@@ -27,7 +38,9 @@ vi.mock('electron', () => ({
     handle: (channel: string, handler: (...args: never[]) => unknown) =>
       handles.set(channel, handler),
   },
-  shell: {},
+  shell: {
+    trashItem: async (path: string) => void trashCalls.push(path),
+  },
 }))
 
 // app-registry re-exports the six app main modules; the kb handlers only need
@@ -149,10 +162,11 @@ let dir: string
 let settingsPath: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'genoffice-kb-ipc-'))
+  dir = realpathSync(mkdtempSync(join(tmpdir(), 'genoffice-kb-ipc-')))
   settingsPath = join(dir, 'app-settings.json')
   handles.clear()
   searchImpl.mockClear()
+  trashCalls.length = 0
   recentsState.paths = []
   aliasState.paths = []
   registerHomeFileIpc(host)
@@ -160,6 +174,126 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
+})
+
+describe('kb:edit-file — the patch gate over the kb scope', () => {
+  /** an in-scope file: on the recents list, in a real (non-symlinked) temp dir */
+  const scopedFile = (name: string, text: string): string => {
+    const path = join(dir, name)
+    writeFileSync(path, text)
+    recentsState.paths.push(path)
+    return path
+  }
+
+  it('edits an in-scope file: the one occurrence is replaced on disk', async () => {
+    const file = scopedFile('notes.md', '# Notes\n\nold text\n\nbye')
+    const answer = (await invoke('kb:edit-file', {
+      path: file,
+      old_string: 'old text',
+      new_string: 'new text',
+    })) as { path: string; occurrences: number; bytes: number }
+    expect(answer.occurrences).toBe(1)
+    expect(answer.path).toBe(file)
+    expect(readFileSync(file, 'utf8')).toBe('# Notes\n\nnew text\n\nbye')
+  })
+
+  it('refuses a path the desktop never surfaced, before touching the disk', async () => {
+    const file = join(dir, 'stranger.md')
+    writeFileSync(file, 'x')
+    await expect(
+      invoke('kb:edit-file', { path: file, old_string: 'x', new_string: 'y' }),
+    ).rejects.toThrow(/file scope/)
+  })
+
+  it('not-found and ambiguous matches answer the patch errors', async () => {
+    const file = scopedFile('twice.md', 'x x')
+    await expect(
+      invoke('kb:edit-file', { path: file, old_string: 'gone', new_string: 'y' }),
+    ).rejects.toThrow(/was not found/)
+    await expect(
+      invoke('kb:edit-file', { path: file, old_string: 'x', new_string: 'y' }),
+    ).rejects.toThrow(/matches 2 places/)
+    // replace_all resolves the ambiguity on the caller's say-so
+    const answer = (await invoke('kb:edit-file', {
+      path: file,
+      old_string: 'x',
+      new_string: 'y',
+      replace_all: true,
+    })) as { occurrences: number }
+    expect(answer.occurrences).toBe(2)
+    expect(readFileSync(file, 'utf8')).toBe('y y')
+  })
+
+  it('a relative path is refused outright', async () => {
+    await expect(
+      invoke('kb:edit-file', { path: 'notes.md', old_string: 'a', new_string: 'b' }),
+    ).rejects.toThrow(/absolute/)
+  })
+})
+
+describe('kb:delete-file — one confirmation, the trash, fail closed', () => {
+  it('moves an in-scope file to the OS trash when the panel confirmed it', async () => {
+    const file = join(dir, 'notes.md')
+    writeFileSync(file, 'x')
+    recentsState.paths.push(file)
+    const answer = (await invoke('kb:delete-file', { path: file, confirmed: true })) as {
+      path: string
+    }
+    expect(answer).toEqual({ path: file })
+    // the electron mock records the trash call; the real shell.trashItem is
+    // what removes the file, and that is the OS's contract, not ours to test
+    expect(trashCalls).toEqual([file])
+  })
+
+  it('refuses a delete that did not come through the panel card (fail closed)', async () => {
+    const file = join(dir, 'notes.md')
+    writeFileSync(file, 'x')
+    recentsState.paths.push(file)
+    await expect(invoke('kb:delete-file', { path: file })).rejects.toThrow(
+      /did not come through the panel's confirmation/,
+    )
+    // a string "true" is not the fact either
+    await expect(invoke('kb:delete-file', { path: file, confirmed: 'true' })).rejects.toThrow(
+      /confirmation/,
+    )
+    expect(trashCalls).toEqual([])
+    expect(statSync(file, { throwIfNoEntry: false })).toBeDefined()
+  })
+
+  it('refuses an out-of-scope path even when confirmed', async () => {
+    const file = join(dir, 'stranger.md')
+    writeFileSync(file, 'x')
+    await expect(invoke('kb:delete-file', { path: file, confirmed: true })).rejects.toThrow(
+      /file scope/,
+    )
+    expect(trashCalls).toEqual([])
+  })
+
+  it('a symlink whose target sits outside the scope cannot smuggle a file past the gate', async () => {
+    const target = join(dir, 'secret.md')
+    writeFileSync(target, 'x')
+    const link = join(dir, 'report.md')
+    symlinkSync(target, link)
+    // the link's own location is surfaced (a recent), its target is not
+    recentsState.paths.push(link)
+    await expect(invoke('kb:delete-file', { path: link, confirmed: true })).rejects.toThrow(
+      /resolves outside the desktop's file scope|file scope/,
+    )
+    await expect(
+      invoke('kb:edit-file', { path: link, old_string: 'x', new_string: 'y' }),
+    ).rejects.toThrow(/file scope/)
+    expect(trashCalls).toEqual([])
+    expect(readFileSync(target, 'utf8')).toBe('x')
+  })
+
+  it('a missing file answers that nothing was deleted', async () => {
+    const file = join(dir, 'gone.md')
+    recentsState.paths.push(file)
+    await expect(invoke('kb:delete-file', { path: file, confirmed: true })).rejects.toThrow(
+      /nothing was deleted/,
+    )
+    expect(trashCalls).toEqual([])
+  })
 })
 
 describe('kb:search — the round scope', () => {

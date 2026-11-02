@@ -262,6 +262,7 @@ import { createSheetsControl, installSheetsBridge } from './mcp/sheets-bridge'
 import { createOpenDocumentsControl, createOpenTargetResolver } from './mcp/open-documents-bridge'
 import { registerAppSkillIpc } from './mcp/app-skill-proxy'
 import { registerBrowserSkillIpc } from './browser-agent'
+import { installDocumentAgentBridge } from './document-agent'
 import { collectSurfaceTabs, urlOfWith, type SurfaceContextDeps } from './surface-context'
 import { kbOpenPathAllows, normalizeKbScope, normalizeKbScopeFolders } from './knowledge-base'
 import type { BrowserPageActionConfirm } from './browser-agent'
@@ -292,10 +293,10 @@ import type { TabKind } from '../shared/tabs-api'
 import { TABS_CHANNELS } from '../shared/tabs-api'
 import { showErrorDialog } from './error-dialog'
 import { startRendererWatchdog } from './renderer-watchdog'
-import { watchAiDock } from './ai-dock'
+import { watchAiDock, readAiDock, AI_DOCK_KEY } from './ai-dock'
 import { watchDockPrefs } from './dock-prefs'
 import { DOCK_OPEN_NONE } from '../shared/dock-prefs'
-import { DOCK_ITEM_COUNT } from '../shared/desktop-geometry'
+import { DOCK_ITEM_COUNT, normalizeAiDock } from '../shared/desktop-geometry'
 import {
   notifyHomeTabsChanged,
   registerHomeTabsIpc,
@@ -6176,6 +6177,40 @@ const surfaceTabsSource = (): SurfaceContextDeps => ({
 // bridge). The channels that ACT (browserskill:execute) keep their panel
 // sender gate.
 ipcMain.handle(HOME_CHANNELS.surfaceTabs, () => collectSurfaceTabs(surfaceTabsSource()))
+/**
+ * The renderers allowed to summon the global drawer and forward asks
+ * (MED-3 / LOW-8): the shell's own renderer plus every hosted app-tab
+ * renderer — the strip's tabs and the detached editor windows. Browser page
+ * views never qualify.
+ */
+const isAppRendererSender = async (sender: WebContents): Promise<boolean> => {
+  const shellWc = shellWindow && !shellWindow.isDestroyed() ? shellWindow.webContents : null
+  if (shellWc && shellWc === sender) return true
+  const manager = tabManager
+  if (manager?.list().some((tab) => manager.webContentsForTab(tab.id) === sender)) return true
+  for (const doc of await detachedOpenDocuments()) {
+    if (detachedWebContentsFor(doc.id) === sender) return true
+  }
+  return false
+}
+
+// hosted apps summon the global drawer here: their own AI panel is suppressed
+// while the shell hosts them (the dock is the one AI face), so their open
+// affordances — toolbar button, shortcut, View menu — route to this handler
+// and the shell reveals itself with the drawer open. Sender-gated to the
+// hosted app renderers (LOW-8): a page view cannot summon the drawer
+ipcMain.handle('docs:open-global-ai', async (event) => {
+  if (!(await isAppRendererSender(event.sender))) return false
+  revealShellWindow()
+  const settingsPath = APP_SETTINGS_PATH()
+  const current = readAiDock(settingsPath)
+  writeAppSetting(
+    settingsPath,
+    AI_DOCK_KEY,
+    normalizeAiDock({ width: current.width, collapsed: false, petPos: current.petPos }),
+  )
+  return true
+})
 // the workbench's dock and stage channels: the docked AI panel's prefs
 // (app-settings.json `aiDock`) and the renderer's measured content-stage rect
 // the dock-nav intent routed while Home's renderer was still mounting (its
@@ -6216,6 +6251,11 @@ registerHomeWorkbenchIpc({
     // person sees — bounce it back
     sendToShellRenderer(HOME_CHANNELS.askForwarded, query)
   },
+  // MED-3's sender gate: the shell renderer and every hosted app-tab
+  // renderer (strip + detached) whose bridge can summon the drawer
+  // (openGlobalAi forwards through this channel); the live enumerations are
+  // the truth
+  isTrustedAskSender: (sender) => isAppRendererSender(sender),
   // the shell renderer already received the original browser:ask-about push;
   // this route only exists so the overlay's panel parks the annotation where
   // the person can see it (pet-only included — the panel is mounted behind
@@ -6624,6 +6664,29 @@ app.whenReady().then(async () => {
       return [shellWc, overlayWc].filter((wc): wc is WebContents => !!wc && !wc.isDestroyed())
     },
     confirmPageAction: (request) => confirmBrowserPageAction(request),
+  })
+  // The document-agent delegation (W2): the dock's document_agent tool lands
+  // here and routes to the ACTIVE docs tab's headless agent. The tab
+  // enumeration reuses the surface context's source (the strip plus the
+  // detached editors, with a focused detached window outranking the strip's
+  // active flag), and the sender gate serves the same panel copies the
+  // browser skill's channel does.
+  installDocumentAgentBridge({
+    listDocumentTabs: async () =>
+      (await collectSurfaceTabs(surfaceTabsSource())).map(({ id, kind, title, active }) => ({
+        id,
+        kind,
+        title,
+        active,
+      })),
+    webContentsFor: (tabId) =>
+      tabManager?.webContentsForTab(tabId) ?? detachedWebContentsFor(tabId),
+    panelWebContents: () => {
+      const shellWc =
+        shellWindow && !shellWindow.isDestroyed() ? shellWindow.webContents : undefined
+      const overlayWc = tabManager?.drawerOverlayWebContents()
+      return [shellWc, overlayWc].filter((wc): wc is WebContents => !!wc && !wc.isDestroyed())
+    },
   })
   configureMcpRuntime({
     version: app.getVersion(),

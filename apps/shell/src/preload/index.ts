@@ -26,6 +26,9 @@ import type {
   HomeApi,
   HomeTabEntry,
   HomeTabsState,
+  AgentTaskResult,
+  AgentTaskStatus,
+  DocumentAgentTarget,
   ProxiedAppExecuteResult,
   ProxiedAppManifest,
   RecentEntry,
@@ -332,6 +335,14 @@ const homeApi: HomeApi = {
   async kbCreateDocument(request) {
     return ipcRenderer.invoke('kb:create-document', request)
   },
+  async kbEditFile(request) {
+    return ipcRenderer.invoke('kb:edit-file', request)
+  },
+  // the confirmed flag rides only from the file-ops skill's gated executor;
+  // the main side refuses a delete that arrives without it
+  async kbDeleteFile(request) {
+    return ipcRenderer.invoke('kb:delete-file', request)
+  },
   async kbCliContext(sessionId) {
     return ipcRenderer.invoke('kb:cli-context', sessionId)
   },
@@ -348,6 +359,31 @@ const homeApi: HomeApi = {
       tool,
       ...(input !== undefined ? { input } : {}),
     })) as ProxiedAppExecuteResult
+  },
+  // the dock's document-agent delegation: the main side routes the task to
+  // the active document tab's headless agent and streams its live progress
+  // back over `document-agent:progress`
+  async documentAgentDescribe() {
+    return (await ipcRenderer.invoke('document-agent:describe')) as
+      DocumentAgentTarget | { error: string }
+  },
+  async documentAgentRun(task, expectedTabId) {
+    return (await ipcRenderer.invoke('document-agent:run', {
+      task,
+      ...(expectedTabId !== undefined ? { expectedTabId } : {}),
+    })) as AgentTaskResult
+  },
+  async documentAgentCancel() {
+    return (await ipcRenderer.invoke('document-agent:cancel')) === true
+  },
+  onDocumentAgentProgress(listener) {
+    const inner = (_event: IpcRendererEvent, payload: unknown) => {
+      const event = payload as { taskId?: unknown; status?: unknown }
+      if (!event || typeof event.taskId !== 'string') return
+      listener({ taskId: event.taskId, status: event.status as AgentTaskStatus })
+    }
+    ipcRenderer.on('document-agent:progress', inner)
+    return () => ipcRenderer.removeListener('document-agent:progress', inner)
   },
   // the dock's browser skill (charter W2b): browser:* tool calls over the
   // shell main's browserskill:execute handler (main/browser-agent.ts)

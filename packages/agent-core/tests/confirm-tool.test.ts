@@ -139,6 +139,45 @@ describe('AgentLoop tool confirmation (confirmTool on risk:high tools)', () => {
     })
   })
 
+  it('risk:always-ask gates the same way, and the hook sees the destructive grade', async () => {
+    const transport = scriptedTransport([
+      (cb) => {
+        cb.onToolCall({ id: 't1', name: 'do_thing', input: {} })
+        cb.onDone()
+      },
+      (cb) => {
+        cb.onDelta('the person said no')
+        cb.onDone()
+      },
+    ])
+    const executed: AgentToolCall[] = []
+    const confirmTool = vi.fn(
+      async (_call: AgentToolCall, tool: AgentToolDef) => tool.risk !== 'always-ask',
+    )
+    const loop = new AgentLoop({
+      transport,
+      skill: makeSkill((call) => {
+        executed.push(call)
+        return { output: 'tool ran', summary: 'done', mutated: true }
+      }, 'always-ask'),
+      confirmTool,
+    })
+    const handle = loop.run('delete it')
+    await flush()
+    await flush()
+    // the loop routes the destructive grade through the hook like 'high' —
+    // but always refuses when the host declines (never session-allows itself)
+    expect(confirmTool).toHaveBeenCalledTimes(1)
+    expect(confirmTool.mock.calls[0]![1].risk).toBe('always-ask')
+    expect(executed).toHaveLength(0)
+    expect(toolResultOf(loop.messages).output).toBe(TOOL_DENIED_OUTPUT)
+    await expect(handle.done).resolves.toEqual({
+      text: 'the person said no',
+      cancelled: false,
+      turnLimit: false,
+    })
+  })
+
   it('skips confirmation entirely when the host provides no hook (behavior unchanged)', async () => {
     const transport = scriptedTransport([
       (cb) => {

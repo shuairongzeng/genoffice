@@ -349,6 +349,45 @@ export interface McpCommandMessage {
   payload: unknown
 }
 
+// ---- W2: the headless document agent (a task delegated from the global dock) ----
+
+/** one delegated task, pushed by the shell main process into this tab */
+export interface AgentTaskCommandMessage {
+  taskId: string
+  /** the complete, self-contained instruction from the global panel's model */
+  task: string
+}
+
+/** the sub-agent's live status while a task runs (the kind is the contract; the shell relays it) */
+export interface AgentTaskStatusReport {
+  taskId: string
+  status: {
+    /** semantic kind — the global panel localizes it into the rolling status line */
+    kind:
+      | 'thinking'
+      | 'reading'
+      | 'inserting'
+      | 'replacing'
+      | 'applying'
+      | 'writing'
+      | 'image'
+      | 'analyzing'
+      | 'other'
+    /** the sub-agent tool currently running (its raw name) */
+    tool?: string
+  }
+}
+
+/** the task's final answer */
+export interface AgentTaskResultReport {
+  taskId: string
+  ok: boolean
+  /** the sub-agent's summary (its own words; an abort/timeout reason when not ok) */
+  summary: string
+  /** the write ops the task applied (what changed) */
+  edits?: Array<{ tool: string; summary: string }>
+}
+
 export interface McpCommandResult {
   requestId: string
   ok: boolean
@@ -535,6 +574,26 @@ export interface DesktopApi {
   reportMcpResult(result: McpCommandResult): void
   /** MCP bridge: announce that this tab's editor is ready for commands */
   signalMcpReady(): void
+  // ---- W2: the headless document agent + shell hosting ----
+  /**
+   * True when this renderer runs hosted inside the unified shell (the docs
+   * module's runtime was configured by the shell). Hosted, the in-app AI
+   * panel is suppressed — the global dock is the one AI face — and its open
+   * affordances summon the global drawer instead.
+   */
+  isHostedInShell(): Promise<boolean>
+  /** summon the shell's global AI drawer (hosted only; resolves false standalone), optionally forwarding a prompt to it */
+  openGlobalAi(question?: string): Promise<boolean>
+  /** the headless agent: receive one delegated task from the shell main process */
+  onAgentTaskCommand(handler: (message: AgentTaskCommandMessage) => void): () => void
+  /** the headless agent: the global run was stopped — abort the in-flight task */
+  onAgentTaskAbort(handler: (message: { taskId: string }) => void): () => void
+  /** the headless agent: push one live status to the shell main process (it relays to the panel) */
+  reportAgentTaskProgress(report: AgentTaskStatusReport): void
+  /** the headless agent: report the task's final outcome */
+  reportAgentTaskResult(result: AgentTaskResultReport): void
+  /** the headless agent: announce this tab's editor is ready for delegated tasks (mirrors signalMcpReady) */
+  signalAgentReady(): void
   getRecentFiles(): Promise<string[]>
   pickImage(): Promise<PickImageResult | null>
   /** Mailings tab: pick a local .xlsx or .csv and read it as a recipient list */

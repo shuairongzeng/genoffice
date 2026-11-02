@@ -14,9 +14,16 @@ prompt carries a live "current surface" summary so answers can account for
 what you are looking at: the titles of your open tabs, the file paths of open
 documents, and the addresses of open browser tabs — the active browser tab's
 full address, background browser tabs contribute only their site name. Files
-you open with the AI panel's desktop tools are limited to the same scope the
-knowledge base reads (starred, recent, knowledge-folder, and indexed files).
-Avoiding the AI features keeps all of this on your machine.
+the AI panel's desktop tools may open, edit, or delete stay inside the scope
+the knowledge base reads (starred, recent, knowledge-folder, and indexed
+files); edits ask once per conversation, and every deletion asks each time
+and moves the file to the OS trash. Delegating a task to a document (the
+document assistant) sends that task's text and the document's content to the
+provider through the document app's own AI session, and streams the
+assistant's activity back to the panel; the assistant can also read the
+knowledge base during a delegated task, so its summary and edits may carry
+knowledge-base content. Avoiding the AI features keeps all of this on your
+machine.
 
 ## Usage analytics
 

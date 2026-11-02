@@ -46,6 +46,8 @@ const dockNavAction = vi.fn()
 const takeDockNavPending = vi.fn()
 const applyDockOpen = vi.fn()
 const takeDockOpen = vi.fn()
+/** the ask-forward sender gate (MED-3): permissive by default, flipped per test */
+let trustAskSender = true
 
 import {
   collectHomeTabsState,
@@ -366,6 +368,7 @@ describe('registerHomeWorkbenchIpc', () => {
       getTabManager: getTabManager as HomeWorkbenchIpcDeps['getTabManager'],
       contentBounds,
       forwardAskQuery,
+      isTrustedAskSender: () => trustAskSender,
       forwardBrowserAskAbout,
       markDrawerOverlayReadyFor,
       applyDrawerOverlayPetDrag,
@@ -379,7 +382,7 @@ describe('registerHomeWorkbenchIpc', () => {
 
   const setStageRect = vi.fn()
   const invoke = (channel: string, ...args: unknown[]): unknown =>
-    ipcMainMock.handlers.get(channel)!(undefined, ...args)
+    ipcMainMock.handlers.get(channel)!({ sender: { id: 1 } } as never, ...args)
   const send = (channel: string, ...args: unknown[]): void => {
     ipcMainMock.onHandlers.get(channel)!(undefined, ...args)
   }
@@ -613,11 +616,13 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
     takeDockNavPending.mockClear()
     applyDockOpen.mockClear()
     takeDockOpen.mockClear()
+    trustAskSender = true
     registerHomeWorkbenchIpc({
       appSettingsPath: () => '/unused/app-settings.json',
       getTabManager: () => null,
       contentBounds: () => ({ width: 800, height: 600 }),
       forwardAskQuery,
+      isTrustedAskSender: () => trustAskSender,
       forwardBrowserAskAbout,
       markDrawerOverlayReadyFor,
       applyDrawerOverlayPetDrag,
@@ -630,10 +635,10 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
   })
 
   const invoke = (channel: string, ...args: unknown[]): unknown =>
-    ipcMainMock.handlers.get(channel)!(undefined, ...args)
+    ipcMainMock.handlers.get(channel)!({ sender: { id: 1 } } as never, ...args)
 
-  it('validates a handoff and hands the routing to the injected dep', () => {
-    invoke('home:ask-forward', { text: 'ask over the document', seq: 4, origin: 'palette' })
+  it('validates a handoff and hands the routing to the injected dep', async () => {
+    await invoke('home:ask-forward', { text: 'ask over the document', seq: 4, origin: 'palette' })
     expect(forwardAskQuery).toHaveBeenCalledWith({
       text: 'ask over the document',
       seq: 4,
@@ -641,8 +646,30 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
     })
   })
 
-  it('normalizes the scope paths of a forwarded handoff', () => {
-    invoke('home:ask-forward', {
+  it('drops a handoff from a sender the gate does not trust (MED-3)', async () => {
+    trustAskSender = false
+    const answer = await ipcMainMock.handlers.get('home:ask-forward')!(
+      { sender: { id: 77 } } as never,
+      { text: 'injected text', seq: 9, origin: 'deep-link' },
+    )
+    void answer
+    // dropped whole: the payload was never parsed, nothing forwarded
+    expect(forwardAskQuery).not.toHaveBeenCalled()
+    trustAskSender = true
+    await ipcMainMock.handlers.get('home:ask-forward')!({ sender: { id: 77 } } as never, {
+      text: 'trusted text',
+      seq: 10,
+      origin: 'deep-link',
+    })
+    expect(forwardAskQuery).toHaveBeenCalledWith({
+      text: 'trusted text',
+      seq: 10,
+      origin: 'deep-link',
+    })
+  })
+
+  it('normalizes the scope paths of a forwarded handoff', async () => {
+    await invoke('home:ask-forward', {
       text: 'about these',
       seq: 5,
       origin: 'palette',
@@ -656,7 +683,7 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
     })
   })
 
-  it('drops malformed handoffs whole rather than half-keeping them', () => {
+  it('drops malformed handoffs whole rather than half-keeping them', async () => {
     for (const bad of [
       null,
       'ask',
@@ -666,7 +693,7 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
       { text: 'q', seq: Number.NaN, origin: 'palette' },
       { text: 'q', seq: 1, origin: 'web' },
     ]) {
-      invoke('home:ask-forward', bad)
+      await invoke('home:ask-forward', bad)
     }
     expect(forwardAskQuery).not.toHaveBeenCalled()
   })

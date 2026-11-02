@@ -30,6 +30,17 @@
   color: var(--color-text-secondary);
 }
 
+/* the host's size/target line: the decision-relevant fact the truncated
+   arguments preview cannot be trusted to show */
+.ai-confirm-card .ai-confirm-args-summary {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--canvas);
+  font-size: var(--text-caption);
+  color: var(--color-text-primary);
+  word-break: break-word;
+}
+
 .ai-confirm-card .ai-confirm-args summary {
   cursor: pointer;
   font-size: var(--text-caption);
@@ -70,6 +81,23 @@
 
 .ai-confirm-card .ai-confirm-allow:hover {
   opacity: 0.88;
+}
+
+/* always-allow sits between the grades: framed in the accent (it grants
+   more than one allow) but not filled (it is not the primary answer) */
+.ai-confirm-card .ai-confirm-session {
+  padding: 4px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: none;
+  color: var(--accent);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ai-confirm-card .ai-confirm-session:hover {
+  background: var(--hover);
 }
 
 .ai-confirm-card .ai-confirm-deny {

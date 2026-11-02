@@ -85,6 +85,24 @@ export {
 } from './shell-skill'
 export type { ShellSkillDeps, SurfaceTab, SurfaceViewer } from './shell-skill'
 export {
+  DELETE_FILE_TOOL,
+  EDIT_FILE_TOOL,
+  MAX_EDIT_PATCH_CHARS,
+  createFileOpsSkill,
+  type EditFileRequest,
+  type EditFileResult,
+  type FileOpsDeps,
+} from './file-ops-skill'
+export {
+  DOCUMENT_AGENT_TOOL,
+  MAX_AGENT_TASK_CHARS,
+  createDocumentAgentSkill,
+  type AgentTaskResult,
+  type AgentTaskStatus,
+  type AgentTaskStatusKind,
+  type DocumentAgentDeps,
+} from './document-agent-skill'
+export {
   createAttachmentsSkill,
   ATTACHMENT_IMAGE_EXTS,
   ATTACHMENT_READ_CHUNK_CHARS,

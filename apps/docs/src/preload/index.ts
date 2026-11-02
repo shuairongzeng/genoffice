@@ -153,6 +153,51 @@ const api: DesktopApi = {
   },
   reportMcpResult: (result) => ipcRenderer.send('docs:mcp-result', result),
   signalMcpReady: () => ipcRenderer.send('docs:mcp-ready'),
+  // ---- W2: shell hosting + the headless document agent ----
+  // the shell's docs module registers the answer; standalone dev has no
+  // handler for the channel, so the invoke rejects and reads as "not hosted"
+  isHostedInShell: async () => {
+    try {
+      return (await ipcRenderer.invoke('app:is-hosted-in-shell')) === true
+    } catch {
+      return false
+    }
+  },
+  openGlobalAi: async (question?: string) => {
+    try {
+      const opened = (await ipcRenderer.invoke('docs:open-global-ai')) === true
+      // a preset prompt rides the same handoff channel the palette uses —
+      // but with the deep-link origin: this text was INTERPOLATED by the app
+      // (a ribbon preset, a proofread instruction), not typed by the person
+      // in a palette, so it only PARKS in the composer draft; the person
+      // submits it with an explicit Enter
+      if (opened && typeof question === 'string' && question.trim()) {
+        await ipcRenderer.invoke('home:ask-forward', {
+          text: question,
+          seq: Date.now(),
+          origin: 'deep-link',
+        })
+      }
+      return opened
+    } catch {
+      return false
+    }
+  },
+  onAgentTaskCommand: (handler) => {
+    const listener = (_event: IpcRendererEvent, message: Parameters<typeof handler>[0]) =>
+      handler(message)
+    ipcRenderer.on('docs:agent-task', listener)
+    return () => ipcRenderer.removeListener('docs:agent-task', listener)
+  },
+  onAgentTaskAbort: (handler) => {
+    const listener = (_event: IpcRendererEvent, message: Parameters<typeof handler>[0]) =>
+      handler(message)
+    ipcRenderer.on('docs:agent-task-abort', listener)
+    return () => ipcRenderer.removeListener('docs:agent-task-abort', listener)
+  },
+  reportAgentTaskProgress: (report) => ipcRenderer.send('docs:agent-task-progress', report),
+  reportAgentTaskResult: (result) => ipcRenderer.send('docs:agent-task-result', result),
+  signalAgentReady: () => ipcRenderer.send('docs:agent-ready'),
   getRecentFiles: () => ipcRenderer.invoke('docs:recent'),
   pickImage: () => ipcRenderer.invoke('docs:pick-image'),
   pickMergeDataSource: () => ipcRenderer.invoke('docs:merge-data-source'),

@@ -11,15 +11,20 @@ import {
   createAttachmentsSkill,
   createBrowserSkill,
   createCliSkill,
+  createDocumentAgentSkill,
   createDocumentSkill,
+  createFileOpsSkill,
   createIpcTransport,
   createKnowledgeBaseSkill,
   createProxiedAppsSkill,
   createShellSkill,
+  DOCUMENT_AGENT_TOOL,
+  EDIT_FILE_TOOL,
   RUN_GENOFFICE_TOOL,
   skillContextVars,
   withAttachedSkills,
   type AgentImage,
+  type AgentTaskStatus,
   type AgentRunHandle,
   type AttachmentInfo,
   type BrowserActionResult,
@@ -170,6 +175,22 @@ const TOOL_NOTE_LABEL = {
   cli: 'askToolCli',
   browser: 'askToolBrowser',
   shell: 'askToolShell',
+  edit: 'askToolEdit',
+  delete: 'askToolDelete',
+  docagent: 'askToolDocAgent',
+} as const
+
+/** the sub-agent status line's verb per status kind (the panel localizes the kind) */
+const DOC_AGENT_STATUS_LABEL = {
+  thinking: 'askDocAgentThinking',
+  reading: 'askDocAgentReading',
+  inserting: 'askDocAgentInserting',
+  replacing: 'askDocAgentReplacing',
+  applying: 'askDocAgentApplying',
+  writing: 'askDocAgentWriting',
+  image: 'askDocAgentImage',
+  analyzing: 'askDocAgentAnalyzing',
+  other: 'askDocAgentOther',
 } as const
 
 /** Collapsible thinking block for one answer: open while the run streams,
@@ -209,6 +230,8 @@ interface AskMessage {
   attachments?: AttachmentInfo[]
   /** the "save as" buttons' outcome for this answer */
   saved?: { path: string; name: string } | { error: string } | 'saving'
+  /** the document sub-agent's live status while a document_agent call runs (UI-only) */
+  subAgent?: AgentTaskStatus
 }
 
 /** one run of this session, as the background-task list shows it */
@@ -441,6 +464,7 @@ const AskMessageRow = memo(function AskMessageRow({
   fileNav,
   confirmCard,
   onAllow,
+  onAllowSession,
   onDeny,
   onOpenPath,
   onRetry,
@@ -458,6 +482,8 @@ const AskMessageRow = memo(function AskMessageRow({
   /** the open approval card; handed to the last assistant row only, so history rows never see it change */
   confirmCard: ToolConfirmCard | null
   onAllow: () => void
+  /** always-allow the tool for this conversation; the card shows the button only when the request offers it */
+  onAllowSession: () => void
   onDeny: () => void
   onOpenPath: (path: string) => void
   onRetry: (instruction: string) => void
@@ -478,6 +504,7 @@ const AskMessageRow = memo(function AskMessageRow({
           labels={AI_CONFIRM_LABELS[lang]}
           card={confirmCard}
           onAllow={onAllow}
+          onAllowSession={onAllowSession}
           onDeny={onDeny}
         />
       )}
@@ -489,6 +516,10 @@ const AskMessageRow = memo(function AskMessageRow({
                 <IconSearch />
               ) : note.kind === 'create' || note.kind === 'cli' ? (
                 <IconFilePlus />
+              ) : note.kind === 'edit' ? (
+                <IconEdit />
+              ) : note.kind === 'delete' ? (
+                <IconTrash />
               ) : (
                 <IconFileText />
               )}
@@ -498,6 +529,17 @@ const AskMessageRow = memo(function AskMessageRow({
               {m.streaming && j === m.toolNotes.length - 1 ? '…' : ''}
             </span>
           ))}
+        </div>
+      )}
+      {m.role === 'assistant' && m.subAgent && (
+        <div className="kb-ask-subagent" role="status">
+          <span className="kb-ask-subagent-label">{t('askDocAgentLabel')}</span>
+          <span className="kb-ask-subagent-status">
+            {t(DOC_AGENT_STATUS_LABEL[m.subAgent.kind])}
+            <span className="kb-ask-subagent-dots" aria-hidden="true">
+              …
+            </span>
+          </span>
         </div>
       )}
       {m.role === 'assistant' && m.artifacts.length > 0 && (
@@ -695,8 +737,69 @@ export function KbAskPanel({
   const [corpusCount, setCorpusCount] = useState<number | null>(null)
   const [gskEmail, setGskEmail] = useState<string | null>(null)
   const [provider, setProvider] = useState<string | null>(null)
-  /** the approval gate for risk:'high' tools (run_genoffice, create_document) */
-  const confirm = useToolConfirm()
+  /**
+   * The conversation's own trust set: tools the person always-allowed in the
+   * confirm card, by name, for the rest of THIS thread. In-memory only (an
+   * app restart starts clean) and reset on every thread switch or new chat
+   * (leaveThread) — each conversation is its own trust domain, and the two
+   * panel mounts (this one and the doc-mode overlay's copy) each hold their
+   * own instance state, so their sets never mix.
+   */
+  const sessionAllowsRef = useRef<ReadonlySet<string>>(new Set())
+  /**
+   * The document a document_agent delegation targets, resolved at card time
+   * (the describe call) and pinned into the run: a tab switch between the
+   * card and the allow refuses with a re-ask instead of quietly retargeting.
+   */
+  const agentTargetRef = useRef<{ tabId: string; title: string } | null>(null)
+  /**
+   * The edit_file card's size line: what the patch removes and adds, with the
+   * file's current size when the read answers. The raw arguments preview
+   * truncates at 400 characters, so the SIZE of a removal must not ride it.
+   */
+  const editFileArgsSummary = async (input: Record<string, unknown>): Promise<string> => {
+    const oldLen = typeof input.old_string === 'string' ? input.old_string.length : 0
+    const newLen = typeof input.new_string === 'string' ? input.new_string.length : 0
+    const path = typeof input.path === 'string' ? input.path : ''
+    let total: number | undefined
+    if (path) {
+      total = await window.aiOffice
+        .kbRead(path, 0)
+        .then((page) => page.totalChars)
+        .catch(() => undefined)
+    }
+    const removed = Math.max(0, oldLen - newLen)
+    const added = Math.max(0, newLen - oldLen)
+    return (
+      `removes ${removed} characters, adds ${added} characters` +
+      (total !== undefined ? `, file: ${total} characters` : '')
+    )
+  }
+  /**
+   * The document_agent card's target line: the active document's title (and
+   * the pin the run carries). A routing error shows as the line, so the
+   * person knows before allowing that there is nothing to delegate to.
+   */
+  const describeAgentTarget = async (): Promise<string> => {
+    try {
+      const described = await window.aiOffice.documentAgentDescribe()
+      if ('tabId' in described) {
+        agentTargetRef.current = { tabId: described.tabId, title: described.title }
+        return `works in "${described.title}"`
+      }
+    } catch {
+      // the bridge being unavailable (a stale preload) leaves the card as-is;
+      // the run's own routing error is the model-facing truth
+    }
+    agentTargetRef.current = null
+    return 'no document is targeted — the run will refuse until one is active'
+  }
+  /** the approval gate for gated tools (run_genoffice, create_document, edit_file…, delete_file) */
+  const confirm = useToolConfirm({
+    onSessionAllow: (toolName) => {
+      sessionAllowsRef.current = new Set([...sessionAllowsRef.current, toolName])
+    },
+  })
   /** runs this session started: the live half of the background-task list */
   const [liveTasks, setLiveTasks] = useState<LiveTask[]>([])
   /** runs a previous session left unfinished: the stored half, read once on mount */
@@ -1039,6 +1142,9 @@ export function KbAskPanel({
   const leaveThread = (): void => {
     loopRef.current?.reset()
     confirm.clear()
+    // the conversation's always-allow set dies with it: the next thread
+    // starts with the card asking again
+    sessionAllowsRef.current = new Set()
     chatIdsRef.current = null
     pendingRef.current = []
     mutateMessages(() => [])
@@ -1227,6 +1333,35 @@ export function KbAskPanel({
       create: (request) => window.aiOffice.kbCreateDocument(request),
       alsoSaves: [RUN_GENOFFICE_TOOL],
     })
+    // the file write powers (读写查删): edit_file patches an in-scope text
+    // file (risk:'high' — the card, session-allowable), delete_file moves one
+    // to the OS trash (risk:'always-ask' — the card every single time). The
+    // deleteFile dep's `confirmed` flag is a RENDERER-ASSERTED marker: it says
+    // the call left the loop's gated executor (the code path the card
+    // allowed) — an honest code-path guard, not proof against a compromised
+    // renderer (the one-confirm policy the user chose; see kb:delete-file)
+    const fileOpsSkill = createFileOpsSkill({
+      // the skill's camelCase request maps onto the channel's snake_case
+      // shape (the same field names the model's tool input uses)
+      editFile: (request) =>
+        window.aiOffice.kbEditFile({
+          path: request.path,
+          old_string: request.oldString,
+          new_string: request.newString,
+          ...(request.replaceAll ? { replace_all: true } : {}),
+        }),
+      deleteFile: (path) => window.aiOffice.kbDeleteFile({ path, confirmed: true }),
+    })
+    // the document-agent delegation (W2): one delegated task = one confirm
+    // card here; the main side routes it to the active docs tab's headless
+    // agent and streams its live status back over document-agent:progress.
+    // The run carries the card-time target pin (a tab switch re-asks)
+    const documentAgentSkill = createDocumentAgentSkill({
+      runAgentTask: (task) => window.aiOffice.documentAgentRun(task, agentTargetRef.current?.tabId),
+      // the run's abort signal (Stop mid-task) reaches the sub-agent through
+      // the skill's executor calling this
+      cancelAgentTask: () => void window.aiOffice.documentAgentCancel(),
+    })
     // the desktop loop: read-only tools over the other apps' open windows,
     // forwarded to the shell main's app-skill proxy over IPC
     const appSkill = createProxiedAppsSkill({
@@ -1287,9 +1422,30 @@ export function KbAskPanel({
         getSettings: () => settingsRef.current as AiSettings,
         unknownErrorText: () => t('askUnknownError'),
       }),
-      // risk:'high' tools (run_genoffice, create_document) stop at the inline
-      // allow/deny card; a denial feeds the model a do-not-retry result
-      confirmTool: (call) => confirm.confirm(call),
+      // gated tools (run_genoffice, create_document, edit_file, delete_file…)
+      // stop at the confirm card; a denial feeds the model a do-not-retry
+      // result. A tool the person always-allowed for THIS conversation runs
+      // without a card (the tool-note chip still records that it ran);
+      // 'always-ask' tools (delete_file) consult no session set — they ask
+      // every single time, so the card never offers the session button.
+      // Before the card parks, the decision-relevant facts the truncated
+      // arguments preview cannot be trusted to show get their own line:
+      // edit_file's removed/added sizes (the preview caps at 400 chars) and
+      // document_agent's target document (pinned for the run)
+      confirmTool: async (call, tool) => {
+        if (tool?.risk !== 'always-ask' && sessionAllowsRef.current.has(call.name)) {
+          return Promise.resolve(true)
+        }
+        let argsSummary: string | undefined
+        if (call.name === EDIT_FILE_TOOL) {
+          argsSummary = await editFileArgsSummary(call.input)
+        } else if (call.name === DOCUMENT_AGENT_TOOL) {
+          argsSummary = await describeAgentTarget()
+        }
+        return confirm.confirm(argsSummary === undefined ? call : { ...call, argsSummary }, {
+          sessionAllowable: tool?.risk !== 'always-ask',
+        })
+      },
       skill: composeSkills('home-ask', '', [
         createKnowledgeBaseSkill({
           listFiles: () => corpusRef.current,
@@ -1313,6 +1469,8 @@ export function KbAskPanel({
         }),
         filesSkill,
         docSkill,
+        fileOpsSkill,
+        documentAgentSkill,
         cliSkill,
         appSkill,
         browserSkill,
@@ -1325,10 +1483,22 @@ export function KbAskPanel({
           patchLast({ reasoning: runReasoningRef.current })
         },
         onToolExecuted: ({ call, execution }) =>
-          patchLast((last) => ({ artifacts: settleArtifact(last.artifacts, call, execution) }), {
-            sync: true,
-          }),
-        onToolStart: (call) =>
+          patchLast(
+            (last) => ({
+              artifacts: settleArtifact(last.artifacts, call, execution),
+              // the sub-agent's live line ends with the call that carried it
+              ...(call.name === DOCUMENT_AGENT_TOOL ? { subAgent: undefined } : {}),
+            }),
+            {
+              sync: true,
+            },
+          ),
+        onToolStart: (call) => {
+          // a delegated task begins its rolling status line immediately — sync,
+          // like the tool-executed patches: the line must not wait a frame
+          if (call.name === DOCUMENT_AGENT_TOOL) {
+            patchLast((last) => ({ ...last, subAgent: { kind: 'other' } }), { sync: true })
+          }
           patchLast((last) => ({
             artifacts: (() => {
               const started = artifactFromCall(call, cliContextRef.current?.outDir)
@@ -1344,7 +1514,8 @@ export function KbAskPanel({
               ),
               count: 1,
             }),
-          })),
+          }))
+        },
         onDone: () => finishLast(),
         onUsage: (usage) => {
           runUsageRef.current = addTokenUsage(runUsageRef.current, usage)
@@ -1362,8 +1533,17 @@ export function KbAskPanel({
           ),
       },
     })
+    // The document sub-agent's live status: while a document_agent call runs,
+    // the main side relays its progress here and the answer's rolling
+    // "文档助手：…" line follows the sub-agent's work (the loop serializes
+    // tool calls, so every event in the call's window belongs to it). Sync
+    // flush: statuses are discrete beats, not per-token streams
+    const offAgentProgress = window.aiOffice.onDocumentAgentProgress?.((event) => {
+      patchLast((last) => ({ ...last, subAgent: event.status }), { sync: true })
+    })
     return () => {
       offTabsChanged?.()
+      offAgentProgress?.()
       streamFlush.dispose()
       loopRef.current?.cancel()
     }
@@ -2032,6 +2212,7 @@ export function KbAskPanel({
             // would churn their props while a decision is in flight
             confirmCard={i === messages.length - 1 && m.role === 'assistant' ? confirm.card : null}
             onAllow={confirm.allow}
+            onAllowSession={confirm.allowSession}
             onDeny={confirm.deny}
             onOpenPath={openPath}
             onRetry={retryAsk}
@@ -2300,6 +2481,46 @@ function IconFileText(): React.JSX.Element {
     >
       <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
       <path d="M14 3v5h5M9 13h6M9 17h6" />
+    </svg>
+  )
+}
+
+function IconEdit(): React.JSX.Element {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+    </svg>
+  )
+}
+
+function IconTrash(): React.JSX.Element {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
     </svg>
   )
 }

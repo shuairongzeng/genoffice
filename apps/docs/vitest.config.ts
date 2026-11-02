@@ -17,6 +17,9 @@ export default defineConfig({
       ),
       '@genoffice/font-metrics': local('../../packages/font-metrics/src/index.ts'),
       // subpath before the bare name: string aliases are prefix replacements
+      '@genoffice/electron-utils/drop-open': local(
+        '../../packages/electron-utils/src/drop-open.ts',
+      ),
       '@genoffice/electron-utils/headless-export': local(
         '../../packages/electron-utils/src/headless-export.ts',
       ),

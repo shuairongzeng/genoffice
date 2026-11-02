@@ -23,7 +23,7 @@ afterEach(() => {
   host.remove()
 })
 
-/** renders the card the way a panel does: card + the two decisions */
+/** renders the card the way a panel does: card + the decisions */
 function mountGate(timeoutMs?: number): void {
   function Gate() {
     hook = useToolConfirm(timeoutMs ? { timeoutMs } : undefined)
@@ -32,6 +32,37 @@ function mountGate(timeoutMs?: number): void {
       labels: AI_CONFIRM_LABELS.en,
       card: hook.card,
       ...(timeoutMs ? { timeoutMinutes: 1 } : {}),
+      onAllow: hook.allow,
+      onDeny: hook.deny,
+    })
+  }
+  act(() => root.render(createElement(Gate)))
+}
+
+/** renders the card the way the dock's panels do: with the session affordance wired */
+function mountSessionGate(onSessionAllow?: (toolName: string) => void): void {
+  function Gate() {
+    hook = useToolConfirm({ onSessionAllow })
+    if (!hook.card) return null
+    return createElement(AiConfirmCard, {
+      labels: AI_CONFIRM_LABELS.en,
+      card: hook.card,
+      onAllow: hook.allow,
+      onAllowSession: hook.allowSession,
+      onDeny: hook.deny,
+    })
+  }
+  act(() => root.render(createElement(Gate)))
+}
+
+/** renders the card the way a host without the session affordance does (the doc-mode panels) */
+function mountBareGate(): void {
+  function Gate() {
+    hook = useToolConfirm()
+    if (!hook.card) return null
+    return createElement(AiConfirmCard, {
+      labels: AI_CONFIRM_LABELS.en,
+      card: hook.card,
       onAllow: hook.allow,
       onDeny: hook.deny,
     })
@@ -176,5 +207,120 @@ describe('useToolConfirm + AiConfirmCard', () => {
     expect(host.querySelector('.ai-confirm-tool')?.textContent).toContain('apply_ops')
     const pre = host.querySelector('.ai-confirm-args pre')
     expect(pre?.textContent).toContain('setFont')
+  })
+
+  it("a host's args summary renders as its own line above the preview", async () => {
+    mountGate()
+    void hook.confirm({
+      name: 'edit_file',
+      input: { path: '/docs/a.md' },
+      argsSummary: 'removes 900 characters, adds 0 characters, file: 5000 characters',
+    })
+    await settle()
+    const summary = host.querySelector('.ai-confirm-args-summary')
+    expect(summary?.textContent).toBe(
+      'removes 900 characters, adds 0 characters, file: 5000 characters',
+    )
+    // the raw preview still shows beneath it
+    expect(host.querySelector('.ai-confirm-args pre')?.textContent).toContain('/docs/a.md')
+    // and the summary stays on the settled card as part of the record
+    click('.ai-confirm-deny')
+    await settle()
+    expect(host.querySelector('.ai-confirm-args-summary')).toBeTruthy()
+  })
+
+  it('a request without a summary renders no summary line', async () => {
+    mountGate()
+    void hook.confirm({ name: 'run_genoffice', input: {} })
+    await settle()
+    expect(host.querySelector('.ai-confirm-args-summary')).toBeNull()
+  })
+
+  it('a request without sessionAllowable keeps the plain two-button card', async () => {
+    mountSessionGate()
+    void hook.confirm({ name: 'run_genoffice', input: {} })
+    await settle()
+    expect(host.querySelector('.ai-confirm-session')).toBeNull()
+    expect(host.querySelector('.ai-confirm-allow')).toBeTruthy()
+  })
+
+  it('a sessionable request offers always-allow first, then allow once, then deny', async () => {
+    mountSessionGate()
+    void hook.confirm(
+      { name: 'edit_file', input: { path: '/docs/report.md' } },
+      {
+        sessionAllowable: true,
+      },
+    )
+    await settle()
+    const buttons = [...host.querySelectorAll('.ai-confirm-actions button')].map((b) => b.className)
+    expect(buttons).toEqual(['ai-confirm-session', 'ai-confirm-allow', 'ai-confirm-deny'])
+    expect(host.querySelector('.ai-confirm-session')?.textContent).toBe(
+      AI_CONFIRM_LABELS.en.allowSession,
+    )
+  })
+
+  it('always-allow resolves true, reports the tool name, and notes the session outcome', async () => {
+    const sessionAllowed: string[] = []
+    mountSessionGate((toolName) => sessionAllowed.push(toolName))
+    let decided: boolean | undefined
+    const pending = hook.confirm(
+      { name: 'edit_file', input: { path: '/x.md' } },
+      {
+        sessionAllowable: true,
+      },
+    )
+    void pending.then((allowed) => (decided = allowed))
+    await settle()
+    click('.ai-confirm-session')
+    await settle()
+    expect(decided).toBe(true)
+    expect(sessionAllowed).toEqual(['edit_file'])
+    expect(hook.card?.outcome).toBe('allowed')
+    expect(hook.card?.viaSession).toBe(true)
+    // the record in the flow says which allow it was
+    expect(host.querySelector('.ai-confirm-outcome')?.textContent).toBe(
+      AI_CONFIRM_LABELS.en.allowedSessionNote,
+    )
+  })
+
+  it('a plain allow fires no session callback', async () => {
+    const sessionAllowed: string[] = []
+    mountSessionGate((toolName) => sessionAllowed.push(toolName))
+    void hook.confirm({ name: 'edit_file', input: {} }, { sessionAllowable: true })
+    await settle()
+    click('.ai-confirm-allow')
+    await settle()
+    expect(sessionAllowed).toEqual([])
+    expect(hook.card?.viaSession).toBeUndefined()
+    expect(host.querySelector('.ai-confirm-outcome')?.textContent).toBe(
+      AI_CONFIRM_LABELS.en.allowedNote,
+    )
+  })
+
+  it('a host that wires no onAllowSession never renders the button', async () => {
+    mountBareGate()
+    void hook.confirm({ name: 'delete_file', input: {} }, { sessionAllowable: true })
+    await settle()
+    // the request offers it, but the host did not wire the affordance
+    expect(host.querySelector('.ai-confirm-session')).toBeNull()
+  })
+})
+
+describe('AI_CONFIRM_LABELS — the three-state copy in every locale', () => {
+  it('every locale carries the session-allow strings, non-empty', () => {
+    for (const [lang, labels] of Object.entries(AI_CONFIRM_LABELS)) {
+      expect(labels.allowSession.length, `${lang} allowSession`).toBeGreaterThan(0)
+      expect(labels.allowedSessionNote.length, `${lang} allowedSessionNote`).toBeGreaterThan(0)
+      expect(labels.allow.length, `${lang} allow`).toBeGreaterThan(0)
+      expect(labels.deny.length, `${lang} deny`).toBeGreaterThan(0)
+      expect(labels.allowedNote.length, `${lang} allowedNote`).toBeGreaterThan(0)
+      expect(labels.deniedNote.length, `${lang} deniedNote`).toBeGreaterThan(0)
+    }
+  })
+
+  it('the locale count matches the i18n table', async () => {
+    const { LANGS } = await import('@genoffice/i18n')
+    expect(Object.keys(AI_CONFIRM_LABELS).sort()).toEqual([...LANGS].sort())
   })
 })

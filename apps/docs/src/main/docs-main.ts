@@ -3275,11 +3275,19 @@ let runtime: DocsRuntimeConfig = {
 
 export function configureDocsRuntime(config: DocsRuntimeConfig): void {
   runtime = config
+  // the one marker of shell hosting: only the unified shell calls this
+  // (standalone keeps the module default runtime). The renderer asks over
+  // `app:is-hosted-in-shell` and suppresses its own AI panel accordingly —
+  // the global dock is the one AI face when hosted
+  runtimeHostedInShell = true
   // shell mode: the shell queues argv files itself (per-tab pendingWindowOpens);
   // the module-scope fallback would leak the double-clicked file into the next
   // blank tab's consume-pending-open
   pendingOpenPath = null
 }
+
+/** true when this module's runtime was configured by the unified shell */
+let runtimeHostedInShell = false
 
 let mainWindow: BrowserWindow | null = null
 let rendererReady = false
@@ -4735,6 +4743,10 @@ export function registerDocsIpc(): void {
   // shared with the other editor modules — last (identical) registration wins
   ipcMain.removeHandler('app:get-language')
   ipcMain.handle('app:get-language', () => getUiLang())
+  // the shell-hosting answer: true only when configureDocsRuntime ran (the
+  // unified shell), so a hosted renderer can suppress its own AI panel and
+  // summon the global drawer instead
+  ipcMain.handle('app:is-hosted-in-shell', () => runtimeHostedInShell)
   ipcMain.handle('docs:confirm-document-replace', (event) =>
     requestDocsClose(event.sender, dialogParent(event)),
   )

@@ -167,6 +167,14 @@ export interface HomeWorkbenchIpcDeps {
    */
   forwardAskQuery: (query: PendingAskQuery) => void
   /**
+   * The ask-forward sender gate (MED-3): true (now or later) for the
+   * webContents the handoff may legitimately come from — the shell window's
+   * own renderer and the app-tab renderers whose bridge can summon the
+   * drawer. Async because the detached-window enumeration is. Injected
+   * because only index.ts holds the live window/tab webContents.
+   */
+  isTrustedAskSender: (sender: WebContents) => boolean | Promise<boolean>
+  /**
    * Route a browser annotation's ask handoff to the overlay's panel copy only
    * (P0-2): the shell renderer already received the original
    * `browser:ask-about` push, so there is nothing to bounce for this one.
@@ -430,7 +438,12 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
     const stage = asStageRect(rect)
     if (stage) deps.getTabManager()?.setStageRect(clampStageRect(stage, deps.contentBounds()))
   })
-  ipcMain.handle(HOME_CHANNELS.askForward, (_event, raw: unknown) => {
+  ipcMain.handle(HOME_CHANNELS.askForward, async (event, raw: unknown) => {
+    // sender gate: only the shell's own renderers and the app tabs whose
+    // bridge may summon the drawer (openGlobalAi forwards through here) —
+    // the channel carries text into the composer, so anything else (a page
+    // view) is dropped before the payload is even parsed
+    if (!(await deps.isTrustedAskSender(event.sender))) return
     const query = normalizeForwardedAskQuery(raw)
     if (query) deps.forwardAskQuery(query)
   })

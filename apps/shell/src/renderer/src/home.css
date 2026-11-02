@@ -3594,6 +3594,35 @@ html[dir='rtl'] .quick-title-row {
   gap: 6px;
   margin-bottom: 7px;
 }
+/* the document sub-agent's live status line (a document_agent call in flight):
+   the label names whose work it is, the verb rolls with the sub-agent */
+.kb-ask-subagent {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 7px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border-default);
+  border-left: 3px solid var(--color-accent, var(--accent));
+  border-radius: 8px;
+  background: var(--color-bg-subtle, var(--color-bg-page));
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.kb-ask-subagent-label {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+.kb-ask-subagent-status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-ask-subagent-dots {
+  margin-left: 1px;
+  letter-spacing: 1px;
+}
 .kb-ask-thinking {
   margin-bottom: 7px;
   border: 1px solid var(--color-border-default);

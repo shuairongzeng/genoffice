@@ -33,11 +33,15 @@ import type {
   KbSearchHit,
   ProxiedAppExecuteResult,
   ProxiedAppManifest,
+  AgentTaskResult,
+  AgentTaskStatus,
 } from '@genoffice/agent-core'
 
 // re-exported for the preload, which types its bridge against this module
 export type { DockOpenState, DockPrefs } from './dock-prefs'
 export type {
+  AgentTaskResult,
+  AgentTaskStatus,
   BrowserActionResult,
   BrowserAnnotationShot,
   BrowserPageAnnotation,
@@ -46,6 +50,12 @@ export type {
   ProxiedAppExecuteResult,
   ProxiedAppManifest,
 } from '@genoffice/agent-core'
+
+/** the describe answer: which document a delegation targets right now (main/document-agent.ts's shape) */
+export interface DocumentAgentTarget {
+  tabId: string
+  title: string
+}
 
 /** the `browser:ask-about` push's payload: the annotation the "ask AI" entry sent */
 export type BrowserAskAboutPayload = BrowserPageAnnotation
@@ -886,6 +896,22 @@ export interface HomeApi {
     format: 'md' | 'docx'
     content: string
   }): Promise<{ path: string }>
+  /** patch one in-scope text file (exact old-string → new-string replacement);
+   *  refused outside the kb scope verdicts, with the reason as the rejection */
+  kbEditFile(request: {
+    path: string
+    old_string: string
+    new_string: string
+    replace_all?: boolean
+  }): Promise<{ path: string; occurrences: number; bytes: number }>
+  /**
+   * Move one in-scope file to the OS trash. `confirmed` is a renderer-asserted
+   * marker set only by the file-ops skill's executor — the code path the loop
+   * gates with the always-ask card — and the main side refuses any delete
+   * that arrives without it (a wiring guard, not proof against a hostile
+   * renderer; see kb:delete-file in main/home-ipc.ts).
+   */
+  kbDeleteFile(request: { path: string; confirmed: boolean }): Promise<{ path: string }>
   /** the work and output directories the Ask AI CLI tools use for one conversation */
   kbCliContext(sessionId: string): Promise<CliContext>
   /** run the bundled genoffice CLI for one conversation (confined; see main/home-cli.ts);
@@ -899,6 +925,24 @@ export interface HomeApi {
   appSkillManifest(): Promise<ProxiedAppManifest>
   /** forward one prefixed read call (e.g. 'docs:read_document') to the open window it targets */
   appSkillExecute(tool: string, input: Record<string, unknown>): Promise<ProxiedAppExecuteResult>
+  // ---- the dock's document-agent delegation: hand a task to the active
+  // document tab's headless agent (main/document-agent.ts routes it) ----
+  /** read-only: which document a delegation would target right now (the card shows its title) */
+  documentAgentDescribe(): Promise<DocumentAgentTarget | { error: string }>
+  /**
+   * Run one delegated task on the active document tab — pinned to
+   * `expectedTabId` (the card-time describe) so a tab switch re-asks instead
+   * of retargeting; rejects with the routing/lifetime errors (no document,
+   * wrong kind, busy, timeout, closed, aborted) whose message is the
+   * model-facing tool result
+   */
+  documentAgentRun(task: string, expectedTabId?: string): Promise<AgentTaskResult>
+  /** abort this panel's in-flight delegated task (the run's Stop mid-task) */
+  documentAgentCancel(): Promise<boolean>
+  /** the sub-agent's live progress, relayed while a task runs; returns the unsubscribe */
+  onDocumentAgentProgress(
+    listener: (event: { taskId: string; status: AgentTaskStatus }) => void,
+  ): () => void
   // ---- the dock's browser skill: read/act on the active browser tab's page ----
   /** one browser:* tool call (read_page / screenshot_page / read_annotation_shot /
    *  fill_field / click_element), routed to the active browser tab's page webContents

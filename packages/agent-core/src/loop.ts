@@ -42,7 +42,7 @@ export interface AgentHandleEvents {
   tool: { call: AgentToolCall; execution?: ToolExecution }
   /** phase change inside the model stream (thinking / responding / tool-input / tool-running) */
   progress: AgentPhase
-  /** a risk:'high' tool is at the host's confirmation gate */
+  /** a risk:'high' or risk:'always-ask' tool is at the host's confirmation gate */
   'awaiting-confirm': { call: AgentToolCall; tool: AgentToolDef }
   finished: AgentRunResult
   error: string
@@ -130,13 +130,15 @@ export interface AgentLoopOptions<TSnapshot = unknown> {
   /** appended to the system prompt each turn (e.g. reply-language directive following the UI language) */
   systemSuffix?(): string
   /**
-   * Host-injected approval gate for tools declared `risk: 'high'`. Called
-   * before the tool executes; resolve false to decline (the model receives
-   * "the user declined" as the tool result and may take another approach),
-   * resolve true to execute. Hosts that provide no hook allow everything —
-   * the pre-confirmation behavior, so no host regresses. The hook must settle
-   * eventually: the approval UI owns its timeout (a pending dialog that never
-   * resolves holds the run); a throw counts as a denial.
+   * Host-injected approval gate for tools declared `risk: 'high'` (or
+   * `'always-ask'`, the destructive grade — gated on every call, never
+   * session-allowed by the host). Called before the tool executes; resolve
+   * false to decline (the model receives "the user declined" as the tool
+   * result and may take another approach), resolve true to execute. Hosts
+   * that provide no hook allow everything — the pre-confirmation behavior,
+   * so no host regresses. The hook must settle eventually: the approval UI
+   * owns its timeout (a pending dialog that never resolves holds the run);
+   * a throw counts as a denial.
    */
   confirmTool?(call: AgentToolCall, tool: AgentToolDef): Promise<boolean>
 }
@@ -443,9 +445,10 @@ export const TOOL_ABORTED_OUTPUT =
 
 /**
  * Tool result fed back to the model when the host's confirmation hook declines
- * a risk:'high' call. isError: true plus explicit "do not retry" wording —
- * without it a model tends to re-emit the identical call next turn. Exported
- * so hosts can localize or display the exact text the model saw.
+ * a gated call (risk:'high' or 'always-ask'). isError: true plus explicit "do
+ * not retry" wording — without it a model tends to re-emit the identical call
+ * next turn. Exported so hosts can localize or display the exact text the
+ * model saw.
  */
 export const TOOL_DENIED_OUTPUT =
   '(the user declined to run this tool; it was not executed. Do not call it again in this run. ' +
@@ -910,9 +913,10 @@ export class AgentLoop<TSnapshot = unknown> {
   }
 
   /**
-   * Await the host's confirmation for one high-risk call. Resolves false when
-   * the hook throws (a broken host must not execute a dangerous tool), and
-   * TOOL_ABORTED when the run was cancelled while the dialog was open.
+   * Await the host's confirmation for one gated call (risk:'high' or
+   * 'always-ask'). Resolves false when the hook throws (a broken host must
+   * not execute a dangerous tool), and TOOL_ABORTED when the run was
+   * cancelled while the dialog was open.
    */
   private awaitConfirmOrAbort(
     call: AgentToolCall,
@@ -1556,12 +1560,13 @@ export class AgentLoop<TSnapshot = unknown> {
         })
         continue
       }
-      // Approval gate: risk:'high' tools wait for the host's confirm hook
-      // before executing. A denial feeds the model a "do not retry" result so
-      // it can take another approach; a host that provides no hook allows
-      // everything (the pre-confirmation behavior). The call is re-checked
-      // against cancel and reset after the wait, exactly like a running tool.
-      if (tool?.risk === 'high' && this.options.confirmTool) {
+      // Approval gate: risk:'high' and risk:'always-ask' tools wait for the
+      // host's confirm hook before executing. A denial feeds the model a "do
+      // not retry" result so it can take another approach; a host that
+      // provides no hook allows everything (the pre-confirmation behavior).
+      // The call is re-checked against cancel and reset after the wait,
+      // exactly like a running tool.
+      if ((tool?.risk === 'high' || tool?.risk === 'always-ask') && this.options.confirmTool) {
         this.emitRunEvent('awaiting-confirm', { call, tool })
         const decision = await this.awaitConfirmOrAbort(call, tool)
         if (generation !== this.generation) return // reset while waiting for approval
