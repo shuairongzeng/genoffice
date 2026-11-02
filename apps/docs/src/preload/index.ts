@@ -189,6 +189,16 @@ const api: DesktopApi = {
     ipcRenderer.on('docs:agent-task', listener)
     return () => ipcRenderer.removeListener('docs:agent-task', listener)
   },
+  // the autosave-recovery question (hosted open flow): main pushes the ask,
+  // the card answers — the renderer-side replacement for the native dialog
+  // that has no parent window in the unified shell
+  onAutosaveRecoveryAsk: (handler) => {
+    const listener = (_event: IpcRendererEvent, ask: Parameters<typeof handler>[0]) => handler(ask)
+    ipcRenderer.on('docs:autosave-recovery-ask', listener)
+    return () => ipcRenderer.removeListener('docs:autosave-recovery-ask', listener)
+  },
+  answerAutosaveRecovery: (requestId, restore) =>
+    ipcRenderer.send('docs:autosave-recovery-answer', { requestId, restore }),
   onAgentTaskAbort: (handler) => {
     const listener = (_event: IpcRendererEvent, message: Parameters<typeof handler>[0]) =>
       handler(message)

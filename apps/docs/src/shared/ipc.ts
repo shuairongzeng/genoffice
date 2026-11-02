@@ -349,6 +349,24 @@ export interface McpCommandMessage {
   payload: unknown
 }
 
+// ---- the autosave-recovery question, asked in a HOSTED renderer (open flow) ----
+
+/**
+ * The restore-or-discard question for a found recovery copy, pushed into the
+ * docs renderer hosting the open: main sends the fully localized strings (the
+ * same ones the standalone native dialog shows), the renderer renders the
+ * in-window card over the booting state.
+ */
+export interface AutosaveRecoveryAsk {
+  requestId: string
+  title: string
+  body: string
+  /** the disk-newer warning line, when the on-disk file changed after the copy was written */
+  diskNewerLine?: string
+  restoreLabel: string
+  discardLabel: string
+}
+
 // ---- W2: the headless document agent (a task delegated from the global dock) ----
 
 /** one delegated task, pushed by the shell main process into this tab */
@@ -516,6 +534,12 @@ export interface DesktopApi {
   }>
   /** crash-recovery copy of a dirty document, stored under userData */
   writeRecoveryCopy(path: string, data: ArrayBuffer): Promise<{ ok: boolean }>
+  /** hosted open flow: main asks the autosave-recovery question here — an
+   *  in-window card over the booting state (a native sheet has no parent
+   *  window in the unified shell, where it blocks and displaces the app) */
+  onAutosaveRecoveryAsk(handler: (ask: AutosaveRecoveryAsk) => void): () => void
+  /** answer that ask: true restores the recovery copy, false discards it */
+  answerAutosaveRecovery(requestId: string, restore: boolean): void
   /** tab closed but webContents kept alive (shell freeze workaround) — stop background timers */
   onTeardown(handler: () => void): () => void
   /** one trusted space keystroke into this webContents — the only thing that

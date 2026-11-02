@@ -9040,6 +9040,14 @@ body.docs-crop-active
   margin: 0 0 20px;
 }
 
+/* the autosave-recovery card's disk-newer warning: the body's caution twin,
+   visually set apart because it changes what Restore means */
+.autosave-recovery-dialog .modal-desc.autosave-disk-newer {
+  margin: -12px 0 20px;
+  color: var(--color-text-primary, inherit);
+  font-weight: 500;
+}
+
 .gs-form label.fld {
   display: block;
   font-size: 13px;

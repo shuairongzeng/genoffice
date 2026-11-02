@@ -16,7 +16,7 @@ vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld: (...args: unknown[]) => void expose(...args) },
   ipcRenderer: {
     invoke: vi.fn(),
-    on: vi.fn(() => () => {}),
+    on: vi.fn(),
     removeListener: vi.fn(),
     send: vi.fn(),
   },
@@ -28,9 +28,13 @@ import { ipcRenderer } from 'electron'
 type DesktopApi = {
   isHostedInShell(): Promise<boolean>
   openGlobalAi(question?: string): Promise<boolean>
+  onAutosaveRecoveryAsk(handler: (ask: unknown) => void): () => void
+  answerAutosaveRecovery(requestId: string, restore: boolean): void
 }
 
 const invoke = ipcRenderer.invoke as ReturnType<typeof vi.fn>
+const on = ipcRenderer.on as ReturnType<typeof vi.fn>
+const send = ipcRenderer.send as ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   expose.mockClear()
@@ -74,6 +78,33 @@ describe('the hosted-shell bridge', () => {
     invoke.mockResolvedValueOnce(false)
     await expect(loaded.openGlobalAi('proofread this')).resolves.toBe(false)
     expect(invoke).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the autosave-recovery bridge (hosted open flow)', () => {
+  it('subscribes the ask channel and answers over the answer channel', async () => {
+    on.mockClear()
+    send.mockClear()
+    const loaded = await loadApi()
+    const asked: unknown[] = []
+    const off = loaded.onAutosaveRecoveryAsk((ask) => asked.push(ask))
+    expect(on).toHaveBeenCalledWith('docs:autosave-recovery-ask', expect.any(Function))
+    // main pushes the ask (with its localized strings): the handler sees it whole
+    const push = on.mock.calls[0]![1] as (event: unknown, ask: unknown) => void
+    push(undefined, { requestId: 'recovery-3', title: '发现自动恢复版本' })
+    expect(asked).toEqual([{ requestId: 'recovery-3', title: '发现自动恢复版本' }])
+    // the card's answer rides the answer channel verbatim
+    loaded.answerAutosaveRecovery('recovery-3', true)
+    expect(send).toHaveBeenCalledWith('docs:autosave-recovery-answer', {
+      requestId: 'recovery-3',
+      restore: true,
+    })
+    // and the unsubscribe detaches the listener
+    off()
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+      'docs:autosave-recovery-ask',
+      expect.any(Function),
+    )
   })
 })
 

@@ -210,6 +210,7 @@ import {
 } from './starred-files'
 import { initDocsAutoUpdater } from './updater'
 import { registerZoteroIpc, teardownZoteroIpc } from './zotero-ipc'
+import { askRendererRecovery, installAutosaveRecoveryIpc } from './autosave-recovery'
 
 /**
  * Docs main-process logic as an embeddable module: no top-level side effects.
@@ -3785,13 +3786,66 @@ interface MaybeRecoveredDocBytes {
   recovered: boolean
 }
 
+/**
+ * Ask restore-or-discard for a found recovery copy. Hosted in the unified
+ * shell, the question is an in-window card in the docs renderer doing the
+ * open (`docs:autosave-recovery-ask` over IPC): a native sheet has no parent
+ * window there — it shows unparented, displaces half off the shell's edge and
+ * blocks the app, and in automation the open flow waits on the unanswered
+ * sheet forever. Standalone keeps the native dialog (there is a real docs
+ * window to parent it to).
+ *
+ * Returns null when hosted and the renderer never answers (destroyed, stale
+ * or wedged): the caller fails the open instead of hanging at "Opening…",
+ * and the recovery copy stays on disk for the next attempt.
+ */
+async function askRecoveryChoice(
+  filePath: string,
+  diskNewer: boolean,
+  wcId: number,
+): Promise<boolean | null> {
+  if (!runtimeHostedInShell) {
+    const options = {
+      type: 'question' as const,
+      buttons: [tm('autosaveRestore'), tm('autosaveDiscard')],
+      defaultId: 0,
+      cancelId: 1,
+      message: tm('autosaveFoundTitle'),
+      detail: diskNewer
+        ? `${tm('autosaveFoundBody')}\n\n${tm('autosaveDiskNewer')}`
+        : tm('autosaveFoundBody'),
+    }
+    const parent = BrowserWindow.getFocusedWindow() ?? mainWindow
+    const r =
+      parent && !parent.isDestroyed()
+        ? await dialog.showMessageBox(parent, options)
+        : await dialog.showMessageBox(options)
+    return r.response === 0
+  }
+  const contents = webContents.fromId(wcId)
+  if (!contents || contents.isDestroyed()) return null
+  const answer = await askRendererRecovery(contents, {
+    // one source of truth for the copy: the same strings the native dialog
+    // shows, shipped in the ask so the renderer needs no strings of its own
+    title: tm('autosaveFoundTitle'),
+    body: tm('autosaveFoundBody'),
+    ...(diskNewer ? { diskNewerLine: tm('autosaveDiskNewer') } : {}),
+    restoreLabel: tm('autosaveRestore'),
+    discardLabel: tm('autosaveDiscard'),
+  })
+  if (!answer.answered) return null
+  return answer.restore
+}
+
 /** On open, if a recovery copy exists, ask whether to restore (still points at the
  * original path; only save persists it). A newer original does not discard the copy:
- * it may hold the only pre-crash edits, so the prompt just says the disk file is newer. */
+ * it may hold the only pre-crash edits, so the prompt just says the disk file is newer.
+ * Null = the question went unanswered (hosted): fail the open, keep the copy. */
 async function maybeRecoverDocBytes(
   filePath: string,
   original: Buffer,
-): Promise<MaybeRecoveredDocBytes> {
+  wcId: number,
+): Promise<MaybeRecoveredDocBytes | null> {
   const asPath = recoveryPathFor(filePath)
   let diskNewer: boolean
   try {
@@ -3800,22 +3854,9 @@ async function maybeRecoverDocBytes(
   } catch {
     return { bytes: original, recovered: false }
   }
-  const options = {
-    type: 'question' as const,
-    buttons: [tm('autosaveRestore'), tm('autosaveDiscard')],
-    defaultId: 0,
-    cancelId: 1,
-    message: tm('autosaveFoundTitle'),
-    detail: diskNewer
-      ? `${tm('autosaveFoundBody')}\n\n${tm('autosaveDiskNewer')}`
-      : tm('autosaveFoundBody'),
-  }
-  const parent = BrowserWindow.getFocusedWindow() ?? mainWindow
-  const r =
-    parent && !parent.isDestroyed()
-      ? await dialog.showMessageBox(parent, options)
-      : await dialog.showMessageBox(options)
-  if (r.response === 0) {
+  const restore = await askRecoveryChoice(filePath, diskNewer, wcId)
+  if (restore === null) return null
+  if (restore) {
     try {
       return { bytes: await readFile(asPath), recovered: true }
     } catch {
@@ -3921,7 +3962,14 @@ async function loadDocx(
   // reopen with the user's password), so a bad save never loses the source file
   const hash = lazy?.hash ?? sha256Hex(original)
   await archiveOriginal(filePath, hash, size)
-  const recovery = await maybeRecoverDocBytes(filePath, plainBytes)
+  const recovery = await maybeRecoverDocBytes(filePath, plainBytes, wcId)
+  if (!recovery) {
+    // the recovery question went unanswered (the renderer was destroyed, or
+    // never answered — stale preload, wedged frame): fail the open like any
+    // other unreadable file instead of hanging at "Opening…", and leave the
+    // copy on disk so the next open asks again
+    return null
+  }
   let bytes = recovery.bytes
   let recovered = recovery.recovered
   // recovery copies of a protected document are themselves encrypted (see
@@ -4895,6 +4943,10 @@ export function registerDocsIpc(): void {
     if (!prepared) return null
     return loadDocx(prepared, event.sender.id)
   })
+
+  // the autosave-recovery question's answer channel (the ask itself is sent
+  // from maybeRecoverDocBytes when the shell hosts this renderer)
+  installAutosaveRecoveryIpc()
 
   /** returns true when this tab was opened via "New Document" and should start blank */
   ipcMain.handle('docs:consume-new-blank', (event) => {
@@ -6610,6 +6662,12 @@ export function requestDocsClose(
 
 const docsCloseRequests = new Map<number, Promise<boolean>>()
 
+// KNOWN PATTERN TO REVISIT: the close guard below still asks its questions
+// (Close Anyway / Cancel, Save / Don't Save / Cancel) as native sheets — the
+// same unparented-dialog shape the autosave-recovery prompt had before it
+// moved into the renderer (see autosave-recovery.ts). Left alone this wave:
+// it is a separate flow (tab close, not document open) whose rework needs its
+// own in-window card and its own review of the autoSave silent path.
 async function performDocsClose(
   contents: WebContents,
   parent?: BrowserWindow | null,

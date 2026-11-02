@@ -354,6 +354,8 @@ import { AutoCorrectDialog } from './components/AutoCorrectDialog'
 import { PreferencesDialog } from './components/PreferencesDialog'
 import { applyCase, nextCaseMode, selectionText } from './editor/case-transform'
 import { stepHangingIndent, stepParagraphIndent } from './editor/indent'
+import { AutosaveRecoveryDialog } from './components/AutosaveRecoveryDialog'
+import { useAutosaveRecoveryAsk } from './autosave-recovery-ask'
 import { PasswordDialog } from './components/PasswordDialog'
 import { ProtectDialog, type ProtectDialogResult } from './components/ProtectDialog'
 import { t, useI18n } from './i18n/locale'
@@ -793,6 +795,9 @@ export function App() {
     null,
   )
   const bootHandledRef = useRef(false)
+  /** the autosave-recovery question main pushes while the document is opening
+   *  (hosted in the shell: an in-window card, not the parentless native sheet) */
+  const recoveryAsk = useAutosaveRecoveryAsk()
   /** password prompt for an ECMA-376 encrypted docx; submit retries via openDocxDecrypt */
   const [docPwdPrompt, setDocPwdPrompt] = useState<{
     path: string
@@ -8398,6 +8403,10 @@ export function App() {
 
       {showAutoCorrect && <AutoCorrectDialog onClose={() => setShowAutoCorrect(false)} />}
       {showPreferences && <PreferencesDialog onClose={() => setShowPreferences(false)} />}
+
+      {recoveryAsk.ask && (
+        <AutosaveRecoveryDialog ask={recoveryAsk.ask} onAnswer={recoveryAsk.answer} />
+      )}
 
       {docPwdPrompt && (
         <PasswordDialog
