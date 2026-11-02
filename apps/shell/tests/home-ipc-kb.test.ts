@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -63,6 +64,10 @@ const APPS = vi.hoisted(() =>
 const recentsState = vi.hoisted(() => ({ paths: [] as string[] }))
 /** the desktop alias list the host stub answers with (per test) */
 const aliasState = vi.hoisted(() => ({ paths: [] as string[] }))
+/** the open-document paths the host stub answers with (per test) */
+const openDocsState = vi.hoisted(() => ({
+  paths: [] as Array<{ path: string; kind: string }>,
+}))
 
 vi.mock('../src/main/app-registry', () => ({
   documentApps: APPS,
@@ -144,6 +149,8 @@ const host = {
       return null
     }
   },
+  /** the open-document list the edit_file guard consults (per test) */
+  openDocumentPaths: () => openDocsState.paths,
   extraFolderRoots: () => [] as string[],
   insideAnyRoot: () => false,
   isAnyRoot: () => false,
@@ -169,6 +176,7 @@ beforeEach(() => {
   trashCalls.length = 0
   recentsState.paths = []
   aliasState.paths = []
+  openDocsState.paths = []
   registerHomeFileIpc(host)
 })
 
@@ -203,6 +211,101 @@ describe('kb:edit-file — the patch gate over the kb scope', () => {
     await expect(
       invoke('kb:edit-file', { path: file, old_string: 'x', new_string: 'y' }),
     ).rejects.toThrow(/file scope/)
+  })
+
+  it('refuses a file an app has open, steering to document_agent (the routing safety net)', async () => {
+    const file = scopedFile('open.docx', 'original content')
+    // the docs app has this path open in a tab right now
+    openDocsState.paths = [{ path: file, kind: 'docs' }]
+    await expect(
+      invoke('kb:edit-file', { path: file, old_string: 'original', new_string: 'rewritten' }),
+    ).rejects.toThrow(/is open in the docs app right now/)
+    // the refusal steers the model to the delegation, not to a retry
+    await expect(
+      invoke('kb:edit-file', { path: file, old_string: 'original', new_string: 'rewritten' }),
+    ).rejects.toThrow(/goes through document_agent instead/)
+    // nothing was written — the live document and the file never fork
+    expect(readFileSync(file, 'utf8')).toBe('original content')
+  })
+
+  it('an open path in another app kind is refused with the same fork rationale', async () => {
+    const file = scopedFile('sheet.csv', 'a,b\n1,2\n')
+    openDocsState.paths = [{ path: file, kind: 'sheets' }]
+    await expect(
+      invoke('kb:edit-file', { path: file, old_string: 'a,b', new_string: 'x,y' }),
+    ).rejects.toThrow(/is open in the sheets app right now/)
+  })
+
+  it('the guard canonicalizes both spellings: a symlinked directory still matches the open document', async () => {
+    // the tab recorded the realpath'd spelling, the model asks through a
+    // symlinked one (macOS hands /var/folders to callers and /private/var to
+    // realpath — the raw string compare these spellings broke is what the
+    // canonicalization is for)
+    const file = scopedFile('open.md', 'content')
+    openDocsState.paths = [{ path: file, kind: 'markdown' }]
+    const aliased = join(dir, 'alias-root')
+    symlinkSync(dir, aliased)
+    await expect(
+      invoke('kb:edit-file', {
+        path: join(aliased, 'open.md'),
+        old_string: 'content',
+        new_string: 'x',
+      }),
+    ).rejects.toThrow(/is open in the markdown app right now/)
+    // the fold is not one-way: the tab's symlinked spelling matches the
+    // model's real one too (either side may carry either spelling)
+    openDocsState.paths = [{ path: join(aliased, 'open.md'), kind: 'markdown' }]
+    await expect(
+      invoke('kb:edit-file', { path: file, old_string: 'content', new_string: 'x' }),
+    ).rejects.toThrow(/is open in the markdown app right now/)
+  })
+
+  it('the guard folds Unicode composition: an NFD-open document refuses an NFC request', async () => {
+    // 'é' on disk as e + U+0301 (NFD — the decomposition macOS hands back),
+    // the open list records it that way, the model composes the accent (NFC):
+    // both sides canonicalize to the composed form and the guard still fires.
+    // The fold holds on a case-sensitive fs too: the composed spelling has no
+    // file to resolve, so its raw normalized form is what compares.
+    const name = 'cafe\u0301.md'
+    const file = scopedFile(name, 'content')
+    openDocsState.paths = [{ path: file, kind: 'markdown' }]
+    const composed = file.replace(name, 'caf\u00e9.md')
+    await expect(
+      invoke('kb:edit-file', { path: composed, old_string: 'content', new_string: 'x' }),
+    ).rejects.toThrow(/is open in the markdown app right now/)
+    // and the mirror: the tab recorded the composed spelling (NFC), the model
+    // decomposes (NFD)
+    openDocsState.paths = [{ path: composed, kind: 'markdown' }]
+    await expect(
+      invoke('kb:edit-file', { path: file, old_string: 'content', new_string: 'x' }),
+    ).rejects.toThrow(/is open in the markdown app right now/)
+  })
+
+  it('the guard folds letter case on a case-insensitive filesystem (the on-disk spelling wins)', async () => {
+    const file = scopedFile('Report.md', 'content')
+    openDocsState.paths = [{ path: file, kind: 'markdown' }]
+    const varied = join(dir, 'rEPORT.md')
+    // a case-sensitive fs (linux CI) has no second file there — the varied
+    // spelling genuinely names nothing, and refusing it would be wrong; the
+    // fold is a case-insensitive-disk behavior (macos, windows) and is pinned
+    // only where it exists
+    if (!existsSync(varied)) return
+    await expect(
+      invoke('kb:edit-file', { path: varied, old_string: 'content', new_string: 'x' }),
+    ).rejects.toThrow(/is open in the markdown app right now/)
+  })
+
+  it('the same file, once the tab closed, edits normally again', async () => {
+    const file = scopedFile('was-open.md', 'keep thisdrop this')
+    openDocsState.paths = [{ path: file, kind: 'markdown' }]
+    await expect(
+      invoke('kb:edit-file', { path: file, old_string: 'drop this', new_string: 'kept' }),
+    ).rejects.toThrow(/is open in the markdown app/)
+    openDocsState.paths = []
+    await expect(
+      invoke('kb:edit-file', { path: file, old_string: 'drop this', new_string: 'kept' }),
+    ).resolves.toBeDefined()
+    expect(readFileSync(file, 'utf8')).toBe('keep thiskept')
   })
 
   it('not-found and ambiguous matches answer the patch errors', async () => {
@@ -267,6 +370,40 @@ describe('kb:delete-file — one confirmation, the trash, fail closed', () => {
       /file scope/,
     )
     expect(trashCalls).toEqual([])
+  })
+
+  it("refuses a delete of a file an app has open (the disk copy is the person's live document)", async () => {
+    // the same gate edit_file carries: the card confirmed a delete, but an
+    // app sitting on the file makes the disk copy the person's live document
+    // — trashing it under the app throws their work away at the next save
+    const file = join(dir, 'live.docx')
+    writeFileSync(file, 'content')
+    recentsState.paths.push(file)
+    openDocsState.paths = [{ path: file, kind: 'docs' }]
+    await expect(invoke('kb:delete-file', { path: file, confirmed: true })).rejects.toThrow(
+      /is open in the docs app right now/,
+    )
+    await expect(invoke('kb:delete-file', { path: file, confirmed: true })).rejects.toThrow(
+      /document_agent instead/,
+    )
+    expect(trashCalls).toEqual([])
+    expect(statSync(file, { throwIfNoEntry: false })).toBeDefined()
+  })
+
+  it('the delete guard canonicalizes the spelling too: a symlinked path is still the open document', async () => {
+    // the guard shares edit_file's canonicalization, so a spelling change
+    // cannot route a live document into the trash either
+    const file = join(dir, 'live.md')
+    writeFileSync(file, 'content')
+    recentsState.paths.push(file)
+    openDocsState.paths = [{ path: file, kind: 'markdown' }]
+    const aliased = join(dir, 'alias-root')
+    symlinkSync(dir, aliased)
+    await expect(
+      invoke('kb:delete-file', { path: join(aliased, 'live.md'), confirmed: true }),
+    ).rejects.toThrow(/is open in the markdown app right now/)
+    expect(trashCalls).toEqual([])
+    expect(statSync(file, { throwIfNoEntry: false })).toBeDefined()
   })
 
   it('a symlink whose target sits outside the scope cannot smuggle a file past the gate', async () => {

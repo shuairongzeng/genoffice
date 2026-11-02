@@ -754,6 +754,17 @@ const homeApi: HomeApi = {
     ipcRenderer.on(HOME_CHANNELS.aiDockChanged, listener)
     return () => ipcRenderer.removeListener(HOME_CHANNELS.aiDockChanged, listener)
   },
+  // the drawer's docked/floating shape, pushed by the overlay host when it
+  // flips: docked into the docs app's reserved slot, the panel's chrome reads
+  // as the app's own panel; floating at the window edge, it reads as the
+  // drawer it always was
+  onAskPanelEmbedded(handler) {
+    const listener = (_event: IpcRendererEvent, embedded: unknown) => {
+      handler(embedded === true)
+    }
+    ipcRenderer.on('home:ask-panel-embedded', listener)
+    return () => ipcRenderer.removeListener('home:ask-panel-embedded', listener)
+  },
   // the ask-intent forward between the drawer's two surfaces (P0-2): while a
   // document tab is active, the native overlay's panel copy is the only drawer
   // the person can see — a handoff starting in this renderer is routed through

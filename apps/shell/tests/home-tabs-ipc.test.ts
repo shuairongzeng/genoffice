@@ -48,6 +48,13 @@ const applyDockOpen = vi.fn()
 const takeDockOpen = vi.fn()
 /** the ask-forward sender gate (MED-3): permissive by default, flipped per test */
 let trustAskSender = true
+/**
+ * The ai-dock-get sender gate (the detached-window finding): permissive by
+ * default, swapped per test. Function-valued so a test can key the verdict
+ * on the very sender of the call — the gate must be per-sender, not a
+ * process-global flag a detached window's call would read as "hosted".
+ */
+let isShellSender: (sender: unknown) => boolean = () => true
 
 import {
   collectHomeTabsState,
@@ -367,6 +374,7 @@ describe('registerHomeWorkbenchIpc', () => {
       appSettingsPath: () => join(dir, 'app-settings.json'),
       getTabManager: getTabManager as HomeWorkbenchIpcDeps['getTabManager'],
       contentBounds,
+      isShellWindowSender: (sender) => isShellSender(sender),
       forwardAskQuery,
       isTrustedAskSender: () => trustAskSender,
       forwardBrowserAskAbout,
@@ -383,6 +391,9 @@ describe('registerHomeWorkbenchIpc', () => {
   const setStageRect = vi.fn()
   const invoke = (channel: string, ...args: unknown[]): unknown =>
     ipcMainMock.handlers.get(channel)!({ sender: { id: 1 } } as never, ...args)
+  /** invoke with the call's own sender — the per-sender gates key on it */
+  const invokeFrom = (sender: unknown, channel: string, ...args: unknown[]): unknown =>
+    ipcMainMock.handlers.get(channel)!({ sender } as never, ...args)
   const send = (channel: string, ...args: unknown[]): void => {
     ipcMainMock.onHandlers.get(channel)!(undefined, ...args)
   }
@@ -394,6 +405,31 @@ describe('registerHomeWorkbenchIpc', () => {
       collapsed: false,
       petPos: null,
     })
+  })
+
+  it('answers the drawer prefs PER SENDER: null outside the shell window, the state inside it', async () => {
+    // a detached editor window shares the docs preload, so its
+    // getAiDockState rides this channel — but the drawer's state is the
+    // shell window's business: answering a detached window would make its
+    // hosted AI slot reserve space no overlay ever fills (the overlay exists
+    // only while a shell tab is active). The gate runs per call, on that
+    // call's own sender — not once per process
+    registerWorkbench()
+    const shellWc = { id: 7 }
+    const detachedWc = { id: 99 }
+    const seen: unknown[] = []
+    isShellSender = (sender) => {
+      seen.push(sender)
+      return sender === shellWc
+    }
+    expect(await invokeFrom(detachedWc, 'home:ai-dock-get')).toBeNull()
+    expect(await invokeFrom(shellWc, 'home:ai-dock-get')).toEqual({
+      width: 400,
+      collapsed: false,
+      petPos: null,
+    })
+    expect(seen).toEqual([detachedWc, shellWc])
+    isShellSender = () => true
   })
 
   it('merges, clamps and persists a drawer patch, answering the effective prefs', async () => {
@@ -636,6 +672,17 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
 
   const invoke = (channel: string, ...args: unknown[]): unknown =>
     ipcMainMock.handlers.get(channel)!({ sender: { id: 1 } } as never, ...args)
+
+  it('without the sender gate (an older wiring), ai-dock-get keeps its ungated answer', async () => {
+    // this describe's registration omits isShellWindowSender: the dep is
+    // optional, and its absence must not change the channel's behavior —
+    // the gate is a fix the shell wires in, not a burden every caller bears
+    expect(await invoke('home:ai-dock-get')).toEqual({
+      width: 400,
+      collapsed: false,
+      petPos: null,
+    })
+  })
 
   it('validates a handoff and hands the routing to the injected dep', async () => {
     await invoke('home:ask-forward', { text: 'ask over the document', seq: 4, origin: 'palette' })

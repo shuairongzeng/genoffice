@@ -759,6 +759,32 @@ describe("the three-state card and the conversation's session allows", () => {
     expect(editFile).not.toHaveBeenCalled()
   })
 
+  it('a new thread lands on the latest message wherever the reader was', async () => {
+    // one stored thread, so the chips row (and its + button) renders
+    project.chats.set('kb-ask', [
+      { seq: 0, ts: '2026-10-30T09:00:00.000Z', role: 'user', text: 'first question' },
+    ])
+    render()
+    await settle()
+    await ask('build a guide')
+    const el = host.querySelector('.kb-ask-thread') as HTMLDivElement
+    expect(el).toBeTruthy()
+    const scrollTo = vi.fn()
+    el.scrollTo = scrollTo as unknown as typeof el.scrollTo
+    // the reader is up in the history, the follow off, the button showing
+    Object.defineProperty(el, 'scrollTop', { value: 0, configurable: true })
+    Object.defineProperty(el, 'scrollHeight', { value: 1200, configurable: true })
+    Object.defineProperty(el, 'clientHeight', { value: 400, configurable: true })
+    act(() => el.dispatchEvent(new Event('scroll')))
+    expect(host.querySelector('.kb-ask-scroll-latest')).toBeTruthy()
+    // the new thread: the reader starts at ITS latest, not where they left
+    scrollTo.mockClear()
+    click('.kb-ask-thread-new')
+    await settle()
+    expect(scrollTo).toHaveBeenCalled()
+    expect(host.querySelector('.kb-ask-scroll-latest')).toBeNull()
+  })
+
   it('the two mounts keep separate session allows (each conversation its own trust)', async () => {
     // a broadcast stub: both panels' listeners receive every chunk, and the
     // transport drops the ones whose requestId is not its own run's

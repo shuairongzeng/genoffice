@@ -72,8 +72,11 @@ export interface DocumentAgentDeps {
 const DOCUMENT_AGENT_SYSTEM_PROMPT = `## Delegating document work (document_agent)
 The active Word document has its own agent — the document assistant — with
 the full editing toolset (insert content, replace blocks, apply ops, charts,
-comments, notes, long-form writing). Call document_agent to hand it a task
-instead of editing the document from here:
+comments, notes, long-form writing). document_agent is the DEFAULT for
+document work: when the task concerns the document the person has open,
+delegate it here — never rewrite the document's file behind the app with
+create_document, edit_file or delete_file (the file would fork from what the
+person is looking at):
 - Write the task as a complete, self-contained instruction: the assistant
   sees only the task text and the document — none of this conversation.
 - One task at a time per document; a second call while it works is refused.
@@ -81,7 +84,8 @@ instead of editing the document from here:
   summary and the edits it made (tools and counts). Report what IT reported —
   never claim document changes this tool did not return.
 - Use it for document-shaped work (draft a section, restructure, fix
-  formatting, add a chart or comment). Reading the document is your own
+  formatting, add a chart or comment) — including small, precise ones ("把这份文档的标题改成《神兽研究》" is a
+  delegation, not a file rewrite). Reading the document is your own
   docs:read_document call; small questions do not need a delegation.`
 
 export function createDocumentAgentSkill(deps: DocumentAgentDeps): AgentSkill {
@@ -89,9 +93,12 @@ export function createDocumentAgentSkill(deps: DocumentAgentDeps): AgentSkill {
     name: DOCUMENT_AGENT_TOOL,
     description:
       'Delegate a task to the document assistant working inside the active Word ' +
-      'document. It has the full editing toolset and reports a summary plus the edits ' +
-      'it made. The task must be self-contained (the assistant sees only the task and ' +
-      'the document). One task per document at a time.',
+      'document — the FIRST choice for any task about that document: editing, ' +
+      'rewriting, restructuring, formatting, comments, long-form drafting. It has ' +
+      'the full editing toolset and reports a summary plus the edits it made; the ' +
+      'task must be self-contained (the assistant sees only the task and the ' +
+      'document). One task per document at a time. NEVER rewrite or replace a file ' +
+      'an app has open — that is what this tool is for.',
     // one delegated task = one card: the sub-agent's own writes run under this mandate
     risk: 'high',
     inputSchema: {

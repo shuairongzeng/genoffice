@@ -31,6 +31,7 @@ export const nl: Dict = {
   askToolEdit: 'Bewerkt een bestand',
   askToolDelete: 'Verwijdert een bestand',
   askToolDocAgent: 'Documentassistent heeft gewerkt',
+  askScrollLatest: 'Scroll naar het nieuwste bericht',
   askDocAgentLabel: 'Documentassistent',
   askDocAgentThinking: 'Denkt na',
   askDocAgentReading: 'Leest het document',

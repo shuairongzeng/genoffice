@@ -34,6 +34,7 @@ export const id: Dict = {
   askToolEdit: 'Mengedit berkas',
   askToolDelete: 'Menghapus berkas',
   askToolDocAgent: 'Asisten dokumen telah bekerja',
+  askScrollLatest: 'Gulir ke pesan terbaru',
   askDocAgentLabel: 'Asisten dokumen',
   askDocAgentThinking: 'Sedang berpikir',
   askDocAgentReading: 'Membaca dokumen',

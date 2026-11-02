@@ -354,6 +354,48 @@ describe('the two shapes (the drawer and the pet-only view)', () => {
     expect(document.documentElement.classList.contains('ask-panel-pet-only')).toBe(false)
   })
 
+  it("the docked shape wears the embedded chrome class (the app's own panel), and only expanded", async () => {
+    // main pushes home:ask-panel-embedded when the view fits the docs app's
+    // reserved slot: the panel then reads as the app's own — flat against
+    // the app's layout — and back to floating chrome when it leaves
+    let embeddedHandler: ((embedded: boolean) => void) | null = null
+    const api = panelApi({
+      ...overlayChannels(),
+      onAskPanelEmbedded: (handler: (embedded: boolean) => void) => {
+        embeddedHandler = handler
+        return () => {
+          embeddedHandler = null
+        }
+      },
+    })
+    await mountEntry(api)
+    const root = container!.querySelector<HTMLElement>('.ask-panel-entry')!
+    expect(root.classList.contains('ask-panel-embedded')).toBe(false)
+    // docked into the slot: the class lands
+    await act(async () => embeddedHandler?.(true))
+    expect(root.classList.contains('ask-panel-embedded')).toBe(true)
+    // back to floating: it lifts
+    await act(async () => embeddedHandler?.(false))
+    expect(root.classList.contains('ask-panel-embedded')).toBe(false)
+  })
+
+  it('embedded while collapsed wears no class (the pet is never docked chrome)', async () => {
+    let embeddedHandler: ((embedded: boolean) => void) | null = null
+    const api = panelApi({
+      ...overlayChannels({ width: 400, collapsed: true, petPos: null }),
+      onAskPanelEmbedded: (handler: (embedded: boolean) => void) => {
+        embeddedHandler = handler
+        return () => {
+          embeddedHandler = null
+        }
+      },
+    })
+    await mountEntry(api)
+    const root = container!.querySelector<HTMLElement>('.ask-panel-entry')!
+    await act(async () => embeddedHandler?.(true))
+    expect(root.classList.contains('ask-panel-embedded')).toBe(false)
+  })
+
   it('the broadcast flips the shape with the view, both ways', async () => {
     await mountEntry(panelApi(overlayChannels({ width: 400, collapsed: true, petPos: null })))
     expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(true)

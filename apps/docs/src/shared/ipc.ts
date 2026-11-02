@@ -367,6 +367,32 @@ export interface AutosaveRecoveryAsk {
   discardLabel: string
 }
 
+// ---- the hosted AI slot: the docs app reserves the global drawer's space ----
+
+/**
+ * The global AI drawer's state as the hosted app needs it (the shell's
+ * `aiDock` prefs, narrowed to the fields the slot follows): `collapsed` false,
+ * the app's AI slot reserves `width` CSS px as the drawer PAINTS them — the
+ * stored width times the shell's interface scale, because the overlay
+ * renders the drawer inside a `zoom: var(--ui-scale)` frame while this app's
+ * own layout stays unzoomed — and the drawer docks into it; true, the slot
+ * collapses and the floating pet is the drawer's whole presence.
+ */
+export interface HostedAiDockState {
+  /** the drawer's CSS width, already clamped by the store's normalizer */
+  width: number
+  /** true: the drawer is closed — the slot reserves nothing */
+  collapsed: boolean
+}
+
+/** the AI slot's rect as the app measures it (its own viewport px) */
+export interface AiSlotRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 // ---- W2: the headless document agent (a task delegated from the global dock) ----
 
 /** one delegated task, pushed by the shell main process into this tab */
@@ -540,6 +566,18 @@ export interface DesktopApi {
   onAutosaveRecoveryAsk(handler: (ask: AutosaveRecoveryAsk) => void): () => void
   /** answer that ask: true restores the recovery copy, false discards it */
   answerAutosaveRecovery(requestId: string, restore: boolean): void
+  // ---- the hosted AI slot (the global drawer docks into the app's layout) ----
+  /**
+   * The global drawer's state while hosted (the shell's aiDock prefs over the
+   * shell's own channels); null when no shell answers (standalone dev).
+   */
+  getAiDockState(): Promise<HostedAiDockState | null>
+  /** the drawer opened or closed: the slot follows it (`home:ai-dock-changed`, shell-broadcast) */
+  onAiDockChanged(handler: (state: HostedAiDockState) => void): () => void
+  /** the app's AI slot rect, view-local px (mount / resize / drawer flip / on request) */
+  reportAiSlotRect(rect: AiSlotRect): void
+  /** main asks for a fresh measurement (activation, scale change): re-report now */
+  onAiSlotRectRequest(handler: () => void): () => void
   /** tab closed but webContents kept alive (shell freeze workaround) — stop background timers */
   onTeardown(handler: () => void): () => void
   /** one trusted space keystroke into this webContents — the only thing that

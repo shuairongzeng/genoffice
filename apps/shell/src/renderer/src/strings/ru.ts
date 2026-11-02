@@ -34,6 +34,7 @@ export const ru: Dict = {
   askToolEdit: 'Редактирование файла',
   askToolDelete: 'Удаление файла',
   askToolDocAgent: 'Агент документа выполнил задачу',
+  askScrollLatest: 'Прокрутить к последнему сообщению',
   askDocAgentLabel: 'Агент документа',
   askDocAgentThinking: 'Размышляет',
   askDocAgentReading: 'Читает документ',

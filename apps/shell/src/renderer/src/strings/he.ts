@@ -32,6 +32,7 @@ export const he: Dict = {
   askToolEdit: 'עורך קובץ',
   askToolDelete: 'מוחק קובץ',
   askToolDocAgent: 'עוזר המסמכים רץ',
+  askScrollLatest: 'גלול להודעה החדשה',
   askDocAgentLabel: 'עוזר מסמכים',
   askDocAgentThinking: 'חושב',
   askDocAgentReading: 'קורא את המסמך',

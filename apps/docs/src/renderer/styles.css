@@ -12037,6 +12037,18 @@ tr > .page-gap-cut {
 .ai-dock:has(.ai-panel-resizing) {
   transition: none;
 }
+
+/* the hosted AI slot: the app's own slot re-purposed for the GLOBAL drawer.
+   An empty placeholder — no panel of ours renders into it; the shell's native
+   drawer overlay docks exactly here. Width follows the global drawer state
+   (its stored prefs, so the overlay's footprint and the reserved space are
+   the same number), zero while closed. No transition on purpose: the shell
+   refits the overlay from the rect reports, and an animated width would have
+   the reports chase the easing — the drawer's own motion lives in its host. */
+.ai-dock.ai-dock-hosted {
+  transition: none;
+  min-width: 0;
+}
 /* the rail stretches to fill the dock while the width animates */
 .ai-dock .ai-rail {
   flex: 1;

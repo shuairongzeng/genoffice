@@ -40,12 +40,14 @@ interface FakeView {
   webContents: FakeWebContents
   setVisible: ReturnType<typeof vi.fn>
   setBounds: ReturnType<typeof vi.fn>
+  getBounds: () => { x: number; y: number; width: number; height: number }
 }
 
 let nextWebContentsId = 1
 
 function makeFakeView(): FakeView {
   const listeners = new Map<string, () => void>()
+  let bounds = { x: 0, y: 0, width: 0, height: 0 }
   return {
     webContents: {
       id: nextWebContentsId++,
@@ -58,9 +60,13 @@ function makeFakeView(): FakeView {
       reload: vi.fn(),
       focus: vi.fn(),
       isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
     },
     setVisible: vi.fn(),
-    setBounds: vi.fn(),
+    setBounds: vi.fn((rect: typeof bounds) => {
+      bounds = rect
+    }),
+    getBounds: () => bounds,
   }
 }
 
@@ -82,8 +88,10 @@ vi.mock('electron', () => ({
       close: () => {},
       reload: () => {},
       isDestroyed: () => false,
+      send: () => {},
     }
     setBounds = () => {}
+    getBounds = () => ({ x: 0, y: 0, width: 0, height: 0 })
     setVisible = () => {}
   },
 }))
@@ -1751,6 +1759,126 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
     const docs = m.openDocsTab()
     await m.closeTab(docs)
     expect(lastState(spy).docActive).toBe(false)
+  })
+
+  it("feeds the overlay the docs app's reported slot, converted into window px", () => {
+    const { m, spy } = managerWithOverlay()
+    const docs = m.openDocsTab()
+    // the renderer measures its slot in VIEW-local px; the manager adds the
+    // view's own bounds (the geometry it laid the tab out at)
+    const view = m.list().find((t) => t.id === docs)
+    // the view the registry stub built; find it through the createDocsView calls
+    const docsView = createDocsView.mock.results.at(-1)!.value as FakeView
+    const bounds = docsView.getBounds()
+    m.reportAiSlotRect(docsView.webContents as never, {
+      x: 500,
+      y: 12,
+      width: 300,
+      height: 540,
+    })
+    expect(lastState(spy).slot).toEqual({
+      x: bounds.x + 500,
+      y: bounds.y + 12,
+      width: 300,
+      height: 540,
+    })
+    // and it is the ACTIVE tab's report — the state carries it
+    expect(lastState(spy).docActive).toBe(true)
+    void view
+  })
+
+  it('a stale (hidden-tab) slot is not fed to the overlay until re-reported', () => {
+    const { m, spy } = managerWithOverlay()
+    const first = m.openDocsTab()
+    const firstView = createDocsView.mock.results.at(-1)!.value as FakeView
+    m.reportAiSlotRect(firstView.webContents as never, { x: 500, y: 0, width: 300, height: 540 })
+    expect(lastState(spy).slot).toBeDefined()
+    // switch away to a second docs tab: the first's rect is stale (its tab
+    // hid), the new tab has none — the state falls back to no slot
+    m.openDocsTab()
+    expect(lastState(spy).slot).toBeUndefined()
+    // the manager asked the newly active tab for a fresh report
+    const secondView = createDocsView.mock.results.at(-1)!.value as FakeView
+    expect(secondView.webContents.send).toHaveBeenCalledWith('docs:ai-slot-rect-request')
+    // the fresh report restores the slot
+    m.reportAiSlotRect(secondView.webContents as never, { x: 520, y: 0, width: 280, height: 540 })
+    expect(lastState(spy).slot).toEqual(
+      expect.objectContaining({ x: expect.any(Number), width: 280 }),
+    )
+    void first
+  })
+
+  it('a slot measured under another interface scale is refused', () => {
+    let scale = 1
+    const { m, spy } = managerWithOverlay(undefined, () => scale)
+    m.openDocsTab()
+    const docsView = createDocsView.mock.results.at(-1)!.value as FakeView
+    m.reportAiSlotRect(docsView.webContents as never, { x: 500, y: 0, width: 300, height: 540 })
+    expect(lastState(spy).slot).toBeDefined()
+    // the scale change: the old measurement is stale by construction
+    scale = 1.5
+    m.layout()
+    expect(lastState(spy).slot).toBeUndefined()
+    // and the manager asked for a re-measure under the new scale
+    expect(docsView.webContents.send).toHaveBeenCalledWith('docs:ai-slot-rect-request')
+  })
+
+  it('a non-docs active tab never carries a slot (the window edge is its geometry)', () => {
+    const { m, spy } = managerWithOverlay()
+    const docs = m.openDocsTab()
+    const docsView = createDocsView.mock.results.at(-1)!.value as FakeView
+    m.reportAiSlotRect(docsView.webContents as never, { x: 500, y: 0, width: 300, height: 540 })
+    expect(lastState(spy).slot).toBeDefined()
+    // a browser tab goes active: even a fresh docs report is not its geometry
+    m.openBrowserTab()
+    expect(lastState(spy).slot).toBeUndefined()
+    void docs
+  })
+
+  it("a BACKGROUND docs tab's report is dropped: it cannot re-arm its hidden rect", () => {
+    // the hidden renderer still fires reports (its ResizeObserver, a late
+    // window resize), and a report is view-local to a layout the person
+    // cannot see — accepting it would arm stale geometry that surfaces the
+    // moment the tab is activated again, before its own re-measure lands
+    const { m, spy } = managerWithOverlay()
+    const first = m.openDocsTab()
+    const firstView = createDocsView.mock.results.at(-1)!.value as FakeView
+    m.reportAiSlotRect(firstView.webContents as never, { x: 500, y: 0, width: 300, height: 540 })
+    expect(lastState(spy).slot).toBeDefined()
+    // a second docs tab goes active: the first hid, its entry went stale
+    m.openDocsTab()
+    expect(lastState(spy).slot).toBeUndefined()
+    // the hidden tab's report arrives: it must leave nothing armed
+    m.reportAiSlotRect(firstView.webContents as never, { x: 999, y: 99, width: 111, height: 99 })
+    m.activateTab(first)
+    expect(lastState(spy).slot).toBeUndefined()
+    // activation asked the tab itself for a fresh report, and that is what
+    // lands
+    expect(firstView.webContents.send).toHaveBeenCalledWith('docs:ai-slot-rect-request')
+    m.reportAiSlotRect(firstView.webContents as never, { x: 505, y: 0, width: 295, height: 540 })
+    expect(lastState(spy).slot).toEqual(expect.objectContaining({ width: 295 }))
+  })
+
+  it("a DETACHED window's report is dropped: its view is no longer a tab here", () => {
+    // detach splices the tab out of the manager, so its wc matches no tab —
+    // the overlay exists only while a shell tab is active, and a detached
+    // window's layout is nobody's dock target. Pinned so the gate cannot
+    // quietly grow a lookup that resurrects it
+    const { m, spy } = managerWithOverlay()
+    const docs = m.openDocsTab()
+    const docsView = createDocsView.mock.results.at(-1)!.value as FakeView
+    m.reportAiSlotRect(docsView.webContents as never, { x: 500, y: 0, width: 300, height: 540 })
+    expect(lastState(spy).slot).toBeDefined()
+    const record = m.detachTab(docs)
+    expect(record).not.toBeNull()
+    // the torn-off window's renderer may keep reporting: dropped whole
+    m.reportAiSlotRect(docsView.webContents as never, { x: 999, y: 99, width: 111, height: 99 })
+    // the view docks back as an active docs tab: the dropped report left
+    // nothing armed — the slot is absent until a fresh report lands
+    m.attachTab(record!)
+    expect(lastState(spy).slot).toBeUndefined()
+    m.reportAiSlotRect(docsView.webContents as never, { x: 505, y: 0, width: 295, height: 540 })
+    expect(lastState(spy).slot).toEqual(expect.objectContaining({ width: 295 }))
   })
 
   it('re-syncs on the same triggers that re-fit the document (resize, stage report)', () => {

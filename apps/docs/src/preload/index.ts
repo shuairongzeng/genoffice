@@ -208,6 +208,39 @@ const api: DesktopApi = {
   reportAgentTaskProgress: (report) => ipcRenderer.send('docs:agent-task-progress', report),
   reportAgentTaskResult: (result) => ipcRenderer.send('docs:agent-task-result', result),
   signalAgentReady: () => ipcRenderer.send('docs:agent-ready'),
+  // the hosted AI slot: the drawer state rides the shell's own aiDock
+  // channels (the get answers any hosted renderer; standalone dev has no
+  // handler, so it reads as null and the slot never shows). The broadcast
+  // comes from the shell's watchAiDock, which sends it to the docs tabs
+  getAiDockState: async () => {
+    try {
+      const prefs = (await ipcRenderer.invoke('home:ai-dock-get')) as {
+        width?: unknown
+        collapsed?: unknown
+      }
+      if (!prefs || typeof prefs.width !== 'number' || typeof prefs.collapsed !== 'boolean') {
+        return null
+      }
+      return { width: prefs.width, collapsed: prefs.collapsed }
+    } catch {
+      return null
+    }
+  },
+  onAiDockChanged: (handler) => {
+    const listener = (_event: IpcRendererEvent, prefs: unknown) => {
+      const p = prefs as { width?: unknown; collapsed?: unknown }
+      if (!p || typeof p.width !== 'number' || typeof p.collapsed !== 'boolean') return
+      handler({ width: p.width, collapsed: p.collapsed })
+    }
+    ipcRenderer.on('home:ai-dock-changed', listener)
+    return () => ipcRenderer.removeListener('home:ai-dock-changed', listener)
+  },
+  reportAiSlotRect: (rect) => ipcRenderer.send('docs:ai-slot-rect', rect),
+  onAiSlotRectRequest: (handler) => {
+    const listener = () => handler()
+    ipcRenderer.on('docs:ai-slot-rect-request', listener)
+    return () => ipcRenderer.removeListener('docs:ai-slot-rect-request', listener)
+  },
   getRecentFiles: () => ipcRenderer.invoke('docs:recent'),
   pickImage: () => ipcRenderer.invoke('docs:pick-image'),
   pickMergeDataSource: () => ipcRenderer.invoke('docs:merge-data-source'),

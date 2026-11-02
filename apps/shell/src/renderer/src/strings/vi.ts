@@ -32,6 +32,7 @@ export const vi: Dict = {
   askToolEdit: 'Đang sửa tệp',
   askToolDelete: 'Đang xóa tệp',
   askToolDocAgent: 'Trợ lý tài liệu đã chạy',
+  askScrollLatest: 'Cuộn đến tin nhắn mới nhất',
   askDocAgentLabel: 'Trợ lý tài liệu',
   askDocAgentThinking: 'Đang suy nghĩ',
   askDocAgentReading: 'Đang đọc tài liệu',

@@ -33,6 +33,7 @@ export const ko: Dict = {
   askToolEdit: '파일 편집 중',
   askToolDelete: '파일 삭제 중',
   askToolDocAgent: '문서 어시스턴트를 실행했습니다',
+  askScrollLatest: '최신 메시지로 스크롤',
   askDocAgentLabel: '문서 어시스턴트',
   askDocAgentThinking: '생각하는 중',
   askDocAgentReading: '문서를 읽는 중',

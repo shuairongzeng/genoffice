@@ -32,6 +32,7 @@ export const pl: Dict = {
   askToolEdit: 'Edytuję plik',
   askToolDelete: 'Usuwam plik',
   askToolDocAgent: 'Asystent dokumentu pracował',
+  askScrollLatest: 'Przewiń do najnowszej wiadomości',
   askDocAgentLabel: 'Asystent dokumentu',
   askDocAgentThinking: 'Myśli',
   askDocAgentReading: 'Czyta dokument',

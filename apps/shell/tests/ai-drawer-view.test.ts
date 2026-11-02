@@ -351,6 +351,103 @@ describe('geometry', () => {
       "document.documentElement.style.setProperty('--ui-scale', '1.5')",
     )
   })
+
+  it('fits the app-reported slot EXACTLY while expanded, in preference to the right edge', () => {
+    const overlay = createAiDrawerOverlay(win as never)
+    overlay.sync(state())
+    const view = overlayView(win)
+    // the docs app reserved this space in its own layout — the drawer docks
+    // into it, whatever the right-edge geometry would say
+    const slot = { x: 300, y: 44, width: 420, height: 512 }
+    overlay.sync(state({ slot }))
+    expect(view.bounds.at(-1)).toEqual(slot)
+    // and the slot is refitted on a later sync like the edge geometry is
+    overlay.sync(state({ slot: { x: 320, y: 60, width: 400, height: 500 } }))
+    expect(view.bounds.at(-1)).toEqual({ x: 320, y: 60, width: 400, height: 500 })
+  })
+
+  it('the pet-only shape ignores the slot (the pet keeps its own footprint)', () => {
+    const overlay = createAiDrawerOverlay(win as never)
+    overlay.sync(
+      state({
+        dock: { width: 400, collapsed: true, petPos: null },
+        slot: { x: 300, y: 44, width: 420, height: 512 },
+      }),
+    )
+    const view = overlayView(win)
+    expect(view.bounds.at(-1)).toEqual({
+      x: 800 - 68 - 16,
+      y: 600 - 62 - 16,
+      width: 68,
+      height: 62,
+    })
+  })
+
+  it('a sync without a slot falls back to the window-edge geometry', () => {
+    const overlay = createAiDrawerOverlay(win as never)
+    overlay.sync(state({ slot: { x: 300, y: 44, width: 420, height: 512 } }))
+    const view = overlayView(win)
+    // the slot went stale (the tab hid, the scale changed) or the active tab
+    // is not a docs tab: the right edge is the geometry, exactly as before
+    overlay.sync(state())
+    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 0, width: 400, height: 600 })
+  })
+
+  it('the pet drag ends back at the slot it started from', () => {
+    const overlay = createAiDrawerOverlay(win as never)
+    const slot = { x: 300, y: 44, width: 420, height: 512 }
+    overlay.sync(state({ dock: { width: 400, collapsed: true, petPos: null } }))
+    const view = overlayView(win)
+    overlay.markPanelReadyFor(view.webContents as never)
+    // the pet drags from the pet-only shape; the drawer opens mid-drag into a
+    // docked sync, and the drag's end must re-fit the DOCKED footprint, not
+    // the window edge
+    overlay.applyPetDragReport(view.webContents as never, { start: true })
+    expect(view.bounds.at(-1)).toEqual({ x: 0, y: 0, width: 800, height: 600 })
+    overlay.sync(state({ slot }))
+    overlay.applyPetDragReport(view.webContents as never, { end: true })
+    expect(view.bounds.at(-1)).toEqual(slot)
+  })
+
+  it('docked flips push the embedded chrome flag to the panel copy; floating does not', () => {
+    const overlay = createAiDrawerOverlay(win as never)
+    overlay.sync(state())
+    const view = overlayView(win)
+    overlay.markPanelReadyFor(view.webContents as never)
+    const embeddedPushes = () =>
+      view.webContents.sent.filter((m) => m.channel === 'home:ask-panel-embedded')
+    expect(embeddedPushes()).toEqual([])
+    // docking into the app's slot: the panel's chrome reads as the app's own
+    overlay.sync(state({ slot: { x: 300, y: 44, width: 420, height: 512 } }))
+    expect(embeddedPushes().at(-1)).toEqual({ channel: 'home:ask-panel-embedded', payload: true })
+    // the same slot again: no duplicate push
+    overlay.sync(state({ slot: { x: 300, y: 44, width: 420, height: 512 } }))
+    expect(embeddedPushes()).toHaveLength(1)
+    // back to floating: the flag flips back
+    overlay.sync(state())
+    expect(embeddedPushes().at(-1)).toEqual({ channel: 'home:ask-panel-embedded', payload: false })
+    // pet-only is floating chrome too (the pet is never "docked")
+    overlay.sync(state({ dock: { width: 400, collapsed: true, petPos: null } }))
+    expect(embeddedPushes().at(-1)).toEqual({ channel: 'home:ask-panel-embedded', payload: false })
+  })
+
+  it('a docked flip that BEATS the ready handshake waits in the buffer, then lands', () => {
+    // the flip is main-side truth about the view's shape, and it can land
+    // while the panel's listeners are still booting (the entry mounts behind
+    // an await chain) — it must ride the same buffer the forwarded asks do,
+    // not vanish into a renderer with no listener yet
+    const overlay = createAiDrawerOverlay(win as never)
+    overlay.sync(state())
+    const view = overlayView(win)
+    // pre-ready: the docking sync's flip is buffered, nothing was sent
+    overlay.sync(state({ slot: { x: 300, y: 44, width: 420, height: 512 } }))
+    const embeddedPushes = () =>
+      view.webContents.sent.filter((m) => m.channel === 'home:ask-panel-embedded')
+    expect(embeddedPushes()).toEqual([])
+    // the panel's own ready ping flushes it — the chrome class lands with it
+    overlay.markPanelReadyFor(view.webContents as never)
+    expect(embeddedPushes()).toEqual([{ channel: 'home:ask-panel-embedded', payload: true }])
+  })
 })
 
 describe('z-order', () => {

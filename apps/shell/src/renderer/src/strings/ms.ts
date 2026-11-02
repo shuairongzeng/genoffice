@@ -32,6 +32,7 @@ export const ms: Dict = {
   askToolEdit: 'Mengedit fail',
   askToolDelete: 'Memadam fail',
   askToolDocAgent: 'Pembantu dokumen telah berfungsi',
+  askScrollLatest: 'Skrol ke mesej terkini',
   askDocAgentLabel: 'Pembantu dokumen',
   askDocAgentThinking: 'Sedang berfikir',
   askDocAgentReading: 'Membaca dokumen',

@@ -1007,6 +1007,14 @@ body.ai-pet-dragging {
   display: none;
 }
 
+/* the docked shape: the overlay view fits the docs app's reserved AI slot
+   exactly, so the panel is IN the app's layout — it reads as the app's own
+   panel, flat against the editor beside it (the app-panel idiom's separating
+   edge, no floating chrome). The floating shape keeps today's look. */
+.ask-panel-entry.ask-panel-embedded .ask-panel-panel {
+  border-left: 1px solid var(--border);
+}
+
 /* pet-only: the view has shrunk to the bird (a transparent WebContentsView),
    so nothing but the bird may paint — html and body drop their backgrounds
    and the document shows straight through. The expanded entry keeps its own
@@ -3224,14 +3232,65 @@ html[dir='rtl'] .quick-title-row {
   color: var(--text-tertiary);
 }
 
+/* the thread area: a relative wrap carrying the scroller and the
+   scroll-to-latest affordance above the composer; the scroller keeps its
+   scroll, the content wrapper (observed for growth) carries the layout */
+.kb-ask-thread-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .kb-ask-thread {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+.kb-ask-thread-inner {
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 8px 2px;
+}
+
+/* the unfollowed reader's way back: a quiet circle at the thread's foot,
+   right side — flat chrome over the transcript, under the panel's popovers
+   (the model picker and friends render later and above), with a dot when
+   something new landed below the fold */
+.kb-ask-scroll-latest {
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  z-index: 5;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 14%);
+}
+
+.kb-ask-scroll-latest:hover {
+  background: var(--hover);
+  color: var(--color-text-primary);
+}
+
+.kb-ask-scroll-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 /* empty-corpus hero: the only useful move is starring files, so the panel

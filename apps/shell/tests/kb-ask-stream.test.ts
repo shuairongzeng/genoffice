@@ -374,4 +374,27 @@ describe('KbAskPanel streaming renders', () => {
     pumpFrame()
     expect(scrollTo).toHaveBeenCalledTimes(1)
   })
+
+  it('the scroll-to-latest button: hidden while followed, appears on unfollow, its click resumes', async () => {
+    render()
+    await settle()
+    await ask('summarize the notes')
+    const el = threadEl()
+    // following: no button
+    expect(host.querySelector('.kb-ask-scroll-latest')).toBeNull()
+    // the reader leaves the bottom: the button appears
+    setViewport(el, 0)
+    act(() => el.dispatchEvent(new Event('scroll')))
+    const button = host.querySelector<HTMLButtonElement>('.kb-ask-scroll-latest')
+    expect(button).toBeTruthy()
+    expect(button!.getAttribute('aria-label')).toBe('Scroll to the latest message')
+    // growth while unfollowed: the button flags the new content
+    chunk('delta', 'new stuff')
+    pumpFrame()
+    expect(host.querySelector('.kb-ask-scroll-latest')?.classList.contains('has-new')).toBe(true)
+    // the click resumes the follow and the button leaves
+    setViewport(el, 700)
+    act(() => button!.click())
+    expect(host.querySelector('.kb-ask-scroll-latest')).toBeNull()
+  })
 })

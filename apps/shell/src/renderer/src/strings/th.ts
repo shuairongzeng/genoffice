@@ -32,6 +32,7 @@ export const th: Dict = {
   askToolEdit: 'กำลังแก้ไขไฟล์',
   askToolDelete: 'กำลังลบไฟล์',
   askToolDocAgent: 'ผู้ช่วยเอกสารทำงานแล้ว',
+  askScrollLatest: 'เลื่อนไปที่ข้อความล่าสุด',
   askDocAgentLabel: 'ผู้ช่วยเอกสาร',
   askDocAgentThinking: 'กำลังคิด',
   askDocAgentReading: 'กำลังอ่านเอกสาร',

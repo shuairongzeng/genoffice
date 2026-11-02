@@ -163,6 +163,16 @@ export function AskPanelEntry(): React.JSX.Element | null {
     document.documentElement.classList.toggle('ask-panel-pet-only', !dock.known || dock.collapsed)
     return () => document.documentElement.classList.remove('ask-panel-pet-only')
   }, [dock])
+  // the drawer's docked shape (main pushes the flip when the view fits the
+  // docs app's reserved slot instead of the window's right edge): the panel's
+  // chrome reads as the app's own panel while docked — flat against the app's
+  // layout — and as the floating drawer otherwise. Guarded: a stale preload
+  // without the channel keeps the floating look, which is the safe default.
+  const [embedded, setEmbedded] = useState(false)
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi> | undefined
+    return api?.onAskPanelEmbedded?.((next) => setEmbedded(next))
+  }, [])
   useEffect(() => {
     // optional-chained whole: this view exists to explain a missing aiOffice
     // face, so the subscriptions must tolerate one too
@@ -217,7 +227,11 @@ export function AskPanelEntry(): React.JSX.Element | null {
     }
   }
   return (
-    <div className={`ask-panel-entry${dock.collapsed ? ' ask-panel-pet-only' : ''}`}>
+    <div
+      className={`ask-panel-entry${dock.collapsed ? ' ask-panel-pet-only' : ''}${
+        embedded && !dock.collapsed ? ' ask-panel-embedded' : ''
+      }`}
+    >
       {/* the panel stays mounted through the flips — closing only hides it,
           the same contract Home's drawer keeps (a streaming answer keeps
           streaming), and the subscriptions it armed are why the ready
@@ -225,10 +239,13 @@ export function AskPanelEntry(): React.JSX.Element | null {
       <div className="ask-panel-panel" hidden={dock.collapsed}>
         <KbAskPanel
           chatId={OVERLAY_CHAT_ID}
-          /* the surface context's visibility line: this copy floats over the
-             active document/browser tab — the person is looking at THAT, not
-             the Home desktop (the prompt section says so) */
-          surfaceRole="overlay"
+          /* the surface context's visibility line: while the drawer floats it
+             sits over the active document/browser tab — the person is looking
+             at THAT, not the Home desktop — and while the view fits the docs
+             app's reserved slot it reads as the app's own docked panel. The
+             prop is live (the panel mirrors it into the ref its prompt getter
+             reads), so the embedded flip re-words the section mid-session */
+          surfaceRole={embedded && !dock.collapsed ? 'docked' : 'overlay'}
           onOpenPath={(path) => void window.aiOffice.openPath(path)}
           /* this view has no list to switch: both CTAs raise the Home tab, where
              the list and the settings live — a section-specific handoff is a

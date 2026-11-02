@@ -1,4 +1,4 @@
-import { existsSync, renameSync, rmSync, statSync } from 'node:fs'
+import { existsSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs'
 import { readFile as readFileText, realpath } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { basename, dirname, join } from 'node:path'
@@ -161,6 +161,18 @@ export interface HomeFileIpcHost {
   trackedFilesUnder: (dir: string) => string[]
   fileTargetSources: () => FileTargetSources
   statMaybeFile: (path: string) => { isFile: () => boolean } | null
+  /**
+   * Every file path an app has open right now (strip tabs plus detached
+   * editor windows) with its app kind — the edit_file open-document guard's
+   * truth. Injected because only index.ts holds the live tab and window
+   * lists; an empty answer is honest for a shell with nothing open.
+   */
+  openDocumentPaths():
+    | Promise<readonly { path: string; kind: string }[]>
+    | readonly {
+        path: string
+        kind: string
+      }[]
   // the folder-root set is derived from app-settings plus the registry
   extraFolderRoots: () => string[]
   insideAnyRoot: (path: string) => boolean
@@ -443,12 +455,59 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
         'person to handle this one themselves',
     )
 
+  /**
+   * The open-document verdict for edit_file and delete_file: the paths every
+   * app has open right now (strip tabs plus detached editor windows), with
+   * each path's app kind — injected because only index.ts holds the live
+   * lists. Those tools are for text files nobody has open; an open path
+   * belongs to its app's own agent.
+   *
+   * Both sides are canonicalized before the compare (the tab-manager's
+   * canonicalPath precedent): `realpathSync.native` resolves symlinks and
+   * the on-disk letter case, NFC normalization folds the decomposition macOS
+   * hands back — so a path the model spells differently from the tab's own
+   * record (/var vs /private/var, a case variant, a composed vs decomposed
+   * name) still matches the open document it is, and the guard cannot be
+   * sidestepped by a spelling change. An unresolvable path (the file is
+   * gone) folds to its normalized raw form — nothing open matches it anyway.
+   */
+  const openEditorOf = async (path: string): Promise<string | null> => {
+    const open = await host.openDocumentPaths()
+    const canon = (p: string): string => {
+      try {
+        return realpathSync.native(p).normalize('NFC')
+      } catch {
+        return p.replaceAll('\\', '/').normalize('NFC')
+      }
+    }
+    const normalized = canon(path)
+    for (const entry of open) {
+      if (canon(entry.path) === normalized) return entry.kind
+    }
+    return null
+  }
+
   // edit_file: one patch-style edit of an in-scope text file. The panel's
   // confirmation card gated it renderer-side (risk:'high', session-allowable);
   // the scope verdict here is the boundary that keeps the write inside the
   // corpus whatever the model asked for.
   ipcMain.handle('kb:edit-file', async (_event, raw: unknown): Promise<unknown> => {
     const req = parseKbEditRequest(raw)
+    // The open-document guard, first of all gates: edit_file is for text
+    // files NOBODY has open. A file an app has open is the person's live
+    // document — editing the disk copy forks it from what the person sees,
+    // and the task belongs to that document's own agent. This is the safety
+    // net that makes the prompt's routing rules real: the main process knows
+    // the open list, the model does not have to.
+    const openIn = await openEditorOf(req.path)
+    if (openIn !== null) {
+      throw new Error(
+        `"${basename(req.path)}" is open in the ${openIn} app right now — editing the file ` +
+          'behind the app would fork it from what the person is looking at. A Word document ' +
+          'goes through document_agent instead; other kinds, ask the person to edit them in ' +
+          'their app',
+      )
+    }
     // existence before the scope verdict: a missing file's honest error is
     // "not editable", not a misleading scope refusal (the location verdict
     // below requires existence, so the order would otherwise blur the two)
@@ -494,6 +553,20 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     if (!req.confirmed) {
       throw new Error(
         "delete refused: this call did not come through the panel's confirmation card",
+      )
+    }
+    // The open-document guard, the same gate edit_file carries: a file an app
+    // has open is the person's live document, and deleting the disk copy
+    // under it throws away what the person is looking at (the app's copy
+    // dies at the next save or close). The confirmation card asked about a
+    // file; the main process knows whether an app is sitting on it, and the
+    // card's yes does not extend past that.
+    const openIn = await openEditorOf(req.path)
+    if (openIn !== null) {
+      throw new Error(
+        `"${basename(req.path)}" is open in the ${openIn} app right now — deleting the file ` +
+          'under the app would throw away the document the person is looking at. Ask the person ' +
+          "to close it first (a Word document's content goes through document_agent instead)",
       )
     }
     if (!host.statMaybeFile(req.path)?.isFile()) {

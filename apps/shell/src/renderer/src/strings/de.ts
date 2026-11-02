@@ -34,6 +34,7 @@ export const de: Dict = {
   askToolEdit: 'Bearbeitet eine Datei',
   askToolDelete: 'Löscht eine Datei',
   askToolDocAgent: 'Dokument-Assistent ausgeführt',
+  askScrollLatest: 'Zum neuesten Eintrag scrollen',
   askDocAgentLabel: 'Dokument-Assistent',
   askDocAgentThinking: 'Denkt nach',
   askDocAgentReading: 'Liest das Dokument',

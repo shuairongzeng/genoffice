@@ -31,6 +31,7 @@ export const zhTW: Dict = {
   askToolEdit: '正在編輯檔案',
   askToolDelete: '正在刪除檔案',
   askToolDocAgent: '文件小幫手已執行',
+  askScrollLatest: '捲動到最新訊息',
   askDocAgentLabel: '文件小幫手',
   askDocAgentThinking: '正在思考',
   askDocAgentReading: '正在讀取文件',

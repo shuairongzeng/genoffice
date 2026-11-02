@@ -30,6 +30,10 @@ type DesktopApi = {
   openGlobalAi(question?: string): Promise<boolean>
   onAutosaveRecoveryAsk(handler: (ask: unknown) => void): () => void
   answerAutosaveRecovery(requestId: string, restore: boolean): void
+  getAiDockState(): Promise<{ width: number; collapsed: boolean } | null>
+  onAiDockChanged(handler: (state: { width: number; collapsed: boolean }) => void): () => void
+  reportAiSlotRect(rect: { x: number; y: number; width: number; height: number }): void
+  onAiSlotRectRequest(handler: () => void): () => void
 }
 
 const invoke = ipcRenderer.invoke as ReturnType<typeof vi.fn>
@@ -103,6 +107,63 @@ describe('the autosave-recovery bridge (hosted open flow)', () => {
     off()
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
       'docs:autosave-recovery-ask',
+      expect.any(Function),
+    )
+  })
+})
+
+describe('the hosted AI-slot bridge', () => {
+  it("pulls the drawer state over the shell's aiDock get and follows its broadcast", async () => {
+    invoke.mockReset()
+    invoke.mockResolvedValueOnce({ width: 420, collapsed: false })
+    on.mockClear()
+    const loaded = await loadApi()
+    await expect(loaded.getAiDockState()).resolves.toEqual({ width: 420, collapsed: false })
+    expect(invoke).toHaveBeenCalledWith('home:ai-dock-get')
+    // the broadcast (the shell's watchAiDock sends it to the docs tabs)
+    const states: Array<{ width: number; collapsed: boolean }> = []
+    const off = loaded.onAiDockChanged((state) => states.push(state))
+    expect(on).toHaveBeenCalledWith('home:ai-dock-changed', expect.any(Function))
+    const push = on.mock.calls.find((c) => c[0] === 'home:ai-dock-changed')![1] as (
+      event: unknown,
+      prefs: unknown,
+    ) => void
+    push(undefined, { width: 420, collapsed: true })
+    expect(states).toEqual([{ width: 420, collapsed: true }])
+    // a malformed broadcast is dropped whole, never half-kept
+    push(undefined, { width: 'wide' })
+    push(undefined, null)
+    expect(states).toHaveLength(1)
+    off()
+    // standalone dev: no handler on the get, the invoke rejects → null
+    invoke.mockReset()
+    invoke.mockRejectedValueOnce(new Error('No handler registered'))
+    await expect(loaded.getAiDockState()).resolves.toBeNull()
+  })
+
+  it("reports the slot rect and answers main's re-measure request", async () => {
+    on.mockClear()
+    send.mockClear()
+    const loaded = await loadApi()
+    loaded.reportAiSlotRect({ x: 500, y: 0, width: 320, height: 600 })
+    expect(send).toHaveBeenCalledWith('docs:ai-slot-rect', {
+      x: 500,
+      y: 0,
+      width: 320,
+      height: 600,
+    })
+    // main asks for a fresh measurement (activation, scale change)
+    const requests: number[] = []
+    const off = loaded.onAiSlotRectRequest(() => requests.push(1))
+    expect(on).toHaveBeenCalledWith('docs:ai-slot-rect-request', expect.any(Function))
+    const request = on.mock.calls.find(
+      (c) => c[0] === 'docs:ai-slot-rect-request',
+    )![1] as () => void
+    request()
+    expect(requests).toHaveLength(1)
+    off()
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+      'docs:ai-slot-rect-request',
       expect.any(Function),
     )
   })

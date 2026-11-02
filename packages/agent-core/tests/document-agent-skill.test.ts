@@ -56,6 +56,14 @@ describe('the document-agent skill surface', () => {
     expect(skill.systemPrompt).toContain('self-contained')
     expect(skill.systemPrompt).toContain('One task at a time')
     expect(skill.systemPrompt).toContain('never claim document changes')
+    // the primacy wording: document_agent is the DEFAULT for document work,
+    // never a file rewrite behind the app
+    expect(skill.systemPrompt).toContain('document_agent is the DEFAULT for')
+    expect(skill.systemPrompt).toContain("never rewrite the document's file behind the app")
+    expect(skill.systemPrompt).toContain('把这份文档的标题改成《神兽研究》')
+    // the tool's own description carries the same primacy
+    expect(tool.description).toContain('the FIRST choice for any task about that document')
+    expect(tool.description).toContain('NEVER rewrite or replace a file an app has open')
   })
 
   it('a successful task reports the summary and the edits', async () => {

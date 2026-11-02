@@ -35,6 +35,7 @@ export const fr: Dict = {
   askToolEdit: 'Modification d’un fichier',
   askToolDelete: 'Suppression d’un fichier',
   askToolDocAgent: 'Exécution de l’assistant de document',
+  askScrollLatest: 'Faire défiler vers le dernier message',
   askDocAgentLabel: 'Assistant de document',
   askDocAgentThinking: 'Réflexion',
   askDocAgentReading: 'Lecture du document',

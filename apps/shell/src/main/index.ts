@@ -4070,6 +4070,10 @@ function installUiScale(): void {
   onUiScaleChanged((scale) => {
     currentUiScale = scale
     tabManager?.layout()
+    // the scale can move every view and zooms some renderers: the docs app's
+    // measured AI slot is stale by construction, so ask the active docs tab
+    // for a fresh report (the tracker refuses the old one until it lands)
+    tabManager?.requestAiSlotRect()
     refreshTitleBarOverlay()
   })
 }
@@ -4627,6 +4631,16 @@ function registerHomeIpc(): void {
     trackedFilesUnder,
     fileTargetSources,
     statMaybeFile,
+    // the edit_file open-document guard's truth: the paths every app has
+    // open (strip tabs + detached editor windows) with their kind — the same
+    // enumerations the document-agent bridge routes by
+    openDocumentPaths: async () => {
+      const tabs = tabManager ? await tabManager.openDocuments() : []
+      const detached = await detachedOpenDocuments({ dirty: false })
+      return [...tabs, ...detached]
+        .filter((doc) => typeof doc.filePath === 'string' && doc.filePath !== '')
+        .map((doc) => ({ path: doc.filePath as string, kind: doc.kind }))
+    },
     extraFolderRoots,
     insideAnyRoot,
     isAnyRoot,
@@ -6177,6 +6191,24 @@ const surfaceTabsSource = (): SurfaceContextDeps => ({
 // bridge). The channels that ACT (browserskill:execute) keep their panel
 // sender gate.
 ipcMain.handle(HOME_CHANNELS.surfaceTabs, () => collectSurfaceTabs(surfaceTabsSource()))
+// The docs app's reserved AI slot (hosted): its renderer reports the slot's
+// live rect here (view-local px) on mount, on resize, when the drawer flips
+// and when asked (`docs:ai-slot-rect-request`); the TabManager converts it
+// to window px — and drops it unless the sender is the ACTIVE docs tab's
+// view (a background tab's, a detached window's or any other renderer's
+// layout is not the surface the drawer docks into). The drawer overlay fits
+// exactly the accepted slot while a docs tab is active. Shape-validated
+// whole — a malformed payload is dropped, never half-applied.
+ipcMain.on('docs:ai-slot-rect', (event, raw: unknown) => {
+  const wc = event.sender
+  if (!wc || wc.isDestroyed()) return
+  const r = raw as { x?: unknown; y?: unknown; width?: unknown; height?: unknown }
+  if (!r || typeof r.x !== 'number' || typeof r.y !== 'number') return
+  if (typeof r.width !== 'number' || typeof r.height !== 'number') return
+  if (!Number.isFinite(r.x) || !Number.isFinite(r.y)) return
+  if (!Number.isFinite(r.width) || !Number.isFinite(r.height)) return
+  tabManager?.reportAiSlotRect(wc, { x: r.x, y: r.y, width: r.width, height: r.height })
+})
 /**
  * The renderers allowed to summon the global drawer and forward asks
  * (MED-3 / LOW-8): the shell's own renderer plus every hosted app-tab
@@ -6256,6 +6288,18 @@ registerHomeWorkbenchIpc({
   // (openGlobalAi forwards through this channel); the live enumerations are
   // the truth
   isTrustedAskSender: (sender) => isAppRendererSender(sender),
+  // the aiDock-get gate: the sender must live in THIS window — its own
+  // renderer, the overlay views, the tab views in its contentView. A
+  // detached editor is its own BrowserWindow, so fromWebContents answers
+  // that window instead of the shell's: its getAiDockState reads null and
+  // its hosted slot reserves nothing (HIGH: the empty-slot bug)
+  isShellWindowSender: (sender) => {
+    // null-safe: before the shell window exists no sender lives in it
+    const shell = shellWindow
+    if (!shell || shell.isDestroyed()) return false
+    if (shell.webContents === sender) return true
+    return BrowserWindow.fromWebContents(sender) === shell
+  },
   // the shell renderer already received the original browser:ask-about push;
   // this route only exists so the overlay's panel parks the annotation where
   // the person can see it (pet-only included — the panel is mounted behind
@@ -6759,6 +6803,14 @@ app.whenReady().then(async () => {
   watchAiDock(APP_SETTINGS_PATH(), (dock) => {
     sendToShellRenderer(HOME_CHANNELS.aiDockChanged, dock)
     tabManager?.drawerOverlayWebContents()?.send(HOME_CHANNELS.aiDockChanged, dock)
+    // the docs tabs' renderers hear the same broadcast: hosted, each reserves
+    // (or releases) its own AI slot from it — the drawer then docks into the
+    // slot instead of floating over the window's right edge
+    for (const tab of tabManager?.list() ?? []) {
+      if (tab.kind !== 'docs') continue
+      const wc = tabManager?.webContentsForTab(tab.id)
+      if (wc && !wc.isDestroyed()) wc.send(HOME_CHANNELS.aiDockChanged, dock)
+    }
     tabManager?.layout()
   })
   // the dock's own prefs, the same shape: a settings write (or a drag's

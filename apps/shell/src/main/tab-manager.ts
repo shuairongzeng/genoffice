@@ -5,6 +5,7 @@ import type { Rectangle, WebContents } from 'electron'
 
 import { appForKind, appIsDirty, documentApps, type AppCloseGuard } from './app-registry'
 import type { AiDrawerOverlay } from './ai-drawer-view'
+import { createAiSlotTracker, type SlotRectReport } from './ai-slot-tracker'
 import type { DockOverlay } from './dock-overlay-view'
 import type { AiDocContent } from '../../../docs/src/shared/ipc'
 import { rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
@@ -156,6 +157,12 @@ export class TabManager {
    * Null in tests and any host that does not want the overlay.
    */
   private drawerOverlay: AiDrawerOverlay | null = null
+  /**
+   * The docs app's reserved AI-slot rect (window px), keyed to the
+   * webContents that measured it — the drawer fits exactly it while a docs
+   * tab is active and the report is fresh (see ai-slot-tracker.ts).
+   */
+  private readonly aiSlot = createAiSlotTracker()
   /**
    * The doc-mode dock's native overlay host (the hot strip / fisheye dock
    * above the covering document), injected like the drawer's. Null in tests
@@ -443,7 +450,9 @@ export class TabManager {
    * Feed the overlay one state snapshot: the drawer prefs, the interface
    * scale, whether a non-Home tab is active, whether that tab's view covers
    * the whole window (HTML fullscreen / content bleed — the overlay stands
-   * down for a presentation), and the window's content size.
+   * down for a presentation), the window's content size, and — while the
+   * active tab is a docs tab with a fresh slot report — the app's reserved
+   * AI-slot rect the drawer fits exactly instead of the window's right edge.
    */
   private syncDrawerOverlay(): void {
     const overlay = this.drawerOverlay
@@ -458,7 +467,55 @@ export class TabManager {
       docActive: active !== undefined && active.kind !== 'home',
       suppressed: this.drawerOverlaySuppressed(),
       window: { width, height },
+      ...(active?.kind === 'docs' && this.aiDock().collapsed === false
+        ? {
+            // undefined (the key dropped) when no fresh report: the window's
+            // right edge is the geometry then, exactly as before the slot
+            slot: this.aiSlot.slotFor(active.view?.webContents, this.uiScale()) ?? undefined,
+          }
+        : {}),
     })
+  }
+
+  /**
+   * The docs app's AI-slot report arrived over `docs:ai-slot-rect` from this
+   * webContents: the rect is view-local (the renderer's viewport), so the
+   * tab's view bounds — the geometry this manager itself set — convert it
+   * into window px. Only the ACTIVE docs tab's report counts: a background
+   * tab's layout is not the surface the drawer docks into (and a detached
+   * editor, its view no longer a tab here, is dropped by the find itself —
+   * the overlay exists only while a shell tab is active). A fresh report
+   * always wins (the renderer's layout is the authority on where its slot
+   * sits), and the drawer refits immediately.
+   */
+  reportAiSlotRect(wc: WebContents, rect: SlotRectReport): void {
+    if (this.shellWindow.isDestroyed() || wc.isDestroyed()) return
+    const tab = this.tabs.find((t) => t.view && t.view.webContents.id === wc.id)
+    if (!tab?.view) return
+    if (tab.id !== this.activeId || tab.kind !== 'docs') return
+    this.aiSlot.report(wc.id, tab.view.getBounds(), rect, this.uiScale())
+    this.syncDrawerOverlay()
+  }
+
+  /**
+   * Ask the active docs tab's renderer for a fresh slot report
+   * (`docs:ai-slot-rect-request`): activation and an interface-scale change
+   * both invalidate what was measured before, and the request is what heals
+   * the stale moment — the renderer re-measures and the report lands within
+   * a round trip. Public because the shell's scale watcher calls it after
+   * the layout it triggers.
+   */
+  requestAiSlotRect(): void {
+    if (this.shellWindow.isDestroyed()) return
+    const active = this.tabs.find((t) => t.id === this.activeId)
+    if (active?.kind !== 'docs' || !active.view) return
+    const wc = active.view.webContents
+    // guarded: a renderer without the channel (a stale app build) simply
+    // gets no request — the tracker stays stale and the overlay falls back
+    // to the window-edge geometry, which is the safe shape
+    if (!wc.isDestroyed() && typeof wc.send === 'function') {
+      wc.send('docs:ai-slot-rect-request')
+    }
   }
 
   /**
@@ -842,6 +899,13 @@ export class TabManager {
     // contentView) follow here
     this.syncBrowserPages()
     this.activeId = id
+    // the AI slot's report belongs to the tab that measured it: the tab
+    // being left may drift while hidden, so its rect is stale until it
+    // re-reports — and a docs tab being activated is asked for a fresh one
+    // right away, so the drawer's window-edge fallback lasts one round trip
+    const previousWc = previous?.view?.webContents
+    if (previousWc && previous.id !== id) this.aiSlot.markStale(previousWc.id)
+    if (target.kind === 'docs') this.requestAiSlotRect()
     if (target.view) this.installPaletteShortcut(target.view.webContents)
     if (appForKind(target.kind)?.open?.spare) this.scheduleSpareView(3000)
     else this.discardSpareView()
@@ -1234,6 +1298,12 @@ export class TabManager {
     if (this.htmlFullScreenId === id) this.htmlFullScreenId = null
     const view = tab.view
     view.setVisible(false)
+    // its AI-slot report is stale the moment the view leaves: the detached
+    // window reflows it freely (its own resizes), and while the wc lives on —
+    // so the tracker's keying would still match on re-dock — an armed
+    // pre-detach rect would feed the overlay stale geometry before the
+    // activation's own re-measure lands
+    this.aiSlot.markStale(view.webContents.id)
     this.shellWindow.contentView.removeChildView(view)
     // the view leaves for its own window: a companion view beside it here (the
     // browser page) must be unparented now, before that window's teardown or

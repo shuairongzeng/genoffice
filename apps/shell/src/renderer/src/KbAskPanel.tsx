@@ -83,7 +83,8 @@ import {
 import { artifactFromCall, retryInstruction, settleArtifact, type Artifact } from './ask-artifacts'
 import { appendToolNote, toolNoteDetail, toolNoteKind, type ToolNote } from './ask-tool-notes'
 import { RunRecorder, runsBridgeOf } from './ask-runs'
-import { RafFlushQueue, sticksToBottom } from './ask-stream'
+import { RafFlushQueue } from './ask-stream'
+import { useStickToBottom } from './use-stick-to-bottom'
 
 /**
  * The workbench's knowledge-base ask panel: chat with the reader's corpus
@@ -698,9 +699,13 @@ export function KbAskPanel({
    * Which mount's copy this panel is (the surface context's visibility line
    * differs): 'home' — the docked drawer beside the Home desktop — or
    * 'overlay' — the floating drawer over the document/browser tab the person
-   * is actually looking at (panel-entry.tsx). Defaults to Home's.
+   * is actually looking at (panel-entry.tsx), which passes 'docked' while the
+   * drawer is embedded into the document app's own panel slot. The prop is
+   * mirrored into a ref the shell skill's prompt getter re-reads, so a
+   * docked/floating flip mid-session is visible to the next model request
+   * without rebuilding the loop. Defaults to Home's.
    */
-  surfaceRole?: 'home' | 'overlay'
+  surfaceRole?: 'home' | 'overlay' | 'docked'
 }): React.JSX.Element {
   const { t, lang } = useI18n()
   // the in-app replacement for the native confirm on thread delete (and any
@@ -848,6 +853,14 @@ export function KbAskPanel({
    * section follows the surface without rebuilding anything.
    */
   const surfaceTabsRef = useRef<readonly SurfaceTab[] | null>(null)
+  /**
+   * The surface role's live mirror: the shell skill's prompt section reads it
+   * through a getter (the loop re-composes the prompt before every model
+   * request), so the visibility line follows the drawer's docked/floating
+   * shape without the skill — built once at the loop's mount — going stale.
+   */
+  const surfaceRoleRef = useRef(surfaceRole)
+  surfaceRoleRef.current = surfaceRole
   const refreshSurfaceTabs = (): Promise<void> => {
     const pull = window.aiOffice.getSurfaceTabs?.()
     if (!pull) return Promise.resolve()
@@ -876,7 +889,6 @@ export function KbAskPanel({
   }
   const settingsRef = useRef<AiSettings | null>(null)
   const loopRef = useRef<AgentLoop<unknown> | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
   /** bumped by Stop: an ask still refreshing the corpus must not start its run */
   const askSeqRef = useRef(0)
   /** tokens billed so far in the in-flight answer (summed across turns) */
@@ -1399,7 +1411,7 @@ export function KbAskPanel({
     // just opened, and that read must not degrade to "no browser tab"
     const shellSkill = createShellSkill({
       surfaceTabs: () => surfaceTabsRef.current,
-      viewer: surfaceRole,
+      viewer: () => surfaceRoleRef.current,
       execute: (tool, input) => browserBridgeCall(tool, input),
       onBrowserTabOpened: (tabId) => {
         if (!browserTabsRef.current.some((tab) => tab.id === tabId)) {
@@ -1550,15 +1562,23 @@ export function KbAskPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only; the loop reads live refs
   }, [])
 
-  // Follow the thread's growth only while the reader is pinned to the bottom:
-  // scrolling up to reread an earlier answer must not be yanked back down
-  // mid-stream (the same guard the editors' AiPanel uses).
-  const stickToBottomRef = useRef(true)
+  // Chat-standard stick-to-bottom (the previous guard recomputed "at bottom"
+  // from the absolute position on every scroll event, so the effect's own
+  // programmatic scroll racing a growth spurt silently turned the follow OFF
+  // and the list grew with the view parked — see use-stick-to-bottom.ts)
+  const stick = useStickToBottom()
+  // the React-shaped growth twin: the hook's ResizeObserver catches DOM
+  // growth, this catches the transcript model's (and carries the follow in
+  // environments without the observer); both funnel into one coalesced scroll
   useEffect(() => {
-    if (stickToBottomRef.current) {
-      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-    }
-  }, [messages])
+    stick.notifyGrowth()
+  }, [messages]) // eslint-disable-line react-hooks/exhaustive-deps -- the growth signal, not the jump
+  // a thread switch / a fresh conversation lands on the latest message: the
+  // person opening a thread starts reading at its end, wherever they were in
+  // the one they left
+  useEffect(() => {
+    stick.scrollToLatest()
+  }, [activeChat]) // eslint-disable-line react-hooks/exhaustive-deps -- the thread identity, not the jump
 
   const finishLast = (): void => {
     // The answer is whole for the first time here; streaming it as it grows
@@ -1579,6 +1599,8 @@ export function KbAskPanel({
     const instruction = draft.trim()
     if (!instruction || busy) return Promise.resolve()
     setDraft('')
+    // the person's own send lands the newest message in view at once
+    stick.scrollToLatest()
     // skills and files ride with this one question only: the chips clear like the draft does
     const skills = attachedSkills
     setAttachedSkills([])
@@ -2134,91 +2156,116 @@ export function KbAskPanel({
         </div>
       )}
       <div
-        className="kb-ask-thread"
-        ref={scrollRef}
-        onScroll={() => {
-          const el = scrollRef.current
-          if (el) {
-            stickToBottomRef.current = sticksToBottom(
-              el.scrollTop,
-              el.scrollHeight,
-              el.clientHeight,
-            )
+        className="kb-ask-thread-wrap"
+        onKeyDown={(e) => {
+          // End jumps to the latest when the focus is not inside text the
+          // key would edit (the composer owns its own keys)
+          const target = e.target as HTMLElement
+          const editable =
+            target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable
+          if (e.key === 'End' && !editable) {
+            e.preventDefault()
+            stick.scrollToLatest()
           }
         }}
       >
-        {messages.length === 0 && corpusCount === 0 && (
-          <div className="kb-ask-hero">
-            <div className="kb-ask-hero-icon" aria-hidden="true">
-              <IconBookOpen />
-            </div>
-            <h3>{t('askTitle')}</h3>
-            <p>{t(scopeKey('askHeroTagline', 'askHeroFoldersTagline', 'askHeroIndexedTagline'))}</p>
-            <div className="kb-ask-steps">
-              <div className="kb-ask-step">
-                <span className="kb-ask-step-num">1</span>
-                <div>
-                  <b>
-                    {t(scopeKey('askStep1Title', 'askFoldersStep1Title', 'askIndexedStep1Title'))}
-                  </b>
-                  <span>
-                    {t(scopeKey('askStep1Desc', 'askFoldersStep1Desc', 'askIndexedStep1Desc'))}
-                  </span>
+        <div className="kb-ask-thread" ref={stick.scrollerRef}>
+          <div className="kb-ask-thread-inner" ref={stick.contentRef}>
+            {messages.length === 0 && corpusCount === 0 && (
+              <div className="kb-ask-hero">
+                <div className="kb-ask-hero-icon" aria-hidden="true">
+                  <IconBookOpen />
                 </div>
-              </div>
-              <div className="kb-ask-step">
-                <span className="kb-ask-step-num">2</span>
-                <div>
-                  <b>{t('askStep2Title')}</b>
-                  <span>{t('askStep2Desc')}</span>
+                <h3>{t('askTitle')}</h3>
+                <p>
+                  {t(scopeKey('askHeroTagline', 'askHeroFoldersTagline', 'askHeroIndexedTagline'))}
+                </p>
+                <div className="kb-ask-steps">
+                  <div className="kb-ask-step">
+                    <span className="kb-ask-step-num">1</span>
+                    <div>
+                      <b>
+                        {t(
+                          scopeKey('askStep1Title', 'askFoldersStep1Title', 'askIndexedStep1Title'),
+                        )}
+                      </b>
+                      <span>
+                        {t(scopeKey('askStep1Desc', 'askFoldersStep1Desc', 'askIndexedStep1Desc'))}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="kb-ask-step">
+                    <span className="kb-ask-step-num">2</span>
+                    <div>
+                      <b>{t('askStep2Title')}</b>
+                      <span>{t('askStep2Desc')}</span>
+                    </div>
+                  </div>
+                  <div className="kb-ask-step">
+                    <span className="kb-ask-step-num">3</span>
+                    <div>
+                      <b>{t('askStep3Title')}</b>
+                      <span>{t('askStep3Desc')}</span>
+                    </div>
+                  </div>
                 </div>
+                <button
+                  className="kb-ask-cta"
+                  type="button"
+                  onClick={kbScope === 'folders' ? onOpenScopeSettings : onGoToRecents}
+                >
+                  {kbScope === 'starred' ? <IconStar /> : <IconFolder />}
+                  {t(scopeKey('askCtaRecents', 'askCtaScopeSettings', 'askCtaBrowseRecents'))}
+                </button>
               </div>
-              <div className="kb-ask-step">
-                <span className="kb-ask-step-num">3</span>
-                <div>
-                  <b>{t('askStep3Title')}</b>
-                  <span>{t('askStep3Desc')}</span>
-                </div>
-              </div>
-            </div>
-            <button
-              className="kb-ask-cta"
-              type="button"
-              onClick={kbScope === 'folders' ? onOpenScopeSettings : onGoToRecents}
-            >
-              {kbScope === 'starred' ? <IconStar /> : <IconFolder />}
-              {t(scopeKey('askCtaRecents', 'askCtaScopeSettings', 'askCtaBrowseRecents'))}
-            </button>
+            )}
+            {messages.length === 0 && corpusCount !== null && corpusCount > 0 && (
+              <p className="kb-ask-hint">
+                {t(scopeKey('askIntro', 'askIntroFolders', 'askIntroIndexed'))}
+              </p>
+            )}
+            {messages.map((m, i) => (
+              <AskMessageRow
+                key={i}
+                m={m}
+                index={i}
+                isLast={i === messages.length - 1}
+                lang={lang}
+                showStreaming={aiPrefs.showStreaming}
+                showToolCalls={aiPrefs.showToolCalls}
+                showThinking={aiPrefs.showThinking}
+                busy={busy}
+                fileNav={fileNav}
+                // the card is the last row's alone: handing it to history rows
+                // would churn their props while a decision is in flight
+                confirmCard={
+                  i === messages.length - 1 && m.role === 'assistant' ? confirm.card : null
+                }
+                onAllow={confirm.allow}
+                onAllowSession={confirm.allowSession}
+                onDeny={confirm.deny}
+                onOpenPath={openPath}
+                onRetry={retryAsk}
+                onSaveAnswer={saveAnswer}
+              />
+            ))}
           </div>
+        </div>
+        {/* the unfollowed reader's way back: only while the view left the
+          bottom, the dot says something new landed below, and the click (or
+          End) returns to the latest and resumes the follow */}
+        {!stick.following && (
+          <button
+            type="button"
+            className={`kb-ask-scroll-latest${stick.hasNew ? ' has-new' : ''}`}
+            aria-label={t('askScrollLatest')}
+            title={t('askScrollLatest')}
+            onClick={stick.scrollToLatest}
+          >
+            <IconChevronDown />
+            {stick.hasNew && <span className="kb-ask-scroll-dot" aria-hidden="true" />}
+          </button>
         )}
-        {messages.length === 0 && corpusCount !== null && corpusCount > 0 && (
-          <p className="kb-ask-hint">
-            {t(scopeKey('askIntro', 'askIntroFolders', 'askIntroIndexed'))}
-          </p>
-        )}
-        {messages.map((m, i) => (
-          <AskMessageRow
-            key={i}
-            m={m}
-            index={i}
-            isLast={i === messages.length - 1}
-            lang={lang}
-            showStreaming={aiPrefs.showStreaming}
-            showToolCalls={aiPrefs.showToolCalls}
-            showThinking={aiPrefs.showThinking}
-            busy={busy}
-            fileNav={fileNav}
-            // the card is the last row's alone: handing it to history rows
-            // would churn their props while a decision is in flight
-            confirmCard={i === messages.length - 1 && m.role === 'assistant' ? confirm.card : null}
-            onAllow={confirm.allow}
-            onAllowSession={confirm.allowSession}
-            onDeny={confirm.deny}
-            onOpenPath={openPath}
-            onRetry={retryAsk}
-            onSaveAnswer={saveAnswer}
-          />
-        ))}
       </div>
       {messages.length > 0 && (
         <p className="kb-ask-nosave">
@@ -2521,6 +2568,25 @@ function IconTrash(): React.JSX.Element {
       <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
       <path d="M10 11v6M14 11v6" />
+    </svg>
+  )
+}
+
+/** the scroll-to-latest affordance's glyph: a chevron down in the button's circle */
+function IconChevronDown(): React.JSX.Element {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m6 9 6 6 6-6" />
     </svg>
   )
 }

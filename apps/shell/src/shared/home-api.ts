@@ -717,6 +717,13 @@ export interface HomeApi {
    * same value they just applied, so the broadcast never reverts anything.
    */
   onAiDockChanged?(handler: (prefs: AiDockPrefs) => void): () => void
+  /**
+   * The drawer panel's docked/floating shape (`home:ask-panel-embedded`,
+   * pushed by the overlay host when it flips): true while the drawer fits the
+   * docs app's reserved AI slot — the panel's chrome then reads as the app's
+   * own panel; false while it floats at the window's right edge.
+   */
+  onAskPanelEmbedded?(handler: (embedded: boolean) => void): () => void
   // ---- the ask-intent forward between the drawer's two surfaces (P0-2) ----
   // Optional so partial test stubs (and a preload from before the forward)
   // keep typing: without the channels a doc-mode handoff degrades to the

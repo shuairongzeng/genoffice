@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { shell, WebContentsView } from 'electron'
-import type { BrowserWindow, WebContents } from 'electron'
+import type { BrowserWindow, Rectangle, WebContents } from 'electron'
 
 import { rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
 import { drawerOverlayBounds, type AiDockPrefs } from '../shared/desktop-geometry'
@@ -104,6 +104,15 @@ export interface AiDrawerOverlayState {
   suppressed: boolean
   /** the window's live content area */
   window: { width: number; height: number }
+  /**
+   * The docs app's reported AI-slot rect in window px (the space its own
+   * layout reserved for the drawer while hosted). Present and the drawer
+   * expanded, the view fits EXACTLY it — the drawer sits where the app's own
+   * AI panel lived, the document reflows around it and nothing is covered.
+   * Absent (a non-docs tab, a stale or pre-report moment, the pet-only
+   * shape) the window's right edge stays the geometry, as before.
+   */
+  slot?: Rectangle
 }
 
 /** the overlay's face the TabManager drives; no-op safe after teardown */
@@ -193,12 +202,19 @@ export function createAiDrawerOverlay(
    */
   let petMode = false
   /**
-   * The layout the last sync carried (scale + prefs): the pet drag's `end`
-   * and a crashed renderer re-fit the view from it — the release's own prefs
-   * write re-fits it too, but only when the position changed, and a drag's
-   * window-wide surface must never outlive its gesture.
+   * The layout the last sync carried (scale + prefs + slot): the pet drag's
+   * `end` and a crashed renderer re-fit the view from it — the release's own
+   * prefs write re-fits it too, but only when the position changed, and a
+   * drag's window-wide surface must never outlive its gesture.
    */
-  let lastLayout: { scale: number; dock: AiDockPrefs } | null = null
+  let lastLayout: { scale: number; dock: AiDockPrefs; slot?: Rectangle } | null = null
+  /**
+   * Whether the last expanded sync fit the app's reported slot (docked) or
+   * the window's right edge (floating). Flips push
+   * `home:ask-panel-embedded` to the panel copy so its chrome reads as the
+   * app's own panel while docked — flat against the app's layout — and back.
+   */
+  let embedded = false
   /** messages waiting for the panel's renderer to be ready (deliverToPanel) */
   const pendingPanelMessages: Array<{ channel: string; payload: unknown }> = []
   /**
@@ -380,7 +396,24 @@ export function createAiDrawerOverlay(
     if (shellWindow.isDestroyed()) return
     const { width, height } = shellWindow.getContentBounds()
     if (width <= 0 || height <= 0) return
-    live.setBounds(drawerOverlayBounds({ width, height }, lastLayout))
+    live.setBounds(expandedBounds({ width, height }, lastLayout))
+  }
+
+  /** the expanded footprint: the app's reported slot when it has one, else the window's right edge */
+  const expandedBounds = (
+    window: { width: number; height: number },
+    layout: { scale: number; dock: AiDockPrefs; slot?: Rectangle },
+  ): Rectangle => layout.slot ?? drawerOverlayBounds(window, layout)
+
+  /** tell the panel copy which chrome it wears (docked into the app's slot vs floating) */
+  const pushEmbedded = (next: boolean): void => {
+    if (next === embedded) return
+    embedded = next
+    // buffered like every other panel message (deliverToPanel): a flip that
+    // beats the entry's ready handshake must wait for it, not vanish into a
+    // renderer with no listener yet
+    pendingPanelMessages.push({ channel: 'home:ask-panel-embedded', payload: next })
+    deliverPending()
   }
 
   // the window's teardown destroys its contentView's children with it — the
@@ -411,7 +444,8 @@ export function createAiDrawerOverlay(
         // The hide is an applied change, so the mode state lands here too.
         shown = false
         petMode = nextPetMode
-        lastLayout = { scale: state.scale, dock: state.dock }
+        lastLayout = { scale: state.scale, dock: state.dock, slot: state.slot }
+        pushEmbedded(false)
         applyVisibility()
         // the composer inside the overlay held the keyboard, and a hidden
         // view keeps it: hand focus back to whatever owns the window now (the
@@ -434,8 +468,19 @@ export function createAiDrawerOverlay(
       // drag surface's gate and the gesture re-fit read what was actually
       // applied, never a state the window refused
       petMode = nextPetMode
-      lastLayout = { scale: state.scale, dock: state.dock }
-      live.setBounds(drawerOverlayBounds(state.window, { scale: state.scale, dock: state.dock }))
+      lastLayout = { scale: state.scale, dock: state.dock, slot: state.slot }
+      // the slot wins while the drawer is expanded: the app reserved this
+      // exact space in its own layout (the document reflowed around it), so
+      // the drawer sits where the app's own AI panel lived — nothing is
+      // covered. The pet-only shape ignores the slot the same way
+      // drawerOverlayBounds ignores the drawer footprint (it collapses to
+      // petOverlayBounds on its own).
+      live.setBounds(
+        nextPetMode
+          ? drawerOverlayBounds(state.window, lastLayout)
+          : expandedBounds(state.window, lastLayout),
+      )
+      pushEmbedded(!nextPetMode && state.slot !== undefined)
       // the entry opts into `zoom: var(--ui-scale)` like the app frame, so
       // the drawer's content reads at the same size whichever layer hosts it
       if (state.scale !== appliedScale) applyScale(live.webContents, state.scale)

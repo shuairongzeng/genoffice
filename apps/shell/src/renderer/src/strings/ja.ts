@@ -33,6 +33,7 @@ export const ja: Dict = {
   askToolEdit: 'ファイルを編集中',
   askToolDelete: 'ファイルを削除中',
   askToolDocAgent: 'ドキュメント アシスタントを実行しました',
+  askScrollLatest: '最新のメッセージへスクロール',
   askDocAgentLabel: 'ドキュメント アシスタント',
   askDocAgentThinking: '考えています',
   askDocAgentReading: 'ドキュメントを読み込んでいます',

@@ -32,6 +32,7 @@ export const cs: Dict = {
   askToolEdit: 'Upravuji soubor',
   askToolDelete: 'Odstraňuji soubor',
   askToolDocAgent: 'Asistent dokumentu pracoval',
+  askScrollLatest: 'Posunout na nejnovější zprávu',
   askDocAgentLabel: 'Asistent dokumentu',
   askDocAgentThinking: 'Přemýšlí',
   askDocAgentReading: 'Čte dokument',

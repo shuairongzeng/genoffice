@@ -159,6 +159,15 @@ export interface HomeWorkbenchIpcDeps {
    *  inside the window; a degenerate answer ({0,0}) skips the clamp */
   contentBounds: () => { width: number; height: number }
   /**
+   * The aiDock-get sender gate: true for the webContents that may learn the
+   * drawer's state — the shell window's own renderer, its overlay views and
+   * its tab views. A DETACHED editor window (its own BrowserWindow) answers
+   * false, so its `getAiDockState` reads null and its hosted AI slot never
+   * reserves space nothing will fill. Absent (tests, older wirings) keeps
+   * today's ungated answer.
+   */
+  isShellWindowSender?: (sender: WebContents) => boolean
+  /**
    * Route one validated ask-intent handoff to the drawer's live surface
    * (P0-2): the native overlay's panel copy while a document tab is active
    * (main's own truth decides — the renderer's view of the active tab can lag
@@ -418,7 +427,17 @@ function clampStageRect(rect: Rectangle, window: { width: number; height: number
  * deliberately skipped as not worth the per-keystroke round-trips.
  */
 export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
-  ipcMain.handle(HOME_CHANNELS.aiDockGet, () => readAiDock(deps.appSettingsPath()))
+  ipcMain.handle(HOME_CHANNELS.aiDockGet, (event) => {
+    // per-sender: the drawer's state is the SHELL window's business — its
+    // own renderer, the overlay panel, the tab views it hosts. A detached
+    // editor window shares the channel through the docs preload but must not
+    // learn the state: its hosted AI slot would reserve space no overlay ever
+    // fills (the overlay exists only while a shell tab is active)
+    if (deps.isShellWindowSender && !deps.isShellWindowSender(event.sender)) {
+      return null
+    }
+    return readAiDock(deps.appSettingsPath())
+  })
   ipcMain.handle(HOME_CHANNELS.aiDockSet, (_event, patch: unknown) => {
     const path = deps.appSettingsPath()
     const current = readAiDock(path)

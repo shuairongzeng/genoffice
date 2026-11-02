@@ -446,6 +446,7 @@ const WORD_COUNT_THROTTLE_MS = 400
 import { runHeadlessDocumentExport } from './headless-export'
 import { installMcpBridge } from './mcp-bridge'
 import { installHeadlessAgentBridge } from './ai/headless-agent'
+import { useHostedAiSlot } from './hosted-ai-slot'
 import {
   clampDocsZoom,
   DOCS_ZOOM_MAX,
@@ -1131,6 +1132,12 @@ export function App() {
     }
     setShowAi((v) => !v)
   }
+  // the hosted AI slot: the global drawer's state (for the slot's width and
+  // visibility) plus the rect reports the shell fits the drawer with
+  const hostedSlot = useHostedAiSlot(aiHostedInShell)
+  /** hosted and the global drawer open: the slot reserves the drawer's width
+   *  as the overlay paints it (stored CSS width × interface scale) */
+  const hostedDockOpen = aiHostedInShell && hostedSlot.dock !== null && !hostedSlot.dock.collapsed
   // selection-scoped AI edit queue (anchors live as editor decorations)
   const [editQueue, setEditQueue] = useState<DocsEditQueueItem[]>([])
   const editQueueRef = useRef(editQueue)
@@ -7629,6 +7636,21 @@ export function App() {
               notesAccess={aiNotesAccess}
             />
           </div>
+        )}
+        {/* hosted, the slot itself stays — EMPTY. The global drawer's native
+            overlay docks exactly where our own panel used to live: the slot
+            reserves its space while the drawer is open (the document reflows,
+            nothing is covered) and collapses to nothing when it is closed,
+            its width following the drawer's own stored prefs times the
+            interface scale — the overlay paints the drawer inside a zoomed
+            frame, so the reservation must be the zoomed width. No panel of
+            ours renders into it. */}
+        {doc && aiHostedInShell && (
+          <div
+            ref={hostedSlot.slotRef}
+            className="ai-dock ai-dock-hosted"
+            style={{ width: hostedDockOpen ? hostedSlot.width : 0 }}
+          />
         )}
         <div className="app-content">
           <div className={workspaceClass}>

@@ -102,7 +102,7 @@ afterEach(() => {
   delete (window as unknown as { aiOffice?: unknown }).aiOffice
 })
 
-function render(lang: 'en' | 'zh', surfaceRole?: 'home' | 'overlay'): void {
+function render(lang: 'en' | 'zh', surfaceRole?: 'home' | 'overlay' | 'docked'): void {
   act(() =>
     root.render(
       createElement(
@@ -267,6 +267,36 @@ describe('KbAskPanel surface context', () => {
     const system = started[0]!.system
     expect(system).toContain('The AI panel floats over the workspace')
     expect(system).not.toContain('docked beside it')
+  })
+
+  it('re-words the visibility line when the drawer docks mid-session (the live role)', async () => {
+    // the overlay's shape flips at runtime — floating over the tab, then
+    // docked into the document app's own slot — and the skill was built at
+    // the loop's mount, so the role must arrive as a getter the prompt
+    // re-reads, not the mount-time value: the next request tells the model
+    // the truth about where the person's attention sits
+    surfaceTabs = SURFACE
+    render('en', 'overlay')
+    await settle()
+    await ask('first question')
+
+    expect(started[0]!.system).toContain('The AI panel floats over the workspace')
+    // the entry re-renders the panel with the docked role when the view fits
+    // the slot; the same mount follows it
+    render('en', 'docked')
+    await ask('second question')
+
+    expect(started).toHaveLength(2)
+    expect(started[1]!.system).toContain(
+      "The AI panel is docked into the document app's own panel slot beside the active tab",
+    )
+    expect(started[1]!.system).not.toContain('The AI panel floats over the workspace')
+    // and back: undocking restores the floating copy on the next send
+    render('en', 'overlay')
+    await ask('third question')
+
+    expect(started[2]!.system).toContain('The AI panel floats over the workspace')
+    expect(started[2]!.system).not.toContain('panel slot beside the active tab')
   })
 
   it('refreshes the surface between sends: each request sees the surface as it is now', async () => {

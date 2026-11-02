@@ -31,6 +31,7 @@ export const en: Dict = {
   askToolEdit: 'Editing a file',
   askToolDelete: 'Deleting a file',
   askToolDocAgent: 'Ran the document assistant',
+  askScrollLatest: 'Scroll to the latest message',
   askDocAgentLabel: 'Document assistant',
   askDocAgentThinking: 'Thinking',
   askDocAgentReading: 'Reading the document',

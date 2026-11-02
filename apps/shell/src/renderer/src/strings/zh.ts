@@ -31,6 +31,7 @@ export const zh = {
   askToolEdit: '正在编辑文件',
   askToolDelete: '正在删除文件',
   askToolDocAgent: '文档助手已执行',
+  askScrollLatest: '滚动到最新消息',
   askDocAgentLabel: '文档助手',
   askDocAgentThinking: '正在思考',
   askDocAgentReading: '正在读取文档',

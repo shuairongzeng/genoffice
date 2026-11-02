@@ -13,6 +13,7 @@ import {
   formatSurfaceSection,
   type ShellSkillDeps,
   type SurfaceTab,
+  type SurfaceViewer,
 } from '../src'
 
 /**
@@ -126,10 +127,82 @@ describe('the shell skill surface', () => {
     expect(prompt).toContain('ask the person to open it')
   })
 
+  it("carries the decisive routing rules (no tool names in the user's mouth)", () => {
+    const { skill } = skillWith(TABS)
+    const prompt = skill.systemPrompt
+    // the document-first rule: an open document's tasks are ALWAYS the
+    // document agent's, and no file rewrite may fork a live document
+    expect(prompt).toContain('## Routing your actions')
+    expect(prompt).toContain('ALWAYS delegate with document_agent')
+    expect(prompt).toContain('NEVER rewrite, replace or delete a')
+    expect(prompt).toContain('edit_file and delete_file are for plain text files')
+    // and the other surfaces: browser tools for a browser tab, shell tools
+    // for the rest
+    expect(prompt).toContain('The active tab is a browser page')
+    expect(prompt).toContain('files nobody has open')
+  })
+
+  it('the surface section routes document-active to document_agent — docs only', () => {
+    // a docs tab active (the kind the shell main reports for Word documents):
+    // the decisive line names where the work goes
+    const section = formatSurfaceSection(TABS, 'home')
+    // TABS has no active doc (t1 browser is active) — flip the fixture
+    const docActive: SurfaceTab[] = [
+      { id: 'home', kind: 'home', title: 'Home', active: false },
+      { id: 'doc1', kind: 'docs', title: 'Report', active: true, filePath: '/docs/report.docx' },
+    ]
+    expect(formatSurfaceSection(docActive, 'home')).toContain(
+      'This is the Word document the person is working in — tasks about its content go through document_agent, never a file rewrite.',
+    )
+    // the other document kinds host no delegable agent: the section must not
+    // promise document_agent a sheets/slides/pdf/markdown/html tab cannot
+    // keep — it states the honest rule instead (edit in the app, or switch)
+    for (const kind of ['sheets', 'slides', 'pdf', 'markdown', 'html']) {
+      const section = formatSurfaceSection(
+        [
+          { id: 'home', kind: 'home', title: 'Home', active: false },
+          { id: 't1', kind, title: 'Ledger', active: true, filePath: `/docs/ledger.${kind}` },
+        ],
+        'home',
+      )
+      expect(section).toContain(
+        `This ${kind} document belongs to its app — document_agent only works on a Word document; tell the person to edit it there, or switch to a docs tab first (shell:switch_tab).`,
+      )
+      expect(section).not.toContain('tasks about its content go through')
+    }
+    // a browser tab active or nothing active: no routing line at all
+    expect(section).not.toContain('tasks about its content go through')
+    expect(section).not.toContain('belongs to its app')
+    expect(
+      formatSurfaceSection(
+        [{ id: 'b', kind: 'browser', title: 'X', active: true, url: 'https://x.dev/' }],
+        'home',
+      ),
+    ).not.toContain('tasks about its content go through')
+  })
+
   it("renders the overlay mount's visibility line", () => {
     const { skill } = skillWith(TABS, { viewer: 'overlay' })
     expect(skill.systemPrompt).toContain('The AI panel floats over the workspace')
     expect(skill.systemPrompt).not.toContain('docked beside it')
+  })
+
+  it("renders the docked shape's visibility line, live through the getter", () => {
+    // the overlay view fits the docs app's panel slot: the copy says the panel
+    // reads as the app's own, docked beside the active tab — and the role
+    // arrives as a getter so a mid-session flip re-words the next request
+    let viewer: SurfaceViewer = 'overlay'
+    const { skill } = skillWith(TABS, { viewer: () => viewer })
+    expect(skill.systemPrompt).toContain('The AI panel floats over the workspace')
+    viewer = 'docked'
+    expect(skill.systemPrompt).toContain(
+      "The AI panel is docked into the document app's own panel slot beside the active tab; the person is looking at that tab.",
+    )
+    expect(skill.systemPrompt).not.toContain('The AI panel floats over the workspace')
+    viewer = 'home'
+    expect(skill.systemPrompt).toContain(
+      'The person is looking at the Home desktop; the AI panel is docked beside it.',
+    )
   })
 })
 

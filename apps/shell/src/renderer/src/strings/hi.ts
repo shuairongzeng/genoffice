@@ -33,6 +33,7 @@ export const hi: Dict = {
   askToolEdit: 'फ़ाइल संपादित कर रहा है',
   askToolDelete: 'फ़ाइल हटा रहा है',
   askToolDocAgent: 'दस्तावेज़ सहायक चला',
+  askScrollLatest: 'नवीनतम संदेश पर स्क्रॉल करें',
   askDocAgentLabel: 'दस्तावेज़ सहायक',
   askDocAgentThinking: 'सोच रहा है',
   askDocAgentReading: 'दस्तावेज़ पढ़ रहा है',

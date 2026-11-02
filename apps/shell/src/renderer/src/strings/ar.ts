@@ -33,6 +33,7 @@ export const ar: Dict = {
   askToolEdit: 'جارٍ تعديل ملف',
   askToolDelete: 'جارٍ حذف ملف',
   askToolDocAgent: 'عمل المساعد المستندي',
+  askScrollLatest: 'التمرير إلى أحدث رسالة',
   askDocAgentLabel: 'المساعد المستندي',
   askDocAgentThinking: 'يفكر',
   askDocAgentReading: 'يقرأ المستند',
