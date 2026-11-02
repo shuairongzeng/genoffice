@@ -558,6 +558,7 @@ export {
   pdfFileRenamed,
   pdfIsDirty,
   requestPdfSaveAs,
+  sendPdfFindRequest,
   sendPdfPrintRequest,
   setPdfRedactionSavedHook,
   setPdfRenamedHook,

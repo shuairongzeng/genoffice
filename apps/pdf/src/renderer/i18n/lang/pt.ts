@@ -123,6 +123,8 @@ export const pt = {
   pageOf: 'de {total}',
   appPageOf: 'Página {current} de {total}',
   search: 'Pesquisar',
+  searchCase: 'Diferenciar maiúsculas/minúsculas',
+  searchWholeWord: 'Apenas palavra inteira',
   searchPrev: 'Anterior',
   searchNext: 'Próximo',
   searchCount: '{current} / {total}',

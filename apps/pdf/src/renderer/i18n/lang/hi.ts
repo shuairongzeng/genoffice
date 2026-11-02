@@ -122,6 +122,8 @@ export const hi = {
   pageOf: 'कुल {total} में से',
   appPageOf: 'पृष्ठ {current}, कुल {total}',
   search: 'खोजें',
+  searchCase: 'केस से मेल खाएँ',
+  searchWholeWord: 'पूरा शब्द मेल खाएँ',
   searchPrev: 'पिछला',
   searchNext: 'अगला',
   searchCount: '{current} / {total}',

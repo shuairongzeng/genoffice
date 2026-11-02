@@ -318,6 +318,12 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
         : kbScope() === 'folders'
           ? { roots: kbFolders() }
           : null
+    // the decision model's ordering rail (issue #56 P1 #4): when reranking is
+    // on, kb:search's pool is judged exactly like the Home results and the
+    // palette's files source, so the citations the model reads rank the way
+    // the search panels rank them — off or unavailable degrades to BM25
+    const searchSettings = host.readFileSearchSettings()
+    const reranker = searchSettings.rerank ? host.ensureSearchReranker() : null
     const hits = await searchKnowledgeBase(
       async (qq, pool) =>
         store
@@ -334,6 +340,7 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
       q,
       scope,
       Math.min(limit, 20),
+      reranker ? (qq, paths) => reranker.rerank(qq, paths, searchSettings) : undefined,
     )
     return onlyPaths ? { hits, notIndexed: await notIndexedPaths(store, onlyPaths) } : hits
   })

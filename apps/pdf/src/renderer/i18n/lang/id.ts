@@ -123,6 +123,8 @@ export const id = {
   pageOf: 'dari {total}',
   appPageOf: 'Halaman {current} dari {total}',
   search: 'Cari',
+  searchCase: 'Cocokkan huruf besar/kecil',
+  searchWholeWord: 'Cocokkan kata utuh',
   searchPrev: 'Sebelumnya',
   searchNext: 'Berikutnya',
   searchCount: '{current} / {total}',

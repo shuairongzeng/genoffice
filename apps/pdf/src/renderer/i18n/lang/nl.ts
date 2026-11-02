@@ -124,6 +124,8 @@ export const nl = {
   pageOf: 'van {total}',
   appPageOf: 'Pagina {current} van {total}',
   search: 'Zoeken',
+  searchCase: 'Hoofdlettergevoelig',
+  searchWholeWord: 'Heel woord',
   searchPrev: 'Vorige',
   searchNext: 'Volgende',
   searchCount: '{current} / {total}',

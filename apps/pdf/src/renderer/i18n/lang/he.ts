@@ -121,6 +121,8 @@ export const he = {
   pageOf: 'מתוך {total}',
   appPageOf: 'עמוד {current} מתוך {total}',
   search: 'חיפוש',
+  searchCase: 'התאמת רישיות',
+  searchWholeWord: 'התאמת מילה שלמה',
   searchPrev: 'הקודם',
   searchNext: 'הבא',
   searchCount: '{current} / {total}',

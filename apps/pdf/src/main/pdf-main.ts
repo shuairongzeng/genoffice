@@ -1070,6 +1070,13 @@ export function sendPdfPrintRequest(contents: WebContents): void {
   if (!contents.isDestroyed()) contents.send(PDF_CHANNELS.printRequest)
 }
 
+/** Menu Find (issue #56 P1 #6): open the renderer's find bar — the menu item
+ *  carries the ⌘F accelerator, so menu-driven discovery and the chord meet
+ *  at the same surface */
+export function sendPdfFindRequest(contents: WebContents): void {
+  if (!contents.isDestroyed()) contents.send(PDF_CHANNELS.findRequest)
+}
+
 /**
  * Marks the whole Save As flow (dialog included) for the renderer, which pauses
  * autosave meanwhile: opening the save dialog blurs the window, and a

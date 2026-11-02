@@ -965,6 +965,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchMatches, setSearchMatches] = useState<SearchMatch[]>([])
   const [searchCur, setSearchCur] = useState(0)
+  /** the find bar's two match options (issue #56 P1 #6): exact case and whole word */
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false)
+  const [searchWholeWord, setSearchWholeWord] = useState(false)
   const [printing, setPrinting] = useState(false)
   const [undoStack, setUndoStack] = useState<EditSnapshot[]>([])
   const [redoStack, setRedoStack] = useState<EditSnapshot[]>([])
@@ -2410,7 +2413,12 @@ export default function App() {
     const timer = setTimeout(() => {
       void getSearchIndex()?.then((idx) => {
         if (cancelled) return
-        setSearchMatches(searchInIndex(idx, searchQuery.trim()))
+        setSearchMatches(
+          searchInIndex(idx, searchQuery.trim(), {
+            caseSensitive: searchCaseSensitive,
+            wholeWord: searchWholeWord,
+          }),
+        )
         setSearchCur(0)
       })
     }, 200)
@@ -2418,7 +2426,7 @@ export default function App() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [searchOpen, searchQuery, getSearchIndex])
+  }, [searchOpen, searchQuery, searchCaseSensitive, searchWholeWord, getSearchIndex])
 
   /** Pages with unsaved deletion are excluded from match navigation */
   const activeMatches = useMemo(
@@ -6712,6 +6720,11 @@ export default function App() {
     return window.pdfApi.onPrintRequest(openPrintDlg)
   })
 
+  // Shell menu Find (issue #56 P1 #6) → the same bar ⌘F opens
+  useEffect(() => {
+    return window.pdfApi.onFindRequest(openSearch)
+  })
+
   // Shortcuts: ⌘S/⌘F/⌘P/⌘±/⌘0 + page navigation (only ⌘ combos kept while an input control is focused)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -9748,6 +9761,24 @@ export default function App() {
                       : t('searchNoResults')
                     : ''}
                 </span>
+                <button
+                  className={`rb-icon${searchCaseSensitive ? ' is-active' : ''}`}
+                  data-tip={t('searchCase')}
+                  aria-label={t('searchCase')}
+                  aria-pressed={searchCaseSensitive}
+                  onClick={() => setSearchCaseSensitive((on) => !on)}
+                >
+                  Aa
+                </button>
+                <button
+                  className={`rb-icon${searchWholeWord ? ' is-active' : ''}`}
+                  data-tip={t('searchWholeWord')}
+                  aria-label={t('searchWholeWord')}
+                  aria-pressed={searchWholeWord}
+                  onClick={() => setSearchWholeWord((on) => !on)}
+                >
+                  |b|
+                </button>
                 <button
                   className="rb-icon"
                   data-tip={t('searchPrev')}

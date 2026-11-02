@@ -123,6 +123,8 @@ export const ru = {
   pageOf: 'из {total}',
   appPageOf: 'Страница {current} из {total}',
   search: 'Поиск',
+  searchCase: 'Учитывать регистр',
+  searchWholeWord: 'Только целые слова',
   searchPrev: 'Назад',
   searchNext: 'Далее',
   searchCount: '{current} / {total}',

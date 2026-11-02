@@ -122,6 +122,8 @@ export const en = {
   pageOf: 'of {total}',
   appPageOf: 'Page {current} of {total}',
   search: 'Search',
+  searchCase: 'Match case',
+  searchWholeWord: 'Match whole word',
   searchPrev: 'Previous',
   searchNext: 'Next',
   searchCount: '{current} / {total}',

@@ -1620,6 +1620,12 @@ button {
   white-space: nowrap;
 }
 
+/* Find-option toggles (issue #56 P1 #6): Word-style pressed state */
+.pdf-search-bar .rb-icon.is-active {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 .pdf-search-layer {
   position: absolute;
   inset: 0;

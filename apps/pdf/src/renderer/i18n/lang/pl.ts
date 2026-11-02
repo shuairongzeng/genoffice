@@ -124,6 +124,8 @@ export const pl = {
   pageOf: 'z {total}',
   appPageOf: 'Strona {current} z {total}',
   search: 'Szukaj',
+  searchCase: 'Rozróżniaj wielkość liter',
+  searchWholeWord: 'Tylko całe słowa',
   searchPrev: 'Poprzedni',
   searchNext: 'Następny',
   searchCount: '{current} / {total}',

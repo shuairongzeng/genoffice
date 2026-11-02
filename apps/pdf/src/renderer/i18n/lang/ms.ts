@@ -123,6 +123,8 @@ export const ms = {
   pageOf: 'daripada {total}',
   appPageOf: 'Halaman {current} daripada {total}',
   search: 'Cari',
+  searchCase: 'Padan huruf besar/kecil',
+  searchWholeWord: 'Padan perkataan penuh',
   searchPrev: 'Sebelumnya',
   searchNext: 'Seterusnya',
   searchCount: '{current} / {total}',

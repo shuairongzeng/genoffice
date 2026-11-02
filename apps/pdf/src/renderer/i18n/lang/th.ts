@@ -122,6 +122,8 @@ export const th = {
   pageOf: 'จาก {total} หน้า',
   appPageOf: 'หน้า {current} จาก {total}',
   search: 'ค้นหา',
+  searchCase: 'ตรงตามตัวพิมพ์ใหญ่-เล็ก',
+  searchWholeWord: 'ตรงทั้งคำ',
   searchPrev: 'ก่อนหน้า',
   searchNext: 'ถัดไป',
   searchCount: '{current} / {total}',
