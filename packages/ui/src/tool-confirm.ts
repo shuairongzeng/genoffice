@@ -27,10 +27,11 @@ export interface ToolConfirmCard {
   /** true when the denial came from the timeout rather than a click */
   readonly timedOut: boolean
   /**
-   * This request may offer "always allow for this conversation": the host set
-   * it from the tool's risk grade (destructive 'always-ask' tools never
-   * offer it). Absent = the two-button card a host without session allows
-   * has always rendered.
+   * This request may offer "always allow" (the host's session scope): the
+   * host set it from the tool's risk grade (destructive 'always-ask' tools
+   * never offer it, and the always-ask permission mode never does either).
+   * Absent = the two-button card a host without session allows has always
+   * rendered.
    */
   readonly sessionAllowable?: boolean
   /** the allow came from the session button: the outcome note says so */
@@ -44,7 +45,8 @@ export interface UseToolConfirm {
    * The confirmTool hook: parks the request, resolves when decided (or timed
    * out). `sessionAllowable` (from the tool's risk grade) lets the card offer
    * the always-allow button; a session click also fires onSessionAllow so the
-   * host records the tool in its conversation-scoped allow set.
+   * host records the tool name wherever its trust set lives (a conversation
+   * set, an app-session store — the host's own contract).
    */
   readonly confirm: (
     call: ToolConfirmRequest,
@@ -85,10 +87,11 @@ function argsPreview(input: Record<string, unknown>): string {
  * as denied — defensively, since the loop never issues one.
  *
  * The three-state card: alongside allow/deny, a request marked
- * `sessionAllowable` offers "always allow for this conversation" — the click
- * resolves the request as allowed AND reports the tool name through
- * onSessionAllow, so the host's loop hook can let later calls of that tool
- * run without a card (the conversation's own trust, dying with the thread).
+ * `sessionAllowable` offers "always allow" — the click resolves the request
+ * as allowed AND reports the tool name through onSessionAllow, so the host
+ * can let later calls of that tool run without a card. What "always" means
+ * is the host's own contract: the editor apps' panels scope their set per
+ * conversation, the shell's panels share one main-side app-session set.
  * Hosts that pass no onSessionAllow keep the plain two-button card.
  */
 export function useToolConfirm(

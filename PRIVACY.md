@@ -16,14 +16,21 @@ documents, and the addresses of open browser tabs — the active browser tab's
 full address, background browser tabs contribute only their site name. Files
 the AI panel's desktop tools may open, edit, or delete stay inside the scope
 the knowledge base reads (starred, recent, knowledge-folder, and indexed
-files); edits ask once per conversation, and every deletion asks each time
-and moves the file to the OS trash. Delegating a task to a document (the
-document assistant) sends that task's text and the document's content to the
-provider through the document app's own AI session, and streams the
-assistant's activity back to the panel; the assistant can also read the
-knowledge base during a delegated task, so its summary and edits may carry
-knowledge-base content. Avoiding the AI features keeps all of this on your
-machine.
+files). How much the tools ask before acting is the panel's permission mode —
+one setting for the whole app (the dropdown beside the model picker, in every
+panel): "Fully automatic" runs every tool without asking, deletions included,
+and deletion's remaining safety net is the OS trash (a deleted file stays
+recoverable from there until the system empties it); "Ask when needed" (the
+default) asks once for high-risk actions and remembers the allow for the rest
+of the app session — one memory shared by every panel and thread, gone at
+app restart — while every deletion asks each time; "Always ask" asks before
+every action that changes anything, and never for plain reads. Delegating a
+task to a document (the document assistant) obeys the same mode and sends
+that task's text and the document's content to the provider through the
+document app's own AI session, and streams the assistant's activity back to
+the panel; the assistant can also read the knowledge base during a delegated
+task, so its summary and edits may carry knowledge-base content. Avoiding the
+AI features keeps all of this on your machine.
 
 ## Usage analytics
 

@@ -10,6 +10,7 @@ import type { AiSettings, CodexModelCatalog } from '@genoffice/ai-provider/brows
 import { installDropOpenBridge } from '@genoffice/electron-utils/drop-open'
 import type { UpdateUiState } from '../shared/update-api'
 import { normalizeAiPanelPrefs } from '@genoffice/ui/ai-panel-prefs'
+import { normalizeAiPermissionMode } from '@genoffice/ui/ai-permission-mode'
 import type {
   AccountLoginEvent,
   DockNavIntent,
@@ -845,6 +846,32 @@ const homeApi: HomeApi = {
     }
     ipcRenderer.on(HOME_CHANNELS.dockPrefsChanged, listener)
     return () => ipcRenderer.removeListener(HOME_CHANNELS.dockPrefsChanged, listener)
+  },
+  // the AI panel's global permission mode (auto / smart / paranoid): one
+  // posture for the app, persisted and broadcast like the dock prefs; both
+  // panel mounts follow the same value
+  async getAiPermissions() {
+    return normalizeAiPermissionMode(await ipcRenderer.invoke(HOME_CHANNELS.aiPermissionsGet))
+  },
+  async setAiPermissions(mode) {
+    return normalizeAiPermissionMode(await ipcRenderer.invoke(HOME_CHANNELS.aiPermissionsSet, mode))
+  },
+  onAiPermissionsChanged(handler) {
+    const listener = (_event: IpcRendererEvent, mode: unknown): void => {
+      // the broadcast is main-authored, but the channel is only as
+      // trustworthy as any other: a malformed mode clamps to the default
+      handler(normalizeAiPermissionMode(mode))
+    }
+    ipcRenderer.on(HOME_CHANNELS.aiPermissionsChanged, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.aiPermissionsChanged, listener)
+  },
+  // the app-session tool-allow set (the confirm card's 始终允许（本会话）):
+  // per-call consult and fire-and-forget record, both main-side memory
+  async aiSessionAllowHas(tool) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.aiSessionAllowHas, tool)) === true
+  },
+  async aiSessionAllowAdd(tool) {
+    await ipcRenderer.invoke(HOME_CHANNELS.aiSessionAllowAdd, tool)
   },
   // Home's open-target report, fire-and-forget on change only: main caches
   // it and pushes the cached state to the doc-mode overlay's dock renderer

@@ -141,6 +141,16 @@ export interface AgentLoopOptions<TSnapshot = unknown> {
    * a throw counts as a denial.
    */
   confirmTool?(call: AgentToolCall, tool: AgentToolDef): Promise<boolean>
+  /**
+   * While this answers true the approval gate consults the host's
+   * confirmTool for EVERY tool call, not only the risk-graded ones — the
+   * "always ask" permission posture. A GETTER (read per call) so a host's
+   * mode flip changes the gate without rebuilding the loop; the host
+   * classifies reads itself and resolves them without a card, so this only
+   * widens which calls reach the host's judgment. Absent keeps the
+   * risk-declared gate exactly as before.
+   */
+  confirmAllTools?(): boolean
 }
 
 const COMPACT_MAX_BYTES = 256 * 1024
@@ -1561,12 +1571,21 @@ export class AgentLoop<TSnapshot = unknown> {
         continue
       }
       // Approval gate: risk:'high' and risk:'always-ask' tools wait for the
-      // host's confirm hook before executing. A denial feeds the model a "do
-      // not retry" result so it can take another approach; a host that
-      // provides no hook allows everything (the pre-confirmation behavior).
-      // The call is re-checked against cancel and reset after the wait,
-      // exactly like a running tool.
-      if ((tool?.risk === 'high' || tool?.risk === 'always-ask') && this.options.confirmTool) {
+      // host's confirm hook before executing — and while the host's
+      // confirmAllTools answers true, every call does (the always-ask
+      // posture; the host classifies reads itself). An unknown tool name
+      // never gates: it has no definition to grade and its execution errors
+      // anyway. A denial feeds the model a "do not retry" result so it can
+      // take another approach; a host that provides no hook allows everything
+      // (the pre-confirmation behavior). The call is re-checked against
+      // cancel and reset after the wait, exactly like a running tool.
+      if (
+        tool &&
+        this.options.confirmTool &&
+        (this.options.confirmAllTools?.() === true ||
+          tool.risk === 'high' ||
+          tool.risk === 'always-ask')
+      ) {
         this.emitRunEvent('awaiting-confirm', { call, tool })
         const decision = await this.awaitConfirmOrAbort(call, tool)
         if (generation !== this.generation) return // reset while waiting for approval

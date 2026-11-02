@@ -11,7 +11,13 @@ export {
   type ToolConfirmRequest,
   type UseToolConfirm,
 } from './tool-confirm'
-export { AI_CONFIRM_LABELS, type AiConfirmLabels } from './strings-ai-confirm'
+export {
+  AI_CONFIRM_LABELS,
+  AI_SESSION_CONFIRM_LABELS,
+  aiSessionConfirmLabels,
+  type AiConfirmLabels,
+  type AiSessionConfirmVariant,
+} from './strings-ai-confirm'
 export { AI_SKILLS_LABELS, type AiSkillsLabels } from './strings-ai-skills'
 export { AiSkillsMenu, AiSkillChips, type AiSkillsMenuEntry } from './AiSkillsMenu'
 export { detectSlashQuery, filterSlashSkills, type AiSlashToken } from './ai-slash'
@@ -163,6 +169,16 @@ export {
   type AiModelPickerGroup,
   type AiModelPickerSelection,
 } from './ai-model-picker-options'
+export { AiPermissionModePicker, type AiPermissionModePickerBridge } from './AiPermissionModePicker'
+export {
+  AI_PERMISSION_MODES,
+  DEFAULT_AI_PERMISSION_MODE,
+  asAiPermissionMode,
+  normalizeAiPermissionMode,
+  sameAiPermissionMode,
+  type AiPermissionMode,
+} from './ai-permission-mode'
+export { AI_PERMISSION_MODE_STRINGS, type AiPermissionModeStrings } from './strings-ai-permission'
 export { ProviderLogo } from './provider-logos'
 export { useRedactLabelField } from './use-redact-label'
 export type { RedactLabelField } from './use-redact-label'

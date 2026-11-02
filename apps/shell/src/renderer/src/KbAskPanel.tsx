@@ -21,6 +21,10 @@ import {
   DOCUMENT_AGENT_TOOL,
   EDIT_FILE_TOOL,
   RUN_GENOFFICE_TOOL,
+  SHELL_NAVIGATE_TOOL,
+  SHELL_OPEN_BROWSER_TOOL,
+  SHELL_OPEN_PATH_TOOL,
+  SHELL_SWITCH_TAB_TOOL,
   skillContextVars,
   withAttachedSkills,
   type AgentImage,
@@ -40,21 +44,26 @@ import {
   type SurfaceTab,
 } from '@genoffice/agent-core'
 import {
-  AI_CONFIRM_LABELS,
+  aiSessionConfirmLabels,
   AiComposer,
   AiConfirmCard,
   AiModelPicker,
   type AiModelPickerBridge,
+  AiPermissionModePicker,
+  type AiPermissionModePickerBridge,
   AiSkillChips,
   AiSkillsMenu,
   AiTypingIndicator,
   AiUsageChip,
   addTokenUsage,
   createFileNav,
+  DEFAULT_AI_PERMISSION_MODE,
   Markdown,
+  normalizeAiPermissionMode,
   useAiPanelPrefs,
   useAiSlash,
   useToolConfirm,
+  type AiPermissionMode,
   type AiTokenUsageView,
   type MarkdownNav,
   type ToolConfirmCard,
@@ -483,7 +492,7 @@ const AskMessageRow = memo(function AskMessageRow({
   /** the open approval card; handed to the last assistant row only, so history rows never see it change */
   confirmCard: ToolConfirmCard | null
   onAllow: () => void
-  /** always-allow the tool for this conversation; the card shows the button only when the request offers it */
+  /** always-allow the tool for the APP session (the main-side set both mounts share); the card shows the button only when the request offers it */
   onAllowSession: () => void
   onDeny: () => void
   onOpenPath: (path: string) => void
@@ -502,7 +511,10 @@ const AskMessageRow = memo(function AskMessageRow({
       {m.role === 'user' && m.skills && <AiSkillChips lang={lang} names={m.skills} />}
       {m.role === 'assistant' && isLast && confirmCard && (
         <AiConfirmCard
-          labels={AI_CONFIRM_LABELS[lang]}
+          // session-worded: this panel's always-allow lands in the MAIN-side
+          // app-session set (both mounts, every thread, the whole app run),
+          // and the button's words say exactly that
+          labels={aiSessionConfirmLabels(lang)}
           card={confirmCard}
           onAllow={onAllow}
           onAllowSession={onAllowSession}
@@ -655,6 +667,38 @@ const AskMessageRow = memo(function AskMessageRow({
   )
 })
 
+/**
+ * Paranoid mode's classification table: the tools whose risk grade leaves
+ * them ungated (risk absent = 'low') that still CHANGE something — the shell
+ * operator's visible desktop acts. Everything risk:'high' or 'always-ask'
+ * already cards in every mode that asks, and every pure read —
+ * search_knowledge_base, read_knowledge_file, read_attachment,
+ * shell:list_tabs, the browser read tools, the proxied apps' read tools —
+ * stays cardless even in paranoid (asking about a read is noise that trains
+ * the person to click Allow).
+ *
+ * | tool                     | class          | why it cards in paranoid          |
+ * |--------------------------|----------------|-----------------------------------|
+ * | shell:open_browser       | opens          | a new tab appears, is made active |
+ * | shell:navigate           | navigates      | the page the person sees changes  |
+ * | shell:switch_tab         | moves surface  | the person's view switches        |
+ * | shell:open_path          | opens          | a file opens into a new tab       |
+ *
+ * A new low-risk tool that acts lands here or it will not card in paranoid —
+ * the failure direction is today's behavior (cardless), never a regression
+ * of the other modes.
+ */
+const PARANOID_CARDS_TOOLS = new Set([
+  SHELL_OPEN_BROWSER_TOOL,
+  SHELL_NAVIGATE_TOOL,
+  SHELL_SWITCH_TAB_TOOL,
+  SHELL_OPEN_PATH_TOOL,
+])
+
+/** does this call change anything, per the mode's honest classification? */
+const toolHasSideEffect = (call: { name: string }, tool?: { risk?: string }): boolean =>
+  tool?.risk === 'high' || tool?.risk === 'always-ask' || PARANOID_CARDS_TOOLS.has(call.name)
+
 export function KbAskPanel({
   chatId = CHAT_ID,
   onOpenPath,
@@ -743,14 +787,43 @@ export function KbAskPanel({
   const [gskEmail, setGskEmail] = useState<string | null>(null)
   const [provider, setProvider] = useState<string | null>(null)
   /**
-   * The conversation's own trust set: tools the person always-allowed in the
-   * confirm card, by name, for the rest of THIS thread. In-memory only (an
-   * app restart starts clean) and reset on every thread switch or new chat
-   * (leaveThread) — each conversation is its own trust domain, and the two
-   * panel mounts (this one and the doc-mode overlay's copy) each hold their
-   * own instance state, so their sets never mix.
+   * The global permission mode as THIS panel sees it: pulled once, then
+   * followed through the store watcher's broadcast (`onAiPermissionsChanged`)
+   * so both mounts flip on the same beat — the confirm gate below reads the
+   * ref per call (mid-session flips take effect on the very next tool), and
+   * the loop's confirmAllTools getter reads it too. Absent channels (a stale
+   * preload, a test stub) keep the default smart posture: the panel cards
+   * exactly as before.
    */
-  const sessionAllowsRef = useRef<ReadonlySet<string>>(new Set())
+  const [permissionMode, setPermissionMode] = useState<AiPermissionMode>(DEFAULT_AI_PERMISSION_MODE)
+  const permissionModeRef = useRef(permissionMode)
+  permissionModeRef.current = permissionMode
+  useEffect(() => {
+    const api = window.aiOffice
+    if (typeof api?.getAiPermissions !== 'function') return
+    void api
+      .getAiPermissions()
+      .then((mode) => setPermissionMode(normalizeAiPermissionMode(mode)))
+      .catch(() => {})
+    // the broadcast (any mount's dropdown write): the store is the one truth,
+    // so this mount's gate follows it rather than its own last write
+    return api.onAiPermissionsChanged?.((mode) => setPermissionMode(mode))
+  }, [])
+  /**
+   * The app-session tool-allow set (the card's 始终允许（本会话）) lives
+   * MAIN-SIDE now — one set shared with the overlay's panel copy (a
+   * different conversation, the same person's trust), surviving thread
+   * switches and dying at app restart. The consult runs per gated call
+   * (`aiSessionAllowHas`), never against a cached mirror: a mirror could let
+   * a tool run cardless on a stale grant; one IPC round trip per rare gated
+   * call is the honest price. A stale preload without the channel consults
+   * nothing — every call cards — fail closed.
+   */
+  const sessionAllows = (tool: string): Promise<boolean> => {
+    const api = window.aiOffice
+    if (typeof api?.aiSessionAllowHas !== 'function') return Promise.resolve(false)
+    return api.aiSessionAllowHas(tool).catch(() => false)
+  }
   /**
    * The document a document_agent delegation targets, resolved at card time
    * (the describe call) and pinned into the run: a tab switch between the
@@ -801,8 +874,11 @@ export function KbAskPanel({
   }
   /** the approval gate for gated tools (run_genoffice, create_document, edit_file…, delete_file) */
   const confirm = useToolConfirm({
+    // the card's 始终允许（本会话） records into the MAIN-side app-session set:
+    // the other panel mount's next call of the same tool consults it, and a
+    // thread switch keeps it — the set dies only with the app
     onSessionAllow: (toolName) => {
-      sessionAllowsRef.current = new Set([...sessionAllowsRef.current, toolName])
+      void window.aiOffice.aiSessionAllowAdd?.(toolName)?.catch(() => {})
     },
   })
   /** runs this session started: the live half of the background-task list */
@@ -1150,13 +1226,12 @@ export function KbAskPanel({
   // The model's history and the stored ids belong to the thread being left;
   // a question typed before the next claim resolves queues in pendingRef.
   // The round scope belongs to the conversation it was attached in: a new
-  // thread or a switch must not carry the old selection's corpus along.
+  // thread or a switch must not carry the old selection's corpus along. The
+  // app-session allow set deliberately does NOT reset here: it is the
+  // person's trust, not the thread's state (see sessionAllows above).
   const leaveThread = (): void => {
     loopRef.current?.reset()
     confirm.clear()
-    // the conversation's always-allow set dies with it: the next thread
-    // starts with the card asking again
-    sessionAllowsRef.current = new Set()
     chatIdsRef.current = null
     pendingRef.current = []
     mutateMessages(() => [])
@@ -1271,6 +1346,24 @@ export function KbAskPanel({
     [onOpenModelSettings],
   )
 
+  // the permission picker's bridge: the same store the confirm gate consults
+  // (pulled once, then broadcast-followed), so the chip the person reads and
+  // the gate that decides can never disagree for longer than a round trip
+  const permissionBridge = useMemo<AiPermissionModePickerBridge>(
+    () => ({
+      getMode: () =>
+        window.aiOffice.getAiPermissions?.().catch(() => DEFAULT_AI_PERMISSION_MODE) ??
+        Promise.resolve(DEFAULT_AI_PERMISSION_MODE),
+      setMode: (mode) =>
+        window.aiOffice.setAiPermissions?.(mode).then(() => undefined) ?? Promise.resolve(),
+      onModeChanged: (handler) =>
+        window.aiOffice.onAiPermissionsChanged?.((mode) => {
+          handler(normalizeAiPermissionMode(mode))
+        }) ?? (() => {}),
+    }),
+    [],
+  )
+
   // the corpus scope behind the guidance: read only when the bridge carries
   // the channel, so a preload that predates it keeps the default guidance
   useEffect(() => {
@@ -1383,7 +1476,10 @@ export function KbAskPanel({
     // the browser skill (W2b): reads and gated actions on the active browser
     // tab's page, forwarded to the shell main's browser-agent over IPC. The
     // fill/click tools declare risk:'high', so they stop at the same
-    // confirmTool card as run_genoffice and create_document above
+    // confirmTool card as run_genoffice and create_document above — and
+    // their executor calls carry the `confirmed` marker (below), so the
+    // main-side native dialog never asks a second time behind an answered
+    // card
     const browserSkill = createBrowserSkill({
       openTabs: () => browserTabsRef.current,
       readPage: () => browserBridgeCall(BROWSER_READ_PAGE_TOOL, {}) as Promise<BrowserPageRead>,
@@ -1394,12 +1490,24 @@ export function KbAskPanel({
           id,
         }) as Promise<BrowserAnnotationShot | null>,
       fillField: (selector, value) =>
+        // `confirmed` rides the call as the renderer gate's marker (the
+        // delete_file precedent): this executor only runs after the loop's
+        // confirmTool said yes — the dock's card answered, or the mode /
+        // app-session verdict stood behind it — so the main-side native
+        // dialog knows the person was already asked exactly once and does
+        // not ask again. RENDERER-ASSERTED (a wiring guard, not proof
+        // against a compromised renderer); the main-side sender gate and
+        // input validation apply regardless
         browserBridgeCall(BROWSER_FILL_FIELD_TOOL, {
           selector,
           value,
+          confirmed: true,
         }) as Promise<BrowserActionResult>,
       clickElement: (selector) =>
-        browserBridgeCall(BROWSER_CLICK_TOOL, { selector }) as Promise<BrowserActionResult>,
+        browserBridgeCall(BROWSER_CLICK_TOOL, {
+          selector,
+          confirmed: true,
+        }) as Promise<BrowserActionResult>,
     })
     // the shell operator skill: the surface context (live, per send) plus the
     // desktop's own actions — open a browser tab, navigate the active one,
@@ -1434,19 +1542,51 @@ export function KbAskPanel({
         getSettings: () => settingsRef.current as AiSettings,
         unknownErrorText: () => t('askUnknownError'),
       }),
-      // gated tools (run_genoffice, create_document, edit_file, delete_file…)
-      // stop at the confirm card; a denial feeds the model a do-not-retry
-      // result. A tool the person always-allowed for THIS conversation runs
-      // without a card (the tool-note chip still records that it ran);
-      // 'always-ask' tools (delete_file) consult no session set — they ask
-      // every single time, so the card never offers the session button.
+      // the paranoid posture's gate: while the mode answers here, EVERY tool
+      // call reaches confirmTool (the gate itself classifies reads and
+      // resolves them without a card). A getter read per call, so a mid-
+      // session mode flip changes the gate without rebuilding the loop
+      confirmAllTools: () => permissionModeRef.current === 'paranoid',
+      // The approval gate consults the PERMISSION MODE first, then the
+      // app-session allow set, then cards:
+      //
+      // - auto (完全自动): every tool runs — deletion included, whose honest
+      //   safety net is the OS trash (delete_file moves files there, so
+      //   "fully automatic" is recoverable, not irreversible; the tool-note
+      //   chip still records each run). The card's decision-relevant
+      //   summaries (edit sizes, the delegation's target pin) are skipped
+      //   with it — there is nothing to decide.
+      // - smart (必要时询问, the default): today's matrix — risk:'high' tools
+      //   card once per app session (the set is MAIN-side now, so the other
+      //   panel mount and the next thread both honor an always-allow),
+      //   'always-ask' tools (delete_file) card every single time, reads
+      //   never card.
+      // - paranoid (始终询问): every call with a side effect cards (the risk-
+      //   graded ones plus the shell operator's visible acts — see
+      //   PARANOID_CARDS_TOOLS); pure reads stay cardless, and the card
+      //   offers no always-allow button: the posture says ask every time, so
+      //   a button whose grant this mode never consults would be a lie.
+      //
       // Before the card parks, the decision-relevant facts the truncated
       // arguments preview cannot be trusted to show get their own line:
       // edit_file's removed/added sizes (the preview caps at 400 chars) and
-      // document_agent's target document (pinned for the run)
+      // document_agent's target document (pinned for the run).
       confirmTool: async (call, tool) => {
-        if (tool?.risk !== 'always-ask' && sessionAllowsRef.current.has(call.name)) {
-          return Promise.resolve(true)
+        const mode = permissionModeRef.current
+        if (mode === 'auto') return true
+        if (mode === 'paranoid') {
+          if (!toolHasSideEffect(call, tool)) return true
+          let argsSummary: string | undefined
+          if (call.name === EDIT_FILE_TOOL) argsSummary = await editFileArgsSummary(call.input)
+          else if (call.name === DOCUMENT_AGENT_TOOL) argsSummary = await describeAgentTarget()
+          return confirm.confirm(argsSummary === undefined ? call : { ...call, argsSummary }, {
+            sessionAllowable: false,
+          })
+        }
+        // smart: the app-session consult (an absent channel answers false —
+        // the card shows, fail closed), never for the destructive grade
+        if (tool?.risk !== 'always-ask' && (await sessionAllows(call.name)) === true) {
+          return true
         }
         let argsSummary: string | undefined
         if (call.name === EDIT_FILE_TOOL) {
@@ -2369,6 +2509,14 @@ export function KbAskPanel({
         footerStart={
           <>
             <AiModelPicker bridge={modelBridge} lang={lang} />
+            {/* the global permission mode (auto / smart / paranoid): rendered
+                only when the prefs channels exist — a stale preload without
+                them would show a chip whose picks persist nowhere. Both
+                mounts render this from the same store, so the one posture
+                reads the same everywhere */}
+            {typeof window.aiOffice.getAiPermissions === 'function' && (
+              <AiPermissionModePicker bridge={permissionBridge} lang={lang} />
+            )}
             {sessionUsage && <AiUsageChip usage={sessionUsage} session lang={lang} />}
             <AiSkillsMenu
               lang={lang}

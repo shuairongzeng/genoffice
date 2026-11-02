@@ -918,6 +918,61 @@ describe('the browserskill:execute gate (P1-4)', () => {
         pageUrl: 'https://example.com/',
       }),
     )
+    // a panel that did not attach the marker (a stale renderer) sends no
+    // `confirmed` key at all — the request reflects that honestly
+    expect(confirm.mock.calls[0]![0]).not.toHaveProperty('confirmed')
+  })
+
+  it("the renderer gate's marker rides the request through to the confirm", async () => {
+    // the panel\'s gated executor attaches `confirmed: true` (the delete_file
+    // precedent); the ask the wiring makes of this request reads it — the
+    // mode/marker/session verdict lives there (index.ts), pinned in
+    // ai-permissions.test.ts; here we pin the plumbing
+    const confirm = vi.fn(async () => true)
+    const { handler, event } = setupChannel({ confirmPageAction: confirm })
+    await handler(event, {
+      tool: BROWSER_FILL_FIELD_TOOL,
+      input: { selector: '#q', value: 'x', confirmed: true },
+    })
+    expect(confirm.mock.calls[0]![0]).toMatchObject({ confirmed: true })
+    // a falsy or malformed marker is not the marker: the request carries no
+    // `confirmed` key at all, exactly a stale renderer's call
+    await handler(event, {
+      tool: BROWSER_CLICK_TOOL,
+      input: { selector: '#q', confirmed: 'yes' },
+    })
+    expect(confirm.mock.calls.at(-1)![0]).not.toHaveProperty('confirmed')
+  })
+
+  it('a forged marker does not pass the sender gate: only panel-hosting renderers are served', async () => {
+    // the marker only ever skips the CONFIRM ask — it is not a credential:
+    // a call from any other webContents is refused before the call is even
+    // parsed, marker or not
+    const confirm = vi.fn(async () => true)
+    const { handler } = setupChannel({ confirmPageAction: confirm })
+    const other = makeWc()
+    await expect(
+      handler(
+        { sender: other },
+        { tool: BROWSER_FILL_FIELD_TOOL, input: { selector: '#q', value: 'x', confirmed: true } },
+      ),
+    ).rejects.toThrow(/not callable from this sender/)
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('a forged marker does not skip the input validation', async () => {
+    // same honesty: the marker is not a key to the page — a malformed call
+    // errors before any ask, marker or not
+    const confirm = vi.fn(async () => true)
+    const { page, handler, event } = setupChannel({ confirmPageAction: confirm })
+    await expect(
+      handler(event, { tool: BROWSER_FILL_FIELD_TOOL, input: { selector: '#q', confirmed: true } }),
+    ).rejects.toThrow(/value/)
+    await expect(
+      handler(event, { tool: BROWSER_CLICK_TOOL, input: { selector: '', confirmed: true } }),
+    ).rejects.toThrow(/selector/)
+    expect(confirm).not.toHaveBeenCalled()
+    expect(page.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled()
   })
 
   it('refuses a click without the main-side confirmation too', async () => {

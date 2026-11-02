@@ -13,6 +13,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { KbAskPanel } from '../src/renderer/src/KbAskPanel'
 import { LocaleProvider } from '../src/renderer/src/locale'
 import { TOOL_DENIED_OUTPUT } from '@genoffice/agent-core'
+import type { AiPermissionMode } from '@genoffice/ui'
 import type { ChatMessage, ProjectApi, RunSummary } from '@genoffice/project-store'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -99,6 +100,17 @@ let agentProgressListener:
   ((event: { taskId: string; status: { kind: string; tool?: string } }) => void) | null
 let project: ReturnType<typeof projectApiStub>
 let runs: ReturnType<typeof runsApiStub>
+/**
+ * The main-side permission-mode store, faked per test: the current mode, the
+ * set channel, and the broadcast the real store watcher would send to every
+ * panel mount. A test flips the mode either through `setAiPermissions` (the
+ * dropdown's write) or by pushing to `permissionListeners` (another
+ * surface's write).
+ */
+let permissionMode: AiPermissionMode
+const permissionListeners = new Set<(mode: AiPermissionMode) => void>()
+/** the main-side app-session allow set (the card's 始终允许（本会话）), faked per test */
+let sessionAllowed: Set<string>
 
 /**
  * The runs half of the aiOffice bridge, over an in-memory event log: the
@@ -177,6 +189,9 @@ beforeEach(() => {
   agentProgressListener = null
   project = projectApiStub([])
   runs = runsApiStub([])
+  permissionMode = 'smart'
+  permissionListeners.clear()
+  sessionAllowed = new Set()
   ;(window as unknown as { projectApi?: unknown }).projectApi = project.api
   // the tab-strip bridge the desktop loop subscribes to for manifest refreshes
   ;(window as unknown as { aiOfficeTabs?: unknown }).aiOfficeTabs = {
@@ -205,6 +220,27 @@ beforeEach(() => {
     },
     // the edit_file card's size line reads the file's page count
     kbRead: vi.fn(async () => ({ text: 'x'.repeat(10), totalChars: 5000, offset: 0 })),
+    // a read the paranoid-mode test calls cardless (the knowledge skill's search dep)
+    kbSearch: vi.fn(async () => []),
+    // the permission-mode store (get/set/broadcast) and the app-session allow
+    // set, exactly the channels the shell preload forwards
+    getAiPermissions: () => Promise.resolve(permissionMode),
+    setAiPermissions: (mode: AiPermissionMode) => {
+      permissionMode = mode
+      for (const listener of permissionListeners) listener(mode)
+      return Promise.resolve(mode)
+    },
+    onAiPermissionsChanged: (handler: (mode: AiPermissionMode) => void) => {
+      permissionListeners.add(handler)
+      return () => {
+        permissionListeners.delete(handler)
+      }
+    },
+    aiSessionAllowHas: (tool: string) => Promise.resolve(sessionAllowed.has(tool)),
+    aiSessionAllowAdd: (tool: string) => {
+      sessionAllowed.add(tool)
+      return Promise.resolve()
+    },
     // the desktop loop's app-skill proxy: nothing open, so no cross-app tools
     appSkillManifest: async () => ({ windows: [], tools: [] }),
     appSkillExecute: vi.fn(async () => {
@@ -513,34 +549,35 @@ describe('KbAskPanel background tasks', () => {
   })
 })
 
-describe("the three-state card and the conversation's session allows", () => {
-  /**
-   * A stream whose first turn (the user message is the newest one) emits a
-   * gated tool call, and whose later turns answer plain text: each new ask
-   * therefore parks the card once, exactly like a model that tries the tool
-   * again per request.
-   */
-  function toolCallStream(tool: string, input: Record<string, unknown>): void {
-    ;(window as unknown as { aiOffice: { aiStream: unknown } }).aiOffice.aiStream = (
-      request: StartedRequest,
-    ) => {
-      started.push(request)
-      queueMicrotask(() => {
-        const newest = request.messages[request.messages.length - 1]
-        if (newest?.role === 'user') {
-          chunkListener?.({
-            requestId: request.requestId,
-            type: 'tool-call',
-            toolCall: { id: 't1', name: tool, input },
-          })
-        } else {
-          chunkListener?.({ requestId: request.requestId, type: 'delta', text: 'ok then' })
-        }
-        chunkListener?.({ requestId: request.requestId, type: 'done' })
-      })
-    }
+/**
+ * A stream whose first turn (the user message is the newest one) emits a
+ * gated tool call, and whose later turns answer plain text: each new ask
+ * therefore parks the card once, exactly like a model that tries the tool
+ * again per request. Module-level so every describe (the session allows,
+ * the permission modes) scripts the same shape.
+ */
+function toolCallStream(tool: string, input: Record<string, unknown>): void {
+  ;(window as unknown as { aiOffice: { aiStream: unknown } }).aiOffice.aiStream = (
+    request: StartedRequest,
+  ) => {
+    started.push(request)
+    queueMicrotask(() => {
+      const newest = request.messages[request.messages.length - 1]
+      if (newest?.role === 'user') {
+        chunkListener?.({
+          requestId: request.requestId,
+          type: 'tool-call',
+          toolCall: { id: 't1', name: tool, input },
+        })
+      } else {
+        chunkListener?.({ requestId: request.requestId, type: 'delta', text: 'ok then' })
+      }
+      chunkListener?.({ requestId: request.requestId, type: 'done' })
+    })
   }
+}
 
+describe("the three-state card and the conversation's session allows", () => {
   it('offers the write tools with their risk grades (edit_file high, delete_file always-ask)', async () => {
     render()
     await settle()
@@ -623,7 +660,7 @@ describe("the three-state card and the conversation's session allows", () => {
     await settle()
   })
 
-  it('a new thread starts with the card asking again (the session set dies with the conversation)', async () => {
+  it("a thread switch KEEPS the always-allow (the set is the app session's, not the thread's)", async () => {
     // one stored thread, so the chips row (and its + button) renders
     project.chats.set('kb-ask', [
       { seq: 0, ts: '2026-10-30T09:00:00.000Z', role: 'user', text: 'first question' },
@@ -637,15 +674,17 @@ describe("the three-state card and the conversation's session allows", () => {
     // same conversation: the next ask runs the tool with no card
     await ask('build it again')
     expect(runCli).toHaveBeenCalledTimes(2)
-    // a new thread: fresh trust, the card asks again
+    // a NEW thread: the main-side set survives the switch — the card does
+    // not come back (this is the complaint the move fixed: an allow that
+    // died with the conversation)
     click('.kb-ask-thread-new')
     await settle()
     await ask('build a third guide')
-    expect(host.querySelector('.ai-confirm-card')?.getAttribute('data-outcome')).toBe('awaiting')
-    expect(host.querySelector('.ai-confirm-session')).toBeTruthy()
-    click('.ai-confirm-deny')
-    await settle()
-    expect(runCli).toHaveBeenCalledTimes(2)
+    expect(runCli).toHaveBeenCalledTimes(3)
+    expect(host.querySelector('.ai-confirm-card')).toBeNull()
+    // the set itself still dies at app restart — a fresh one, as the mount
+    // in the next test proves (per-test beforeEach)
+    expect(sessionAllowed.has('run_genoffice')).toBe(true)
   })
 
   it('delegates a document task: one card, the live status line, the result back to the model', async () => {
@@ -785,7 +824,7 @@ describe("the three-state card and the conversation's session allows", () => {
     expect(host.querySelector('.kb-ask-scroll-latest')).toBeNull()
   })
 
-  it('the two mounts keep separate session allows (each conversation its own trust)', async () => {
+  it('the two mounts share ONE session allow: an always-allow in Home runs cardless in the overlay', async () => {
     // a broadcast stub: both panels' listeners receive every chunk, and the
     // transport drops the ones whose requestId is not its own run's
     const listeners = new Set<ChunkListener>()
@@ -815,7 +854,8 @@ describe("the three-state card and the conversation's session allows", () => {
     }
 
     // mount the two conversations the way the shell does: Home's own id and
-    // the doc-mode overlay's fixed one
+    // the doc-mode overlay's fixed one — different conversations, ONE person,
+    // and the allow set that answers to the person now lives main-side
     const hosts: HTMLDivElement[] = []
     const roots: Root[] = []
     const mount = (chatId: string): void => {
@@ -878,15 +918,260 @@ describe("the three-state card and the conversation's session allows", () => {
       expect(hosts[0]!.querySelector('.ai-confirm-card[data-outcome="awaiting"]')).toBeNull()
 
       // the overlay's conversation was watching the same bridge, same tool —
-      // and still asks: its trust set is its own
+      // and now runs cardless too: the set is the app session's, shared by
+      // both mounts (the complaint this wave fixed)
       await askIn(1, 'build a file')
-      expect(hosts[1]!.querySelector('.ai-confirm-card[data-outcome="awaiting"]')).toBeTruthy()
-      expect(hosts[1]!.querySelector('.ai-confirm-session')).toBeTruthy()
-      clickIn(1, '.ai-confirm-deny')
-      await settle()
+      expect(hosts[1]!.querySelector('.ai-confirm-card')).toBeNull()
+      expect(runCli).toHaveBeenCalledTimes(3)
     } finally {
       for (const r of roots) act(() => r.unmount())
       for (const h of hosts) h.remove()
     }
+  })
+})
+
+describe('the permission mode (auto / smart / paranoid)', () => {
+  /** flip the mode the way another surface's write would: the store broadcast */
+  const broadcastMode = async (mode: AiPermissionMode): Promise<void> => {
+    await act(async () => {
+      permissionMode = mode
+      for (const listener of permissionListeners) listener(mode)
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+  }
+
+  it('renders the mode chip in the composer footer, named for the person', async () => {
+    render()
+    await settle()
+    // the picker sits beside the model chip and names the current posture
+    const chip = host.querySelector<HTMLButtonElement>('.ai-perm-picker .ai-model-chip')
+    expect(chip).toBeTruthy()
+    expect(chip!.querySelector('.ai-model-chip-text')?.textContent).toBe('Ask when needed')
+    expect(chip!.getAttribute('data-tip')).toContain('High-risk actions ask once')
+  })
+
+  it('AUTO: every tool runs cardless, delete_file included (the trash is the safety net)', async () => {
+    permissionMode = 'auto'
+    toolCallStream('delete_file', { path: 'C:/kb/notes.md' })
+    render()
+    await settle()
+    await ask('clean the notes')
+    // no card ever appeared: the deletion ran straight through, and the OS
+    // trash (not a confirmation) is what makes that recoverable
+    expect(host.querySelector('.ai-confirm-card')).toBeNull()
+    expect(deleteFile).toHaveBeenCalledTimes(1)
+    // the same posture for the gated writer
+    toolCallStream('run_genoffice', { args: ['guide', 'docs'] })
+    await ask('build a guide')
+    expect(host.querySelector('.ai-confirm-card')).toBeNull()
+    expect(runCli).toHaveBeenCalledTimes(1)
+  })
+
+  it('AUTO skips the card-time target describe too: the delegation runs unpinned', async () => {
+    // auto means nothing to decide, so the decision-support round trip (the
+    // document_agent card's target pin) never happens — the run targets the
+    // active tab at call time
+    permissionMode = 'auto'
+    toolCallStream('document_agent', { task: 'add a summary' })
+    render()
+    await settle()
+    await ask('fix the doc')
+    expect(documentAgentDescribe).not.toHaveBeenCalled()
+    expect(documentAgentRun).toHaveBeenCalledTimes(1)
+    expect(host.querySelector('.ai-confirm-card')).toBeNull()
+  })
+
+  it("SMART is today's matrix: the session consult runs through the main-side set", async () => {
+    toolCallStream('run_genoffice', { args: ['guide', 'docs'] })
+    render()
+    await settle()
+    await ask('build a guide')
+    // not allowed yet: the card asks
+    expect(host.querySelector('.ai-confirm-card')).toBeTruthy()
+    click('.ai-confirm-session')
+    await settle()
+    // the card's 始终允许 recorded through the channel — the main-side set,
+    // which the next call (this mount, the other mount, another thread)
+    // consults
+    expect(sessionAllowed.has('run_genoffice')).toBe(true)
+    await ask('build it again')
+    expect(runCli).toHaveBeenCalledTimes(2)
+    expect(host.querySelector('.ai-confirm-card')).toBeNull()
+  })
+
+  it('SMART keeps the destructive grade always-asking (delete_file consults nothing)', async () => {
+    toolCallStream('delete_file', { path: 'C:/kb/notes.md' })
+    render()
+    await settle()
+    await ask('clean the notes')
+    expect(host.querySelector('.ai-confirm-session')).toBeNull()
+    // an always-allow recorded for a DIFFERENT tool does not leak in
+    sessionAllowed.add('run_genoffice')
+    await ask('clean again')
+    expect(host.querySelector('.ai-confirm-card')?.getAttribute('data-outcome')).toBe('awaiting')
+    click('.ai-confirm-deny')
+    await settle()
+    expect(deleteFile).not.toHaveBeenCalled()
+  })
+
+  it('PARANOID: a visible desktop act that is risk-LOW still cards (shell:navigate)', async () => {
+    permissionMode = 'paranoid'
+    toolCallStream('shell:navigate', { url: 'https://example.com/' })
+    render()
+    await settle()
+    await ask('go there')
+    // the posture routed the low-risk call to the gate, and the panel
+    // classified it as a side effect: the card asks
+    expect(host.querySelector('.ai-confirm-card')?.getAttribute('data-outcome')).toBe('awaiting')
+    expect(host.querySelector('.ai-confirm-allow')).toBeTruthy()
+    click('.ai-confirm-deny')
+    await settle()
+    // the denial is the model-facing result, exactly a graded tool's denial
+    const toolMessage = started[1]!.messages.find((m) => m.role === 'tool')
+    expect(toolMessage?.results?.[0]?.output).toBe(TOOL_DENIED_OUTPUT)
+  })
+
+  it('PARANOID: pure reads stay cardless (a knowledge search never asks)', async () => {
+    permissionMode = 'paranoid'
+    toolCallStream('search_knowledge_base', { query: 'guide' })
+    render()
+    await settle()
+    await ask('search the notes')
+    expect(host.querySelector('.ai-confirm-card')).toBeNull()
+    // the search itself ran through the bridge
+    const search = (window as unknown as { aiOffice: { kbSearch: unknown } }).aiOffice
+      .kbSearch as ReturnType<typeof vi.fn>
+    expect(search).toHaveBeenCalled()
+  })
+
+  it('PARANOID: the card offers no always-allow button (the posture asks every time)', async () => {
+    permissionMode = 'paranoid'
+    toolCallStream('run_genoffice', { args: ['guide', 'docs'] })
+    render()
+    await settle()
+    await ask('build a guide')
+    expect(host.querySelector('.ai-confirm-card')).toBeTruthy()
+    expect(host.querySelector('.ai-confirm-session')).toBeNull()
+    click('.ai-confirm-allow')
+    await settle()
+    expect(runCli).toHaveBeenCalledTimes(1)
+    // and an allow-once is once: the next ask cards again
+    await ask('build another')
+    expect(host.querySelector('.ai-confirm-card')).toBeTruthy()
+  })
+
+  it('a mode flip mid-session takes effect on the very next tool call', async () => {
+    toolCallStream('run_genoffice', { args: ['guide', 'docs'] })
+    render()
+    await settle()
+    await ask('build a guide')
+    expect(host.querySelector('.ai-confirm-card')).toBeTruthy()
+    click('.ai-confirm-allow')
+    await settle()
+    expect(runCli).toHaveBeenCalledTimes(1)
+    // the store broadcast flips to auto: no rebuild, the gate reads the ref
+    await broadcastMode('auto')
+    await ask('build another')
+    expect(runCli).toHaveBeenCalledTimes(2)
+    expect(host.querySelector('.ai-confirm-card')).toBeNull()
+    // and back to smart: the card returns
+    await broadcastMode('smart')
+    await ask('build a third')
+    expect(host.querySelector('.ai-confirm-card')).toBeTruthy()
+    click('.ai-confirm-deny')
+    await settle()
+  })
+
+  it("the dropdown persists a pick and the broadcast reaches BOTH mounts' chips", async () => {
+    toolCallStream('run_genoffice', { args: ['guide', 'docs'] })
+    render()
+    await settle()
+    // pick through the popover the way the person does
+    act(() => host.querySelector<HTMLButtonElement>('.ai-perm-picker .ai-model-chip')!.click())
+    const items = [...host.querySelectorAll('.ai-perm-picker .ai-model-item')]
+    expect(items.map((i) => i.querySelector('.ai-model-item-text')?.textContent)).toEqual([
+      'Fully automatic',
+      'Ask when needed',
+      'Always ask',
+    ])
+    act(() => items[0]!.click())
+    await settle()
+    // the write went through the set channel and the broadcast came back
+    expect(permissionMode).toBe('auto')
+    expect(host.querySelector('.ai-perm-picker .ai-model-chip-text')?.textContent).toBe(
+      'Fully automatic',
+    )
+    // the mode is live at the gate too
+    await ask('build a guide')
+    expect(host.querySelector('.ai-confirm-card')).toBeNull()
+    expect(runCli).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("the browser page actions' renderer-gate marker (the one-ask contract)", () => {
+  /**
+   * A panel mount with the browser half armed: a browser tab open (the
+   * browser skill's tools exist) and the browserskill bridge stubbed — the
+   * spy the fill/click executor's marker assertion reads.
+   */
+  const mountWithBrowser = async (): Promise<ReturnType<typeof vi.fn>> => {
+    const bridge = vi.fn(async () => ({ ok: true, detail: 'done' }))
+    ;(window as unknown as { aiOfficeTabs: Record<string, unknown> }).aiOfficeTabs = {
+      onChanged: () => () => {},
+      list: async () => [{ id: 't1', kind: 'browser', title: 'Example', active: true }],
+    }
+    ;(window as unknown as { aiOffice: Record<string, unknown> }).aiOffice.browserSkillExecute =
+      bridge
+    render()
+    await settle()
+    return bridge
+  }
+
+  it("smart, the card answered: the executor's bridge call carries the marker", async () => {
+    const bridge = await mountWithBrowser()
+    toolCallStream('browser:fill_field', { selector: '#q', value: 'hello' })
+    await ask('fill the search')
+    // the dock's card was the one ask; the person allowed it
+    expect(host.querySelector('.ai-confirm-card')).toBeTruthy()
+    click('.ai-confirm-allow')
+    await settle()
+    // the gated executor's bridge call carries the renderer-gate marker
+    // (the delete_file precedent): the main-side native dialog reads it and
+    // does not ask a second time behind the answered card
+    expect(bridge).toHaveBeenCalledWith('browser:fill_field', {
+      selector: '#q',
+      value: 'hello',
+      confirmed: true,
+    })
+  })
+
+  it('smart, always-allowed earlier: the cardless call still carries the marker', async () => {
+    const bridge = await mountWithBrowser()
+    // an earlier card\'s 始终允许 landed in the main-side set
+    sessionAllowed.add('browser:fill_field')
+    toolCallStream('browser:fill_field', { selector: '#q', value: 'hello' })
+    await ask('fill the search')
+    // the renderer's gate consulted the set and passed without a card…
+    expect(host.querySelector('.ai-confirm-card')).toBeNull()
+    // …and the executor still marks the call: it left the gated code path,
+    // whatever verdict stood behind it
+    expect(bridge).toHaveBeenCalledWith('browser:fill_field', {
+      selector: '#q',
+      value: 'hello',
+      confirmed: true,
+    })
+  })
+
+  it('auto: the fill runs cardless and carries the marker all the same', async () => {
+    permissionMode = 'auto'
+    const bridge = await mountWithBrowser()
+    toolCallStream('browser:click_element', { selector: '#go' })
+    await ask('click the button')
+    // no card anywhere — the mode verdict stood behind the call
+    expect(host.querySelector('.ai-confirm-card')).toBeNull()
+    expect(bridge).toHaveBeenCalledWith('browser:click_element', {
+      selector: '#go',
+      confirmed: true,
+    })
   })
 })

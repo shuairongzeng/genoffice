@@ -295,6 +295,8 @@ import { showErrorDialog } from './error-dialog'
 import { startRendererWatchdog } from './renderer-watchdog'
 import { watchAiDock, readAiDock, AI_DOCK_KEY } from './ai-dock'
 import { watchDockPrefs } from './dock-prefs'
+import { readAiPermissions, shouldAskBrowserPageAction, watchAiPermissions } from './ai-permissions'
+import { createAiSessionAllows } from './ai-session-allows'
 import { DOCK_OPEN_NONE } from '../shared/dock-prefs'
 import { DOCK_ITEM_COUNT, normalizeAiDock } from '../shared/desktop-geometry'
 import {
@@ -618,6 +620,14 @@ function tabSleepEnabled(): boolean {
   cachedTabSleepEnabled ??= readAppSettings(APP_SETTINGS_PATH()).tabSleepEnabled !== false
   return cachedTabSleepEnabled
 }
+
+/**
+ * The app-session tool-allow set (the AI confirm card's 始终允许（本会话）),
+ * main-side memory only: created here, handed to the workbench IPC, and
+ * never persisted — the set's lifetime IS the app's (see
+ * ai-session-allows.ts).
+ */
+const aiSessionAllows = createAiSessionAllows()
 
 let cachedAiPanelPrefs: AiPanelPrefs | null = null
 function currentAiPanelPrefs(): AiPanelPrefs {
@@ -3687,18 +3697,41 @@ let shellWindow: BrowserWindow | null = null
 let tabManager: TabManager | null = null
 
 /**
- * The main-side gate for the dock's browser fill/click tools (P1-4): a native
- * dialog, parented to the shell window whenever it still exists, asking the
- * person to allow exactly this action on exactly this page. The dock's
- * confirm card already asked in the renderer — but that card is renderer
- * state anything in that renderer could bypass, while this dialog can only
- * pass through a click in a window this process owns. Deny is the default
- * button, and a dialog that fails (no window, API error) denies too: the gate
- * fails closed. The cost is a second prompt per page action — the price of
- * the action tools being the suite's only write surface onto untrusted web
- * content.
+ * The main-side gate for the dock's browser fill/click tools (P1-4), mode-aware
+ * since the permission-mode wave: the person is asked exactly ONCE per action.
+ * The verdict order (shouldAskBrowserPageAction, all readable synchronously
+ * here because they are main-side already):
+ *
+ * - 完全自动 (auto) — no ask at all.
+ * - the renderer gate's `confirmed` marker (the delete_file precedent) — the
+ *   dock's card, or the mode / app-session verdict that stood behind the call,
+ *   already asked; a second native dialog on top of an answered card is the
+ *   "keeps asking" the person was hitting. The marker is RENDERER-ASSERTED: a
+ *   wiring guard, not proof against a compromised renderer — and it only ever
+ *   skips THIS ask; the channel's sender gate and the input validation stand
+ *   regardless.
+ * - smart + a recorded 始终允许 for the tool (the main-side app-session set)
+ *   — dialog-free even for a marker-less call.
+ * - anything else (a marker-less call: a bypassed or stale renderer) gets the
+ *   native dialog below — a dialog parented to the shell window whenever it
+ *   still exists, asking the person to allow exactly this action on exactly
+ *   this page. That dialog can only pass through a click in a window this
+ *   process owns; deny is the default button, and a dialog that fails (no
+ *   window, API error) denies too: the gate fails closed.
  */
 async function confirmBrowserPageAction(request: BrowserPageActionConfirm): Promise<boolean> {
+  // the mode is read from the same store the panel's dropdown writes
+  // (app-settings.json) — a synchronous read, one per gated action; the
+  // session set is this process's own memory
+  if (
+    !shouldAskBrowserPageAction({
+      mode: readAiPermissions(APP_SETTINGS_PATH()),
+      confirmed: request.confirmed === true,
+      sessionAllowed: aiSessionAllows.has(request.tool),
+    })
+  ) {
+    return true
+  }
   const host = shellWindow && !shellWindow.isDestroyed() ? shellWindow : undefined
   const label = request.pageTitle || request.pageUrl
   // the value can be long; the dialog is a decision surface, not a viewer
@@ -6254,6 +6287,11 @@ let cachedDockOpen: DockOpenState = DOCK_OPEN_NONE
 registerHomeWorkbenchIpc({
   appSettingsPath: APP_SETTINGS_PATH,
   getTabManager: () => tabManager,
+  // the app-session tool-allow set (the confirm card's 始终允许（本会话）):
+  // one main-side set both panel mounts consult, surviving thread switches
+  // and dying with the process — see ai-session-allows.ts for why it is not
+  // persisted. A module-level instance: the set's lifetime IS the app's.
+  sessionAllows: aiSessionAllows,
   // the live shell content area a stage report is clamped into (0x0 while the
   // window is minimized/mid-restore, which skips the clamp)
   contentBounds: () => {
@@ -6823,6 +6861,17 @@ app.whenReady().then(async () => {
     sendToShellRenderer(HOME_CHANNELS.dockPrefsChanged, prefs)
     tabManager?.dockOverlayWebContents()?.send(HOME_CHANNELS.dockPrefsChanged, prefs)
     tabManager?.layout()
+  })
+  // the AI panel's global permission mode, the same store-watch shape: a
+  // write from either panel mount (the dropdown) settles in app-settings.json
+  // and lands here — the broadcast reaches BOTH panel mounts (Home's copy
+  // and the doc-mode overlay's), so the confirm gate and the mode chip flip
+  // on the same beat. No layout follows: the mode is trust posture, not
+  // geometry; the next gated tool call (or the chip's re-render) reads it
+  // immediately through each panel's own mode ref.
+  watchAiPermissions(APP_SETTINGS_PATH(), (mode) => {
+    sendToShellRenderer(HOME_CHANNELS.aiPermissionsChanged, mode)
+    tabManager?.drawerOverlayWebContents()?.send(HOME_CHANNELS.aiPermissionsChanged, mode)
   })
   createShellWindow()
   // deferred to ready: labels need currentLang(), which reads app.getLocale()

@@ -514,6 +514,18 @@ export interface BrowserPageActionConfirm {
   value: string
   pageTitle: string
   pageUrl: string
+  /**
+   * The renderer gate's marker (the delete_file `confirmed` precedent): the
+   * panel's loop gated THIS call before its executor ran — the dock's confirm
+   * card shown and answered, or the permission mode / app-session
+   * always-allow verdict that stood behind it — so the person was already
+   * asked exactly once. RENDERER-ASSERTED: an honest guard against a wiring
+   * that forgets the renderer gate, not proof against a compromised renderer
+   * (which could assert it as freely as anything else it sends). Absent =
+   * the call bypassed the panel's gate (a stale renderer, a raw channel
+   * call) and the main-side ask below is the one ask it gets.
+   */
+  confirmed?: boolean
 }
 
 /** deps as index.ts wires them; the tests inject fakes */
@@ -525,12 +537,15 @@ export interface BrowserAgentDeps {
   /** the page webContents behind one chrome view (undefined: untracked or destroyed) */
   pageFor(chrome: WebContents): WebContents | undefined
   /**
-   * The main-process gate for the risk:'high' page actions. The dock's
-   * confirm card is *renderer* state — anything running in that renderer
-   * could skip it — so this process re-checks with its own user-facing
-   * confirmation (a native dialog parented to the shell window, wired by
-   * index.ts) before the live page is touched. Resolves false (or throws) =
-   * the action does not run.
+   * The main-process gate for the risk:'high' page actions, mode-aware since
+   * the permission-mode wave: the wiring decides whether this call still
+   * needs the person's answer — 完全自动 (auto) never asks; the renderer
+   * gate's `confirmed` marker means the dock's card already asked exactly
+   * once; smart honors a recorded app-session always-allow; anything else
+   * (a marker-less call from a bypassed renderer) gets this process's own
+   * user-facing confirmation (a native dialog parented to the shell window,
+   * wired by index.ts) before the live page is touched. Resolves false (or
+   * throws) = the action does not run.
    */
   confirmAction(request: BrowserPageActionConfirm): Promise<boolean>
   /** W2a's annotation reader; absent = the module's own defensive consumption */
@@ -776,10 +791,15 @@ export async function executeBrowserSkillAction(
         }
         value = raw
       }
-      // main-process defense in depth (P1-4): the renderer-side confirm card
-      // gated this call already, but that card is renderer state — this
-      // process asks the person itself, and a denial is a model-facing error
-      // (not a silent skip) so the loop takes another approach
+      // The main-process gate (P1-4, mode-aware since the permission-mode
+      // wave): the renderer's confirm card gated this call already when the
+      // marker says so, and the wiring's verdict (auto mode, the marker, a
+      // recorded always-allow) decides whether this process asks the person
+      // itself — so the person is asked exactly ONCE per action, never twice.
+      // A marker-less call is a bypassed renderer, and the ask is its one
+      // ask; a denial is a model-facing error (not a silent skip) so the
+      // loop takes another approach. The marker only ever skips the ask:
+      // the sender gate and every validation above it stand regardless
       const allowed = await Promise.resolve(
         deps.confirmAction({
           tool,
@@ -788,6 +808,7 @@ export async function executeBrowserSkillAction(
           value,
           pageTitle: page.getTitle() || tab.title,
           pageUrl: page.getURL(),
+          ...(input.confirmed === true ? { confirmed: true } : {}),
         }),
       ).catch(() => false)
       if (!allowed) {
@@ -953,10 +974,13 @@ export interface BrowserAgentIpcDeps {
    */
   panelWebContents(): readonly WebContents[]
   /**
-   * The main-side confirmation for fill_field/click_element, wired to a native
-   * dialog parented to the shell window (index.ts). Resolves false = the page
-   * action does not run. Required on purpose: a wiring that forgets the gate
-   * fails closed instead of silently running ungated actions.
+   * The main-side confirmation for fill_field/click_element, wired to the
+   * mode-aware native gate in index.ts: auto mode passes unasked, the
+   * renderer gate's `confirmed` marker passes unasked (the dock's card was
+   * the one ask), a smart-mode recorded always-allow passes unasked, and
+   * only a marker-less call reaches the dialog. Resolves false = the page
+   * action does not run. Required on purpose: a wiring that forgets the
+   * gate fails closed instead of silently running ungated actions.
    */
   confirmPageAction(request: BrowserPageActionConfirm): Promise<boolean>
   // ── the shell operator tools (the same channel serves them; all ungated) ──

@@ -11,8 +11,11 @@ export interface AiConfirmLabels {
   /** allow this one call */
   allow: string
   /**
-   * Always allow this tool for the rest of the conversation — rendered only
-   * for requests that offer it (never for destructive 'always-ask' tools)
+   * Always allow this tool — rendered only for requests that offer it (never
+   * for destructive 'always-ask' tools). The scope the words promise is the
+   * HOST's own: the editor apps' panels scope their set per conversation
+   * (this table's default wording), the shell's panels share one main-side
+   * app-session set (the session-worded variant below).
    */
   allowSession: string
   deny: string
@@ -20,12 +23,124 @@ export interface AiConfirmLabels {
   awaitingHint: string
   /** outcome shown on the card after the user allowed it */
   allowedNote: string
-  /** outcome shown on the card after the user chose always-allow for the conversation */
+  /** outcome shown on the card after the user chose the always-allow button */
   allowedSessionNote: string
   /** outcome shown on the card after the user (or the timeout) denied it */
   deniedNote: string
   /** footnote: silence counts as denial */
   timeoutHint: (minutes: number) => string
+}
+
+/**
+ * The always-allow copy worded for the SHELL's session scope: the set lives
+ * main-side and spans both panel mounts, every thread, and the whole app
+ * run — "this session" says what the button does there, where "this
+ * conversation" (the default table the editor apps' panels keep) would
+ * under-promise it.
+ */
+export interface AiSessionConfirmVariant {
+  allowSession: string
+  allowedSessionNote: string
+}
+
+export const AI_SESSION_CONFIRM_LABELS: Record<Lang, AiSessionConfirmVariant> = {
+  zh: { allowSession: '始终允许（本会话）', allowedSessionNote: '已允许（本会话）' },
+  en: {
+    allowSession: 'Always allow (this session)',
+    allowedSessionNote: 'Allowed for this app session',
+  },
+  ja: {
+    allowSession: 'このセッションでは常に許可',
+    allowedSessionNote: 'このセッションでは常に許可しました',
+  },
+  ko: {
+    allowSession: '이 세션에서 항상 허용',
+    allowedSessionNote: '이 세션에서 항상 허용됨',
+  },
+  fr: {
+    allowSession: 'Toujours autoriser (cette session)',
+    allowedSessionNote: 'Autorisé pour cette session',
+  },
+  de: {
+    allowSession: 'Immer erlauben (diese Sitzung)',
+    allowedSessionNote: 'Für diese Sitzung erlaubt',
+  },
+  es: {
+    allowSession: 'Permitir siempre (esta sesión)',
+    allowedSessionNote: 'Permitida en esta sesión',
+  },
+  th: {
+    allowSession: 'อนุญาตเสมอ (ในเซสชันนี้)',
+    allowedSessionNote: 'อนุญาตเสมอในเซสชันนี้',
+  },
+  id: {
+    allowSession: 'Selalu izinkan (sesi aplikasi ini)',
+    allowedSessionNote: 'Diizinkan untuk sesi aplikasi ini',
+  },
+  ru: {
+    allowSession: 'Всегда разрешать (в этой сессии)',
+    allowedSessionNote: 'Разрешено для этой сессии',
+  },
+  ar: {
+    allowSession: 'السماح دائمًا (في هذه الجلسة)',
+    allowedSessionNote: 'مسموح به في هذه الجلسة',
+  },
+  pt: {
+    allowSession: 'Permitir sempre (nesta sessão)',
+    allowedSessionNote: 'Permitida nesta sessão',
+  },
+  it: {
+    allowSession: 'Consenti sempre (in questa sessione)',
+    allowedSessionNote: 'Consentita in questa sessione',
+  },
+  pl: {
+    allowSession: 'Zawsze zezwalaj (w tej sesji)',
+    allowedSessionNote: 'Zezwolono w tej sesji',
+  },
+  cs: {
+    allowSession: 'Vždy povolit (v této relaci)',
+    allowedSessionNote: 'Povoleno pro tuto relaci',
+  },
+  nl: {
+    allowSession: 'Altijd toestaan (deze sessie)',
+    allowedSessionNote: 'Toegestaan voor deze sessie',
+  },
+  ms: {
+    allowSession: 'Sentiasa benarkan (sesi aplikasi ini)',
+    allowedSessionNote: 'Dibenarkan untuk sesi aplikasi ini',
+  },
+  he: {
+    allowSession: 'אפשר תמיד (בהפעלה זו)',
+    allowedSessionNote: 'אושר עבור הפעלה זו',
+  },
+  hi: {
+    allowSession: 'हमेशा अनुमति दें (इस सेशन में)',
+    allowedSessionNote: 'इस सेशन के लिए अनुमति दी गई',
+  },
+  'zh-TW': { allowSession: '始終允許（本會話）', allowedSessionNote: '已允許（本會話）' },
+  vi: {
+    allowSession: 'Luôn cho phép (trong phiên làm việc này)',
+    allowedSessionNote: 'Đã cho phép trong phiên làm việc này',
+  },
+}
+
+const SESSION_LABEL_CACHE = new Map<Lang, AiConfirmLabels>()
+
+/**
+ * The shared labels with the always-allow pair worded for the shell's
+ * app-session set (see AI_SESSION_CONFIRM_LABELS). One stable object per
+ * language — memoized rows compare labels by identity.
+ */
+export function aiSessionConfirmLabels(lang: Lang): AiConfirmLabels {
+  let labels = SESSION_LABEL_CACHE.get(lang)
+  if (!labels) {
+    labels = {
+      ...(AI_CONFIRM_LABELS[lang] ?? AI_CONFIRM_LABELS.en),
+      ...AI_SESSION_CONFIRM_LABELS[lang],
+    }
+    SESSION_LABEL_CACHE.set(lang, labels)
+  }
+  return labels
 }
 
 export const AI_CONFIRM_LABELS: Record<Lang, AiConfirmLabels> = {

@@ -1,5 +1,7 @@
 /* Composer model chip + its upward popover (AiModelPicker). Chrome tokens only;
- * each app imports this next to its other @genoffice/ui sheets. */
+ * each app imports this next to its other @genoffice/ui sheets. The
+ * permission-mode picker (AiPermissionModePicker) wears the same classes —
+ * its rows stack a hint line under the mode's name. */
 
 .ai-model-picker {
   display: inline-flex;
@@ -141,4 +143,29 @@
   border-top: 1px solid var(--border-subtle);
   border-radius: 0 0 var(--radius-6) var(--radius-6);
   color: var(--text-secondary);
+}
+
+/* ── the permission-mode picker's share of the family ── */
+
+.ai-perm-shield {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.ai-perm-picker .ai-model-item {
+  flex-wrap: wrap;
+  align-content: flex-start;
+}
+
+.ai-perm-picker .ai-model-item-hint {
+  flex: 1 0 100%;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* the mode rows carry two lines each (name + hint), so the popover is a
+ * little wider than the model list to keep the hints readable */
+.ai-perm-picker .ai-model-pop {
+  width: 300px;
 }

@@ -15,6 +15,9 @@ import { asDockOpenState, normalizeDockPrefs } from '../shared/dock-prefs'
 import { normalizeForwardedAskQuery, type PendingAskQuery } from '../shared/ask-forward'
 import { readAiDock, AI_DOCK_KEY } from './ai-dock'
 import { DOCK_PREFS_KEY, readDockPrefs } from './dock-prefs'
+import { AI_PERMISSIONS_KEY, readAiPermissions } from './ai-permissions'
+import { asSessionAllowTool, type AiSessionAllows } from './ai-session-allows'
+import { asAiPermissionMode, type AiPermissionMode } from '@genoffice/ui/ai-permission-mode'
 import { writeAppSetting } from './app-settings'
 import type { TabManager } from './tab-manager'
 
@@ -167,6 +170,13 @@ export interface HomeWorkbenchIpcDeps {
    * today's ungated answer.
    */
   isShellWindowSender?: (sender: WebContents) => boolean
+  /**
+   * The app-session tool-allow set both panel mounts share (main-side
+   * memory, `ai-session-allows.ts`): injected so this module stays testable
+   * and the live instance is index.ts's own. Absent keeps the has channel
+   * answering false — fail closed, the panel cards.
+   */
+  sessionAllows?: AiSessionAllows
   /**
    * Route one validated ask-intent handoff to the drawer's live surface
    * (P0-2): the native overlay's panel copy while a document tab is active
@@ -411,6 +421,16 @@ function clampStageRect(rect: Rectangle, window: { width: number; height: number
  *   the drag-arranged order). The aiDock pair's exact shape — the set merges
  *   and normalizes the patch, persists, and answers the effective value; the
  *   write trips watchDockPrefs, whose broadcast re-fits both dock mounts.
+ * - `home:ai-permissions-get`/`home:ai-permissions-set` and
+ *   `home:ai-session-allow-*`: the AI panel's global trust posture. The mode
+ *   (auto / smart / paranoid) is one setting for the whole app — persisted
+ *   in app-settings.json `aiPermissions`, broadcast to both panel mounts by
+ *   the store watcher, and consulted by the panel's confirm gate before any
+ *   card. The session-allow pair backs the card's 始终允许（本会话）: the set
+ *   lives main-side (one set for both mounts, surviving thread switches,
+ *   dying at app restart), the consult runs per gated call (no mirror to go
+ *   stale), and a malformed write keeps the stored mode — the trust posture
+ *   never flips on noise.
  * - `home:dock-open-report`/`home:dock-open-get`: Home's report of which dock
  *   targets are open (the settings modal, the template gallery, the drawer)
  *   and the doc-mode overlay's mount-time pull of it. The report feeds the
@@ -510,6 +530,34 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
     })
     writeAppSetting(path, DOCK_PREFS_KEY, next)
     return next
+  })
+  // the AI panel's global permission mode: one posture for the app, persisted
+  // in app-settings.json (`aiPermissions`) and broadcast by the store watcher
+  // (index.ts) to both panel mounts. The set is a whole-value replace — a
+  // mode is a posture, not a mergeable field — and a malformed value keeps
+  // the stored mode rather than silently flipping the trust posture
+  ipcMain.handle(HOME_CHANNELS.aiPermissionsGet, () => readAiPermissions(deps.appSettingsPath()))
+  ipcMain.handle(HOME_CHANNELS.aiPermissionsSet, (_event, raw: unknown): AiPermissionMode => {
+    const path = deps.appSettingsPath()
+    const current = readAiPermissions(path)
+    const effective = asAiPermissionMode(raw) ?? current
+    if (effective !== current) writeAppSetting(path, AI_PERMISSIONS_KEY, { mode: effective })
+    return effective
+  })
+  // the app-session tool-allow set: the consult (per gated call — no mirror to
+  // go stale) and the record (the confirm card's 始终允许（本会话）). The set
+  // itself is main-side memory (injectable; absent answers false — fail
+  // closed, the panel cards)
+  ipcMain.handle(HOME_CHANNELS.aiSessionAllowHas, (_event, raw: unknown): boolean => {
+    const tool = asSessionAllowTool(raw)
+    if (tool === null) return false
+    return deps.sessionAllows?.has(tool) ?? false
+  })
+  ipcMain.handle(HOME_CHANNELS.aiSessionAllowAdd, (_event, raw: unknown): boolean => {
+    const tool = asSessionAllowTool(raw)
+    if (tool === null) return false
+    deps.sessionAllows?.add(tool)
+    return true
   })
   // Home's open-target report: validated whole (the state machine's
   // consumers — running dots, bounce-ready — must never see a half-parsed

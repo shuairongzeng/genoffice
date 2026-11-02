@@ -334,3 +334,149 @@ describe('AgentLoop tool confirmation (confirmTool on risk:high tools)', () => {
     expect(toolResultOf(loop.messages).output).toBe(TOOL_DENIED_OUTPUT)
   })
 })
+
+describe('AgentLoop confirmAllTools (the always-ask posture)', () => {
+  it('while the getter answers true, even a low-risk tool consults the hook', async () => {
+    const transport = scriptedTransport([
+      (cb) => {
+        cb.onToolCall({ id: 't1', name: 'do_thing', input: {} })
+        cb.onDone()
+      },
+      (cb) => cb.onDone(),
+    ])
+    const confirmTool = vi.fn(async (_call: AgentToolCall, _tool: AgentToolDef) => true)
+    const loop = new AgentLoop({
+      transport,
+      // 'low': the risk-declared gate would never consult the host — the
+      // posture getter is what routes this call to the host's judgment
+      skill: makeSkill(undefined, 'low'),
+      confirmTool,
+      confirmAllTools: () => true,
+    })
+    loop.run('x')
+    await flush()
+    await flush()
+    expect(confirmTool).toHaveBeenCalledTimes(1)
+    // the hook sees the tool it is judging, risk grade included
+    expect(confirmTool.mock.calls[0]![1].risk).toBe('low')
+    expect(toolResultOf(loop.messages).output).toBe('tool ran')
+  })
+
+  it('a denial in the posture is the same denial: the model gets the do-not-retry result', async () => {
+    const transport = scriptedTransport([
+      (cb) => {
+        cb.onToolCall({ id: 't1', name: 'do_thing', input: {} })
+        cb.onDone()
+      },
+      (cb) => cb.onDone(),
+    ])
+    const executed: AgentToolCall[] = []
+    const loop = new AgentLoop({
+      transport,
+      skill: makeSkill((call) => {
+        executed.push(call)
+        return { output: 'tool ran', summary: 'done', mutated: true }
+      }, 'low'),
+      confirmTool: async () => false,
+      confirmAllTools: () => true,
+    })
+    loop.run('x')
+    await flush()
+    await flush()
+    expect(executed).toHaveLength(0)
+    expect(toolResultOf(loop.messages).output).toBe(TOOL_DENIED_OUTPUT)
+  })
+
+  it('the getter is read per call: a mid-run posture flip narrows the gate live', async () => {
+    // turn 1 gates the low-risk call; the posture flips OFF while the loop is
+    // parked at that gate; turn 2 — the same tool — runs ungated
+    const transport = scriptedTransport([
+      (cb) => {
+        cb.onToolCall({ id: 't1', name: 'do_thing', input: {} })
+        cb.onDone()
+      },
+      (cb) => {
+        cb.onToolCall({ id: 't2', name: 'do_thing', input: {} })
+        cb.onDone()
+      },
+      (cb) => cb.onDone(),
+    ])
+    let posture = true
+    const reads: boolean[] = []
+    let resolveConfirm!: (allowed: boolean) => void
+    const confirmTool = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveConfirm = resolve
+        }),
+    )
+    const loop = new AgentLoop({
+      transport,
+      skill: makeSkill(undefined, 'low'),
+      confirmTool,
+      confirmAllTools: () => {
+        reads.push(posture)
+        return posture
+      },
+    })
+    const handle = loop.run('x')
+    // turn 1 arrived and parked at the gate: flip the posture before deciding
+    await flush()
+    posture = false
+    resolveConfirm(true)
+    await flush()
+    await flush()
+    expect(confirmTool).toHaveBeenCalledTimes(1)
+    expect(reads).toEqual([true, false])
+    await expect(handle.done).resolves.toMatchObject({ cancelled: false })
+  })
+
+  it('an unknown tool name never gates even under the posture: it has no definition to judge', async () => {
+    const transport = scriptedTransport([
+      (cb) => {
+        cb.onToolCall({ id: 't1', name: 'no_such_tool', input: {} })
+        cb.onDone()
+      },
+      (cb) => cb.onDone(),
+    ])
+    const confirmTool = vi.fn(async () => true)
+    const loop = new AgentLoop({
+      transport,
+      // a skill's executor answers an unknown name with its own error result
+      // (the real skills' default case); the gate has no definition to judge
+      skill: makeSkill((call) =>
+        call.name === 'do_thing'
+          ? { output: 'tool ran', summary: 'done', mutated: true }
+          : { output: `unknown tool: ${call.name}`, isError: true, summary: call.name },
+      ),
+      confirmTool,
+      confirmAllTools: () => true,
+    })
+    loop.run('x')
+    await flush()
+    await flush()
+    expect(confirmTool).not.toHaveBeenCalled()
+    expect(toolResultOf(loop.messages).isError).toBe(true)
+  })
+
+  it('absent, the option keeps the risk-declared gate exactly (no host regresses)', async () => {
+    const transport = scriptedTransport([
+      (cb) => {
+        cb.onToolCall({ id: 't1', name: 'do_thing', input: {} })
+        cb.onDone()
+      },
+      (cb) => cb.onDone(),
+    ])
+    const confirmTool = vi.fn(async () => true)
+    const loop = new AgentLoop({
+      transport,
+      skill: makeSkill(undefined, 'low'),
+      confirmTool,
+    })
+    loop.run('x')
+    await flush()
+    await flush()
+    expect(confirmTool).not.toHaveBeenCalled()
+    expect(toolResultOf(loop.messages).output).toBe('tool ran')
+  })
+})

@@ -55,6 +55,17 @@ let trustAskSender = true
  * process-global flag a detached window's call would read as "hosted".
  */
 let isShellSender: (sender: unknown) => boolean = () => true
+/**
+ * The app-session tool-allow set the workbench channels consult: a
+ * reassignable instance behind a stable wrapper, so each test starts from an
+ * empty set (the app-restart shape) without the production interface growing
+ * a clear verb nothing but tests would call.
+ */
+let sessionSet = createAiSessionAllows()
+const sessionAllows = {
+  has: (tool: string) => sessionSet.has(tool),
+  add: (tool: string) => sessionSet.add(tool),
+}
 
 import {
   collectHomeTabsState,
@@ -64,6 +75,8 @@ import {
   registerHomeTabsIpc,
   registerHomeWorkbenchIpc,
 } from '../src/main/home-tabs-ipc'
+import { createAiSessionAllows } from '../src/main/ai-session-allows'
+import { readAiPermissions } from '../src/main/ai-permissions'
 import { readAiDock } from '../src/main/ai-dock'
 import { readDockPrefs } from '../src/main/dock-prefs'
 
@@ -375,6 +388,7 @@ describe('registerHomeWorkbenchIpc', () => {
       getTabManager: getTabManager as HomeWorkbenchIpcDeps['getTabManager'],
       contentBounds,
       isShellWindowSender: (sender) => isShellSender(sender),
+      sessionAllows,
       forwardAskQuery,
       isTrustedAskSender: () => trustAskSender,
       forwardBrowserAskAbout,
@@ -579,6 +593,82 @@ describe('registerHomeWorkbenchIpc', () => {
       const junk = await invoke('home:dock-prefs-set', { baseSize: 999, maxScale: 'big' })
       expect(junk.baseSize).toBe(64)
       expect(junk.maxScale).toBe(1.7)
+    })
+  })
+
+  describe('the permission-mode channels (the AI panel trust posture)', () => {
+    it('answers the read with the stored mode, smart on absence', async () => {
+      registerWorkbench()
+      expect(await invoke('home:ai-permissions-get')).toBe('smart')
+      await invoke('home:ai-permissions-set', 'paranoid')
+      expect(await invoke('home:ai-permissions-get')).toBe('paranoid')
+      expect(readAiPermissions(join(dir, 'app-settings.json'))).toBe('paranoid')
+    })
+
+    it('a set is a whole-value replace that answers the effective mode', async () => {
+      registerWorkbench()
+      await invoke('home:ai-permissions-set', 'auto')
+      const effective = await invoke('home:ai-permissions-set', 'auto')
+      expect(effective).toBe('auto')
+      expect(readAiPermissions(join(dir, 'app-settings.json'))).toBe('auto')
+    })
+
+    it('a malformed mode keeps the stored posture — trust never flips on noise', async () => {
+      registerWorkbench()
+      await invoke('home:ai-permissions-set', 'paranoid')
+      for (const bad of [undefined, null, 42, 'yolo', { mode: 'auto' }, '']) {
+        const effective = await invoke('home:ai-permissions-set', bad)
+        expect(effective).toBe('paranoid')
+      }
+      expect(readAiPermissions(join(dir, 'app-settings.json'))).toBe('paranoid')
+    })
+  })
+
+  describe('the app-session allow set channels (the card’s 始终允许（本会话）)', () => {
+    beforeEach(() => {
+      sessionSet = createAiSessionAllows()
+    })
+
+    it('consults and records through the injected set', async () => {
+      registerWorkbench()
+      expect(await invoke('home:ai-session-allow-has', 'run_genoffice')).toBe(false)
+      expect(await invoke('home:ai-session-allow-add', 'run_genoffice')).toBe(true)
+      expect(await invoke('home:ai-session-allow-has', 'run_genoffice')).toBe(true)
+      // per tool: another name still consults false
+      expect(await invoke('home:ai-session-allow-has', 'edit_file')).toBe(false)
+      // a repeated record is idempotent
+      expect(await invoke('home:ai-session-allow-add', 'run_genoffice')).toBe(true)
+      expect(await invoke('home:ai-session-allow-has', 'run_genoffice')).toBe(true)
+    })
+
+    it('a malformed tool name answers false and records nothing', async () => {
+      registerWorkbench()
+      for (const bad of [undefined, 42, '', '   ', 'x'.repeat(201)]) {
+        expect(await invoke('home:ai-session-allow-has', bad)).toBe(false)
+        expect(await invoke('home:ai-session-allow-add', bad)).toBe(false)
+      }
+      expect(sessionSet.tools()).toEqual([])
+    })
+
+    it('without the injected set, the consult fails closed (false — the panel cards)', async () => {
+      dir ??= mkdtempSync(join(tmpdir(), 'genoffice-workbench-'))
+      registerHomeWorkbenchIpc({
+        appSettingsPath: () => join(dir, 'app-settings.json'),
+        getTabManager: () => null,
+        contentBounds: () => ({ width: 800, height: 600 }),
+        forwardAskQuery,
+        isTrustedAskSender: () => true,
+        forwardBrowserAskAbout,
+        markDrawerOverlayReadyFor,
+        applyDrawerOverlayPetDrag,
+        reportDockHotEdge,
+        dockNavAction,
+        takeDockNavPending,
+        applyDockOpen,
+        takeDockOpen,
+      })
+      sessionSet.add('run_genoffice')
+      expect(await invoke('home:ai-session-allow-has', 'run_genoffice')).toBe(false)
     })
   })
 

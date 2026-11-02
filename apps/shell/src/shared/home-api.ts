@@ -61,6 +61,8 @@ export interface DocumentAgentTarget {
 export type BrowserAskAboutPayload = BrowserPageAnnotation
 export type { RunEvent, RunSummary } from '@genoffice/project-store'
 import type { AiPanelPrefs } from '@genoffice/ui/ai-panel-prefs'
+import type { AiPermissionMode } from '@genoffice/ui/ai-permission-mode'
+export type { AiPermissionMode }
 import type { FoundSkill, ForeignSkillCandidate, InstalledPlugin } from './found-skill'
 import type { TabKind } from './tabs-api'
 
@@ -808,6 +810,35 @@ export interface HomeApi {
    * the same settings.
    */
   onDockPrefsChanged?(handler: (prefs: DockPrefs) => void): () => void
+  // ---- the AI panel's global permission mode (app-settings.json `aiPermissions`) ----
+  // Optional like the dock prefs pair so partial test stubs and stale
+  // preloads keep typing: the panel clamps what it reads, and an absent pair
+  // leaves the smart posture (the default) with local confirm behavior.
+  /** the permission mode (`home:ai-permissions-get`); malformed reads clamp to smart */
+  getAiPermissions?(): Promise<AiPermissionMode>
+  /** persist the permission mode (`home:ai-permissions-set`); resolves to the effective mode */
+  setAiPermissions?(mode: AiPermissionMode): Promise<AiPermissionMode>
+  /**
+   * The permission mode changed in the store (any panel mount's write): the
+   * broadcast reaches both panel mounts — Home's copy and the doc-mode
+   * overlay's — so the gate and the chip flip on the same beat, mid-session.
+   */
+  onAiPermissionsChanged?(handler: (mode: AiPermissionMode) => void): () => void
+  /**
+   * Does the app-session allow set hold this tool name
+   * (`home:ai-session-allow-has`)? The set lives main-side (one set for both
+   * panel mounts, surviving thread switches, dying at app restart); the
+   * panel consults per gated call — no mirror, so a consult can never run on
+   * a stale copy. Absent channel answers nothing (the panel treats that as
+   * "not allowed" and shows the card — fail closed).
+   */
+  aiSessionAllowHas?(tool: string): Promise<boolean>
+  /**
+   * Record an always-allow into the app-session set
+   * (`home:ai-session-allow-add`): the confirm card's 始终允许（本会话） lands
+   * here. Fire-and-forget; the consult reads it on the very next call.
+   */
+  aiSessionAllowAdd?(tool: string): Promise<void>
   /**
    * Report which of the dock's targets are open right now (`home:dock-open`,
    * Home → main): the doc-mode overlay's dock renders the running dots and
@@ -1448,6 +1479,17 @@ export const HOME_CHANNELS = {
   /** main → renderer: the dock's prefs changed in the store (any surface's
    *  write — the settings pane, a drag on either mount) */
   dockPrefsChanged: 'home:dock-prefs-changed',
+  /** renderer ↔ main: read / persist the AI panel's global permission mode
+   *  (app-settings.json `aiPermissions` — auto / smart / paranoid) */
+  aiPermissionsGet: 'home:ai-permissions-get',
+  aiPermissionsSet: 'home:ai-permissions-set',
+  /** main → renderer: the permission mode changed in the store (any panel
+   *  mount's write — every mount's gate and chip follow it) */
+  aiPermissionsChanged: 'home:ai-permissions-changed',
+  /** renderer → main: does the app-session allow set hold this tool name? */
+  aiSessionAllowHas: 'home:ai-session-allow-has',
+  /** renderer → main: record an always-allow into the app-session set */
+  aiSessionAllowAdd: 'home:ai-session-allow-add',
   /** renderer → main: Home reports which dock targets are open (the overlay
    *  dock's running dots and bounce-ready signal) */
   dockOpenReport: 'home:dock-open-report',
