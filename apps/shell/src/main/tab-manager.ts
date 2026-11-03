@@ -288,10 +288,14 @@ export class TabManager {
       // degenerate rect would leave the spare zero-sized until its next layout
       const bounds = this.contentBounds()
       if (isSettledRect(bounds)) view.setBounds(bounds)
-      view.webContents.once('render-process-gone', () => {
+      // captured at registration, never re-read at event time: a view's
+      // webContents getter can already read undefined inside an event handler
+      // (the destroyed-time crash class), the captured object stays valid
+      const spareWc = view.webContents
+      spareWc.once('render-process-gone', () => {
         if (this.spareView !== view) return
         this.spareView = null
-        view.webContents.close()
+        if (!spareWc.isDestroyed()) spareWc.close()
       })
       this.spareView = view
     }, delayMs)
@@ -1441,9 +1445,13 @@ export class TabManager {
 /** release a view's renderer; an app whose teardown needs main-process bookkeeping
  *  (docs) gets it dropped before the close */
 function destroyView(kind: TabKind, view: WebContentsView): void {
-  if (view.webContents.isDestroyed()) return
-  appForKind(kind)?.teardown?.(view.webContents)
-  view.webContents.close()
+  // captured once and guarded: a view's webContents getter can read undefined
+  // once the native side detaches (the destroyed-time crash class), and a
+  // teardown with nothing left to destroy is a no-op, never a process crash
+  const wc = view.webContents
+  if (!wc || wc.isDestroyed()) return
+  appForKind(kind)?.teardown?.(wc)
+  wc.close()
 }
 
 /** test hooks: the sweep is minutes-scale by design, too slow for an e2e run */

@@ -911,9 +911,16 @@ export function createDetachedEditorWindow(options: {
       rec.strip = undefined
     }
     detached.delete(wcId)
+    // captured and guarded (the destroyed-time crash class): the app's
+    // teardown and the fallback close take the webContents reference, never
+    // the view's getter re-read — a view whose native side already detached
+    // tears down as a no-op instead of crashing the process
+    const wc = view.webContents
     const descriptor = appForKind(kind)
-    if (descriptor?.teardown) descriptor.teardown(view.webContents)
-    else view.webContents.close()
+    if (wc) {
+      if (descriptor?.teardown) descriptor.teardown(wc)
+      else if (!wc.isDestroyed()) wc.close()
+    }
     win.destroy()
     if (rec.pinned) {
       persistPinsNow()

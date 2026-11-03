@@ -69,6 +69,23 @@ import { applyNavigation, applyPageFavicon, applyPageTitle, type TabMetadata } f
  * the pin-time element shot under `userData/annotation-shots/` — and the
  * "Ask AI" action on one is relayed to the Home AI dock through the shell
  * hook (`browser:ask-about`).
+ *
+ * ## The webContents-capture rule (a crash class this module documents)
+ *
+ * A `WebContentsView`'s `webContents` getter can read `undefined` INSIDE an
+ * event handler: Electron's native side detaches the contents during view
+ * teardown, and by the time a `'destroyed'` (or teardown-adjacent) handler
+ * runs the getter may already be empty — timing/GC dependent, so it only
+ * reproduces sometimes. Reading `someView.webContents` at REGISTRATION time
+ * is always safe (the view is fresh), and the captured WebContents object
+ * itself stays a valid identity, map key and method host past the destroy.
+ * The rule, applied in `createBrowserView` and `teardownBrowserTab` and
+ * mirrored wherever views register handlers: capture `const wc =
+ * view.webContents` once at creation and let every handler close over the
+ * captured reference — never over the view's getter — and teardown-shaped
+ * entry points tolerate a falsy or already-gone argument as a no-op, so a
+ * future reintroduction of the pattern fails soft instead of taking the
+ * process down.
  */
 
 /** the partition every page view renders in (chrome views use the default session) */
@@ -136,6 +153,15 @@ interface BrowserTab {
   shell: WebContentsView
   /** the page view, a sibling of the chrome view in the host window's contentView */
   page: WebContentsView
+  /**
+   * The page view's webContents, captured at creation. Everything keyed,
+   * consulted or closed at EVENT time (teardown above all) reads this
+   * reference, never `page.webContents` again: a destroyed view's
+   * `webContents` getter can already read `undefined` by the time a
+   * 'destroyed' handler runs (Electron's native detach ordering), and the
+   * captured object stays a valid map key past that.
+   */
+  pageWc: WebContents
   /** the window whose contentView currently parents the page view; null while unparented */
   pageHost: BrowserWindow | null
   metadata: TabMetadata
@@ -503,9 +529,18 @@ export function createBrowserView(): WebContentsView {
       sandbox: true,
     },
   })
+  const page = createPageView()
+  // CAPTURED AT CREATION, never read at event time: a view's `webContents`
+  // getter can already return undefined inside a 'destroyed' handler
+  // (Electron's native detach ordering — the timing/GC-dependent crash this
+  // closed over), while the captured webContents object stays a valid map
+  // key and identity past the destroy
+  const shellWc = shellView.webContents
+  const pageWc = page.webContents
   const tab: BrowserTab = {
     shell: shellView,
-    page: createPageView(),
+    page,
+    pageWc,
     pageHost: null,
     metadata: { title: '', faviconUrl: null },
     loading: false,
@@ -518,11 +553,11 @@ export function createBrowserView(): WebContentsView {
     annotateMode: false,
   }
   tab.page.setVisible(false)
-  tabs.set(shellView.webContents.id, tab)
-  tabsByPage.set(tab.page.webContents.id, tab)
-  shellView.webContents.once('destroyed', () => teardownBrowserTab(shellView.webContents))
+  tabs.set(shellWc.id, tab)
+  tabsByPage.set(pageWc.id, tab)
+  shellWc.once('destroyed', () => teardownBrowserTab(shellWc))
   bindPage(tab)
-  void shellView.webContents.loadURL(rendererUrl(runtime.rendererUrl, 'browser'))
+  void shellWc.loadURL(rendererUrl(runtime.rendererUrl, 'browser'))
   return shellView
 }
 
@@ -539,14 +574,22 @@ export async function requestBrowserClose(): Promise<boolean> {
  * is a separate renderer the shell does not know about, so it is taken out of
  * its host window's contentView and closed here, and the tab's tracking
  * dropped.
+ *
+ * Hardened against the destroyed-time crash class (twice over): the argument
+ * may arrive undefined — a caller that read a view's `webContents` getter at
+ * event time would pass exactly that — and a teardown with nothing to tear
+ * down (an already-removed record, a falsy argument) is a no-op, never a
+ * process crash. The page side reads the tab's captured `pageWc`, never the
+ * view's getter.
  */
-export function teardownBrowserTab(contents: WebContents): void {
+export function teardownBrowserTab(contents: WebContents | undefined | null): void {
+  if (!contents) return
   const tab = tabs.get(contents.id)
   if (!tab) return
   tabs.delete(contents.id)
-  tabsByPage.delete(tab.page.webContents.id)
+  tabsByPage.delete(tab.pageWc.id)
   detachPageFromHost(tab)
-  if (!tab.page.webContents.isDestroyed()) tab.page.webContents.close()
+  if (!tab.pageWc.isDestroyed()) tab.pageWc.close()
 }
 
 // ── actions the shell can drive from outside IPC (window-lifecycle) ────────

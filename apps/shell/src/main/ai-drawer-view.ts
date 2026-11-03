@@ -249,7 +249,13 @@ export function createAiDrawerOverlay(
         // lifetime is the window's own.
       },
     })
-    view.webContents.setWindowOpenHandler(({ url }) => {
+    // CAPTURED AT CREATION: every handler below and the final load use this
+    // reference, never the view's `webContents` getter re-read at event time —
+    // a destroyed view's getter can already read undefined by the time an
+    // event handler runs (Electron's native detach ordering), while the
+    // captured object stays valid past the destroy
+    const wc = view.webContents
+    wc.setWindowOpenHandler(({ url }) => {
       const target = safeExternalUrl(url)
       if (target) void shell.openExternal(target)
       return { action: 'deny' }
@@ -267,7 +273,7 @@ export function createAiDrawerOverlay(
     // hostile from walking itself somewhere else, which is what lets the
     // widened browserskill gate trust this webContents by identity; the
     // window-open deny above covers the other direction.
-    view.webContents.on('will-navigate', (event) => {
+    wc.on('will-navigate', (event) => {
       event.preventDefault()
     })
     // The shared ui-scale boot (installUiScale) does reach this view's
@@ -279,8 +285,8 @@ export function createAiDrawerOverlay(
     // executeJavaScript racing the load can fail silently); the sync-time one
     // only on change; both write the same inline `--ui-scale`, so the double
     // application with the shared boot is harmless.
-    view.webContents.once('did-finish-load', () => {
-      applyScale(view.webContents, scale)
+    wc.once('did-finish-load', () => {
+      applyScale(wc, scale)
       // the load only proves the bundle painted, not that the panel's
       // listeners exist (the entry boots behind an await chain before its
       // first render), so the buffered messages keep waiting for the ready
@@ -294,7 +300,7 @@ export function createAiDrawerOverlay(
     // would strand the buffer with no second ping ever coming. The reset
     // also re-hides: a reloading renderer paints a transparent blank, and a
     // blank must never eat clicks (the replacement's ping re-shows it)
-    view.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+    wc.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
       if (isInPlace || !isMainFrame) return
       panelReady = false
       applyVisibility()
@@ -309,7 +315,7 @@ export function createAiDrawerOverlay(
     // own teardown (destroy, the window's close): there is nothing to
     // recover and the view is on its way out.
     let crashRetried = false
-    view.webContents.on('render-process-gone', (_event, details) => {
+    wc.on('render-process-gone', (_event, details) => {
       if (details?.reason === 'clean-exit') return
       panelReady = false
       // a pet drag's window-wide surface must not outlive its renderer: the
@@ -318,9 +324,9 @@ export function createAiDrawerOverlay(
       // every click — re-fit the synced footprint here, whatever it is
       refitAfterGesture()
       applyVisibility()
-      if (crashRetried || view.webContents.isDestroyed()) return
+      if (crashRetried || wc.isDestroyed()) return
       crashRetried = true
-      loadPanelUrl(view.webContents)
+      loadPanelUrl(wc)
     })
     // a failed load leaves a dead surface floating over the document — and
     // the pet that could dismiss it lives inside the very renderer that did
@@ -331,7 +337,7 @@ export function createAiDrawerOverlay(
     // than a blank pane nobody can close or click through. Subframe
     // failures (an image inside an answer) are not the panel's load.
     let retried = false
-    view.webContents.on(
+    wc.on(
       'did-fail-load',
       (_event, code: number, description: string, failedUrl: string, isMainFrame: boolean) => {
         if (!isMainFrame) return
@@ -347,10 +353,10 @@ export function createAiDrawerOverlay(
           return
         }
         retried = true
-        loadPanelUrl(view.webContents)
+        loadPanelUrl(wc)
       },
     )
-    loadPanelUrl(view.webContents)
+    loadPanelUrl(wc)
     return view
   }
 

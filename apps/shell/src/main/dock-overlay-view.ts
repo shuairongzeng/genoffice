@@ -157,7 +157,13 @@ export function createDockOverlay(shellWindow: BrowserWindow): DockOverlay {
         // (the Home tab, a presentation), like every hidden view (issue #27)
       },
     })
-    view.webContents.setWindowOpenHandler(({ url }) => {
+    // CAPTURED AT CREATION: every handler below and the final load use this
+    // reference, never the view's `webContents` getter re-read at event time —
+    // a destroyed view's getter can already read undefined by the time an
+    // event handler runs (Electron's native detach ordering), while the
+    // captured object stays valid past the destroy
+    const wc = view.webContents
+    wc.setWindowOpenHandler(({ url }) => {
       const target = safeExternalUrl(url)
       if (target) void shell.openExternal(target)
       return { action: 'deny' }
@@ -169,7 +175,7 @@ export function createDockOverlay(shellWindow: BrowserWindow): DockOverlay {
     // the entry's URL is main-authored and constant — the dock is a mounted
     // React tree, not a page of links. Denying will-navigate keeps a hostile
     // renderer from walking itself somewhere else.
-    view.webContents.on('will-navigate', (event) => {
+    wc.on('will-navigate', (event) => {
       event.preventDefault()
     })
     // The shared ui-scale boot (installUiScale) reaches this renderer, but
@@ -177,13 +183,13 @@ export function createDockOverlay(shellWindow: BrowserWindow): DockOverlay {
     // not race the pill's first paint — the ask-panel pattern: apply
     // unconditionally at load, then only on change; both write the same
     // inline `--ui-scale`, so the double application is harmless
-    view.webContents.once('did-finish-load', () => {
-      applyScale(view.webContents, scale)
+    wc.once('did-finish-load', () => {
+      applyScale(wc, scale)
     })
     // a navigation (the crash retry) means a renderer whose reports and
     // listeners die with the old one: disarm the grace timer so it does not
     // resize a view mid-reload
-    view.webContents.on(
+    wc.on(
       'did-start-navigation',
       (_event, _url: string, isInPlace: boolean, isMainFrame: boolean) => {
         if (isInPlace || !isMainFrame) return
@@ -195,20 +201,20 @@ export function createDockOverlay(shellWindow: BrowserWindow): DockOverlay {
     // the did-fail-load shape, never a loop. A clean exit is our own
     // teardown (destroy, the window's close): there is nothing to recover
     let crashRetried = false
-    view.webContents.on('render-process-gone', (_event, details) => {
+    wc.on('render-process-gone', (_event, details) => {
       if (details?.reason === 'clean-exit') return
       shrinkToStrip()
       if (!shellWindow.isDestroyed()) view.setVisible(false)
-      if (crashRetried || view.webContents.isDestroyed()) return
+      if (crashRetried || wc.isDestroyed()) return
       crashRetried = true
-      loadDockUrl(view.webContents)
+      loadDockUrl(wc)
     })
     // a failed load leaves an invisible strip that still intercepts its 3px:
     // retry once (the common failure is a dev server still booting), then
     // hide — stood down until the next sync re-shows, better than a dead
     // band nobody can dismiss
     let retried = false
-    view.webContents.on(
+    wc.on(
       'did-fail-load',
       (_event, code: number, description: string, failedUrl: string, isMainFrame: boolean) => {
         if (!isMainFrame) return
@@ -222,10 +228,10 @@ export function createDockOverlay(shellWindow: BrowserWindow): DockOverlay {
           return
         }
         retried = true
-        loadDockUrl(view.webContents)
+        loadDockUrl(wc)
       },
     )
-    loadDockUrl(view.webContents)
+    loadDockUrl(wc)
     return view
   }
 
