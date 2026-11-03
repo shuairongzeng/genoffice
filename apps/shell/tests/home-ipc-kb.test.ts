@@ -34,7 +34,9 @@ const trashCalls = vi.hoisted(() => [] as string[])
 vi.mock('electron', () => ({
   app: { getPath: () => '/tmp/genoffice-home-ipc-kb' },
   BrowserWindow: class {},
-  dialog: {},
+  dialog: {
+    showOpenDialog: async () => ({ canceled: false, filePaths: ['/desk/added.md'] }),
+  },
   ipcMain: {
     handle: (channel: string, handler: (...args: never[]) => unknown) =>
       handles.set(channel, handler),
@@ -618,5 +620,163 @@ describe('kb:read — the gate', () => {
         onlyPaths: Array.from({ length: 51 }, (_, i) => `/idx/${i}.md`),
       }),
     ).rejects.toThrow(/at most 50/)
+  })
+})
+
+describe('the Knowledge Base center channels', () => {
+  /** a richer store stub the center's channels read: statuses + remove */
+  function centerStore(entries: Array<{ path: string; status: string }>) {
+    return {
+      ...store,
+      recentFiles: async () =>
+        entries.map((entry) => ({
+          path: entry.path,
+          mtimeMs: 1,
+          sizeBytes: 10,
+          status: entry.status,
+        })),
+      remove: vi.fn(async () => undefined),
+    }
+  }
+  const withHost = (over: Record<string, unknown>) => ({ ...host, ...over }) as typeof host
+
+  it('kb:sources lists the roots plus the outside files, with readiness from the entries', async () => {
+    const store2 = centerStore([
+      { path: '/tmp/genoffice-home-ipc-kb/save/ok-one.md', status: 'ok' },
+      { path: '/tmp/genoffice-home-ipc-kb/save/ok-two.md', status: 'ok' },
+      { path: '/tmp/genoffice-home-ipc-kb/save/broken.md', status: 'error' },
+      { path: '/outside/extra.md', status: 'ok' },
+    ])
+    registerHomeFileIpc(withHost({ indexStore: () => store2 as never }))
+    const answer = (await invoke('kb:sources')) as {
+      scanning: boolean
+      sources: Array<{
+        kind: string
+        path: string
+        indexed: number
+        errors: number
+        status: string
+      }>
+    }
+    expect(answer.scanning).toBe(false)
+    // the default save root (the host stub's /tmp/... path): one folder
+    // source covering the three files under it, plus the outside file
+    const folder = answer.sources.find(
+      (s) => s.kind === 'folder' && s.path === '/tmp/genoffice-home-ipc-kb/save',
+    )
+    expect(folder).toBeDefined()
+    expect(folder!.indexed).toBe(2)
+    expect(folder!.errors).toBe(1)
+    expect(folder!.status).toBe('error')
+    const file = answer.sources.find((s) => s.path === '/outside/extra.md')
+    expect(file).toBeDefined()
+    expect(file!.status).toBe('ready')
+    expect(answer.sources.filter((s) => s.kind === 'file')).toHaveLength(1)
+  })
+
+  it('a scan in flight marks an empty root as indexing (the honest pipeline state)', async () => {
+    const store2 = centerStore([])
+    const indexer = {
+      progress: async () => ({ indexed: 0, pending: 4, scanning: true }),
+      refreshIfStale: () => undefined,
+      settle: async () => undefined,
+    }
+    registerHomeFileIpc(
+      withHost({ indexStore: () => store2 as never, ensureFileIndexer: () => indexer as never }),
+    )
+    const answer = (await invoke('kb:sources')) as {
+      scanning: boolean
+      pending: number
+      sources: Array<{ status: string }>
+    }
+    expect(answer.scanning).toBe(true)
+    expect(answer.pending).toBe(4)
+    expect(answer.sources.every((s) => s.status === 'indexing')).toBe(true)
+  })
+
+  it('kb:recall answers the full-index hits (no scope narrowing), bounded', async () => {
+    const store2 = centerStore([])
+    const search = vi.fn(async () => ({
+      hits: [
+        {
+          path: '/idx/contract.docx',
+          name: 'contract.docx',
+          ext: 'docx',
+          snippet: [{ text: 'the meeting decided…' }],
+        },
+      ],
+    }))
+    registerHomeFileIpc(
+      withHost({
+        indexStore: () => ({ ...store2, search }) as never,
+        ensureFileIndexer: () =>
+          ({ refreshIfStale: () => undefined, settle: async () => undefined }) as never,
+      }),
+    )
+    const answer = (await invoke('kb:recall', { q: 'meeting', limit: 5 })) as Array<{
+      path: string
+      snippet: string
+    }>
+    expect(search).toHaveBeenCalledWith('meeting', expect.anything())
+    expect(answer).toHaveLength(1)
+    expect(answer[0]!.path).toBe('/idx/contract.docx')
+    expect(answer[0]!.snippet).toContain('the meeting decided')
+    // a missing store or empty query answers [] (never a throw)
+    registerHomeFileIpc(withHost({ indexStore: () => null }))
+    expect(await invoke('kb:recall', { q: 'x' })).toEqual([])
+    const answer2 = (await invoke('kb:recall', { q: '' })) as unknown[]
+    expect(answer2).toEqual([])
+  })
+
+  it('kb:reindex: a file drops and re-extracts; a folder drops its entries; the global drops the errored', async () => {
+    const store2 = centerStore([
+      { path: '/tmp/genoffice-home-ipc-kb/save/a.md', status: 'ok' },
+      { path: '/tmp/genoffice-home-ipc-kb/save/b.md', status: 'error' },
+      { path: '/outside/c.md', status: 'ok' },
+    ])
+    const indexNow = vi.fn(async () => undefined)
+    const refresh = vi.fn()
+    registerHomeFileIpc(
+      withHost({
+        indexStore: () => store2 as never,
+        indexNow,
+        refreshIndexer: refresh,
+      }),
+    )
+    // a file source: remove + indexNow (the first-sight re-extraction)
+    const fileAnswer = (await invoke('kb:reindex', { path: '/outside/c.md' })) as {
+      removed: number
+    }
+    expect(fileAnswer.removed).toBe(1)
+    expect(store2.remove).toHaveBeenCalledWith(['/outside/c.md'])
+    expect(indexNow).toHaveBeenCalledWith(['/outside/c.md'])
+    // a folder source: every entry under it drops, then the re-walk
+    store2.remove.mockClear()
+    const folderAnswer = (await invoke('kb:reindex', {
+      path: '/tmp/genoffice-home-ipc-kb/save',
+    })) as { removed: number }
+    expect(folderAnswer.removed).toBe(2)
+    expect(store2.remove).toHaveBeenCalledWith([
+      '/tmp/genoffice-home-ipc-kb/save/a.md',
+      '/tmp/genoffice-home-ipc-kb/save/b.md',
+    ])
+    // the global: only the errored entries drop
+    store2.remove.mockClear()
+    const globalAnswer = (await invoke('kb:reindex', {})) as { removed: number }
+    expect(globalAnswer.removed).toBe(1)
+    expect(store2.remove).toHaveBeenCalledWith(['/tmp/genoffice-home-ipc-kb/save/b.md'])
+    expect(refresh).toHaveBeenCalled()
+    // a relative path is refused outright
+    await expect(invoke('kb:reindex', { path: 'relative.md' })).rejects.toThrow(/absolute/)
+  })
+
+  it('kb:pick-source-files stars every picked file and brings it into the index', async () => {
+    const indexNow = vi.fn(async () => undefined)
+    const refresh = vi.fn()
+    registerHomeFileIpc(withHost({ indexNow, refreshIndexer: refresh }))
+    const picked = (await invoke('kb:pick-source-files')) as string[]
+    expect(picked).toEqual([expect.any(String)])
+    expect(indexNow).toHaveBeenCalledWith(picked)
+    expect(refresh).toHaveBeenCalled()
   })
 })

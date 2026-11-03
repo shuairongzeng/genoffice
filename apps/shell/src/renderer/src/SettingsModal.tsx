@@ -2881,7 +2881,10 @@ export function SettingsModal({
                       <div className="set-field-label">{t('setDockResetOrder')}</div>
                     </div>
                   </div>
-                  <button className="set-btn" onClick={() => commitDockPrefs({ order: [] })}>
+                  <button
+                    className="set-btn"
+                    onClick={() => commitDockPrefs({ order: [], customItems: [] })}
+                  >
                     {t('setDockResetOrder')}
                   </button>
                 </div>

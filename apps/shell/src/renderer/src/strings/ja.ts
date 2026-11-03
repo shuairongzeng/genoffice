@@ -11,6 +11,8 @@ export const ja: Dict = {
   dockMenuClose: 'タブを閉じる',
   dockMenuOpenDrawer: 'ドロワーを開く',
   dockMenuCollapseDrawer: 'ドロワーを閉じる',
+  dockMenuRemove: '削除',
+  dockCustomMissing: '{name} を開けませんでした。移動または削除された可能性があります。',
   askThreadsTitle: '会話',
   askThreadDelete: '会話「{label}」を削除',
   askThreadDeleteConfirm: '「{label}」の会話を削除しますか？削除すると元に戻せません。',

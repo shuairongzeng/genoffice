@@ -152,6 +152,13 @@ export interface DockProps {
   /** the drag committed a new arrangement: the flat id sequence to persist */
   readonly onReorder?: (order: readonly string[]) => void
   /**
+   * The host's handle on the pill's own element — Home threads the same ref
+   * into the desktop view so its icon drag can hit-test a release against
+   * the painted pill (the drop-onto-dock gesture). The dock keeps its own
+   * internal ref live alongside this one.
+   */
+  readonly pillRef?: { current: HTMLElement | null }
+  /**
    * An interaction that must hold the dock open (the context menu is open,
    * a drag is in progress) — the doc-mode entry pins its reveal on this so
    * the pill's own pointerleave cannot hide the dock under the menu.
@@ -613,7 +620,10 @@ export function Dock(props: DockProps): React.JSX.Element {
   return (
     <div
       className={`dock${props.hidden ? ' dock-hidden' : ''}`}
-      ref={rootRef}
+      ref={(node) => {
+        rootRef.current = node
+        if (props.pillRef) props.pillRef.current = node
+      }}
       role="toolbar"
       aria-label={props.ariaLabel}
       style={{ '--dock-base': `${baseSize}px` } as React.CSSProperties}

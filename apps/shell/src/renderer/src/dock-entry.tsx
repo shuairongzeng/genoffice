@@ -14,18 +14,19 @@ import {
 } from './app-glyphs'
 import { Dock, type DockItem, type DockMenuEntry } from './Dock'
 import { useDockBounce } from './dock-bounce'
-import { normalizeDockPrefs, type DockPrefs } from '../../shared/dock-prefs'
+import { normalizeDockPrefs, removeDockCustom, type DockPrefs } from '../../shared/dock-prefs'
+import { dockCustomLabel, dockCustomIcon, dockCustomTile } from './dock-custom'
 import { useI18n } from './locale'
 import { DESKTOP_STRINGS } from './desktop-strings'
 
 /**
  * The dock's standalone mount: the shell renderer loaded with `?view=dock`
- * renders ONLY the fisheye dock — no panel, no pet, no prefs subscription,
- * no ready ping (the buffered-message handshake belongs to the ask panel's
- * entry; this surface answers a different, main-driven handshake: the hot
- * strip). Same one-bundle-two-branches trick the manual and the ask panel
- * play. The native doc-mode overlay (main/dock-overlay-view.ts) loads this
- * URL into a WebContentsView above the covering document.
+ * renders ONLY the fisheye dock — no panel, no pet, no ready ping (the
+ * buffered-message handshake belongs to the ask panel's entry; this surface
+ * answers a different, main-driven handshake: the hot strip). Same
+ * one-bundle-two-branches trick the manual and the ask panel play. The
+ * native doc-mode overlay (main/dock-overlay-view.ts) loads this URL into a
+ * WebContentsView above the covering document.
  *
  * The view's surface is transparent and it exists in two shapes main cuts:
  * the 3px hot strip along the window's bottom edge (its rest state — the
@@ -37,17 +38,19 @@ import { DESKTOP_STRINGS } from './desktop-strings'
  * cover the strip's 3px catches no pointerenter and the dock never
  * reveals). This entry's only jobs are reporting the pointer's transitions
  * so main can grow/shrink the surface, routing the dock's clicks: the
- * nav and launcher items over `home:dock-action` (main activates the Home
- * tab and delivers the intent — the raiseHomeTab semantics the Home-side
- * dock performs locally), the ask item through the ordinary
- * `home:ai-dock-set` write (the drawer overlay already handles doc mode) —
- * and, since the dock became a first-class surface, the macOS operability
- * layer: the settings-fed physics (设置 ▸ 程序坞, pushed by the store's
- * watcher), the running dots and the ask item's launch bounce (fed by
- * Home's open-target report, cached in main and pulled at mount), the
- * right-click menus (rendered inside this view, their verbs routed like
- * clicks), and the drag-to-reorder (persisted through the same prefs
- * channel — the pin below holds the dock revealed while it runs).
+ * nav and launcher items (the dragged-in customs included) over
+ * `home:dock-action` (main activates the Home tab and delivers the intent —
+ * the raiseHomeTab semantics the Home-side dock performs locally), the ask
+ * item through the ordinary `home:ai-dock-set` write (the drawer overlay
+ * already handles doc mode) — and, since the dock became a first-class
+ * surface, the macOS operability layer: the settings-fed physics (设置 ▸
+ * 程序坞, pushed by the store's watcher), the running dots and the ask
+ * item's launch bounce (fed by Home's open-target report, cached in main
+ * and pulled at mount), the right-click menus (rendered inside this view,
+ * their verbs routed like clicks — a custom launcher's 移除 writes the
+ * prefs this view already holds), and the drag-to-reorder (persisted
+ * through the same prefs channel — the pin below holds the dock revealed
+ * while it runs).
  */
 /**
  * True while the shell renderer was loaded as the dock's standalone view.
@@ -327,6 +330,36 @@ export function DockEntry(): React.JSX.Element {
         ),
         onSelect: () => route({ kind: 'settings', section: 'plugins' }),
       },
+      // the dragged-in launchers, the same items Home's pill carries: the
+      // click routes the whole item over `home:dock-action` (Home rises and
+      // resolves the verb — a vanished target's notice lives there too),
+      // the remove verb writes the prefs this view already holds
+      ...dockPrefs.customItems.map(
+        (custom) =>
+          ({
+            id: custom.id,
+            label: dockCustomLabel(custom, DESKTOP_STRINGS[lang]),
+            icon: dockCustomIcon(custom),
+            tile: dockCustomTile(custom),
+            onSelect: () => route({ kind: 'custom', custom }),
+            menu: [
+              { label: t('dockMenuOpen'), onSelect: () => route({ kind: 'custom', custom }) },
+              {
+                label: t('dockMenuRemove'),
+                onSelect: () => {
+                  const next = removeDockCustom(dockPrefs, custom.id)
+                  if (next !== dockPrefs) {
+                    commitDockPrefs({
+                      customItems: next.customItems,
+                      order: next.order,
+                    })
+                  }
+                },
+                danger: true,
+              },
+            ],
+          }) as DockItem,
+      ),
     ],
     [
       {

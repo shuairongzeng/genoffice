@@ -10,6 +10,8 @@ export const hi: Dict = {
   dockMenuClose: 'टैब बंद करें',
   dockMenuOpenDrawer: 'पैनल खोलें',
   dockMenuCollapseDrawer: 'पैनल छिपाएँ',
+  dockMenuRemove: 'हटाएँ',
+  dockCustomMissing: '{name} नहीं खोला जा सका — हो सकता है इसे हटा दिया गया हो।',
   askThreadsTitle: 'बातचीत',
   askThreadDelete: 'बातचीत "{label}" हटाएँ',
   askThreadDeleteConfirm: '"{label}" बातचीत हटाएँ? इसे वापस नहीं किया जा सकेगा।',

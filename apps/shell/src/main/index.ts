@@ -297,7 +297,7 @@ import { TABS_CHANNELS } from '../shared/tabs-api'
 import { showErrorDialog } from './error-dialog'
 import { startRendererWatchdog } from './renderer-watchdog'
 import { watchAiDock, readAiDock, AI_DOCK_KEY } from './ai-dock'
-import { watchDockPrefs } from './dock-prefs'
+import { readDockPrefs, watchDockPrefs } from './dock-prefs'
 import { createAiLineage, type AiLineageStore } from './ai-lineage'
 import { readAiPermissions, shouldAskBrowserPageAction, watchAiPermissions } from './ai-permissions'
 import { createAiSessionAllows } from './ai-session-allows'
@@ -801,6 +801,7 @@ const tMain = createI18n({
     menuTabPin: '固定标签页（不休眠）',
     menuTabUnpin: '取消固定标签页',
     dlgAddFolderRoot: '添加文件夹到首页',
+    dlgAddKbFiles: '将文件添加到知识库',
     watchdogTitle: '文档占用资源过高',
     watchdogBody:
       '“{title}” 已持续数分钟占用大量内存或 CPU（内存 {memory} MB，CPU {cpu}%）。可以继续等待，或关闭这个文档（有未保存的改动会先询问是否保存）。诊断信息已记录。', // public-hygiene: allow
@@ -931,6 +932,7 @@ const tMain = createI18n({
     menuTabPin: 'Pin tab (keep loaded)',
     menuTabUnpin: 'Unpin tab',
     dlgAddFolderRoot: 'Add Folder to Home',
+    dlgAddKbFiles: 'Add Files to the Knowledge Base',
     watchdogTitle: 'Document is using too many resources',
     watchdogBody:
       '"{title}" has been using a lot of memory or CPU for several minutes ({memory} MB, {cpu}% CPU). You can keep waiting, or close the document (you will be asked to save unsaved changes first). Diagnostics have been recorded.',
@@ -1071,6 +1073,7 @@ const tMain = createI18n({
     menuTabPin: 'Ghim thẻ (luôn tải)',
     menuTabUnpin: 'Bỏ ghim thẻ',
     dlgAddFolderRoot: 'Thêm thư mục vào Trang chủ',
+    dlgAddKbFiles: 'Thêm tệp vào Cơ sở kiến thức',
     watchdogTitle: 'Tài liệu đang dùng quá nhiều tài nguyên',
     watchdogBody:
       '"{title}" đã dùng nhiều bộ nhớ hoặc CPU trong vài phút ({memory} MB, {cpu}% CPU). Bạn có thể tiếp tục chờ hoặc đóng tài liệu này (sẽ hỏi lưu các thay đổi chưa lưu trước). Thông tin chẩn đoán đã được ghi lại.',
@@ -1211,6 +1214,7 @@ const tMain = createI18n({
     menuTabPin: 'タブをピン留め（スリープしない）',
     menuTabUnpin: 'タブのピン留めを解除',
     dlgAddFolderRoot: 'フォルダーをホームに追加',
+    dlgAddKbFiles: 'ファイルをナレッジベースに追加',
     watchdogTitle: 'ドキュメントのリソース使用量が過大です',
     watchdogBody:
       '「{title}」が数分間にわたり大量のメモリまたは CPU を使用しています（メモリ {memory} MB、CPU {cpu}%）。そのまま待つか、このドキュメントを閉じることができます（未保存の変更がある場合は保存を確認します）。診断情報を記録しました。',
@@ -1351,6 +1355,7 @@ const tMain = createI18n({
     menuTabPin: '탭 고정(절전 안 함)',
     menuTabUnpin: '탭 고정 해제',
     dlgAddFolderRoot: '홈에 폴더 추가',
+    dlgAddKbFiles: '파일을 지식 베이스에 추가',
     watchdogTitle: '문서가 리소스를 과도하게 사용하고 있습니다',
     watchdogBody:
       '"{title}"이(가) 몇 분 동안 많은 메모리 또는 CPU를 사용하고 있습니다(메모리 {memory} MB, CPU {cpu}%). 계속 기다리거나 이 문서를 닫을 수 있습니다(저장되지 않은 변경 사항이 있으면 먼저 저장 여부를 묻습니다). 진단 정보가 기록되었습니다.',
@@ -1490,6 +1495,7 @@ const tMain = createI18n({
     menuTabPin: 'Épingler l’onglet (garder chargé)',
     menuTabUnpin: 'Désépingler l’onglet',
     dlgAddFolderRoot: "Ajouter un dossier à l'accueil",
+    dlgAddKbFiles: 'Ajouter des fichiers à la base de connaissances',
     watchdogTitle: 'Le document consomme trop de ressources',
     watchdogBody:
       '« {title} » utilise beaucoup de mémoire ou de processeur depuis plusieurs minutes ({memory} Mo, {cpu} % CPU). Vous pouvez continuer à attendre ou fermer ce document (il vous sera d’abord demandé d’enregistrer les modifications non sauvegardées). Les diagnostics ont été enregistrés.',
@@ -1631,6 +1637,7 @@ const tMain = createI18n({
     menuTabPin: 'Tab anheften (geladen lassen)',
     menuTabUnpin: 'Tab lösen',
     dlgAddFolderRoot: 'Ordner zur Startseite hinzufügen',
+    dlgAddKbFiles: 'Dateien zur Wissensbasis hinzufügen',
     watchdogTitle: 'Dokument beansprucht zu viele Ressourcen',
     watchdogBody:
       '„{title}“ belegt seit mehreren Minuten viel Arbeitsspeicher oder CPU ({memory} MB, {cpu} % CPU). Sie können weiter warten oder das Dokument schließen (bei ungespeicherten Änderungen werden Sie zuerst zum Speichern gefragt). Diagnosedaten wurden aufgezeichnet.',
@@ -1773,6 +1780,7 @@ const tMain = createI18n({
     menuTabPin: 'Fijar pestaña (mantener cargada)',
     menuTabUnpin: 'Desfijar pestaña',
     dlgAddFolderRoot: 'Añadir carpeta al inicio',
+    dlgAddKbFiles: 'Añadir archivos a la base de conocimiento',
     watchdogTitle: 'El documento consume demasiados recursos',
     watchdogBody:
       '«{title}» lleva varios minutos usando mucha memoria o CPU ({memory} MB, {cpu} % de CPU). Puedes seguir esperando o cerrar el documento (antes se te pedirá guardar los cambios sin guardar). Se ha registrado el diagnóstico.',
@@ -1915,6 +1923,7 @@ const tMain = createI18n({
     menuTabPin: 'ปักหมุดแท็บ (ไม่พักการทำงาน)',
     menuTabUnpin: 'เลิกปักหมุดแท็บ',
     dlgAddFolderRoot: 'เพิ่มโฟลเดอร์ไปยังหน้าแรก',
+    dlgAddKbFiles: 'เพิ่มไฟล์ไปยังฐานความรู้',
     watchdogTitle: 'เอกสารใช้ทรัพยากรมากเกินไป',
     watchdogBody:
       '"{title}" ใช้หน่วยความจำหรือ CPU จำนวนมากติดต่อกันหลายนาที (หน่วยความจำ {memory} MB, CPU {cpu}%) คุณสามารถรอต่อไปหรือปิดเอกสารนี้ได้ (หากมีการเปลี่ยนแปลงที่ยังไม่บันทึกจะถามให้บันทึกก่อน) บันทึกข้อมูลวินิจฉัยแล้ว',
@@ -2052,6 +2061,7 @@ const tMain = createI18n({
     menuTabPin: 'Sematkan tab (tetap dimuat)',
     menuTabUnpin: 'Lepas sematan tab',
     dlgAddFolderRoot: 'Tambahkan Folder ke Beranda',
+    dlgAddKbFiles: 'Tambahkan berkas ke Basis Pengetahuan',
     watchdogTitle: 'Dokumen menggunakan terlalu banyak sumber daya',
     watchdogBody:
       '"{title}" telah menggunakan banyak memori atau CPU selama beberapa menit ({memory} MB, CPU {cpu}%). Anda dapat terus menunggu atau menutup dokumen ini (perubahan yang belum disimpan akan ditanyakan lebih dulu). Diagnostik telah dicatat.',
@@ -2193,6 +2203,7 @@ const tMain = createI18n({
     menuTabPin: 'Закрепить вкладку (не усыплять)',
     menuTabUnpin: 'Открепить вкладку',
     dlgAddFolderRoot: 'Добавить папку на главную',
+    dlgAddKbFiles: 'Добавить файлы в базу знаний',
     watchdogTitle: 'Документ потребляет слишком много ресурсов',
     watchdogBody:
       '«{title}» уже несколько минут использует много памяти или процессора ({memory} МБ, {cpu}% CPU). Можно подождать ещё или закрыть документ (при несохранённых изменениях сначала будет предложено сохранить). Диагностика записана.',
@@ -2334,6 +2345,7 @@ const tMain = createI18n({
     menuTabPin: 'تثبيت علامة التبويب (إبقاؤها محمّلة)',
     menuTabUnpin: 'إلغاء تثبيت علامة التبويب',
     dlgAddFolderRoot: 'إضافة مجلد إلى الصفحة الرئيسية',
+    dlgAddKbFiles: 'إضافة ملفات إلى قاعدة المعرفة',
     watchdogTitle: 'المستند يستهلك موارد كثيرة جدًا',
     watchdogBody:
       'يستهلك "{title}" قدرًا كبيرًا من الذاكرة أو المعالج منذ عدة دقائق (الذاكرة {memory} م.ب، المعالج {cpu}%). يمكنك مواصلة الانتظار أو إغلاق هذا المستند (سيُطلب حفظ التغييرات غير المحفوظة أولًا). تم تسجيل بيانات التشخيص.',
@@ -2471,6 +2483,7 @@ const tMain = createI18n({
     menuTabPin: 'Fixar separador (manter carregado)',
     menuTabUnpin: 'Desafixar separador',
     dlgAddFolderRoot: 'Adicionar pasta à página inicial',
+    dlgAddKbFiles: 'Adicionar arquivos à base de conhecimento',
     watchdogTitle: 'O documento está a consumir demasiados recursos',
     watchdogBody:
       '"{title}" está a usar muita memória ou CPU há vários minutos ({memory} MB, {cpu}% de CPU). Pode continuar a aguardar ou fechar o documento (será pedido para guardar alterações não guardadas primeiro). O diagnóstico foi registado.',
@@ -2612,6 +2625,7 @@ const tMain = createI18n({
     menuTabPin: 'Fissa scheda (mantieni caricata)',
     menuTabUnpin: 'Sblocca scheda',
     dlgAddFolderRoot: 'Aggiungi cartella alla Home',
+    dlgAddKbFiles: 'Aggiungi file alla base di conoscenza',
     watchdogTitle: 'Il documento sta usando troppe risorse',
     watchdogBody:
       '"{title}" sta usando molta memoria o CPU da diversi minuti ({memory} MB, {cpu}% CPU). Puoi continuare ad attendere o chiudere il documento (ti verrà chiesto prima di salvare le modifiche non salvate). La diagnostica è stata registrata.',
@@ -2753,6 +2767,7 @@ const tMain = createI18n({
     menuTabPin: 'Przypnij kartę (nie usypiaj)',
     menuTabUnpin: 'Odepnij kartę',
     dlgAddFolderRoot: 'Dodaj folder do strony głównej',
+    dlgAddKbFiles: 'Dodaj pliki do bazy wiedzy',
     watchdogTitle: 'Dokument zużywa zbyt dużo zasobów',
     watchdogBody:
       '„{title}” od kilku minut zużywa dużo pamięci lub procesora ({memory} MB, {cpu}% CPU). Możesz dalej czekać albo zamknąć dokument (najpierw pojawi się pytanie o zapisanie niezapisanych zmian). Dane diagnostyczne zostały zapisane.',
@@ -2894,6 +2909,7 @@ const tMain = createI18n({
     menuTabPin: 'Připnout kartu (neuspávat)',
     menuTabUnpin: 'Odepnout kartu',
     dlgAddFolderRoot: 'Přidat složku na domovskou stránku',
+    dlgAddKbFiles: 'Přidat soubory do znalostní báze',
     watchdogTitle: 'Dokument spotřebovává příliš mnoho prostředků',
     watchdogBody:
       '„{title}“ už několik minut využívá hodně paměti nebo procesoru ({memory} MB, {cpu} % CPU). Můžete dál čekat, nebo dokument zavřít (u neuložených změn se nejdřív zeptáme na uložení). Diagnostika byla zaznamenána.',
@@ -3033,6 +3049,7 @@ const tMain = createI18n({
     menuTabPin: 'Tabblad vastmaken (geladen houden)',
     menuTabUnpin: 'Tabblad losmaken',
     dlgAddFolderRoot: 'Map toevoegen aan startpagina',
+    dlgAddKbFiles: 'Bestanden toevoegen aan de kennisbank',
     watchdogTitle: 'Document gebruikt te veel systeembronnen',
     watchdogBody:
       '"{title}" gebruikt al enkele minuten veel geheugen of CPU ({memory} MB, {cpu}% CPU). U kunt blijven wachten of het document sluiten (bij niet-opgeslagen wijzigingen wordt eerst gevraagd of u wilt opslaan). Diagnostische gegevens zijn vastgelegd.',
@@ -3174,6 +3191,7 @@ const tMain = createI18n({
     menuTabPin: 'Semat tab (kekal dimuat)',
     menuTabUnpin: 'Nyahsemat tab',
     dlgAddFolderRoot: 'Tambah Folder ke Laman Utama',
+    dlgAddKbFiles: 'Tambah fail ke Pangkalan Pengetahuan',
     watchdogTitle: 'Dokumen menggunakan terlalu banyak sumber',
     watchdogBody:
       '"{title}" telah menggunakan banyak memori atau CPU selama beberapa minit ({memory} MB, CPU {cpu}%). Anda boleh terus menunggu atau menutup dokumen ini (perubahan yang belum disimpan akan ditanya dahulu). Diagnostik telah direkodkan.',
@@ -3314,6 +3332,7 @@ const tMain = createI18n({
     menuTabPin: 'הצמד כרטיסייה (השאר טעונה)',
     menuTabUnpin: 'בטל הצמדת כרטיסייה',
     dlgAddFolderRoot: 'הוספת תיקייה לדף הבית',
+    dlgAddKbFiles: 'הוספת קבצים לבסיס הידע',
     watchdogTitle: 'המסמך צורך יותר מדי משאבים',
     watchdogBody:
       '"{title}" משתמש בהרבה זיכרון או מעבד כבר כמה דקות (זיכרון {memory} MB, מעבד {cpu}%). אפשר להמשיך לחכות או לסגור את המסמך (אם יש שינויים שלא נשמרו, תתבקשו לשמור קודם). נתוני האבחון נרשמו.',
@@ -3451,6 +3470,7 @@ const tMain = createI18n({
     menuTabPin: 'टैब पिन करें (लोड रखें)',
     menuTabUnpin: 'टैब अनपिन करें',
     dlgAddFolderRoot: 'होम में फ़ोल्डर जोड़ें',
+    dlgAddKbFiles: 'फ़ाइलें नॉलेज बेस में जोड़ें',
     watchdogTitle: 'दस्तावेज़ बहुत अधिक संसाधन ले रहा है',
     watchdogBody:
       '"{title}" कई मिनटों से बहुत अधिक मेमोरी या CPU इस्तेमाल कर रहा है (मेमोरी {memory} MB, CPU {cpu}%)। आप इंतज़ार जारी रख सकते हैं या यह दस्तावेज़ बंद कर सकते हैं (बिना सहेजे बदलाव होने पर पहले सहेजने के लिए पूछा जाएगा)। निदान जानकारी दर्ज कर ली गई है।',
@@ -3592,6 +3612,7 @@ const tMain = createI18n({
     menuTabPin: '釘選標籤頁（不休眠）',
     menuTabUnpin: '取消釘選標籤頁',
     dlgAddFolderRoot: '將資料夾加入首頁',
+    dlgAddKbFiles: '將檔案加入知識庫',
     watchdogTitle: '文件佔用資源過高',
     watchdogBody:
       '「{title}」已持續數分鐘佔用大量記憶體或 CPU（記憶體 {memory} MB，CPU {cpu}%）。可以繼續等待，或關閉這個文件（有未儲存的變更會先詢問是否儲存）。診斷資訊已記錄。', // public-hygiene: allow
@@ -4149,10 +4170,10 @@ const shellWindowDeps: ShellWindowDeps = {
   userDataDir: () => app.getPath('userData'),
   uiScale: () => currentUiScale,
   // the dock's live composition: the cached open-target report knows the
-  // login state, and the logged-in cloud launcher is the eighth pill item —
-  // the closure reads the live cache so every layout pass cuts the rect
-  // from the composition that is actually mounted
-  dockItemCount: () => DOCK_ITEM_COUNT + (cachedDockOpen.loggedIn ? 1 : 0),
+  // login state, and the logged-in cloud launcher widens the pill by one
+  // item; the cached prefs count knows the dragged-in custom launchers —
+  // every layout pass cuts the rect from the composition actually mounted
+  dockItemCount: () => DOCK_ITEM_COUNT + (cachedDockOpen.loggedIn ? 1 : 0) + cachedDockCustomCount,
   tabSleepEnabled,
   untitledTitle: (kind) =>
     kind === 'help'
@@ -6309,6 +6330,10 @@ let pendingDockNav: DockNavIntent | null = null
 // Home's latest open-target report (which dock surfaces are open), cached
 // for the doc-mode overlay dock's mount-time pull and pushed live on change
 let cachedDockOpen: DockOpenState = DOCK_OPEN_NONE
+// the dock's live custom-launcher count, mirrored from the prefs watcher so
+// every composition consumer (the overlay rect's item count) reads one
+// cached number instead of re-parsing app-settings.json per layout pass
+let cachedDockCustomCount = 0
 registerHomeWorkbenchIpc({
   appSettingsPath: APP_SETTINGS_PATH,
   getTabManager: () => tabManager,
@@ -7089,12 +7114,15 @@ app.whenReady().then(async () => {
     tabManager?.layout()
   })
   // the dock's own prefs, the same shape: a settings write (or a drag's
-  // order commit on either mount) settles in app-settings.json and lands
-  // here — the broadcast reaches both dock renderers (Home's pill and the
-  // doc-mode overlay view, which sizes itself from the same numbers), and
-  // the layout re-cuts the overlay's rect for the new base size / strength
-  // the way the aiDock watcher re-fits the drawer's view
+  // order commit on either mount, or a custom launcher added/removed)
+  // settles in app-settings.json and lands here — the broadcast reaches
+  // both dock renderers (Home's pill and the doc-mode overlay view, which
+  // sizes itself from the same numbers), and the layout re-cuts the
+  // overlay's rect for the new base size / strength / item count the way
+  // the aiDock watcher re-fits the drawer's view
+  cachedDockCustomCount = readDockPrefs(APP_SETTINGS_PATH()).customItems.length
   watchDockPrefs(APP_SETTINGS_PATH(), (prefs) => {
+    cachedDockCustomCount = prefs.customItems.length
     sendToShellRenderer(HOME_CHANNELS.dockPrefsChanged, prefs)
     tabManager?.dockOverlayWebContents()?.send(HOME_CHANNELS.dockPrefsChanged, prefs)
     tabManager?.layout()

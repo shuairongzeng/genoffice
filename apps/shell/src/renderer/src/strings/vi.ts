@@ -10,6 +10,8 @@ export const vi: Dict = {
   dockMenuClose: 'Đóng thẻ',
   dockMenuOpenDrawer: 'Mở ngăn kéo',
   dockMenuCollapseDrawer: 'Thu gọn ngăn kéo',
+  dockMenuRemove: 'Gỡ bỏ',
+  dockCustomMissing: 'Không thể mở {name} — tệp có thể đã bị di chuyển hoặc xóa.',
   askThreadsTitle: 'Cuộc trò chuyện',
   askThreadDelete: 'Xoá cuộc trò chuyện "{label}"',
   askThreadDeleteConfirm: 'Xóa cuộc trò chuyện "{label}"? Không thể khôi phục lại.',

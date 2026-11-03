@@ -17,6 +17,7 @@ export type AppTile =
   | 'templates'
   | 'plugins'
   | 'settings'
+  | 'kb'
 
 /**
  * One thing on the desktop, whichever source it came from — the model every
@@ -71,6 +72,8 @@ export interface DesktopItemContext {
   /** the bridge, partial-tolerant like the view's own calls */
   readonly api: Partial<HomeApi>
   readonly onOpenAsk: () => void
+  /** the KB tile's verb: the knowledge base center takes over the content area */
+  readonly onOpenKb: () => void
   readonly onOpenTemplates: () => void
   readonly onOpenSettings: (target: SettingsTarget) => void
   readonly onOpenFolder: (root: FolderRoot) => void
@@ -125,6 +128,78 @@ export function mergeDesktopItems(
   return out
 }
 
+// ── the app registry (the tiles the desktop, the dock's customs and the menus share) ──
+
+/** the bindings an app tile's launch verb needs: the bridge plus the host's surface verbs */
+export interface DesktopAppOpenHost {
+  readonly api: Partial<HomeApi>
+  readonly onOpenAsk: () => void
+  /** the KB tile's verb: the knowledge base center takes over the content area */
+  readonly onOpenKb: () => void
+  readonly onOpenTemplates: () => void
+  readonly onOpenSettings: (target: SettingsTarget) => void
+}
+
+/** one app tile's identity: its item id, tile art and strings key */
+export interface DesktopAppEntry {
+  readonly id: string
+  readonly tile: AppTile
+  readonly titleKey: keyof DesktopStrings
+}
+
+/**
+ * The system app tiles, in display order — the one registry the desktop's
+ * icons, the dock's dragged-in app launchers and every future host read, so
+ * an id resolves to the same tile, title and verb everywhere.
+ */
+const APP_ENTRIES: readonly DesktopAppEntry[] = [
+  { id: 'app:docs', tile: 'docs', titleKey: 'appDocs' },
+  { id: 'app:sheets', tile: 'sheets', titleKey: 'appSheets' },
+  { id: 'app:slides', tile: 'slides', titleKey: 'appSlides' },
+  { id: 'app:pdf', tile: 'pdf', titleKey: 'appPdf' },
+  { id: 'app:markdown', tile: 'markdown', titleKey: 'appMarkdown' },
+  // the Web tile opens the *browser* app, not the html editor: the browser
+  // app browses the live web in tabs; the html app edits .html files (still
+  // reachable from the New menu and by opening a file)
+  { id: 'app:browser', tile: 'browser', titleKey: 'appHtml' },
+  { id: 'app:ask', tile: 'ask', titleKey: 'appAsk' },
+  { id: 'app:kb', tile: 'kb', titleKey: 'appKb' },
+  { id: 'app:templates', tile: 'templates', titleKey: 'appTemplates' },
+  { id: 'app:plugins', tile: 'plugins', titleKey: 'appPlugins' },
+  { id: 'app:settings', tile: 'settings', titleKey: 'appSettings' },
+]
+
+/** the app an id names: its tile and strings key; null for any other id */
+export function desktopAppEntry(id: string): DesktopAppEntry | null {
+  return APP_ENTRIES.find((entry) => entry.id === id) ?? null
+}
+
+/** each app tile's launch verb, bound to the host's own callbacks */
+const APP_OPEN_VERBS: Readonly<Record<string, (host: DesktopAppOpenHost) => () => void>> = {
+  'app:docs': (host) => () => void host.api.newDoc?.(),
+  'app:sheets': (host) => () => void host.api.newSheet?.(),
+  'app:slides': (host) => () => void host.api.newSlide?.(),
+  'app:pdf': (host) => () => void host.api.newPdf?.(),
+  'app:markdown': (host) => () => void host.api.newMarkdown?.(),
+  'app:browser': (host) => () => void host.api.newBrowser?.(),
+  'app:ask': (host) => host.onOpenAsk,
+  'app:kb': (host) => host.onOpenKb,
+  'app:templates': (host) => host.onOpenTemplates,
+  'app:plugins': (host) => () => host.onOpenSettings({ section: 'plugins' }),
+  'app:settings': (host) => () => host.onOpenSettings({ section: 'general' }),
+}
+
+/**
+ * The app tile's launch verb bound to a host's callbacks: the desktop icon,
+ * a dock custom launcher and a routed doc-mode click all resolve the same
+ * verb against their own bindings. Null for an id no app carries (a stale
+ * dock custom from an older build).
+ */
+export function desktopAppOpen(id: string, host: DesktopAppOpenHost): (() => void) | null {
+  const verb = APP_OPEN_VERBS[id]
+  return verb ? verb(host) : null
+}
+
 // ── the providers ───────────────────────────────────────
 
 function createAppsProvider(): DesktopItemProvider {
@@ -132,62 +207,16 @@ function createAppsProvider(): DesktopItemProvider {
     id: 'apps',
     getItems(ctx) {
       const s = ctx.strings
-      const api = ctx.api
-      const apps: ReadonlyArray<{
-        id: string
-        tile: AppTile
-        title: string
-        open: () => void
-      }> = [
-        { id: 'app:docs', tile: 'docs', title: s.appDocs, open: () => void api.newDoc?.() },
-        { id: 'app:sheets', tile: 'sheets', title: s.appSheets, open: () => void api.newSheet?.() },
-        { id: 'app:slides', tile: 'slides', title: s.appSlides, open: () => void api.newSlide?.() },
-        { id: 'app:pdf', tile: 'pdf', title: s.appPdf, open: () => void api.newPdf?.() },
-        {
-          id: 'app:markdown',
-          tile: 'markdown',
-          title: s.appMarkdown,
-          open: () => void api.newMarkdown?.(),
-        },
-        // the Web tile opens the *browser* app, not the html editor: the
-        // browser app browses the live web in tabs; the html app edits .html
-        // files (still reachable from the New menu and by opening a file)
-        {
-          id: 'app:browser',
-          tile: 'browser',
-          title: s.appHtml,
-          open: () => void api.newBrowser?.(),
-        },
-        { id: 'app:ask', tile: 'ask', title: s.appAsk, open: ctx.onOpenAsk },
-        {
-          id: 'app:templates',
-          tile: 'templates',
-          title: s.appTemplates,
-          open: ctx.onOpenTemplates,
-        },
-        {
-          id: 'app:plugins',
-          tile: 'plugins',
-          title: s.appPlugins,
-          open: () => ctx.onOpenSettings({ section: 'plugins' }),
-        },
-        {
-          id: 'app:settings',
-          tile: 'settings',
-          title: s.appSettings,
-          open: () => ctx.onOpenSettings({ section: 'general' }),
-        },
-      ]
-      return apps.map((app) => ({
-        id: app.id,
+      return APP_ENTRIES.map((entry) => ({
+        id: entry.id,
         kind: 'app' as const,
-        title: app.title,
-        tile: app.tile,
+        title: s[entry.titleKey],
+        tile: entry.tile,
         ext: '',
         path: null,
         alias: false,
         draggable: true,
-        open: app.open,
+        open: desktopAppOpen(entry.id, ctx) ?? (() => undefined),
       }))
     },
   }

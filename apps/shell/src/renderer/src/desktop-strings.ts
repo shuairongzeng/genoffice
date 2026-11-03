@@ -19,6 +19,8 @@ export interface DesktopStrings {
   appHtml: string
   /** the utility tiles */
   appAsk: string
+  /** the knowledge base center's tile (知识库) */
+  appKb: string
   appTemplates: string
   appPlugins: string
   appSettings: string
@@ -113,6 +115,10 @@ export interface DesktopStrings {
   noticeAliasLimit: string
   /** transient surface notice: an alias the OS-open gate refused */
   noticeOpenFailed: string
+  /** transient surface notice: a dock drop the custom-launcher cap refused */
+  noticeDockFull: string
+  /** transient surface notice: a dock drop of something the dock already has */
+  noticeDockDuplicate: string
   /** the multi-selection menu: star the selected files (the existing starred IPC) */
   menuStar: string
   /** the multi-selection menu: unstar the selected files */
@@ -142,6 +148,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: '网页',
     appAsk: 'AI 问答',
+    appKb: '知识库',
     appTemplates: '模板中心',
     appPlugins: '插件',
     appSettings: '设置中心',
@@ -213,6 +220,8 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     wpNameTeal: '深青海浪',
     noticeAliasLimit: '桌面最多放置 100 个文件；请先移除一些，再拖入新的。',
     noticeOpenFailed: '无法打开这个文件：它可能已被移动或删除。',
+    noticeDockFull: '程序坞最多放置 12 个自定义项；请先移除一些，再拖入新的。',
+    noticeDockDuplicate: 'Dock 裡已經有它了。',
     menuStar: '收藏',
     menuUnstar: '取消收藏',
     menuAskAi: '问 AI',
@@ -234,6 +243,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Web Page',
     appAsk: 'AI Chat',
+    appKb: 'Knowledge Base',
     appTemplates: 'Templates',
     appPlugins: 'Plugins',
     appSettings: 'Settings',
@@ -305,6 +315,8 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     wpNameTeal: 'Deep teal',
     noticeAliasLimit: 'The desktop holds at most 100 files; remove a few before dropping more.',
     noticeOpenFailed: 'Could not open this file — it may have been moved or deleted.',
+    noticeDockFull: 'The dock holds at most 12 custom items; remove a few before dropping more.',
+    noticeDockDuplicate: 'That one is already in the dock.',
     menuStar: 'Star',
     menuUnstar: 'Unstar',
     menuAskAi: 'Ask AI',
@@ -326,6 +338,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Web ページ',
     appAsk: 'AI チャット',
+    appKb: 'ナレッジベース',
     appTemplates: 'テンプレート',
     appPlugins: 'プラグイン',
     appSettings: '設定',
@@ -398,6 +411,9 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     noticeAliasLimit:
       'デスクトップに置けるファイルは最大 100 個です。いくつか削除してから改めてドロップしてください。',
     noticeOpenFailed: 'このファイルは開けませんでした。移動または削除された可能性があります。',
+    noticeDockFull:
+      'ドックには最大 12 個のカスタム項目しか追加できません。いくつか削除してから追加してください。',
+    noticeDockDuplicate: 'すでに Dock にあります。',
     menuStar: 'お気に入りに追加',
     menuUnstar: 'お気に入りから削除',
     menuAskAi: 'AI に質問',
@@ -421,6 +437,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: '웹 페이지',
     appAsk: 'AI 채팅',
+    appKb: '지식 베이스',
     appTemplates: '템플릿',
     appPlugins: '플러그인',
     appSettings: '설정',
@@ -493,6 +510,9 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     noticeAliasLimit:
       '데스크톱에는 최대 100개의 파일만 놓을 수 있습니다. 몇 개를 제거한 후 다시 놓아 주세요.',
     noticeOpenFailed: '이 파일을 열 수 없습니다. 파일이 이동되었거나 삭제되었을 수 있습니다.',
+    noticeDockFull:
+      '독에는 최대 12개의 사용자 지정 항목만 추가할 수 있습니다. 몇 개를 제거한 후 다시 시도하세요.',
+    noticeDockDuplicate: '이미 Dock에 있습니다.',
     menuStar: '즐겨찾기에 추가',
     menuUnstar: '즐겨찾기에서 제거',
     menuAskAi: 'AI에게 질문',
@@ -514,6 +534,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Page web',
     appAsk: 'Chat IA',
+    appKb: 'Base de connaissances',
     appTemplates: 'Modèles',
     appPlugins: 'Extensions',
     appSettings: 'Paramètres',
@@ -586,6 +607,9 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     noticeAliasLimit:
       'Le bureau contient au plus 100 fichiers ; retirez-en quelques-uns avant d’en déposer d’autres.',
     noticeOpenFailed: 'Impossible d’ouvrir ce fichier — il a peut-être été déplacé ou supprimé.',
+    noticeDockFull:
+      'Le dock accepte au plus 12 éléments personnalisés ; retirez-en quelques-uns avant d’en ajouter.',
+    noticeDockDuplicate: 'Il est déjà dans le Dock.',
     menuStar: 'Ajouter aux favoris',
     menuUnstar: 'Retirer des favoris',
     menuAskAi: 'Demander à l’IA',
@@ -609,6 +633,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Webseite',
     appAsk: 'KI-Chat',
+    appKb: 'Wissensbasis',
     appTemplates: 'Vorlagen',
     appPlugins: 'Plugins',
     appSettings: 'Einstellungen',
@@ -682,6 +707,9 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
       'Der Desktop fasst höchstens 100 Dateien; entferne einige, bevor du weitere ablegst.',
     noticeOpenFailed:
       'Diese Datei ließ sich nicht öffnen — sie wurde vielleicht verschoben oder gelöscht.',
+    noticeDockFull:
+      'Das Dock fasst höchstens 12 eigene Elemente; entferne einige, bevor du weitere hinzufügst.',
+    noticeDockDuplicate: 'Ist bereits im Dock.',
     menuStar: 'Zu Favoriten hinzufügen',
     menuUnstar: 'Aus Favoriten entfernen',
     menuAskAi: 'KI fragen',
@@ -705,6 +733,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Página web',
     appAsk: 'Chat de IA',
+    appKb: 'Base de conocimiento',
     appTemplates: 'Plantillas',
     appPlugins: 'Complementos',
     appSettings: 'Configuración',
@@ -777,6 +806,9 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     noticeAliasLimit:
       'El escritorio admite como máximo 100 archivos; quita algunos antes de soltar más.',
     noticeOpenFailed: 'No se pudo abrir este archivo: puede que se haya movido o borrado.',
+    noticeDockFull:
+      'El dock admite como máximo 12 elementos personalizados; quita alguno antes de añadir más.',
+    noticeDockDuplicate: 'Ya está en el Dock.',
     menuStar: 'Añadir a destacados',
     menuUnstar: 'Quitar de destacados',
     menuAskAi: 'Preguntar a la IA',
@@ -799,6 +831,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'หน้าเว็บ',
     appAsk: 'แชต AI',
+    appKb: 'ฐานความรู้',
     appTemplates: 'เทมเพลต',
     appPlugins: 'ปลั๊กอิน',
     appSettings: 'การตั้งค่า',
@@ -870,6 +903,8 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     wpNameTeal: 'เขียวน้ำเงินเข้ม',
     noticeAliasLimit: 'เดสก์ท็อปใส่ไฟล์ได้สูงสุด 100 รายการ โปรดลบบางรายการออกก่อนวางเพิ่ม',
     noticeOpenFailed: 'เปิดไฟล์นี้ไม่ได้ อาจถูกย้ายหรือลบไปแล้ว',
+    noticeDockFull: 'แด็กรับรายการกำหนดเองได้สูงสุด 12 รายการ โปรดลบบางรายการออกก่อนเพิ่มใหม่',
+    noticeDockDuplicate: 'มีอยู่ใน Dock แล้ว',
     menuStar: 'เพิ่มในรายการโปรด',
     menuUnstar: 'นำออกจากรายการโปรด',
     menuAskAi: 'ถาม AI',
@@ -891,6 +926,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Halaman web',
     appAsk: 'Obrolan AI',
+    appKb: 'Basis Pengetahuan',
     appTemplates: 'Templat',
     appPlugins: 'Plugin',
     appSettings: 'Pengaturan',
@@ -963,6 +999,8 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     noticeAliasLimit:
       'Desktop menampung paling banyak 100 berkas; hapus beberapa sebelum menambah lagi.',
     noticeOpenFailed: 'Berkas ini tidak bisa dibuka — mungkin sudah dipindahkan atau dihapus.',
+    noticeDockFull: 'Dock menampung maksimal 12 item khusus; hapus beberapa sebelum menambah lagi.',
+    noticeDockDuplicate: 'Sudah ada di Dock.',
     menuStar: 'Beri bintang',
     menuUnstar: 'Hapus bintang',
     menuAskAi: 'Tanya AI',
@@ -984,6 +1022,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Веб-страницы',
     appAsk: 'ИИ-чат',
+    appKb: 'База знаний',
     appTemplates: 'Шаблоны',
     appPlugins: 'Плагины',
     appSettings: 'Настройки',
@@ -1056,6 +1095,9 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     noticeAliasLimit:
       'На рабочем столе может быть не более 100 файлов; удалите часть, прежде чем добавлять новые.',
     noticeOpenFailed: 'Не удалось открыть этот файл — возможно, он был перемещён или удалён.',
+    noticeDockFull:
+      'В доке максимум 12 пользовательских элементов; удалите лишние, прежде чем добавлять новые.',
+    noticeDockDuplicate: 'Уже есть в Dock.',
     menuStar: 'Добавить в избранное',
     menuUnstar: 'Убрать из избранного',
     menuAskAi: 'Спросить ИИ',
@@ -1077,6 +1119,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'صفحات الويب',
     appAsk: 'محادثة AI',
+    appKb: 'قاعدة المعرفة',
     appTemplates: 'القوالب',
     appPlugins: 'الإضافات',
     appSettings: 'الإعدادات',
@@ -1148,6 +1191,8 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     wpNameTeal: 'أزرق مخضر عميق',
     noticeAliasLimit: 'يستوعب سطح المكتب 100 ملفًا كحد أقصى؛ أزل بعضها قبل إضافة المزيد.',
     noticeOpenFailed: 'تعذّر فتح هذا الملف — ربما نُقل أو حُذف.',
+    noticeDockFull: 'يستوعب الدوك 12 عنصرًا مخصصًا كحد أقصى؛ أزل بعضها قبل إضافة المزيد.',
+    noticeDockDuplicate: 'موجود في Dock بالفعل.',
     menuStar: 'إضافة إلى المفضلة',
     menuUnstar: 'إزالة من المفضلة',
     menuAskAi: 'اسأل الذكاء الاصطناعي',
@@ -1169,6 +1214,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Página web',
     appAsk: 'Chat de IA',
+    appKb: 'Base de conocimiento',
     appTemplates: 'Modelos',
     appPlugins: 'Plug-ins',
     appSettings: 'Configurações',
@@ -1241,6 +1287,9 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     noticeAliasLimit:
       'A área de trabalho comporta no máximo 100 ficheiros; remova alguns antes de largar mais.',
     noticeOpenFailed: 'Não foi possível abrir este ficheiro — pode ter sido movido ou apagado.',
+    noticeDockFull:
+      'O dock aceita no máximo 12 itens personalizados; remova algum antes de adicionar mais.',
+    noticeDockDuplicate: 'Já está no Dock.',
     menuStar: 'Adicionar aos favoritos',
     menuUnstar: 'Remover dos favoritos',
     menuAskAi: 'Perguntar à IA',
@@ -1264,6 +1313,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Pagine web',
     appAsk: 'Chat IA',
+    appKb: 'Base de conhecimento',
     appTemplates: 'Modelli',
     appPlugins: 'Plugin',
     appSettings: 'Impostazioni',
@@ -1336,6 +1386,9 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     noticeAliasLimit:
       'Il desktop contiene al massimo 100 file; rimuovine qualcuno prima di aggiungerne altri.',
     noticeOpenFailed: 'Impossibile aprire questo file: potrebbe essere stato spostato o eliminato.',
+    noticeDockFull:
+      'Il dock contiene al massimo 12 elementi personalizzati; rimuovine qualcuno prima di aggiungerne altri.',
+    noticeDockDuplicate: 'È già nel Dock.',
     menuStar: 'Aggiungi ai preferiti',
     menuUnstar: 'Rimuovi dai preferiti',
     menuAskAi: "Chiedi all'IA",
@@ -1358,6 +1411,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Strony internetowe',
     appAsk: 'Czat AI',
+    appKb: 'Baza wiedzy',
     appTemplates: 'Szablony',
     appPlugins: 'Wtyczki',
     appSettings: 'Ustawienia',
@@ -1430,6 +1484,9 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     noticeAliasLimit:
       'Pulpit pomieści co najwyżej 100 plików; usuń kilka przed dodaniem kolejnych.',
     noticeOpenFailed: 'Nie udało się otworzyć tego pliku — mógł zostać przeniesiony lub usunięty.',
+    noticeDockFull:
+      'Dock pomieści maksymalnie 12 własnych elementów; usuń kilka przed dodaniem kolejnych.',
+    noticeDockDuplicate: 'Już jest w Docku.',
     menuStar: 'Dodaj do ulubionych',
     menuUnstar: 'Usuń z ulubionych',
     menuAskAi: 'Zapytaj AI',
@@ -1451,6 +1508,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Webové stránky',
     appAsk: 'AI chat',
+    appKb: 'Znalostní báze',
     appTemplates: 'Šablony',
     appPlugins: 'Zásuvné moduly',
     appSettings: 'Nastavení',
@@ -1522,6 +1580,9 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     wpNameTeal: 'Hluboká tyrkysová',
     noticeAliasLimit: 'Plocha pojme nejvýše 100 souborů; před přidáním dalších některé odeberte.',
     noticeOpenFailed: 'Tento soubor se nepodařilo otevřít — možná byl přesunut nebo odstraněn.',
+    noticeDockFull:
+      'Dok pojme maximálně 12 vlastních položek; před přidáním dalších nějaké odeberte.',
+    noticeDockDuplicate: 'Už je v Docku.',
     menuStar: 'Přidat do oblíbených',
     menuUnstar: 'Odebrat z oblíbených',
     menuAskAi: 'Zeptat se AI',
@@ -1543,6 +1604,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: "Webpagina's",
     appAsk: 'AI-chat',
+    appKb: 'Kennisbank',
     appTemplates: 'Sjablonen',
     appPlugins: 'Plug-ins',
     appSettings: 'Instellingen',
@@ -1616,6 +1678,9 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
       'Het bureaublad biedt plaats aan maximaal 100 bestanden; verwijder er enkele voor je meer neerzet.',
     noticeOpenFailed:
       'Dit bestand kon niet geopend worden — het is misschien verplaatst of verwijderd.',
+    noticeDockFull:
+      'De dock biedt plaats aan maximaal 12 eigen items; verwijder er enkele voordat je er meer toevoegt.',
+    noticeDockDuplicate: 'Zit al in het Dock.',
     menuStar: 'Aan favorieten toevoegen',
     menuUnstar: 'Uit favorieten verwijderen',
     menuAskAi: 'AI vragen',
@@ -1639,6 +1704,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Halaman web',
     appAsk: 'Sembang AI',
+    appKb: 'Pangkalan Pengetahuan',
     appTemplates: 'Templat',
     appPlugins: 'Pemalam',
     appSettings: 'Tetapan',
@@ -1711,6 +1777,8 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     noticeAliasLimit:
       'Desktop menampung paling banyak 100 fail; buang beberapa sebelum meletakkan lagi.',
     noticeOpenFailed: 'Fail ini tidak dapat dibuka — mungkin telah dipindahkan atau dipadam.',
+    noticeDockFull: 'Dock memuat maksimum 12 item tersuai; buang beberapa sebelum menambah lagi.',
+    noticeDockDuplicate: 'Sudah ada dalam Dock.',
     menuStar: 'Beri bintang',
     menuUnstar: 'Buang bintang',
     menuAskAi: 'Tanya AI',
@@ -1732,6 +1800,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'דפי אינטרנט',
     appAsk: "צ'אט AI",
+    appKb: 'בסיס הידע',
     appTemplates: 'תבניות',
     appPlugins: 'תוספים',
     appSettings: 'הגדרות',
@@ -1803,6 +1872,8 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     wpNameTeal: 'טורקיז עמוק',
     noticeAliasLimit: 'שולחן העבודה מכיל לכל היותר 100 קבצים; הסר כמה לפני שתוסיף חדשים.',
     noticeOpenFailed: 'לא ניתן לפתוח את הקובץ — ייתכן שהועבר או נמחק.',
+    noticeDockFull: 'הדוק מכיל לכל היותר 12 פריטים מותאמים אישית; הסר כמה מהם לפני שתוסיף עוד.',
+    noticeDockDuplicate: 'כבר נמצא ב-Dock.',
     menuStar: 'הוספה למועדפים',
     menuUnstar: 'הסרה מהמועדפים',
     menuAskAi: 'שאל את ה-AI',
@@ -1824,6 +1895,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'वेब पेज',
     appAsk: 'AI चैट',
+    appKb: 'नॉलेज बेस',
     appTemplates: 'टेम्पलेट',
     appPlugins: 'प्लगइन',
     appSettings: 'सेटिंग्स',
@@ -1896,6 +1968,8 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     noticeAliasLimit:
       'डेस्कटॉप पर अधिकतम 100 फ़ाइलें रखी जा सकती हैं; और छोड़ने से पहले कुछ हटा दें।',
     noticeOpenFailed: 'यह फ़ाइल नहीं खुल सकी — हो सकता है इसे हटा दिया गया हो या मिटा दिया गया हो।',
+    noticeDockFull: 'डॉक में अधिकतम 12 कस्टम आइटम रखे जा सकते हैं; नए जोड़ने से पहले कुछ हटाएँ।',
+    noticeDockDuplicate: 'पहले से ही Dock में है।',
     menuStar: 'तारांकित करें',
     menuUnstar: 'तारांकन हटाएँ',
     menuAskAi: 'AI से पूछें',
@@ -1917,6 +1991,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: '網頁',
     appAsk: 'AI 問答',
+    appKb: '知識庫',
     appTemplates: '範本中心',
     appPlugins: '外掛程式',
     appSettings: '設定中心',
@@ -1988,6 +2063,8 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     wpNameTeal: '深青海浪',
     noticeAliasLimit: '桌面最多放置 100 個檔案；請先移除一些，再拖入新的。',
     noticeOpenFailed: '無法開啟這個檔案：它可能已被移動或刪除。',
+    noticeDockFull: '程式塢最多放置 12 個自訂項目；請先移除一些，再拖入新的。',
+    noticeDockDuplicate: 'Đã có trong Dock rồi.',
     menuStar: '收藏',
     menuUnstar: '取消收藏',
     menuAskAi: '問 AI',
@@ -2009,6 +2086,7 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     appMarkdown: 'Markdown',
     appHtml: 'Trang web',
     appAsk: 'Trò chuyện AI',
+    appKb: 'Cơ sở kiến thức',
     appTemplates: 'Mẫu',
     appPlugins: 'Tiện ích bổ sung',
     appSettings: 'Cài đặt',
@@ -2080,6 +2158,8 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     wpNameTeal: 'Xanh mòng két sâu',
     noticeAliasLimit: 'Màn hình nền chứa tối đa 100 tệp; hãy xóa bớt trước khi thêm mới.',
     noticeOpenFailed: 'Không thể mở tệp này — tệp có thể đã bị di chuyển hoặc xóa.',
+    noticeDockFull: 'Thanh dock chứa tối đa 12 mục tùy chỉnh; hãy bỏ bớt trước khi thêm mục mới.',
+    noticeDockDuplicate: 'That one is already in the dock.',
     menuStar: 'Gắn sao',
     menuUnstar: 'Bỏ gắn sao',
     menuAskAi: 'Hỏi AI',

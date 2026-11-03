@@ -753,3 +753,173 @@ describe('dockOpenViewOf (the report view derivation)', () => {
     expect(view(null, false)).toBeNull()
   })
 })
+
+describe("the dock's dragged-in launchers (dockPrefs.customItems)", () => {
+  const fileCustom = {
+    id: 'dock:custom:file:/fixtures/brief.docx',
+    kind: 'file',
+    target: '/fixtures/brief.docx',
+  } as const
+  const appCustom = { id: 'dock:custom:app:app:kb', kind: 'app', target: 'app:kb' } as const
+  const folderCustom = { id: 'dock:custom:folder:/desk', kind: 'folder', target: '/desk' } as const
+  const withCustoms = [fileCustom, appCustom, folderCustom] as const
+
+  /** the prefs the mount reads */
+  let prefsValue: Record<string, unknown> = {}
+  /** every patch the prefs channel saw */
+  const prefsPatches: Array<Record<string, unknown>> = []
+  const statPaths = vi.fn(async (paths: string[]) =>
+    paths.map((path) => ({
+      path,
+      name: path.split('/').pop() ?? path,
+      ext: 'docx',
+      mtimeMs: 1,
+      sizeBytes: 10,
+      starred: false,
+      missing: false,
+    })),
+  )
+  const openPath = vi.fn(async () => undefined)
+  const desktopOpenExternal = vi.fn(async () => true)
+  /** the live dock-nav subscription, for routed custom intents */
+  let dockNavHandler: ((intent: Record<string, unknown>) => void) | null = null
+
+  async function mountWithCustoms(): Promise<void> {
+    prefsPatches.length = 0
+    statPaths.mockClear()
+    openPath.mockClear()
+    desktopOpenExternal.mockClear()
+    window.aiOffice = {
+      ...window.aiOffice,
+      getDockPrefs: async () => normalizeDockPrefs(prefsValue),
+      setDockPrefs: async (patch: Record<string, unknown>) => {
+        prefsPatches.push(patch)
+        return undefined
+      },
+      onDockPrefsChanged: () => () => {},
+      onDockNav: (handler: (intent: Record<string, unknown>) => void) => {
+        dockNavHandler = handler
+        return () => {
+          dockNavHandler = null
+        }
+      },
+      statPaths,
+      openPath,
+      desktopOpenExternal,
+    } as unknown as Window['aiOffice']
+    await act(async () => root.unmount())
+    container.remove()
+    container = document.createElement('div')
+    document.body.append(container)
+    root = createRoot(container)
+    await act(async () =>
+      root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
+    )
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+  }
+
+  /** flush the verb's async chain (the stat, then the open) */
+  async function flush(): Promise<void> {
+    await act(async () => {
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+  }
+
+  it('renders the customs in the launchers group, before the ask tail', async () => {
+    prefsValue = { customItems: withCustoms }
+    await mountWithCustoms()
+    const labels = [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].map((button) =>
+      button.getAttribute('aria-label'),
+    )
+    expect(labels).toEqual([
+      'Desktop',
+      'Recent',
+      'Starred',
+      'Settings',
+      'Templates',
+      'Plugins',
+      'brief.docx',
+      'Knowledge Base',
+      'desk',
+      'Ask AI',
+    ])
+  })
+
+  it('a file custom opens through the stat-then-openPath round trip', async () => {
+    prefsValue = { customItems: withCustoms }
+    await mountWithCustoms()
+    await click(nav('brief.docx'))
+    await flush()
+    expect(statPaths).toHaveBeenCalledWith(['/fixtures/brief.docx'])
+    expect(openPath).toHaveBeenCalledWith('/fixtures/brief.docx')
+  })
+
+  it('a vanished file answers honestly: the notice, never a silent open', async () => {
+    statPaths.mockImplementationOnce(async (paths: string[]) =>
+      paths.map((path) => ({ path, missing: true })),
+    )
+    prefsValue = { customItems: withCustoms }
+    await mountWithCustoms()
+    await click(nav('brief.docx'))
+    await flush()
+    expect(openPath).not.toHaveBeenCalled()
+    const notice = container.querySelector<HTMLElement>('.dock-notice')
+    expect(notice?.textContent).toBe(
+      'Could not open brief.docx — it may have been moved or deleted.',
+    )
+    expect(notice?.getAttribute('role')).toBe('status')
+  })
+
+  it('an app custom runs the registry verb: the KB center takes the stage', async () => {
+    prefsValue = { customItems: withCustoms }
+    await mountWithCustoms()
+    await click(nav('Knowledge Base'))
+    await flush()
+    expect(container.querySelector('.kb-center')).toBeTruthy()
+  })
+
+  it('a folder that is not one of the roots goes to the OS file manager', async () => {
+    prefsValue = { customItems: withCustoms }
+    await mountWithCustoms()
+    await click(nav('desk'))
+    await flush()
+    expect(desktopOpenExternal).toHaveBeenCalledWith('/desk')
+  })
+
+  it('the remove (移除) verb writes the definition and its order entry away together', async () => {
+    prefsValue = { customItems: withCustoms }
+    await mountWithCustoms()
+    nav('brief.docx').dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 120,
+        clientY: 560,
+      }),
+    )
+    await act(async () => {
+      await Promise.resolve()
+    })
+    const entries = [...document.body.querySelectorAll('.dock-menu button')].map(
+      (button) => button.textContent,
+    )
+    expect(entries).toEqual(['Open', 'Remove'])
+    const remove = [...document.body.querySelectorAll('.dock-menu button')].at(-1)!
+    await click(remove)
+    expect(prefsPatches).toEqual([
+      { customItems: [appCustom, folderCustom], order: [appCustom.id, folderCustom.id] },
+    ])
+  })
+
+  it('a routed custom intent (the doc-mode click) resolves the verb here', async () => {
+    prefsValue = { customItems: withCustoms }
+    await mountWithCustoms()
+    await act(async () => {
+      dockNavHandler!({ kind: 'custom', custom: appCustom })
+    })
+    await flush()
+    expect(container.querySelector('.kb-center')).toBeTruthy()
+  })
+})

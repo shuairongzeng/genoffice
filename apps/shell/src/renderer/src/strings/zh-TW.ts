@@ -10,6 +10,8 @@ export const zhTW: Dict = {
   dockMenuClose: '關閉標籤',
   dockMenuOpenDrawer: '開啟抽屜',
   dockMenuCollapseDrawer: '收起抽屜',
+  dockMenuRemove: '移除',
+  dockCustomMissing: '無法開啟“{name}”：它可能已被移動或刪除。',
   askThreadsTitle: '對話',
   askThreadDelete: '刪除對話「{label}」',
   askThreadDeleteConfirm: '刪除對話「{label}」？刪除後無法復原。',

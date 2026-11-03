@@ -10,6 +10,8 @@ export const pl: Dict = {
   dockMenuClose: 'Zamknij kartę',
   dockMenuOpenDrawer: 'Otwórz panel',
   dockMenuCollapseDrawer: 'Zwiń panel',
+  dockMenuRemove: 'Usuń',
+  dockCustomMissing: 'Nie udało się otworzyć {name} — mógł zostać przeniesiony lub usunięty.',
   askThreadsTitle: 'Rozmowy',
   askThreadDelete: 'Usuń rozmowę „{label}”',
   askThreadDeleteConfirm: 'Usunąć rozmowę „{label}"? Nie będzie można jej odzyskać.',

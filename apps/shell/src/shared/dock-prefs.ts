@@ -15,6 +15,14 @@
  * person last arranged, applied WITHIN each group (the group boundaries are
  * fixed — nav | launchers | ask — so the sequence only ever permutes a
  * group's own members; applyDockOrder in dock-math.ts is the pure applier).
+ *
+ * `customItems` are the launchers the person dragged in from the desktop
+ * (desktop icons dropped onto the pill): a file path, a folder path or an
+ * app tile id, each with the stable id `dockCustomId` derives from its kind
+ * and target. They ride the launchers group and the same `order` sequence —
+ * the normalizer keeps the two consistent (every custom's id appears in the
+ * order exactly once) so a partial hand-edit of app-settings.json can never
+ * strand a definition the pill still renders or vice versa.
  */
 
 /** the dock's base icon size in CSS px at rest — the slot pitch */
@@ -28,6 +36,73 @@ export const DOCK_MAX_SCALE_DEFAULT = 1.7
 /** the magnification-strength slider's range (设置 ▸ 放大强度) */
 export const DOCK_MAX_SCALE_MIN = 1.2
 export const DOCK_MAX_SCALE_MAX = 2.0
+
+/** how many dragged-in launchers the dock accepts before a drop is refused */
+export const DOCK_CUSTOM_CAP = 12
+/** one custom target is capped like every other path the stores accept */
+const DOCK_CUSTOM_TARGET_MAX_CHARS = 4096
+
+/** what a custom launcher is: a file, a folder, or a desktop app tile */
+export type DockCustomKind = 'file' | 'folder' | 'app'
+
+/**
+ * One dragged-in dock launcher. `target` is the file or folder path (kinds
+ * file/folder) or the desktop app id (`app:docs`, kinds app) — the same
+ * identity the desktop icon carries, so the item's click verb is the icon's
+ * own verb resolved live at click time (the path may stop existing; the app
+ * set may change between builds). The id is pinned to the pair
+ * (`dockCustomId`) so two writes of one drop agree on identity and the
+ * stores can dedupe by id alone.
+ */
+export interface DockCustomItem {
+  /** stable identity (React key, the order sequence's entry) */
+  readonly id: string
+  readonly kind: DockCustomKind
+  /** the launch target: the path (file/folder) or the app id (app) */
+  readonly target: string
+}
+
+/**
+ * One dragged-in desktop icon offered to the dock — the payload the desktop
+ * view hands its host on a drop over the pill. The host (Home) resolves it
+ * into a `DockCustomItem` through `addDockCustom`.
+ */
+export interface DockCustomCandidate {
+  readonly kind: DockCustomKind
+  readonly target: string
+}
+
+/** the stable id of one custom launcher: derived from its kind and target */
+export function dockCustomId(kind: DockCustomKind, target: string): string {
+  return `dock:custom:${kind}:${target}`
+}
+
+/** a custom launcher, whole: null on anything else, the id pinned to the pair */
+export function asDockCustomItem(value: unknown): DockCustomItem | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Partial<{ id: unknown; kind: unknown; target: unknown }>
+  if (typeof raw.id !== 'string' || raw.id === '') return null
+  if (raw.kind !== 'file' && raw.kind !== 'folder' && raw.kind !== 'app') return null
+  if (typeof raw.target !== 'string' || raw.target === '') return null
+  if (raw.target.length > DOCK_CUSTOM_TARGET_MAX_CHARS) return null
+  if (raw.id !== dockCustomId(raw.kind, raw.target)) return null
+  return { id: raw.id, kind: raw.kind, target: raw.target }
+}
+
+/** the stored customs: validated, deduped by id, capped at DOCK_CUSTOM_CAP */
+function normalizeDockCustomItems(value: unknown): DockCustomItem[] {
+  if (!Array.isArray(value)) return []
+  const out: DockCustomItem[] = []
+  const seen = new Set<string>()
+  for (const raw of value) {
+    const item = asDockCustomItem(raw)
+    if (!item || seen.has(item.id)) continue
+    if (out.length >= DOCK_CUSTOM_CAP) break
+    seen.add(item.id)
+    out.push(item)
+  }
+  return out
+}
 
 /**
  * The dock's persisted state. `magnify` off is the static dock (a distinct
@@ -47,6 +122,8 @@ export interface DockPrefs {
   autoHide: boolean
   /** the person's item order: flat id sequence, applied within groups only */
   order: string[]
+  /** the dragged-in launchers (desktop icons), capped, ids consistent with order */
+  customItems: DockCustomItem[]
 }
 
 /**
@@ -58,7 +135,7 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
   return Math.round(Math.min(max, Math.max(min, value)) * 100) / 100
 }
 
-/** the stored `dockPrefs` with defaults filled, every number clamped, the order deduped */
+/** the stored `dockPrefs` with defaults filled, every number clamped, the order deduped and kept consistent with the customs */
 export function normalizeDockPrefs(value: unknown): DockPrefs {
   const raw = (value ?? {}) as Partial<{
     magnify: unknown
@@ -66,10 +143,20 @@ export function normalizeDockPrefs(value: unknown): DockPrefs {
     maxScale: unknown
     autoHide: unknown
     order: unknown
+    customItems: unknown
   }>
   const order = Array.isArray(raw.order)
     ? raw.order.filter((id): id is string => typeof id === 'string' && id !== '')
     : []
+  const customItems = normalizeDockCustomItems(raw.customItems)
+  // the consistency rule: every custom's id rides the order sequence exactly
+  // once — one a partial write (or a hand-edit) dropped appends at the end,
+  // while the person's own arrangement of the rest is untouched. Entries
+  // naming customs the list no longer carries rank nothing and simply drop
+  // out of applyDockOrder; removing a definition is `removeDockCustom`'s
+  // business (definition and order entry together), not the normalizer's.
+  const known = new Set(order)
+  const appended = customItems.filter((item) => !known.has(item.id)).map((item) => item.id)
   return {
     magnify: raw.magnify === false ? false : true,
     baseSize: clampNumber(raw.baseSize, DOCK_BASE_MIN, DOCK_BASE_MAX, DOCK_BASE_DEFAULT),
@@ -82,13 +169,16 @@ export function normalizeDockPrefs(value: unknown): DockPrefs {
     autoHide: raw.autoHide === true,
     // ids the store never saw (a fresh item in a newer build) keep their
     // default place after the known ones — see applyDockOrder
-    order: [...new Set(order)],
+    order: appended.length > 0 ? [...new Set(order), ...appended] : [...new Set(order)],
+    customItems,
   }
 }
 
 /**
  * Two dock prefs are the same prefs: every field counts, the order by exact
- * sequence (a swap always re-broadcasts). The watcher's dedup gate.
+ * sequence (a swap always re-broadcasts), the customs by exact sequence (an
+ * added, removed or reordered launcher is a new dock). The watcher's dedup
+ * gate.
  */
 export function sameDockPrefs(a: DockPrefs, b: DockPrefs): boolean {
   return (
@@ -97,8 +187,68 @@ export function sameDockPrefs(a: DockPrefs, b: DockPrefs): boolean {
     a.baseSize === b.baseSize &&
     a.maxScale === b.maxScale &&
     a.order.length === b.order.length &&
-    a.order.every((id, index) => id === b.order[index])
+    a.order.every((id, index) => id === b.order[index]) &&
+    a.customItems.length === b.customItems.length &&
+    a.customItems.every(
+      (item, index) =>
+        item.id === b.customItems[index]?.id &&
+        item.kind === b.customItems[index]?.kind &&
+        item.target === b.customItems[index]?.target,
+    )
   )
+}
+
+/** what a drop onto the dock did — the desktop view's answer to read back */
+export type DockCustomAddStatus = 'added' | 'duplicate' | 'full' | 'invalid'
+
+/**
+ * One dragged-in desktop icon joined onto the prefs: the candidate validated
+ * (an empty or oversized target answers `invalid`), a repeat of an item the
+ * dock already carries answered `duplicate` (nothing changes, nothing
+ * writes), a drop past DOCK_CUSTOM_CAP answered `full` (the pill's
+ * composition stands). An `added` item lands at the END of the customs list
+ * and the END of the order sequence — applyDockOrder places it after the
+ * launchers group's coded members, before the ask tail, exactly where the
+ * drop released it.
+ */
+export function addDockCustom(
+  prefs: DockPrefs,
+  candidate: DockCustomCandidate,
+): { status: DockCustomAddStatus; prefs: DockPrefs } {
+  const target = candidate.target.trim()
+  const item = asDockCustomItem({
+    id: dockCustomId(candidate.kind, target),
+    kind: candidate.kind,
+    target,
+  })
+  if (!item) return { status: 'invalid', prefs }
+  if (prefs.customItems.some((existing) => existing.id === item.id)) {
+    return { status: 'duplicate', prefs }
+  }
+  if (prefs.customItems.length >= DOCK_CUSTOM_CAP) return { status: 'full', prefs }
+  return {
+    status: 'added',
+    prefs: {
+      ...prefs,
+      customItems: [...prefs.customItems, item],
+      order: [...prefs.order, item.id],
+    },
+  }
+}
+
+/**
+ * Drop one custom launcher: the definition and its order entry go together —
+ * "removing from order does not drop the definition" describes the
+ * normalizer's tolerance of partial writes, not the remove verb itself. A
+ * missing id is a no-op (the prefs come back unchanged).
+ */
+export function removeDockCustom(prefs: DockPrefs, id: string): DockPrefs {
+  if (!prefs.customItems.some((item) => item.id === id)) return prefs
+  return {
+    ...prefs,
+    customItems: prefs.customItems.filter((item) => item.id !== id),
+    order: prefs.order.filter((entry) => entry !== id),
+  }
 }
 
 /**

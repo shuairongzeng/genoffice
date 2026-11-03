@@ -10,6 +10,8 @@ export const ms: Dict = {
   dockMenuClose: 'Tutup tab',
   dockMenuOpenDrawer: 'Buka panel',
   dockMenuCollapseDrawer: 'Lipat panel',
+  dockMenuRemove: 'Buang',
+  dockCustomMissing: '{name} tidak dapat dibuka — mungkin telah dipindahkan atau dipadam.',
   askThreadsTitle: 'Perbualan',
   askThreadDelete: 'Padam perbualan "{label}"',
   askThreadDeleteConfirm: 'Padam perbualan "{label}"? Ia tidak dapat dikembalikan selepas dipadam.',

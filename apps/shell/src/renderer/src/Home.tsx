@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent } from 'react'
 import { AiDock, normalizeAiDockPrefs, readLocalAiDockPrefs, writeLocalAiDockPrefs } from './AiDock'
-import { normalizeDockPrefs, type DockOpenState, type DockPrefs } from '../../shared/dock-prefs'
+import {
+  addDockCustom,
+  normalizeDockPrefs,
+  removeDockCustom,
+  type DockCustomAddStatus,
+  type DockCustomCandidate,
+  type DockCustomItem,
+  type DockOpenState,
+  type DockPrefs,
+} from '../../shared/dock-prefs'
 import { useDockBounce } from './dock-bounce'
 import { DOCK_AUTOHIDE_DELAY_MS } from './dock-math'
+import { dockCustomLabel, dockCustomIcon, dockCustomTile } from './dock-custom'
+import { desktopAppOpen, isOpenableDocument } from './desktop-items'
 import { HomeTabs } from './HomeTabs'
 import { KbAskPanel } from './KbAskPanel'
 import { FileBadge } from './file-badge'
@@ -49,6 +60,7 @@ import { bindRecentsChanged, onFilesChanged } from './file-events'
 import { aiSetupNeeded } from './ai-setup-state'
 import { SettingsModalHost } from './settings-modal-host'
 import { CloudProjectsView } from './CloudProjectsView'
+import { KbCenterView } from './KbCenterView'
 import { DropToOpenOverlay } from './DropToOpenOverlay'
 import { FolderPicker } from './FolderPicker'
 import { ConflictPrompt, GroupPicker } from './home-dialogs'
@@ -945,6 +957,16 @@ export function Home() {
     setRowMenu(null)
   }, [])
 
+  /** the KB tile's verb: the knowledge base center takes over the content
+   *  area — a Home surface like the lists, not a modal — so the corpus can
+   *  be managed from wherever the desktop's 知识库 tile is */
+  const showKbCenter = useCallback(() => {
+    dispatchView({ type: 'show-kb' })
+    writeLaunchView('kb')
+    setSelected(new Set())
+    setRowMenu(null)
+  }, [])
+
   const changeFilter = (key: string) => {
     setFilter(key)
     setSelected(new Set())
@@ -1038,51 +1060,6 @@ export function Home() {
     },
     [docTabActive, openAskDock],
   )
-  // the doc-mode dock's routed clicks (home:dock-nav): main delivers the
-  // intent and activates the Home tab in the same beat, so the handler only
-  // performs the outcome — the view switch, the settings request or the
-  // templates opening — and the person sees it the moment the tab rises.
-  // The push can beat this subscription (cold boot: main routed the click
-  // while this renderer was still mounting, and a push nobody listens for
-  // is lost), so the mount arms the subscription FIRST and then pulls
-  // main's buffer of the same beat — the subscribe-then-pull order means
-  // the worst case is one intent performed twice (idempotent: the same view
-  // switch, the same settings request, the same gallery), never one lost
-  const performDockNav = useCallback(
-    (intent: DockNavIntent) => {
-      if (intent.kind === 'nav') {
-        if (intent.view === 'desktop') showDesktop()
-        else if (intent.view === 'cloud') showCloud()
-        else changeView(intent.view)
-        return
-      }
-      if (intent.kind === 'settings') {
-        setSettingsRequest({ section: intent.section })
-        return
-      }
-      if (intent.kind === 'close') {
-        // the dock context menu's 关闭标签 (a doc-mode click routed here):
-        // close the named surface without raising the Home tab — main's
-        // dockNavAction already skips the raise for close intents
-        if (intent.target === 'templates') setTemplatesOpen(false)
-        else setSettingsCloseSeq((n) => n + 1)
-        return
-      }
-      setTemplatesOpen(true)
-    },
-    [showDesktop, showCloud, changeView],
-  )
-  useEffect(() => {
-    const api = window.aiOffice as Partial<HomeApi>
-    const unsubscribe = api?.onDockNav?.(performDockNav)
-    void api
-      ?.takeDockNavPending?.()
-      .then((intent) => {
-        if (intent) performDockNav(intent)
-      })
-      .catch(() => undefined)
-    return unsubscribe
-  }, [performDockNav])
 
   // the shell:open_folder tool's surface half: main verified the path sits
   // inside a folder root, activated this tab, and pushed the directory — the
@@ -1143,6 +1120,223 @@ export function Home() {
   const openTemplates = useCallback(() => setTemplatesOpen(true), [])
   const openSettings = useCallback((target: SettingsTarget) => setSettingsRequest(target), [])
   const openFolderView = useCallback((root: FolderRoot) => selectFolder(root.path), [selectFolder])
+
+  // ── the dragged-in dock launchers (dockPrefs.customItems) ──
+  // The desktop view hands a dropped icon over (onDockDrop below); Home owns
+  // the prefs write and the click verb, because the verb is the desktop
+  // icon's own: a file opens the way the icon would, a folder root opens the
+  // suite's folder view, an app tile runs its launch. The doc-mode overlay
+  // cannot resolve any of that — it routes its clicks back here over
+  // `home:dock-action`, the same path every launcher's doc-mode click takes.
+
+  /** the pill's own element: the drop hit-test's rect, threaded into the dock and the desktop view */
+  const dockPillRef = useRef<HTMLElement | null>(null)
+
+  /** a dragged-in icon's release over the pill: join it to the dock, read back what happened */
+  const handleDockDrop = useCallback(
+    (candidate: DockCustomCandidate): DockCustomAddStatus => {
+      // an app tile that already IS a built-in dock item must not duplicate
+      // itself — the dock's own 设置中心 beside a dragged-in one reads as a
+      // bug, not a feature (the mapping is app:X → dock:X by convention; the
+      // built-in ids arrive through a ref because the groups are built later
+      // in this component body)
+      if (candidate.kind === 'app') {
+        const builtIn = `dock:${candidate.target.replace(/^app:/, '')}`
+        const groups = dockGroupsRef.current
+        if (groups.some((group) => group.some((item) => item.id === builtIn))) {
+          return 'duplicate'
+        }
+      }
+      const result = addDockCustom(dockPrefs, candidate)
+      if (result.status === 'added') {
+        commitDockPrefs({ customItems: result.prefs.customItems, order: result.prefs.order })
+      }
+      return result.status
+    },
+    [dockPrefs, commitDockPrefs],
+  )
+
+  /** drop one custom launcher: the definition and its order entry go together */
+  const removeDockCustomItem = useCallback(
+    (id: string) => {
+      const next = removeDockCustom(dockPrefs, id)
+      if (next !== dockPrefs) {
+        commitDockPrefs({ customItems: next.customItems, order: next.order })
+      }
+    },
+    [dockPrefs, commitDockPrefs],
+  )
+
+  // ── the dock's transient notice: a vanished custom target, said out loud ──
+  // A custom launcher the disk no longer backs stays in the pill (the person
+  // pinned it) and the click answers honestly instead of a silent no-op —
+  // the desktop's surface notice pattern, on the surface every mode shows.
+  const [dockNotice, setDockNotice] = useState<string | null>(null)
+  const dockNoticeTimer = useRef(0)
+  const showDockNotice = useCallback((text: string) => {
+    setDockNotice(text)
+    window.clearTimeout(dockNoticeTimer.current)
+    dockNoticeTimer.current = window.setTimeout(() => setDockNotice(null), 4000)
+  }, [])
+  useEffect(() => () => window.clearTimeout(dockNoticeTimer.current), [])
+
+  // the bounce's two verbs, pulled out because the hook's returned object is
+  // a fresh identity every render — launch and settle themselves are stable,
+  // and launchDockCustom below must not churn with them (the dock-nav
+  // subscription re-arms on its identity)
+  const bounceLaunch = bounce.launch
+  const bounceSettle = bounce.settle
+  // the translator, mirrored the same way: useI18n's t is a fresh closure
+  // every render, and the verb's notice words are read at click time
+  const tRef = useRef(t)
+  tRef.current = t
+
+  /**
+   * Run one custom launcher's verb — the desktop icon's own. A file opens
+   * only after a stat vouches it exists (a vanished target shows the notice,
+   * never a silent no-op); a folder that is one of the roots opens the
+   * suite's folder view, any other folder the OS file manager; an app tile
+   * runs the registry's verb against Home's own callbacks. The launch bounce
+   * rides the round trips that actually wait (the stat + open, the OS open),
+   * and every path settles it — the 8s cap only catches a lost target.
+   */
+  const launchDockCustom = useCallback(
+    (custom: DockCustomItem) => {
+      const api = window.aiOffice as Partial<HomeApi>
+      if (custom.kind === 'app') {
+        bounceLaunch(custom.id)
+        desktopAppOpen(custom.target, {
+          api,
+          onOpenAsk: openAskDock,
+          onOpenKb: showKbCenter,
+          onOpenTemplates: openTemplates,
+          onOpenSettings: openSettings,
+        })?.()
+        bounceSettle(custom.id)
+        return
+      }
+      if (custom.kind === 'folder') {
+        // a root of the desktop opens the suite's own folder view; a folder
+        // the person dragged in from the OS goes to the OS file manager
+        const root = roots.find((candidate) => candidate.path === custom.target)
+        if (root && root.readable) {
+          bounceLaunch(custom.id)
+          openFolderView(root)
+          bounceSettle(custom.id)
+          return
+        }
+        bounceLaunch(custom.id)
+        const opened = api.desktopOpenExternal?.(custom.target)
+        if (opened) {
+          void opened.then((ok) => {
+            if (!ok)
+              showDockNotice(tRef.current('dockCustomMissing', { name: fileName(custom.target) }))
+            bounceSettle(custom.id)
+          })
+        } else {
+          bounceSettle(custom.id)
+        }
+        return
+      }
+      bounceLaunch(custom.id)
+      void (async () => {
+        // the existence check a vanished file deserves: the launcher stays,
+        // the click says what happened
+        if (typeof api.statPaths === 'function') {
+          try {
+            const [entry] = await api.statPaths([custom.target])
+            if (!entry || entry.missing) {
+              showDockNotice(tRef.current('dockCustomMissing', { name: fileName(custom.target) }))
+              bounceSettle(custom.id)
+              return
+            }
+          } catch {
+            // a failed stat is not a failed open: let the open path speak
+          }
+        }
+        if (isOpenableDocument(custom.target)) {
+          try {
+            await api.openPath?.(custom.target)
+          } catch {
+            showDockNotice(tRef.current('dockCustomMissing', { name: fileName(custom.target) }))
+          }
+        } else {
+          const opened = api.desktopOpenExternal?.(custom.target)
+          if (opened) {
+            const ok = await opened
+            if (!ok)
+              showDockNotice(tRef.current('dockCustomMissing', { name: fileName(custom.target) }))
+          }
+        }
+        bounceSettle(custom.id)
+      })()
+    },
+    [
+      bounceLaunch,
+      bounceSettle,
+      showDockNotice,
+      roots,
+      openAskDock,
+      showKbCenter,
+      openTemplates,
+      openSettings,
+      openFolderView,
+      tRef,
+    ],
+  )
+
+  // the doc-mode dock's routed clicks (home:dock-nav): main delivers the
+  // intent and activates the Home tab in the same beat, so the handler only
+  // performs the outcome — the view switch, the settings request or the
+  // templates opening — and the person sees it the moment the tab rises.
+  // The push can beat this subscription (cold boot: main routed the click
+  // while this renderer was still mounting, and a push nobody listens for
+  // is lost), so the mount arms the subscription FIRST and then pulls
+  // main's buffer of the same beat — the subscribe-then-pull order means
+  // the worst case is one intent performed twice (idempotent: the same view
+  // switch, the same settings request, the same gallery), never one lost
+  const performDockNav = useCallback(
+    (intent: DockNavIntent) => {
+      if (intent.kind === 'nav') {
+        if (intent.view === 'desktop') showDesktop()
+        else if (intent.view === 'cloud') showCloud()
+        else changeView(intent.view)
+        return
+      }
+      if (intent.kind === 'settings') {
+        setSettingsRequest({ section: intent.section })
+        return
+      }
+      if (intent.kind === 'close') {
+        // the dock context menu's 关闭标签 (a doc-mode click routed here):
+        // close the named surface without raising the Home tab — main's
+        // dockNavAction already skips the raise for close intents
+        if (intent.target === 'templates') setTemplatesOpen(false)
+        else setSettingsCloseSeq((n) => n + 1)
+        return
+      }
+      if (intent.kind === 'custom') {
+        // a dragged-in launcher's doc-mode click: the whole item rides the
+        // intent, so the verb resolves even while Home's own prefs pull is
+        // still in flight (the cold-boot race a bare id would lose)
+        launchDockCustom(intent.custom)
+        return
+      }
+      setTemplatesOpen(true)
+    },
+    [showDesktop, showCloud, changeView, launchDockCustom],
+  )
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    const unsubscribe = api?.onDockNav?.(performDockNav)
+    void api
+      ?.takeDockNavPending?.()
+      .then((intent) => {
+        if (intent) performDockNav(intent)
+      })
+      .catch(() => undefined)
+    return unsubscribe
+  }, [performDockNav])
 
   const toggleSelect = (path: string, on: boolean) => {
     setSelected((prev) => {
@@ -1945,7 +2139,11 @@ export function Home() {
       return parent?.folders.some((f) => f.path === p) ?? false
     })
 
-  const activeNav = desktopMode ? 'desktop' : !selectedFolder && !cloudMode ? view : null
+  const activeNav = desktopMode
+    ? 'desktop'
+    : !selectedFolder && !cloudMode && surface === 'list'
+      ? view
+      : null
 
   /** the embedded strip's desktop item: the same surface switch the dock's
    *  Desktop item performs, plus the home tab rising in the main process's
@@ -2080,6 +2278,10 @@ export function Home() {
     ...(isOpen ? [{ label: t('dockMenuClose'), onSelect: close, danger: true }] : []),
   ]
 
+  /** the built-in dock ids, read at drop time (the groups are built below the
+   *  drop handler's definition — a ref keeps the drop's duplicate check out
+   *  of the declaration-order trap) */
+  const dockGroupsRef = useRef<readonly (readonly DockItem[])[]>([])
   const dockGroups: readonly (readonly DockItem[])[] = [
     [
       {
@@ -2215,6 +2417,29 @@ export function Home() {
         ),
         onSelect: () => openSettings({ section: 'plugins' }),
       },
+      // the dragged-in launchers (desktop icons dropped onto the pill): they
+      // join the launchers group after the coded members, before the ask
+      // tail — the persisted order ranks them within the group like any
+      // other item, and each carries its open verb plus the remove (移除)
+      // that takes the definition and its order entry together
+      ...dockPrefs.customItems.map(
+        (custom) =>
+          ({
+            id: custom.id,
+            label: dockCustomLabel(custom, DESKTOP_STRINGS[lang]),
+            icon: dockCustomIcon(custom),
+            tile: dockCustomTile(custom),
+            onSelect: () => launchDockCustom(custom),
+            menu: [
+              { label: t('dockMenuOpen'), onSelect: () => launchDockCustom(custom) },
+              {
+                label: t('dockMenuRemove'),
+                onSelect: () => removeDockCustomItem(custom.id),
+                danger: true,
+              },
+            ],
+          }) as DockItem,
+      ),
     ],
     [
       {
@@ -2233,6 +2458,7 @@ export function Home() {
       },
     ],
   ]
+  dockGroupsRef.current = dockGroups
 
   return (
     <div className={`home${desktopMode ? ' desktop-mode' : ''}`}>
@@ -2263,6 +2489,7 @@ export function Home() {
         onReorder={(order) => commitDockPrefs({ order: [...order] })}
         bouncing={bounce.bouncing}
         hidden={dockPrefs.autoHide && !dockShown}
+        pillRef={dockPillRef}
         onInteractionChange={onDockInteraction}
         onPointerEnter={() => {
           dockHoveredRef.current = true
@@ -2273,6 +2500,11 @@ export function Home() {
           scheduleDockHide()
         }}
       />
+      {dockNotice !== null && (
+        <div className="dock-notice" role="status">
+          {dockNotice}
+        </div>
+      )}
       {dockPrefs.autoHide && (
         <div
           className="dock-hot-zone"
@@ -2303,6 +2535,7 @@ export function Home() {
               lang={lang}
               roots={roots}
               onOpenAsk={openAskDock}
+              onOpenKb={showKbCenter}
               onAskAboutPaths={askAboutPaths}
               onOpenTemplates={openTemplates}
               onOpenSettings={openSettings}
@@ -2310,12 +2543,19 @@ export function Home() {
               onAddFolderRoot={addFolderRoot}
               onRemoveFolderRoot={removeFolderRoot}
               onNewFolder={newFolderOnDesktop}
+              dockPillRef={dockPillRef}
+              onDockDrop={handleDockDrop}
               backdropHost={backdropHost}
             />
           ) : selectedFolder && rootOf(selectedFolder, roots)?.readable ? (
             renderFolderContent()
           ) : cloudMode ? (
             <CloudProjectsView />
+          ) : surface === 'kb' ? (
+            <KbCenterView
+              lang={lang}
+              onOpenScopeSettings={() => openSettings({ section: 'general' })}
+            />
           ) : (
             renderGlobalContent()
           )}

@@ -11,6 +11,8 @@ export const fr: Dict = {
   dockMenuClose: 'Fermer onglet',
   dockMenuOpenDrawer: 'Ouvrir le panneau',
   dockMenuCollapseDrawer: 'Replier le panneau',
+  dockMenuRemove: 'Retirer',
+  dockCustomMissing: 'Impossible d’ouvrir {name} — il a peut-être été déplacé ou supprimé.',
   askThreadsTitle: 'Conversations',
   askThreadDelete: 'Supprimer la conversation « {label} »',
   askThreadDeleteConfirm:

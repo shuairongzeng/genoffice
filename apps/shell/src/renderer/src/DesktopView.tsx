@@ -16,6 +16,7 @@ import type {
   HomeApi,
   RecentEntry,
 } from '../../shared/home-api'
+import type { DockCustomAddStatus, DockCustomCandidate } from '../../shared/dock-prefs'
 import { DesktopPropsDialog, IconPropsDialog } from './DesktopProperties'
 import type { DesktopPropsTarget } from './DesktopProperties'
 import { ANIMATED_WALLPAPERS, DesktopWallpaperCenter } from './DesktopWallpaperCenter'
@@ -23,7 +24,21 @@ import { FileBadge } from './file-badge'
 import { placeFolderMenu, submenuFlipsOutOfView } from './folder-menu-position'
 import { handleMenuKeyDown } from './menu-keyboard'
 import type { SettingsTarget } from './SettingsModal'
-import { GearGlyph, PlugGlyph, TemplatesGlyph } from './app-glyphs'
+import {
+  BrowserGlyph,
+  DocsGlyph,
+  FolderGlyph,
+  GearGlyph,
+  HtmlGlyph,
+  KbGlyph,
+  MarkdownGlyph,
+  PdfGlyph,
+  PlugGlyph,
+  SheetsGlyph,
+  SlidesGlyph,
+  SparkGlyph,
+  TemplatesGlyph,
+} from './app-glyphs'
 import {
   defaultDesktopProviders,
   droppedFilePaths,
@@ -184,6 +199,8 @@ export interface DesktopViewProps {
   readonly roots: readonly FolderRoot[]
   /** expand the docked AI panel and focus its composer (the ask tile) */
   readonly onOpenAsk: () => void
+  /** open the knowledge base center (the 知识库 tile) */
+  readonly onOpenKb: () => void
   /** hand the selected desktop paths to the docked AI panel as its corpus (the Ask AI action) */
   readonly onAskAboutPaths: (paths: readonly string[]) => void
   /** open the template gallery overlay */
@@ -210,6 +227,20 @@ export interface DesktopViewProps {
    * header's + control — the folder view is where a created folder shows)
    */
   readonly onNewFolder: () => void
+  /**
+   * The Home dock's pill element, for the drag-onto-dock gesture: a release
+   * whose pointer sits inside this rect is a dock drop, not a grid snap.
+   * Absent (a standalone host, a test) and the drag stays grid-only.
+   */
+  readonly dockPillRef?: { current: HTMLElement | null }
+  /**
+   * A dragged icon was released over the dock's pill: hand Home the
+   * candidate (the desktop item's kind and target) and read back what the
+   * dock did with it — 'full' shows the surface notice, every accepted
+   * answer springs the icon back to its cell (the desktop keeps its icon;
+   * the dock gains a launcher).
+   */
+  readonly onDockDrop?: (candidate: DockCustomCandidate) => DockCustomAddStatus | void
   /** the Home-root node the wallpaper backdrop portals into, so it paints
    * behind every surface; undefined (standalone) renders it in place */
   readonly backdropHost?: HTMLDivElement | null
@@ -406,6 +437,7 @@ export function DesktopView({
   lang,
   roots,
   onOpenAsk,
+  onOpenKb,
   onAskAboutPaths,
   onOpenTemplates,
   onOpenSettings,
@@ -413,6 +445,8 @@ export function DesktopView({
   onAddFolderRoot,
   onRemoveFolderRoot,
   onNewFolder,
+  dockPillRef,
+  onDockDrop,
   backdropHost,
 }: DesktopViewProps): ReactElement {
   const s = desktopStrings(lang)
@@ -519,6 +553,7 @@ export function DesktopView({
         pins,
         api: window.aiOffice as Partial<HomeApi>,
         onOpenAsk,
+        onOpenKb,
         onOpenTemplates,
         onOpenSettings,
         onOpenFolder,
@@ -533,6 +568,7 @@ export function DesktopView({
       aliasPaths,
       pins,
       onOpenAsk,
+      onOpenKb,
       onOpenTemplates,
       onOpenSettings,
       onOpenFolder,
@@ -1169,8 +1205,50 @@ export function DesktopView({
       }
       setDrag({ id: d.id, x: last.x, y: last.y })
     }
-    const finish = (commit: boolean) => {
+    /**
+     * A release over the dock's pill is a drop-onto-dock, not a grid snap:
+     * the dragged icon's kind and target go to the host (Home adds the
+     * launcher to the dock prefs) and — whatever the answer — the icon
+     * itself stays where it was. The desktop never loses the icon: the dock
+     * item is an alias of it, the copy semantics macOS's dock plays. Only a
+     * plain single-icon drag carries: a group drop over the pill keeps the
+     * grid's own commit (the dock takes one item, not a selection).
+     */
+    const dockDropAt = (
+      client: { x: number; y: number },
+      group: readonly string[] | null,
+    ): boolean => {
+      if (group !== null && group.length >= 2) return false
+      const pill = dockPillRef?.current
+      if (!pill || !onDockDrop) return false
+      const rect = pill.getBoundingClientRect()
+      if (
+        client.x < rect.left ||
+        client.x > rect.right ||
+        client.y < rect.top ||
+        client.y > rect.bottom
+      ) {
+        return false
+      }
+      const icon = iconsRef.current.find((candidate) => candidate.id === d.id)
+      if (!icon || icon.kind === 'widget' || (icon.kind !== 'app' && !icon.path)) return false
+      const status =
+        onDockDrop({ kind: icon.kind, target: icon.kind === 'app' ? icon.id : icon.path! }) ??
+        'added'
+      if (status === 'full') showNotice(s.noticeDockFull)
+      // a duplicate earns the same honesty: the icon springs back AND the
+      // person hears why nothing changed (a silent refusal reads as a bug)
+      if (status === 'duplicate') showNotice(s.noticeDockDuplicate)
+      return true
+    }
+    const finish = (commit: boolean, client?: { x: number; y: number }) => {
       if (commit && moved && last) {
+        if (client && dockDropAt(client, d.group)) {
+          dropGuardRef.current = Date.now() + DROP_DBLCLICK_GUARD_MS
+          setPress(null)
+          setDrag(null)
+          return
+        }
         dropGuardRef.current = Date.now() + DROP_DBLCLICK_GUARD_MS
         commitDrop(d.id, last.x, last.y, d.group)
       }
@@ -1179,7 +1257,7 @@ export function DesktopView({
     }
     const onUp = (event: PointerEvent) => {
       if (pointerIdOf(event) !== d.pointerId) return
-      finish(true)
+      finish(true, { x: event.clientX, y: event.clientY })
     }
     // a cancel (or the window losing focus mid-drag) puts the icon back untouched
     const onCancel = () => finish(false)
@@ -1193,7 +1271,7 @@ export function DesktopView({
       window.removeEventListener('pointercancel', onCancel)
       window.removeEventListener('blur', onCancel)
     }
-  }, [press, commitDrop])
+  }, [press, commitDrop, dockPillRef, onDockDrop, showNotice, s])
 
   // ── the rubber-band marquee (pointer events) ───────────
   // A left press on empty surface arms one gesture; ~4px of travel decides
@@ -1977,6 +2055,7 @@ export function DesktopView({
         {icon.tile === 'templates' && <TemplatesGlyph />}
         {icon.tile === 'plugins' && <PlugGlyph />}
         {icon.tile === 'settings' && <GearGlyph />}
+        {icon.tile === 'kb' && <KbGlyph />}
       </span>
     )
   }
@@ -2485,149 +2564,5 @@ export function DesktopView({
         </div>
       )}
     </main>
-  )
-}
-
-// ── glyphs ──────────────────────────────────────────────
-
-function FolderGlyph() {
-  return (
-    <svg width="34" height="34" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M1.5 4A1.5 1.5 0 0 1 3 2.5h3.1c.44 0 .85.19 1.13.52L8.4 4.4H13A1.5 1.5 0 0 1 14.5 5.9v5.6A1.5 1.5 0 0 1 13 13H3a1.5 1.5 0 0 1-1.5-1.5V4z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-        fill="currentColor"
-        fillOpacity="0.14"
-      />
-    </svg>
-  )
-}
-
-function DocsGlyph() {
-  return (
-    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <rect x="6.5" y="3.5" width="19" height="25" rx="3" stroke="currentColor" strokeWidth="2.4" />
-      <path
-        d="M11 11h10M11 16h10M11 21h6"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
-
-function SheetsGlyph() {
-  return (
-    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <rect x="4.5" y="4.5" width="23" height="23" rx="3" stroke="currentColor" strokeWidth="2.2" />
-      <path d="M4.5 11.5h23M11.5 11.5v16" stroke="currentColor" strokeWidth="2.2" />
-      <rect x="13.5" y="13.5" width="6" height="5" rx="1" fill="currentColor" opacity="0.55" />
-      <rect x="20.5" y="19.5" width="5" height="6" rx="1" fill="currentColor" opacity="0.55" />
-    </svg>
-  )
-}
-
-function SlidesGlyph() {
-  return (
-    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <rect
-        x="3.5"
-        y="5.5"
-        width="25"
-        height="16"
-        rx="2.5"
-        stroke="currentColor"
-        strokeWidth="2.4"
-      />
-      <path d="M13 10.5l6 3.5-6 3.5z" fill="currentColor" />
-      <path
-        d="M12 27.5h8M16 21.5v6"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
-
-function PdfGlyph() {
-  return (
-    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <rect x="6.5" y="3.5" width="19" height="25" rx="3" stroke="currentColor" strokeWidth="2.4" />
-      <text
-        x="16"
-        y="17.5"
-        textAnchor="middle"
-        dominantBaseline="central"
-        fill="currentColor"
-        fontSize="8.5"
-        fontWeight="800"
-        fontFamily="inherit"
-        letterSpacing="0.5"
-      >
-        PDF
-      </text>
-    </svg>
-  )
-}
-
-function MarkdownGlyph() {
-  return (
-    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <rect x="4.5" y="6.5" width="23" height="19" rx="3" stroke="currentColor" strokeWidth="2.4" />
-      <path
-        d="M9 20v-7l3.5 4 3.5-4v7"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M21 13v7M18.5 17l2.5 3 2.5-3"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function HtmlGlyph() {
-  return (
-    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <path
-        d="M11.5 10.5L7 16l4.5 5.5M20.5 10.5L25 16l-4.5 5.5"
-        stroke="currentColor"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-/* same artwork as the strip's BrowserIcon, at the desktop tile's scale */
-function BrowserGlyph() {
-  return (
-    <svg width="32" height="32" viewBox="0 0 240 240" fill="none" aria-hidden="true">
-      <circle cx="120" cy="120" r="62" stroke="currentColor" strokeWidth="14" />
-      <ellipse cx="120" cy="120" rx="26" ry="62" stroke="currentColor" strokeWidth="14" />
-      <path d="M58 96h124M58 144h124" stroke="currentColor" strokeWidth="14" />
-    </svg>
-  )
-}
-
-function SparkGlyph() {
-  return (
-    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <path
-        d="M16 3.5l3.1 9.4 9.4 3.1-9.4 3.1-3.1 9.4-3.1-9.4-9.4-3.1 9.4-3.1z"
-        fill="currentColor"
-      />
-    </svg>
   )
 }

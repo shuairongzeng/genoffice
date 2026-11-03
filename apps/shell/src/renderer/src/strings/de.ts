@@ -11,6 +11,9 @@ export const de: Dict = {
   dockMenuClose: 'Tab schließen',
   dockMenuOpenDrawer: 'Drawer öffnen',
   dockMenuCollapseDrawer: 'Drawer einklappen',
+  dockMenuRemove: 'Entfernen',
+  dockCustomMissing:
+    '{name} ließ sich nicht öffnen — es wurde vielleicht verschoben oder gelöscht.',
   askThreadsTitle: 'Unterhaltungen',
   askThreadDelete: 'Unterhaltung „{label}“ löschen',
   askThreadDeleteConfirm: 'Gespräch „{label}" löschen? Es lässt sich nicht wiederherstellen.',

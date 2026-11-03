@@ -217,6 +217,31 @@ body.mac .work-tabs {
   background: transparent;
 }
 
+/* ── the dock's transient notice (Home's own surface) ──
+ * A custom launcher whose target vanished answers its click here: the pill
+ * keeps the item, the notice says what happened. The desktop surface
+ * notice's look (desktop.css), floating above the pill — the one surface
+ * every Home mode shows, so the answer is visible wherever the click came
+ * from. role=status carries it to assistive tech as it appears.
+ */
+.dock-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  z-index: 44;
+  max-width: min(80%, 520px);
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 500;
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--text) 18%, transparent);
+}
+
 /* ── the dock's standalone mount (?view=dock) ──
  * The surface the doc-mode native overlay (main/dock-overlay-view.ts) loads:
  * the entry fills the view — which main cuts as either the 3px hot strip or
@@ -374,6 +399,71 @@ html.dock-view body {
 
 .dock-tile-cloud {
   --tile-color: var(--dock-tile-cloud);
+}
+
+/* the app tiles' colors borrow the desktop's own tokens (the same tiles,
+ * one registry): a dragged-in app launcher looks exactly like its desktop
+ * icon, whatever surface it perches on */
+.dock-tile-docs {
+  --tile-color: var(--desktop-tile-docs);
+}
+
+.dock-tile-sheets {
+  --tile-color: var(--desktop-tile-sheets);
+}
+
+.dock-tile-slides {
+  --tile-color: var(--desktop-tile-slides);
+}
+
+.dock-tile-pdf {
+  --tile-color: var(--desktop-tile-pdf);
+}
+
+.dock-tile-markdown {
+  --tile-color: var(--desktop-tile-markdown);
+}
+
+.dock-tile-html {
+  --tile-color: var(--desktop-tile-html);
+}
+
+.dock-tile-browser {
+  --tile-color: var(--desktop-tile-browser);
+}
+
+.dock-tile-kb {
+  --tile-color: var(--desktop-tile-kb);
+}
+
+/* a dragged-in folder: the desktop's plain glass tile, at the pill's scale */
+.dock-tile-folder {
+  --tile-color: transparent;
+  background: var(--desktop-glass-fill);
+  border-color: var(--desktop-glass-edge);
+  color: var(--text-secondary);
+  box-shadow: none;
+}
+
+.dock-tile-folder svg {
+  width: 66%;
+  height: 66%;
+}
+
+/* a dragged-in file: the FileBadge rides the tile carrier (the bounce
+ * keyframes ride the tile, and a badge without a tile would not bounce) —
+ * transparent chrome, the badge itself is the icon */
+.dock-tile-file {
+  --tile-color: transparent;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+
+.dock-tile-file img,
+.dock-tile-file svg {
+  width: 88%;
+  height: 88%;
 }
 
 /* ── the launch bounce ──
@@ -4100,4 +4190,242 @@ button.kb-ask-card-name:hover {
 .kb-ask-suggestion:focus-visible {
   border-color: var(--accent);
   outline: none;
+}
+
+/* ── the Knowledge Base center (知识库): a Home surface like the lists ── */
+.kb-center {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 28px 32px;
+  max-width: 780px;
+  margin: 0 auto;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.kb-center-header h1 {
+  margin: 0 0 6px;
+  font-size: 22px;
+}
+
+.kb-center-header p {
+  margin: 0 0 10px;
+  color: var(--text-secondary, inherit);
+  opacity: 0.8;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.kb-center-scope-link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.kb-center-scope-link:hover {
+  text-decoration: underline;
+}
+
+.kb-center-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.kb-center-section-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.kb-center-verbs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kb-center-verbs button,
+.kb-center-source-verb,
+.kb-center-recall-form button {
+  padding: 5px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-6);
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.kb-center-verbs button:hover:not(:disabled),
+.kb-center-source-verb:hover:not(:disabled),
+.kb-center-recall-form button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.kb-center-verbs button:disabled,
+.kb-center-source-verb:disabled,
+.kb-center-recall-form button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.kb-center-scanning {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--accent);
+}
+
+.kb-center-truncated {
+  margin: 0 0 8px;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.kb-center-source-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.kb-center-source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px;
+}
+
+.kb-center-source-kind {
+  flex-shrink: 0;
+  font-size: 15px;
+}
+
+.kb-center-source-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-center-source-status {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+}
+
+.kb-center-source-status.status-ready {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.kb-center-source-status.status-indexing {
+  color: var(--accent);
+  opacity: 0.8;
+}
+
+.kb-center-source-status.status-error {
+  color: var(--red, #c0392b);
+  border-color: currentColor;
+}
+
+.kb-center-source-counts {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  opacity: 0.6;
+}
+
+.kb-center-source-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.kb-center-source-verb.danger:hover:not(:disabled) {
+  border-color: var(--red, #c0392b);
+  color: var(--red, #c0392b);
+}
+
+.kb-center-sources-empty {
+  margin: 12px 0 0;
+  font-size: 13px;
+  opacity: 0.6;
+}
+
+.kb-center-recall h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.kb-center-recall-form {
+  display: flex;
+  gap: 8px;
+}
+
+.kb-center-recall-form input {
+  flex: 1;
+  padding: 7px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-6);
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.kb-center-recall-form input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.kb-center-recall-count {
+  margin: 10px 0 6px;
+  font-size: 12.5px;
+  opacity: 0.75;
+}
+
+.kb-center-recall-hits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  counter-reset: none;
+}
+
+.kb-center-recall-hit {
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-8);
+}
+
+.kb-center-recall-path {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.kb-center-recall-snippet {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  opacity: 0.75;
+  border-left: 2px solid var(--border-strong);
+  padding-left: 10px;
 }

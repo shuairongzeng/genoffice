@@ -9,12 +9,17 @@ import {
   DOCK_BASE_DEFAULT,
   DOCK_BASE_MAX,
   DOCK_BASE_MIN,
+  DOCK_CUSTOM_CAP,
   DOCK_MAX_SCALE_DEFAULT,
   DOCK_MAX_SCALE_MAX,
   DOCK_MAX_SCALE_MIN,
   DOCK_OPEN_NONE,
+  addDockCustom,
+  asDockCustomItem,
   asDockOpenState,
+  dockCustomId,
   normalizeDockPrefs,
+  removeDockCustom,
   sameDockPrefs,
 } from '../src/shared/dock-prefs'
 
@@ -44,6 +49,7 @@ describe('normalizeDockPrefs', () => {
         maxScale: 1.7,
         autoHide: false,
         order: [],
+        customItems: [],
       })
     }
   })
@@ -73,6 +79,150 @@ describe('normalizeDockPrefs', () => {
   it('the order: strings only, deduped, anything else dropped', () => {
     expect(normalizeDockPrefs({ order: ['b', 'a', 'b', 7, '', 'a'] }).order).toEqual(['b', 'a'])
     expect(normalizeDockPrefs({ order: 'recent-first' }).order).toEqual([])
+  })
+})
+
+describe('the dragged-in custom launchers (dockPrefs.customItems)', () => {
+  const fileItem = { id: dockCustomId('file', '/docs/a.md'), kind: 'file', target: '/docs/a.md' }
+  const folderItem = {
+    id: dockCustomId('folder', '/desk'),
+    kind: 'folder',
+    target: '/desk',
+  } as const
+  const appItem = { id: dockCustomId('app', 'app:docs'), kind: 'app', target: 'app:docs' } as const
+
+  it('asDockCustomItem accepts the three kinds, whole; anything else is null', () => {
+    expect(asDockCustomItem(fileItem)).toEqual(fileItem)
+    expect(asDockCustomItem(folderItem)).toEqual(folderItem)
+    expect(asDockCustomItem(appItem)).toEqual(appItem)
+    for (const bad of [
+      null,
+      'file',
+      {},
+      { ...fileItem, id: 'dock:custom:other' },
+      { ...fileItem, kind: 'widget' },
+      { ...fileItem, target: '' },
+      { ...fileItem, target: 7 },
+      { id: 'dock:custom:file:', kind: 'file', target: '' },
+    ]) {
+      expect(asDockCustomItem(bad)).toBeNull()
+    }
+  })
+
+  it('the id is pinned to the pair: dockCustomId derives it, drift drops the item', () => {
+    expect(dockCustomId('file', '/docs/a.md')).toBe('dock:custom:file:/docs/a.md')
+    expect(dockCustomId('app', 'app:docs')).toBe('dock:custom:app:app:docs')
+    // a hand-edited id that no longer names its own kind and target drops
+    expect(asDockCustomItem({ ...fileItem, id: 'dock:custom:folder:/docs/a.md' })).toBeNull()
+  })
+
+  it('normalize validates, dedupes and caps the list; the order gains each id exactly once', () => {
+    const junk = [
+      fileItem,
+      fileItem,
+      { ...appItem, kind: 'app' },
+      'x',
+      null,
+      { ...appItem, id: 'drifted' },
+    ]
+    const prefs = normalizeDockPrefs({ customItems: junk, order: ['dock:ask'] })
+    expect(prefs.customItems).toEqual([fileItem, appItem])
+    // the consistency rule: the custom ids ride the order sequence, the
+    // person's own arrangement untouched ahead of them
+    expect(prefs.order).toEqual(['dock:ask', fileItem.id, appItem.id])
+    // a custom the order already ranks stays where the person put it — once
+    const ranked = normalizeDockPrefs({
+      customItems: [appItem, fileItem],
+      order: [fileItem.id, 'dock:ask', fileItem.id],
+    })
+    expect(ranked.order).toEqual([fileItem.id, 'dock:ask', appItem.id])
+    // an order entry naming a custom the list dropped ranks nothing and
+    // stays tolerated (removing a definition is the remove verb's business)
+    const orphan = normalizeDockPrefs({ customItems: [], order: [fileItem.id, 'dock:ask'] })
+    expect(orphan.order).toEqual([fileItem.id, 'dock:ask'])
+    expect(orphan.customItems).toEqual([])
+  })
+
+  it('the cap: at most DOCK_CUSTOM_CAP survive, in stored order', () => {
+    const many = Array.from({ length: DOCK_CUSTOM_CAP + 5 }, (_, i) => ({
+      id: dockCustomId('file', `/docs/f${i}.md`),
+      kind: 'file' as const,
+      target: `/docs/f${i}.md`,
+    }))
+    const prefs = normalizeDockPrefs({ customItems: many })
+    expect(prefs.customItems).toHaveLength(DOCK_CUSTOM_CAP)
+    expect(prefs.customItems[0]).toEqual(many[0])
+    expect(prefs.order).toHaveLength(DOCK_CUSTOM_CAP)
+  })
+
+  it('addDockCustom: added joins the end of the list and the order; duplicates and the cap answer honestly', () => {
+    const base = normalizeDockPrefs({ order: ['dock:ask'] })
+    const first = addDockCustom(base, { kind: 'file', target: '/docs/a.md' })
+    expect(first.status).toBe('added')
+    expect(first.prefs.customItems).toEqual([fileItem])
+    expect(first.prefs.order).toEqual(['dock:ask', fileItem.id])
+    // the same drop again: nothing changes, nothing writes
+    const again = addDockCustom(first.prefs, { kind: 'file', target: '/docs/a.md' })
+    expect(again.status).toBe('duplicate')
+    expect(again.prefs).toBe(first.prefs)
+    // a candidate the validator refuses answers invalid
+    expect(addDockCustom(base, { kind: 'file', target: '' }).status).toBe('invalid')
+    // past the cap the drop is refused, the composition stands
+    const full = normalizeDockPrefs({
+      customItems: Array.from({ length: DOCK_CUSTOM_CAP }, (_, i) => ({
+        id: dockCustomId('file', `/docs/f${i}.md`),
+        kind: 'file' as const,
+        target: `/docs/f${i}.md`,
+      })),
+    })
+    const refused = addDockCustom(full, { kind: 'file', target: '/docs/late.md' })
+    expect(refused.status).toBe('full')
+    expect(refused.prefs).toBe(full)
+  })
+
+  it('removeDockCustom drops the definition and its order entry together; a missing id is a no-op', () => {
+    const prefs = normalizeDockPrefs({ customItems: [fileItem, appItem] })
+    const next = removeDockCustom(prefs, fileItem.id)
+    expect(next.customItems).toEqual([appItem])
+    expect(next.order).not.toContain(fileItem.id)
+    expect(removeDockCustom(next, fileItem.id)).toBe(next)
+  })
+
+  it('sameDockPrefs counts the customs by exact sequence', () => {
+    const base = normalizeDockPrefs({ customItems: [fileItem] })
+    expect(sameDockPrefs(base, normalizeDockPrefs({ customItems: [fileItem] }))).toBe(true)
+    expect(sameDockPrefs(base, normalizeDockPrefs({ customItems: [appItem] }))).toBe(false)
+    expect(sameDockPrefs(base, normalizeDockPrefs({ customItems: [fileItem, appItem] }))).toBe(
+      false,
+    )
+    expect(
+      sameDockPrefs(
+        normalizeDockPrefs({ customItems: [fileItem, appItem] }),
+        normalizeDockPrefs({ customItems: [appItem, fileItem] }),
+      ),
+    ).toBe(false)
+  })
+
+  it('readDockPrefs lands a stored customs list on the same rails, junk filtered', () => {
+    dir = mkdtempSync(join(tmpdir(), 'genoffice-dock-prefs-'))
+    const path = join(dir, 'app-settings.json')
+    writeFileSync(
+      path,
+      JSON.stringify({
+        [DOCK_PREFS_KEY]: {
+          order: ['dock:ask'],
+          customItems: [fileItem, { id: 'drifted', kind: 'file', target: '/x' }, appItem],
+        },
+      }),
+    )
+    expect(readDockPrefs(path)).toEqual({
+      magnify: true,
+      baseSize: DOCK_BASE_DEFAULT,
+      maxScale: DOCK_MAX_SCALE_DEFAULT,
+      autoHide: false,
+      order: ['dock:ask', fileItem.id, appItem.id],
+      customItems: [fileItem, appItem],
+    })
   })
 })
 
@@ -148,6 +298,7 @@ describe('readDockPrefs (the main store read)', () => {
       maxScale: DOCK_MAX_SCALE_DEFAULT,
       autoHide: false,
       order: ['dock:ask'],
+      customItems: [],
     })
     // a hand-edited degenerate value never reaches the layout: 0 clamps to
     // the slider's floor, junk falls to the defaults

@@ -198,6 +198,50 @@ describe('the reorder math (drag-to-arrange)', () => {
     expect(applyDockOrder([['a', 'b', 'c']], [])).toEqual([['a', 'b', 'c']])
   })
 
+  it('the dragged-in customs rank inside the launchers group like any other item', () => {
+    // the launchers group with two customs coded after plugins: the
+    // normalizer's default order (custom ids appended at the end) leaves the
+    // coded members first and the customs before the ask tail
+    const withCustoms = [
+      ['dock:desktop', 'dock:recent', 'dock:starred'],
+      [
+        'dock:settings',
+        'dock:templates',
+        'dock:plugins',
+        'dock:custom:file:/a.md',
+        'dock:custom:app:app:docs',
+      ],
+      ['dock:ask'],
+    ] as const
+    const order = ['dock:custom:file:/a.md', 'dock:custom:app:app:docs']
+    expect(applyDockOrder(withCustoms, order)).toEqual(withCustoms)
+    // the person drags the file launcher left of templates: it ranks there —
+    // plugins, unlisted, interpolates between the pair's ranks — and the
+    // app launcher keeps its coded place at the group's end
+    expect(
+      applyDockOrder(withCustoms, [
+        'dock:custom:file:/a.md',
+        'dock:templates',
+        'dock:custom:app:app:docs',
+      ]),
+    ).toEqual([
+      ['dock:desktop', 'dock:recent', 'dock:starred'],
+      [
+        'dock:settings',
+        'dock:custom:file:/a.md',
+        'dock:plugins',
+        'dock:templates',
+        'dock:custom:app:app:docs',
+      ],
+      ['dock:ask'],
+    ])
+    // an order naming only builtin ids leaves the customs at their coded
+    // places (interpolated after the arranged plugins)
+    expect(
+      applyDockOrder(withCustoms, ['dock:settings', 'dock:templates', 'dock:plugins']),
+    ).toEqual(withCustoms)
+  })
+
   it('dockReorderAt swaps past a neighbor: the neighbor takes the freed spot', () => {
     // pointer over slot 1 (recent) while dragging desktop (slot 0)
     expect(dockReorderAt(GROUPS, 'dock:desktop', 1)).toEqual([

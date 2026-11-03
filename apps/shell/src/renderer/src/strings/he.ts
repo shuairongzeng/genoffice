@@ -10,6 +10,8 @@ export const he: Dict = {
   dockMenuClose: 'סגור לשונית',
   dockMenuOpenDrawer: 'פתח את הלוח',
   dockMenuCollapseDrawer: 'קפל את הלוח',
+  dockMenuRemove: 'הסר',
+  dockCustomMissing: 'לא ניתן לפתוח את {name} — ייתכן שהועבר או נמחק.',
   askThreadsTitle: 'שיחות',
   askThreadDelete: 'מחק את השיחה "{label}"',
   askThreadDeleteConfirm: 'למחוק את השיחה "{label}"? לא ניתן לשחזר אותה.',

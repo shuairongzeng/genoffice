@@ -1,7 +1,7 @@
 import { existsSync, renameSync, rmSync, statSync } from 'node:fs'
 import { readFile as readFileText, realpath } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import {
   DEFAULT_SAVE_DIR_KEY,
@@ -129,6 +129,7 @@ export type HomeFileString =
   | 'errExists'
   | 'errRenameFailed'
   | 'dlgAddFolderRoot'
+  | 'dlgAddKbFiles'
   | 'errFolderRootUnusable'
   | 'dlgPickSaveDir'
   | 'errSaveDirUnusable'
@@ -349,6 +350,195 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
       Math.min(limit, 20),
     )
     return onlyPaths ? { hits, notIndexed: await notIndexedPaths(store, onlyPaths) } : hits
+  })
+
+  /** the sources report's entry cap: the center lists the index's own truth, bounded like the kb list */
+  const KB_SOURCES_CAP = 5000
+
+  // ── the Knowledge Base center (知识库): the management surface for the
+  // corpus the AI answers from. Three verbs the Home view drives: the
+  // sources report (every folder root plus every indexed file outside the
+  // roots, each with its readiness), the recall test (a full-index search
+  // with the matched excerpt, so the person can verify retrieval quality
+  // before trusting the corpus — no scope narrowing: the center tests the
+  // whole KB, whatever the panel's current scope), and the reindex (a
+  // genuine rebuild of a source, not a no-op rescan). All three validate
+  // their payloads whole like every kb channel.
+  ipcMain.handle('kb:sources', async (): Promise<unknown> => {
+    const store = host.indexStore()
+    const indexer = host.ensureFileIndexer()
+    const progress = indexer ? await indexer.progress().catch(() => null) : null
+    const roots = [
+      describeRoot(defaultSaveDir()),
+      ...host.extraFolderRoots().map(describeExtraRoot),
+    ]
+    // every indexed entry, one bounded query: the center's file list is the
+    // index's own truth (recents and stars only matter as the extra-path
+    // sources that put a file here)
+    const entries = store
+      ? await store
+          .recentFiles(KB_SOURCES_CAP)
+          .catch(() => [] as Awaited<ReturnType<IndexStore['recentFiles']>>)
+      : []
+    const truncated = entries.length >= KB_SOURCES_CAP
+    const underRoot = (path: string, root: string): boolean =>
+      path === root || path.startsWith(`${root}/`) || path.startsWith(`${root}\\`)
+    const sources: Array<{
+      kind: 'folder' | 'file'
+      path: string
+      name: string
+      indexed: number
+      errors: number
+      status: 'ready' | 'indexing' | 'error' | 'empty'
+    }> = []
+    const rootPaths = roots.map((root) => root.path)
+    for (const root of roots) {
+      let indexed = 0
+      let errors = 0
+      for (const entry of entries) {
+        if (!underRoot(entry.path, root.path)) continue
+        if (entry.status === 'error' || entry.status === 'name-only') errors += 1
+        else indexed += 1
+      }
+      // a scan in flight is global, so a root with nothing yet shows the
+      // honest "indexing" while one the walk already reached shows what it
+      // holds; the pipeline's own counters ride the answer's top level
+      const status =
+        indexed + errors === 0 && (progress?.scanning ?? false)
+          ? 'indexing'
+          : errors > 0 && indexed === 0
+            ? 'error'
+            : indexed + errors === 0
+              ? 'empty'
+              : errors > 0
+                ? 'error'
+                : 'ready'
+      sources.push({
+        kind: 'folder',
+        path: root.path,
+        name: root.name,
+        indexed,
+        errors,
+        status,
+      })
+    }
+    for (const entry of entries) {
+      if (rootPaths.some((root) => underRoot(entry.path, root))) continue
+      sources.push({
+        kind: 'file',
+        path: entry.path,
+        name: entry.path.split(/[\\/]/).pop() ?? entry.path,
+        indexed: entry.status === 'error' || entry.status === 'name-only' ? 0 : 1,
+        errors: entry.status === 'error' || entry.status === 'name-only' ? 1 : 0,
+        status: entry.status === 'error' || entry.status === 'name-only' ? 'error' : 'ready',
+      })
+    }
+    return {
+      scanning: progress?.scanning ?? false,
+      pending: progress?.pending ?? 0,
+      sources,
+      truncated,
+    }
+  })
+
+  ipcMain.handle('kb:recall', async (_event, raw: unknown): Promise<unknown> => {
+    const req = (raw ?? {}) as { q?: unknown; limit?: unknown }
+    const q = typeof req.q === 'string' ? req.q : ''
+    const limitRaw = Number(req.limit)
+    const limit = Number.isFinite(limitRaw) ? Math.min(10, Math.max(1, Math.floor(limitRaw))) : 5
+    const store = host.indexStore()
+    if (!q.trim() || !store) return []
+    // like kb:search: let an in-flight scan settle so a just-added source's
+    // files answer the test
+    host.ensureFileIndexer()?.refreshIfStale(60_000)
+    await host.ensureFileIndexer()?.settle(2_000)
+    return searchKnowledgeBase(
+      async (qq, pool) =>
+        store
+          .search(qq, { limit: pool })
+          .then((r) =>
+            r.hits.map((h) => ({
+              path: h.path,
+              name: h.name,
+              ext: h.ext,
+              snippetText: (h.snippet ?? []).map((part) => part.text).join(''),
+            })),
+          )
+          .catch(() => []),
+      q,
+      // scope null: the recall test reads the whole KB — the person is
+      // verifying the corpus itself, not the panel's current narrowing
+      null,
+      limit,
+    )
+  })
+
+  ipcMain.handle('kb:reindex', async (_event, raw: unknown): Promise<unknown> => {
+    const req = (raw ?? {}) as { path?: unknown }
+    const store = host.indexStore()
+    const path = typeof req.path === 'string' && req.path.trim() ? req.path : null
+    const drop = async (paths: readonly string[]): Promise<number> => {
+      if (paths.length === 0 || !store) return 0
+      await store.remove(paths).catch(() => undefined)
+      return paths.length
+    }
+    if (path === null) {
+      // the global rebuild: every errored entry is dropped (the scan's diff
+      // only re-extracts changed files, so an errored one would otherwise
+      // stay errored forever), then a full re-walk re-extracts them
+      const entries = store
+        ? await store
+            .recentFiles(KB_SOURCES_CAP)
+            .catch(() => [] as Awaited<ReturnType<IndexStore['recentFiles']>>)
+        : []
+      const errored = entries
+        .filter((entry) => entry.status === 'error' || entry.status === 'name-only')
+        .map((entry) => entry.path)
+      const removed = await drop(errored)
+      host.refreshIndexer()
+      return { removed }
+    }
+    if (!isAbsolute(path)) {
+      throw new Error('`path` must be absolute when present')
+    }
+    // a folder source: drop every entry under it, then the re-walk rebuilds
+    // them from disk (a genuine rebuild of that source)
+    const entries = store
+      ? await store
+          .recentFiles(KB_SOURCES_CAP)
+          .catch(() => [] as Awaited<ReturnType<IndexStore['recentFiles']>>)
+      : []
+    if (entries.some((entry) => entry.path === path)) {
+      // a file source: drop it and bring it straight back through the
+      // first-sight path (indexNow re-extracts what the store no longer holds)
+      const removed = await drop([path])
+      await host.indexNow([path])
+      host.refreshIndexer()
+      return { removed }
+    }
+    const underPrefix = entries
+      .filter((entry) => entry.path.startsWith(`${path}/`) || entry.path.startsWith(`${path}\\`))
+      .map((entry) => entry.path)
+    const removed = await drop(underPrefix)
+    host.refreshIndexer()
+    return { removed }
+  })
+
+  ipcMain.handle('kb:pick-source-files', async (): Promise<unknown> => {
+    // the add-files verb: the picker the folder-root add uses, multi-file.
+    // Starring is the honest onboarding — a starred file is a corpus source
+    // the index picks up at once (indexNow), not a copy anywhere
+    const result = await showOpenDialogWithMemory(dialog, host.getShellWindow(), {
+      title: host.translate('dlgAddKbFiles'),
+      properties: ['openFile', 'multiSelections'],
+    })
+    const picked = result.canceled ? [] : result.filePaths
+    for (const path of picked) toggleStarredFile(path)
+    if (picked.length > 0) {
+      await host.indexNow(picked)
+      host.refreshIndexer()
+    }
+    return picked
   })
 
   ipcMain.handle('kb:read', async (_event, raw: unknown): Promise<unknown> => {

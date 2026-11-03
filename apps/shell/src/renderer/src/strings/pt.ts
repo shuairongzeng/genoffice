@@ -10,6 +10,8 @@ export const pt: Dict = {
   dockMenuClose: 'Fechar aba',
   dockMenuOpenDrawer: 'Abrir painel',
   dockMenuCollapseDrawer: 'Recolher painel',
+  dockMenuRemove: 'Remover',
+  dockCustomMissing: 'Não foi possível abrir {name} — pode ter sido movido ou apagado.',
   askThreadsTitle: 'Conversas',
   askThreadDelete: 'Eliminar a conversa "{label}"',
   askThreadDeleteConfirm: 'Excluir a conversa "{label}"? Ela não poderá ser recuperada.',

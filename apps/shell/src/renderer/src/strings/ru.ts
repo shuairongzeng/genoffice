@@ -11,6 +11,8 @@ export const ru: Dict = {
   dockMenuClose: 'Закрыть вкладку',
   dockMenuOpenDrawer: 'Открыть панель',
   dockMenuCollapseDrawer: 'Свернуть панель',
+  dockMenuRemove: 'Убрать',
+  dockCustomMissing: 'Не удалось открыть {name} — возможно, он был перемещён или удалён.',
   askThreadsTitle: 'Диалоги',
   askThreadDelete: 'Удалить диалог «{label}»',
   askThreadDeleteConfirm: 'Удалить переписку «{label}»? Восстановить её будет нельзя.',

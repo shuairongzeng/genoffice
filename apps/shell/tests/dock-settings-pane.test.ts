@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HomeApi } from '../src/shared/home-api'
 import { SettingsModal, type SettingsModalProps } from '../src/renderer/src/SettingsModal'
 import { LocaleProvider } from '../src/renderer/src/locale'
-import { normalizeDockPrefs, type DockPrefs } from '../src/shared/dock-prefs'
+import { normalizeDockPrefs, dockCustomId, type DockPrefs } from '../src/shared/dock-prefs'
 
 /**
  * The dock's settings section (设置 ▸ 程序坞): the macOS System Settings
@@ -145,10 +145,14 @@ describe('the dock settings section', () => {
     ).toBe(true)
   })
 
-  it('the switches write their one field; the reset writes the empty order', async () => {
+  it('the switches write their one field; the reset writes the empty order and clears the customs', async () => {
     await openDockSection()
-    // seed a non-default order so the reset has something to clear
-    prefs = normalizeDockPrefs({ order: ['dock:ask', 'dock:recent'] })
+    // seed a non-default order and a dragged-in launcher so the reset has
+    // something to clear on both fronts
+    prefs = normalizeDockPrefs({
+      order: ['dock:ask', 'dock:recent'],
+      customItems: [{ id: dockCustomId('file', '/docs/a.md'), kind: 'file', target: '/docs/a.md' }],
+    })
     await act(async () => switchOf('Magnification').click())
     await act(async () => switchOf('Automatically hide the dock').click())
     expect(patches).toEqual([{ magnify: false }, { autoHide: true }])
@@ -156,7 +160,7 @@ describe('the dock settings section', () => {
       (b) => b.textContent === 'Restore default order',
     )!
     await act(async () => reset.click())
-    expect(patches.at(-1)).toEqual({ order: [] })
+    expect(patches.at(-1)).toEqual({ order: [], customItems: [] })
   })
 
   it('the sliders draft live and commit once, on the release', async () => {

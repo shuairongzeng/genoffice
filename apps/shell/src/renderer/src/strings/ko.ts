@@ -11,6 +11,8 @@ export const ko: Dict = {
   dockMenuClose: '탭 닫기',
   dockMenuOpenDrawer: '드로어 열기',
   dockMenuCollapseDrawer: '드로어 접기',
+  dockMenuRemove: '제거',
+  dockCustomMissing: '{name}을(를) 열 수 없습니다. 이동되었거나 삭제되었을 수 있습니다.',
   askThreadsTitle: '대화',
   askThreadDelete: '대화 "{label}" 삭제',
   askThreadDeleteConfirm: '"{label}" 대화를 삭제할까요? 삭제 후에는 복구할 수 없습니다.',

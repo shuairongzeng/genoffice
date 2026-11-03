@@ -10,8 +10,10 @@ import { LocaleProvider } from '../src/renderer/src/locale'
 import {
   DOCK_BASE_DEFAULT,
   DOCK_MAX_SCALE_DEFAULT,
+  dockCustomId,
   normalizeDockPrefs,
   type DockOpenState,
+  type DockPrefs,
 } from '../src/shared/dock-prefs'
 import { DOCK_BOUNCE_PERIOD_MS } from '../src/renderer/src/dock-math'
 import {
@@ -38,6 +40,18 @@ const actions: DockNavIntent[] = []
 /** the hot-edge reports the mock face recorded */
 const hotEdge: Array<Record<string, unknown>> = []
 const setAiDock = vi.fn(async () => undefined)
+/** the dock prefs the mock answers with, and every patch it saw */
+let dockPrefsState: DockPrefs = normalizeDockPrefs(undefined)
+const dockPrefsPatches: Array<Partial<DockPrefs>> = []
+/** the prefs-push handlers the entry subscribed */
+const dockPrefsHandlers: Array<(prefs: DockPrefs) => void> = []
+/** deliver a prefs push the way main's watcher does */
+async function pushDockPrefs(prefs: DockPrefs): Promise<void> {
+  dockPrefsState = prefs
+  await act(async () => {
+    for (const handler of [...dockPrefsHandlers]) handler(prefs)
+  })
+}
 /** the live open-target report the mock answers and pushes */
 let dockOpenState: DockOpenState = {
   view: null,
@@ -61,9 +75,11 @@ let root: Root
 let container: HTMLDivElement
 let readyPings = 0
 
-async function mountEntry(): Promise<void> {
+async function mountEntry(prefs?: DockPrefs): Promise<void> {
+  if (prefs) dockPrefsState = prefs
   dockOpenState = { view: null, settings: false, plugins: false, templates: false, ask: false }
   dockOpenHandlers.length = 0
+  dockPrefsHandlers.length = 0
   window.aiOffice = {
     dockHotEdge: (report: Record<string, unknown>) => {
       hotEdge.push(report)
@@ -77,8 +93,18 @@ async function mountEntry(): Promise<void> {
       readyPings++
     },
     // the dock's own prefs + the open-target report (the doc-mode channels)
-    getDockPrefs: async () => normalizeDockPrefs(undefined),
-    onDockPrefsChanged: () => () => undefined,
+    getDockPrefs: async () => dockPrefsState,
+    setDockPrefs: async (patch: Partial<DockPrefs>) => {
+      dockPrefsPatches.push(patch)
+      return normalizeDockPrefs({ ...dockPrefsState, ...patch })
+    },
+    onDockPrefsChanged: (handler: (prefs: DockPrefs) => void) => {
+      dockPrefsHandlers.push(handler)
+      return () => {
+        const index = dockPrefsHandlers.indexOf(handler)
+        if (index >= 0) dockPrefsHandlers.splice(index, 1)
+      }
+    },
     onDockOpen: (handler: (state: DockOpenState) => void) => {
       dockOpenHandlers.push(handler)
       return () => {
@@ -104,6 +130,8 @@ beforeEach(async () => {
   hotEdge.length = 0
   readyPings = 0
   setAiDock.mockClear()
+  dockPrefsState = normalizeDockPrefs(undefined)
+  dockPrefsPatches.length = 0
   await mountEntry()
 })
 
@@ -235,6 +263,72 @@ describe('the routed clicks', () => {
     await act(async () => item('Ask AI').click())
     expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
     expect(actions).toEqual([])
+  })
+})
+
+describe('the dragged-in custom launchers', () => {
+  const fileCustom = { id: dockCustomId('file', '/docs/a.md'), kind: 'file', target: '/docs/a.md' }
+  const appCustom = { id: dockCustomId('app', 'app:docs'), kind: 'app', target: 'app:docs' }
+  const withCustoms = normalizeDockPrefs({ customItems: [fileCustom, appCustom] })
+
+  const dockLabels = (): string[] =>
+    [...container.querySelectorAll<HTMLButtonElement>('.dock-item')].map((button) =>
+      button.getAttribute('aria-label'),
+    )
+
+  it('renders after the coded launchers and before the ask tail: basenames and app words', async () => {
+    await mountEntry(withCustoms)
+    expect(dockLabels()).toEqual([
+      'Desktop',
+      'Recent',
+      'Starred',
+      'Settings',
+      'Templates',
+      'Plugins',
+      'a.md',
+      'Docs',
+      'Ask AI',
+    ])
+    // the file custom carries its badge in the carrier tile; the app its
+    // squircle, the same registry the desktop's icon reads
+    expect(item('a.md').querySelector('.dock-tile-file')?.querySelector('img, svg')).toBeTruthy()
+    expect(item('Docs').querySelector('.dock-tile.dock-tile-docs')).toBeTruthy()
+  })
+
+  it('a click routes the whole item as a custom intent — Home resolves the verb', async () => {
+    await mountEntry(withCustoms)
+    await act(async () => item('a.md').click())
+    expect(actions).toEqual([{ kind: 'custom', custom: fileCustom }])
+  })
+
+  it('the remove (移除) verb drops the definition and its order entry through the prefs write', async () => {
+    await mountEntry(withCustoms)
+    const contextmenu = (el: Element): void => {
+      el.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 120,
+          clientY: 560,
+        }),
+      )
+    }
+    await act(async () => contextmenu(item('a.md')))
+    const entries = [...document.body.querySelectorAll('.dock-menu button')].map(
+      (button) => button.textContent,
+    )
+    expect(entries).toEqual(['Open', 'Remove'])
+    const remove = [...document.body.querySelectorAll('.dock-menu button')].at(-1)!
+    await act(async () => remove.click())
+    expect(dockPrefsPatches).toEqual([{ customItems: [appCustom], order: [appCustom.id] }])
+  })
+
+  it('a store push lands a custom live: the watcher broadcast re-renders the pill', async () => {
+    await mountEntry()
+    expect(item('a.md')).toBeFalsy()
+    await pushDockPrefs(withCustoms)
+    expect(item('a.md')).toBeTruthy()
+    expect(dockLabels()).toContain('Docs')
   })
 })
 

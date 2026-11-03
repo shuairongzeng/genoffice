@@ -10,6 +10,8 @@ export const cs: Dict = {
   dockMenuClose: 'Zavřít kartu',
   dockMenuOpenDrawer: 'Otevřít panel',
   dockMenuCollapseDrawer: 'Sbalit panel',
+  dockMenuRemove: 'Odebrat',
+  dockCustomMissing: 'Soubor {name} se nepodařilo otevřít — možná byl přesunut nebo odstraněn.',
   askThreadsTitle: 'Konverzace',
   askThreadDelete: 'Smazat konverzaci „{label}“',
   askThreadDeleteConfirm: 'Smazat konverzaci „{label}"? Nebude možné ji obnovit.',

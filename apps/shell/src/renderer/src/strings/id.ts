@@ -11,6 +11,8 @@ export const id: Dict = {
   dockMenuClose: 'Tutup tab',
   dockMenuOpenDrawer: 'Buka panel',
   dockMenuCollapseDrawer: 'Lipat panel',
+  dockMenuRemove: 'Hapus',
+  dockCustomMissing: '{name} tidak bisa dibuka — mungkin sudah dipindahkan atau dihapus.',
   askThreadsTitle: 'Percakapan',
   askThreadDelete: 'Hapus percakapan "{label}"',
   askThreadDeleteConfirm: 'Hapus percakapan "{label}"? Isinya tidak dapat dikembalikan.',

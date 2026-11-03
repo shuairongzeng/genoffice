@@ -160,6 +160,14 @@ describe('the launcher contract', () => {
     expect(items[2].onSelect).toHaveBeenCalledTimes(1)
     expect(items[0].onSelect).not.toHaveBeenCalled()
   })
+
+  it('the pillRef prop hands the host the pill element, kept live through the mount', async () => {
+    const pillRef = { current: null as HTMLElement | null }
+    await mountDock({ pillRef })
+    expect(pillRef.current).toBe(container.querySelector('.dock'))
+    await act(async () => root.unmount())
+    expect(pillRef.current).toBeNull()
+  })
 })
 
 describe('the fisheye gesture layer', () => {

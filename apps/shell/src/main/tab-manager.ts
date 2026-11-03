@@ -243,8 +243,10 @@ export class TabManager {
      * The dock's live item count: the pill's composition decides the
      * overlay's rect width. A getter rather than a constant because the
      * composition is state the shell holds (today: the logged-in cloud
-     * launcher joining the seven always-there items); the default stands
-     * for hosts (tests) that do not model the gate.
+     * launcher joining the seven always-there items, plus the dragged-in
+     * custom launchers the dock prefs carry — the store watcher re-lays the
+     * tab manager out when either changes); the default stands for hosts
+     * (tests) that do not model the gates.
      */
     private readonly dockItemCount: () => number = () => DOCK_ITEM_COUNT,
   ) {

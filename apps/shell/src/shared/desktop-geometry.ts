@@ -290,8 +290,11 @@ const DOCK_OVERLAY_TOOLTIP_ROOM = 28
  * The dock's base item count — 3 nav + 3 launchers + the ask tail. Mirrors
  * the renderer's dock groups (Home's and the doc-mode entry's, which share
  * the composition); the overlay's pill math sizes the view from it. The
- * logged-in cloud launcher is the count's one live addition — the shell
- * feeds the overlay a getter that adds it (see TabManager's dockItemCount).
+ * live additions the shell feeds the overlay's item-count getter: the
+ * logged-in cloud launcher and the dragged-in custom launchers (the dock
+ * prefs' own count, cached by the store watcher — see index's
+ * dockItemCount), so a composition change re-cuts the rect on the watcher's
+ * next layout.
  */
 export const DOCK_ITEM_COUNT = 7
 

@@ -14,6 +14,8 @@ import { normalizeAiPermissionMode } from '@genoffice/ui/ai-permission-mode'
 import type {
   AccountLoginEvent,
   AiLineageEntry,
+  KbRecallHit,
+  KbSourcesReport,
   DockNavIntent,
   AccountStatus,
   CloudProjectsSnapshot,
@@ -882,6 +884,19 @@ const homeApi: HomeApi = {
   },
   async aiLineageGet(path) {
     return (await ipcRenderer.invoke(HOME_CHANNELS.aiLineageGet, path)) as AiLineageEntry | null
+  },
+  // the Knowledge Base center (知识库): the corpus management surface
+  async kbSources() {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.kbSources)) as KbSourcesReport
+  },
+  async kbRecallTest(query) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.kbRecallTest, query)) as KbRecallHit[]
+  },
+  async kbReindex(request) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.kbReindex, request)) as { removed: number }
+  },
+  async kbPickSourceFiles() {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.kbPickSourceFiles)) as string[]
   },
   // Home's open-target report, fire-and-forget on change only: main caches
   // it and pushes the cached state to the doc-mode overlay's dock renderer

@@ -20,13 +20,13 @@
 // mechanism the folder tree's expansion state uses (Home has no other
 // renderer-writable settings door, and no view pref existed before).
 
-export type LaunchView = 'desktop' | 'recent' | 'starred' | 'cloud'
+export type LaunchView = 'desktop' | 'recent' | 'starred' | 'cloud' | 'kb'
 const VIEW_PREF_KEY = 'home.view'
 
 export function readLaunchView(): LaunchView {
   try {
     const raw = localStorage.getItem(VIEW_PREF_KEY)
-    if (raw === 'recent' || raw === 'starred' || raw === 'cloud') return raw
+    if (raw === 'recent' || raw === 'starred' || raw === 'cloud' || raw === 'kb') return raw
     // a build before the workbench docked the ask panel could store 'ask':
     // the panel is always present now, so the closest surface is the list
     if (raw === 'ask') return 'recent'
@@ -45,7 +45,7 @@ export function writeLaunchView(view: LaunchView): void {
 }
 
 /** which surface owns the content column; exactly one at a time */
-export type HomeSurface = 'desktop' | 'list' | 'folder' | 'cloud'
+export type HomeSurface = 'desktop' | 'list' | 'folder' | 'cloud' | 'kb'
 
 export interface HomeViewState {
   surface: HomeSurface
@@ -70,6 +70,8 @@ export type HomeViewAction =
   | { type: 'set-folder'; dir: string | null }
   /** the Cloud nav item */
   | { type: 'show-cloud' }
+  /** the Knowledge Base center's tile (知识库): the corpus management surface */
+  | { type: 'show-kb' }
   /** logout only: the cloud view leaves, everything else stays untouched */
   | { type: 'exit-cloud' }
 
@@ -90,6 +92,8 @@ export function homeViewReducer(state: HomeViewState, action: HomeViewAction): H
       return { ...state, surface: 'folder', folder: action.dir }
     case 'show-cloud':
       return { ...state, surface: 'cloud', folder: null }
+    case 'show-kb':
+      return { ...state, surface: 'kb', folder: null }
     case 'exit-cloud':
       return state.surface === 'cloud' ? { ...state, surface: 'list' } : state
   }
@@ -97,7 +101,14 @@ export function homeViewReducer(state: HomeViewState, action: HomeViewAction): H
 
 export function initialHomeViewState(launch: LaunchView): HomeViewState {
   return {
-    surface: launch === 'desktop' ? 'desktop' : launch === 'cloud' ? 'cloud' : 'list',
+    surface:
+      launch === 'desktop'
+        ? 'desktop'
+        : launch === 'cloud'
+          ? 'cloud'
+          : launch === 'kb'
+            ? 'kb'
+            : 'list',
     list: launch === 'starred' ? 'starred' : 'recent',
     folder: null,
   }

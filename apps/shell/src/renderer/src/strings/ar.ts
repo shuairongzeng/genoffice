@@ -11,6 +11,8 @@ export const ar: Dict = {
   dockMenuClose: 'إغلاق علامة التبويب',
   dockMenuOpenDrawer: 'فتح اللوحة',
   dockMenuCollapseDrawer: 'طي اللوحة',
+  dockMenuRemove: 'إزالة',
+  dockCustomMissing: 'تعذّر فتح {name} — ربما نُقل أو حُذف.',
   askThreadsTitle: 'المحادثات',
   askThreadDelete: 'حذف المحادثة "{label}"',
   askThreadDeleteConfirm: 'حذف المحادثة "{label}"؟ لا يمكن استرجاعها بعد الحذف.',

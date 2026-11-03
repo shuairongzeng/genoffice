@@ -602,6 +602,7 @@ describe('registerHomeWorkbenchIpc', () => {
         maxScale: 1.7,
         autoHide: false,
         order: [],
+        customItems: [],
       })
     })
 
@@ -618,6 +619,7 @@ describe('registerHomeWorkbenchIpc', () => {
         maxScale: 1.7,
         autoHide: false,
         order: ['dock:ask'],
+        customItems: [],
       })
       expect(readDockPrefs(join(dir, 'app-settings.json'))).toEqual(effective)
       // a later patch without a field keeps it (the slider writes one field)
@@ -630,6 +632,36 @@ describe('registerHomeWorkbenchIpc', () => {
       const junk = await invoke('home:dock-prefs-set', { baseSize: 999, maxScale: 'big' })
       expect(junk.baseSize).toBe(64)
       expect(junk.maxScale).toBe(1.7)
+    })
+
+    it('the custom launchers ride the same merge: presence adopts, absence keeps, junk filters', async () => {
+      registerWorkbench()
+      // a stored custom list: a patch without the field keeps it wholesale
+      const seeded = await invoke('home:dock-prefs-set', {
+        customItems: [{ id: 'dock:custom:file:/docs/a.md', kind: 'file', target: '/docs/a.md' }],
+      })
+      expect(seeded.customItems).toEqual([
+        { id: 'dock:custom:file:/docs/a.md', kind: 'file', target: '/docs/a.md' },
+      ])
+      expect(seeded.order).toContain('dock:custom:file:/docs/a.md')
+      const kept = await invoke('home:dock-prefs-set', { autoHide: true })
+      expect(kept.customItems).toEqual(seeded.customItems)
+      // an explicit empty list is the remove-all write, not "keep the stored one"
+      const cleared = await invoke('home:dock-prefs-set', { customItems: [] })
+      expect(cleared.customItems).toEqual([])
+      // junk entries never reach the pill: validation filters them whole,
+      // and the order gains the one id that survived
+      const junk = await invoke('home:dock-prefs-set', {
+        customItems: [
+          { id: 'dock:custom:folder:/desk', kind: 'folder', target: '/desk' },
+          { id: 'drifted', kind: 'file', target: '/x' },
+          { kind: 'file', target: '/no-id.md' },
+        ],
+      })
+      expect(junk.customItems).toEqual([
+        { id: 'dock:custom:folder:/desk', kind: 'folder', target: '/desk' },
+      ])
+      expect(junk.order).toContain('dock:custom:folder:/desk')
     })
   })
 
@@ -871,6 +903,30 @@ describe('registerHomeWorkbenchIpc', () => {
       registerWorkbench()
       dockNavAction.mockClear()
       invoke('home:dock-action', { kind: 'close', target: 'docs' })
+      expect(dockNavAction).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('the dock action routing custom-launcher intents', () => {
+    it('a whole custom item rides the intent, validated like the store holds it', () => {
+      registerWorkbench()
+      const custom = { id: 'dock:custom:file:/docs/a.md', kind: 'file', target: '/docs/a.md' }
+      invoke('home:dock-action', { kind: 'custom', custom })
+      expect(dockNavAction).toHaveBeenCalledWith({ kind: 'custom', custom })
+    })
+
+    it('a custom intent with a drifted item is dropped whole, never guessed', () => {
+      registerWorkbench()
+      dockNavAction.mockClear()
+      for (const bad of [
+        { kind: 'custom' },
+        { kind: 'custom', custom: null },
+        { kind: 'custom', custom: { id: 'drifted', kind: 'file', target: '/docs/a.md' } },
+        { kind: 'custom', custom: { id: 'dock:custom:file:', kind: 'file', target: '' } },
+        { kind: 'custom', custom: { id: 'dock:custom:x:/a', kind: 'widget', target: '/a' } },
+      ]) {
+        invoke('home:dock-action', bad)
+      }
       expect(dockNavAction).not.toHaveBeenCalled()
     })
   })

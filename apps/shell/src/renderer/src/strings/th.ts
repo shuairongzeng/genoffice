@@ -11,6 +11,8 @@ export const th: Dict = {
   dockMenuClose: 'ปิดแท็บ',
   dockMenuOpenDrawer: 'เปิดแถบด้าน',
   dockMenuCollapseDrawer: 'ยุบแถบด้าน',
+  dockMenuRemove: 'ลบออก',
+  dockCustomMissing: 'เปิด {name} ไม่ได้ อาจถูกย้ายหรือลบไปแล้ว',
   askThreadsTitle: 'การสนทนา',
   askThreadDelete: 'ลบการสนทนา "{label}"',
   askThreadDeleteConfirm: 'ลบบทสนทนา "{label}" ใช่ไหม ลบแล้วจะไม่สามารถกู้คืนได้',

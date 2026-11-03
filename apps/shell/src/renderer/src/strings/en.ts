@@ -10,6 +10,8 @@ export const en: Dict = {
   dockMenuClose: 'Close tab',
   dockMenuOpenDrawer: 'Open drawer',
   dockMenuCollapseDrawer: 'Collapse drawer',
+  dockMenuRemove: 'Remove',
+  dockCustomMissing: 'Could not open {name} — it may have been moved or deleted.',
   askThreadsTitle: 'Conversations',
   askThreadDelete: 'Delete the conversation "{label}"',
   askThreadDeleteConfirm: 'Delete "{label}"? Its turns cannot be recovered.',

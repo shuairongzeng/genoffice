@@ -7,12 +7,14 @@ import type { Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LANGS, type Lang } from '@genoffice/i18n'
 import type { DesktopPrefs, FolderRoot, HomeApi, RecentEntry } from '../src/shared/home-api'
+import type { DockCustomCandidate } from '../src/shared/dock-prefs'
 import {
   DESKTOP_CELL_H,
   DESKTOP_CELL_W,
   DESKTOP_PAD_X,
   DESKTOP_PAD_Y,
   DesktopView,
+  type DesktopViewProps,
 } from '../src/renderer/src/DesktopView'
 import { DESKTOP_STRINGS } from '../src/renderer/src/desktop-strings'
 
@@ -259,9 +261,9 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-async function render(lang: Lang = 'en'): Promise<void> {
+async function render(lang: Lang = 'en', over: Partial<DesktopViewProps> = {}): Promise<void> {
   await act(async () => {
-    root.render(createElement(DesktopView, { ...props, lang }))
+    root.render(createElement(DesktopView, { ...props, lang, ...over }))
     await Promise.resolve()
   })
   await act(async () => {
@@ -561,7 +563,7 @@ const fileLabels = () => labels().filter((label) => label.includes('.'))
 describe('DesktopView — the icon set', () => {
   it('renders the system apps, folder roots and newest recents as icons', async () => {
     await render()
-    expect(icons()).toHaveLength(15)
+    expect(icons()).toHaveLength(16)
     expect(labels()).toEqual([
       'Docs',
       'Sheets',
@@ -570,6 +572,7 @@ describe('DesktopView — the icon set', () => {
       'Markdown',
       'Web Page',
       'AI Chat',
+      'Knowledge Base',
       'Templates',
       'Plugins',
       'Settings',
@@ -581,6 +584,7 @@ describe('DesktopView — the icon set', () => {
     ])
     expect(host.querySelector('.desktop-tile-docs')).toBeTruthy()
     expect(host.querySelector('.desktop-tile-ask')).toBeTruthy()
+    expect(host.querySelector('.desktop-tile-kb')).toBeTruthy()
     // a file icon draws its FileBadge image; a folder a glass tile
     expect(iconOf('alpha.docx').querySelector('img')).toBeTruthy()
     expect(iconOf('Work').querySelector('.desktop-tile-folder')).toBeTruthy()
@@ -591,8 +595,12 @@ describe('DesktopView — the icon set', () => {
     expect(posOf('Docs')).toEqual({ x: '12px', y: '12px' })
     expect(posOf('Sheets')).toEqual({ x: `${cellPos(0, 1).x}px`, y: `${cellPos(0, 1).y}px` })
     expect(posOf('AI Chat')).toEqual({ x: `${cellPos(0, 6).x}px`, y: `${cellPos(0, 6).y}px` })
-    expect(posOf('Templates')).toEqual({ x: `${cellPos(1, 0).x}px`, y: `${cellPos(1, 0).y}px` })
-    expect(posOf('gamma.pdf')).toEqual({ x: `${cellPos(2, 0).x}px`, y: `${cellPos(2, 0).y}px` })
+    expect(posOf('Knowledge Base')).toEqual({
+      x: `${cellPos(1, 0).x}px`,
+      y: `${cellPos(1, 0).y}px`,
+    })
+    expect(posOf('Templates')).toEqual({ x: `${cellPos(1, 1).x}px`, y: `${cellPos(1, 1).y}px` })
+    expect(posOf('gamma.pdf')).toEqual({ x: `${cellPos(2, 1).x}px`, y: `${cellPos(2, 1).y}px` })
     // every icon owns a distinct cell
     const spots = icons().map((li) => `${li.style.left}:${li.style.top}`)
     expect(new Set(spots).size).toBe(spots.length)
@@ -609,13 +617,13 @@ describe('DesktopView — the icon set', () => {
     expect(names).not.toContain('2.md')
     // the bridge paged eight; the missing one of those drops out client-side
     expect(names.filter((n) => n.startsWith('f') || n === '1.md')).toHaveLength(7)
-    expect(icons()).toHaveLength(10 + 2 + 7)
+    expect(icons()).toHaveLength(11 + 2 + 7)
   })
 
   it('survives a preload that predates the feature', async () => {
     window.aiOffice = {} as unknown as HomeApi
     await render()
-    expect(icons()).toHaveLength(12) // the ten system apps plus the folder roots
+    expect(icons()).toHaveLength(13) // the eleven system apps plus the folder roots
     expect(saves).toEqual([])
   })
 })
@@ -885,6 +893,116 @@ describe('DesktopView — drag to rearrange', () => {
   })
 })
 
+describe('DesktopView — dropping icons onto the dock', () => {
+  /**
+   * A fake pill element with a chosen rect, plus the host ref shape. The
+   * rect rides an OWN property, not a vi.spyOn: the suite's global rect
+   * mock lives on HTMLElement.prototype, and a spy on an instance method
+   * that only the prototype carries patches the PROTOTYPE (tinyspy walks
+   * up), which would hand every element the pill's rect and collapse the
+   * whole grid measurement.
+   */
+  const pillOver = (rect: { left: number; top: number; width: number; height: number }) => {
+    const pill = document.createElement('div')
+    const box = {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      right: rect.left + rect.width,
+      bottom: rect.top + rect.height,
+      x: rect.left,
+      y: rect.top,
+      toJSON: () => ({}),
+    } as DOMRect
+    Object.defineProperty(pill, 'getBoundingClientRect', { value: () => box })
+    return { current: pill }
+  }
+  /** the dock's pill, somewhere over the surface's bottom edge */
+  const pill = () => pillOver({ left: 500, top: 700, width: 200, height: 60 })
+  /** a point inside that pill */
+  const insidePill = { x: 600, y: 730 }
+
+  it('a release over the pill hands the file icon over: the desktop keeps it, nothing saves', async () => {
+    const drops: DockCustomCandidate[] = []
+    await render('en', {
+      dockPillRef: pill(),
+      onDockDrop: (item) => {
+        drops.push(item)
+        return 'added'
+      },
+    })
+    await dragTo('gamma.pdf', insidePill.x, insidePill.y)
+    expect(drops).toEqual([{ kind: 'file', target: '/docs/gamma.pdf' }])
+    // the icon springs home — no snap, no write-through
+    expect(posOf('gamma.pdf')).toEqual({ x: `${cellPos(2, 1).x}px`, y: `${cellPos(2, 1).y}px` })
+    await tick()
+    expect(saves).toEqual([])
+  })
+
+  it('an app tile drop carries its id as the target', async () => {
+    const drops: DockCustomCandidate[] = []
+    await render('en', {
+      dockPillRef: pill(),
+      onDockDrop: (item) => {
+        drops.push(item)
+        return 'added'
+      },
+    })
+    await dragTo('AI Chat', insidePill.x, insidePill.y)
+    expect(drops).toEqual([{ kind: 'app', target: 'app:ask' }])
+    expect(posOf('AI Chat')).toEqual({ x: `${cellPos(0, 6).x}px`, y: `${cellPos(0, 6).y}px` })
+  })
+
+  it('a drop the cap refuses shows the surface notice and keeps the icon home', async () => {
+    await render('en', { dockPillRef: pill(), onDockDrop: () => 'full' })
+    await dragTo('alpha.docx', insidePill.x, insidePill.y)
+    const notice = host.querySelector<HTMLElement>('.desktop-notice')
+    expect(notice?.textContent).toBe(DESKTOP_STRINGS.en.noticeDockFull)
+    expect(posOf('alpha.docx')).toEqual({ x: `${cellPos(1, 6).x}px`, y: `${cellPos(1, 6).y}px` })
+    await tick()
+    expect(saves).toEqual([])
+  })
+
+  it('a release beside the pill is still a grid drop: nothing is handed over', async () => {
+    const drops: DockCustomCandidate[] = []
+    await render('en', {
+      dockPillRef: pill(),
+      onDockDrop: (item) => {
+        drops.push(item)
+        return 'added'
+      },
+    })
+    // over cell (6,0): inside the pill's x span but far above its rect
+    await dragTo('Docs', cellPos(6, 0).x, cellPos(6, 0).y)
+    expect(drops).toEqual([])
+    expect(posOf('Docs')).toEqual({ x: `${cellPos(6, 0).x}px`, y: `${cellPos(6, 0).y}px` })
+    await tick()
+    expect(saves).toHaveLength(1)
+  })
+
+  it('a group drag over the pill keeps the grid commit: the dock takes one item, not a selection', async () => {
+    const drops: DockCustomCandidate[] = []
+    stored = { positions: { 'app:docs': cellPos(0, 0), 'app:sheets': cellPos(1, 0) } }
+    await render('en', {
+      dockPillRef: pill(),
+      onDockDrop: (item) => {
+        drops.push(item)
+        return 'added'
+      },
+    })
+    await cmdClick('Docs')
+    await cmdClick('Sheets')
+    await dragTo('Docs', insidePill.x, insidePill.y)
+    expect(drops).toEqual([])
+    // the group translated onto the pill's cells as one write
+    expect(posOf('Docs')).not.toEqual({ x: `${cellPos(0, 0).x}px`, y: `${cellPos(0, 0).y}px` })
+    await tick()
+    expect(saves).toHaveLength(1)
+    expect(Object.keys(saves[0]!.positions)).toContain('app:sheets')
+  })
+})
+
 describe('DesktopView — icons appearing later', () => {
   it('a new recent file flows into a free cell without overlapping the saved ones', async () => {
     stored = { positions: { 'app:docs': cellPos(0, 0) } }
@@ -902,8 +1020,8 @@ describe('DesktopView — icons appearing later', () => {
       await Promise.resolve()
     })
     expect(labels()).toContain('delta.md')
-    expect(posOf('delta.md')).toEqual({ x: `${cellPos(1, 5).x}px`, y: `${cellPos(1, 5).y}px` })
-    expect(posOf('gamma.pdf')).toEqual({ x: `${cellPos(2, 1).x}px`, y: `${cellPos(2, 1).y}px` })
+    expect(posOf('delta.md')).toEqual({ x: `${cellPos(1, 6).x}px`, y: `${cellPos(1, 6).y}px` })
+    expect(posOf('gamma.pdf')).toEqual({ x: `${cellPos(2, 2).x}px`, y: `${cellPos(2, 2).y}px` })
     const spots = icons().map((li) => `${li.style.left}:${li.style.top}`)
     expect(new Set(spots).size).toBe(spots.length)
     expect(posOf('Docs')).toEqual({ x: '12px', y: '12px' })
@@ -1126,7 +1244,7 @@ describe('DesktopView — context menu', () => {
     // the menu closed, the desktop owns the keyboard again: select-all works
     await pressKey('Escape')
     await pressKey('a', { metaKey: true })
-    expect(selectedLabels()).toHaveLength(15)
+    expect(selectedLabels()).toHaveLength(16)
   })
 
   it('a right-click that swaps the open surface menu for an icon menu keeps the invoker', async () => {
@@ -1562,7 +1680,7 @@ describe('DesktopView — prefs changed outside the renderer', () => {
       desktopPrefs: vi.fn(async () => storedPrefs),
     } as unknown as HomeApi
     await render()
-    expect(icons()).toHaveLength(12) // the ten system apps plus the folder roots
+    expect(icons()).toHaveLength(13) // the eleven system apps plus the folder roots
   })
 })
 
@@ -2139,7 +2257,7 @@ describe('DesktopView — pinned widgets', () => {
     })
     await flushAsync()
     // the widget is model state, not a grid icon
-    expect(icons()).toHaveLength(15)
+    expect(icons()).toHaveLength(16)
     expect(labels()).not.toContain('budget.xlsx')
     // leaving the desktop hides the widgets with the view (the cleanup run)
     await act(async () => {
@@ -2176,7 +2294,7 @@ describe('DesktopView — pinned widgets', () => {
       pulls + 1,
     )
     // two widgets double the reserve: nothing renders as an icon either way
-    expect(icons()).toHaveLength(15)
+    expect(icons()).toHaveLength(16)
   })
 })
 
@@ -2205,9 +2323,9 @@ describe('DesktopView — the rubber-band marquee', () => {
       'Docs',
       'Sheets',
       'Slides',
+      'Knowledge Base',
       'Templates',
       'Plugins',
-      'Settings',
     ])
     // release commits the band's selection and unmounts the band
     await releaseBand(150, 250)
@@ -2216,9 +2334,9 @@ describe('DesktopView — the rubber-band marquee', () => {
       'Docs',
       'Sheets',
       'Slides',
+      'Knowledge Base',
       'Templates',
       'Plugins',
-      'Settings',
     ])
   })
 
@@ -2270,9 +2388,9 @@ describe('DesktopView — the rubber-band marquee', () => {
       'Docs',
       'Sheets',
       'Slides',
+      'Knowledge Base',
       'Templates',
       'Plugins',
-      'Settings',
       'gamma.pdf',
     ])
     await releaseBand(150, 250)
@@ -2283,9 +2401,9 @@ describe('DesktopView — the rubber-band marquee', () => {
     await render()
     await clickIcon('Docs')
     await bandFromTo(100, 100, 150, 250, { meta: true })
-    expect(selectedLabels()).toEqual(['Sheets', 'Slides', 'Templates', 'Plugins', 'Settings'])
+    expect(selectedLabels()).toEqual(['Sheets', 'Slides', 'Knowledge Base', 'Templates', 'Plugins'])
     await releaseBand(150, 250)
-    expect(selectedLabels()).toEqual(['Sheets', 'Slides', 'Templates', 'Plugins', 'Settings'])
+    expect(selectedLabels()).toEqual(['Sheets', 'Slides', 'Knowledge Base', 'Templates', 'Plugins'])
   })
 
   it('the band and the surface menu never fight: the press closes the menu, the band still works', async () => {
@@ -2306,10 +2424,10 @@ describe('DesktopView — the rubber-band marquee', () => {
     await bandFromTo(100, 100, 150, 250)
     await releaseBand(150, 250)
     expect(selectedLabels()).toHaveLength(6)
-    // the band's last hit is Settings (1,2): the range from it to gamma (2,0)
+    // the band's last hit is Plugins (1,2): the range from it to gamma (2,1)
     // spans exactly the visible-geometry order between those two cells
     await shiftClick('gamma.pdf')
-    expect(selectedLabels()).toEqual(['Sheets', 'Slides', 'Plugins', 'Settings', 'gamma.pdf'])
+    expect(selectedLabels()).toEqual(['Slides', 'Plugins', 'gamma.pdf'])
   })
 
   it('a right-click while the band is live opens no menu and clears nothing', async () => {
@@ -2351,7 +2469,7 @@ describe('DesktopView — the selection model', () => {
     await clickIcon('Docs')
     await shiftClick('AI Chat')
     // rows first: the span from (0,0) to (0,6) walks rows 0..6 of the
-    // reading order — everything but beta, which sits past AI Chat in row 6
+    // reading order — everything but alpha, which sits past AI Chat in row 6
     expect(selectedLabels()).toEqual([
       'Docs',
       'Sheets',
@@ -2360,32 +2478,27 @@ describe('DesktopView — the selection model', () => {
       'Markdown',
       'Web Page',
       'AI Chat',
+      'Knowledge Base',
       'Templates',
       'Plugins',
       'Settings',
       'Work',
       'Archive',
-      'alpha.docx',
+      'beta.xlsx',
       'gamma.pdf',
     ])
     // a new plain click moves the anchor; Shift ranges from it in either direction
     await clickIcon('PDF')
     await shiftClick('Templates')
-    expect(selectedLabels()).toEqual([
-      'Sheets',
-      'Slides',
-      'PDF',
-      'Templates',
-      'Plugins',
-      'Settings',
-      'gamma.pdf',
-    ])
-    // the anchor is still PDF: the second Shift re-ranges 7..12, not 1..12
+    expect(selectedLabels()).toEqual(['Slides', 'PDF', 'Templates', 'Plugins', 'gamma.pdf'])
+    // the anchor is still PDF: the second Shift re-ranges 8..15, not 4..15
     await shiftClick('alpha.docx')
     expect(selectedLabels()).toEqual([
       'PDF',
       'Markdown',
       'Web Page',
+      'AI Chat',
+      'Settings',
       'Work',
       'Archive',
       'alpha.docx',
@@ -2407,7 +2520,7 @@ describe('DesktopView — the selection model', () => {
   it('Cmd/Ctrl+A selects every icon in the desktop scope, and toggles back to none', async () => {
     await render()
     await pressKey('a', { metaKey: true })
-    expect(selectedLabels()).toHaveLength(15)
+    expect(selectedLabels()).toHaveLength(16)
     expect(selectedLabels()).toContain('gamma.pdf')
     await pressKey('a', { metaKey: true })
     expect(selectedLabels()).toEqual([])
@@ -2431,7 +2544,7 @@ describe('DesktopView — the selection model', () => {
     expect(selectedLabels()).toEqual(['beta.xlsx'])
     // the shrunk selection is partial: the Finder toggle fills, then clears
     await pressKey('a', { metaKey: true })
-    expect(selectedLabels()).toHaveLength(14)
+    expect(selectedLabels()).toHaveLength(15)
     await pressKey('a', { metaKey: true })
     expect(selectedLabels()).toEqual([])
   })
@@ -2457,15 +2570,15 @@ describe('DesktopView — the selection model', () => {
     await pressKey('ArrowDown')
     expect(selectedLabels()).toEqual(['Sheets'])
     await pressKey('ArrowRight')
-    expect(selectedLabels()).toEqual(['Plugins'])
+    expect(selectedLabels()).toEqual(['Templates'])
     await pressKey('ArrowDown')
-    expect(selectedLabels()).toEqual(['Settings'])
-    await pressKey('ArrowUp')
     expect(selectedLabels()).toEqual(['Plugins'])
-    // from the pinned Docs (5,5), Up lands on the nearest cell above: alpha (1,4)
+    await pressKey('ArrowUp')
+    expect(selectedLabels()).toEqual(['Templates'])
+    // from the pinned Docs (5,5), Up lands on the nearest cell above: Archive (1,4)
     await clickIcon('Docs')
     await pressKey('ArrowUp')
-    expect(selectedLabels()).toEqual(['alpha.docx'])
+    expect(selectedLabels()).toEqual(['Archive'])
   })
 })
 

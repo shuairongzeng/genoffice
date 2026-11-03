@@ -11,7 +11,7 @@ import type {
 } from '../shared/home-api'
 import type { OpenDocumentTab } from '../shared/tabs-api'
 import { normalizeAiDock } from '../shared/desktop-geometry'
-import { asDockOpenState, normalizeDockPrefs } from '../shared/dock-prefs'
+import { asDockCustomItem, asDockOpenState, normalizeDockPrefs } from '../shared/dock-prefs'
 import { normalizeForwardedAskQuery, type PendingAskQuery } from '../shared/ask-forward'
 import { readAiDock, AI_DOCK_KEY } from './ai-dock'
 import { DOCK_PREFS_KEY, readDockPrefs } from './dock-prefs'
@@ -380,7 +380,13 @@ const DOCK_CLOSE_TARGETS = ['settings', 'templates', 'plugins'] as const
  */
 function asDockNavIntent(value: unknown): DockNavIntent | null {
   if (!value || typeof value !== 'object') return null
-  const raw = value as Partial<{ kind: unknown; view: unknown; section: unknown; target: unknown }>
+  const raw = value as Partial<{
+    kind: unknown
+    view: unknown
+    section: unknown
+    target: unknown
+    custom: unknown
+  }>
   if (raw.kind === 'nav') {
     if (typeof raw.view !== 'string') return null
     if (!(DOCK_NAV_VIEWS as readonly string[]).includes(raw.view)) return null
@@ -396,6 +402,13 @@ function asDockNavIntent(value: unknown): DockNavIntent | null {
     if (typeof raw.target !== 'string') return null
     if (!(DOCK_CLOSE_TARGETS as readonly string[]).includes(raw.target)) return null
     return { kind: 'close', target: raw.target as (typeof DOCK_CLOSE_TARGETS)[number] }
+  }
+  if (raw.kind === 'custom') {
+    // the whole item rides the intent: Home acts on it without waiting for
+    // its own prefs pull, so a cold-boot click is never lost
+    const custom = asDockCustomItem(raw.custom)
+    if (!custom) return null
+    return { kind: 'custom', custom }
   }
   return null
 }
@@ -467,10 +480,11 @@ function clampStageRect(rect: Rectangle, window: { width: number; height: number
  *   the dock hides back to the strip). Validated whole; the overlay checks
  *   the sender's identity before its state machine moves.
  * - `home:dock-action`: one routed doc-mode dock click (nav view, settings,
- *   templates) — validated whole, then activated-and-delivered by the
- *   injected dep: Home performs the intent over `home:dock-nav` as the Home
- *   tab rises, so the clicked surface is visible. The ask item never rides
- *   this channel; its prefs write is the drawer overlay's own contract.
+ *   templates, a dragged-in custom launcher) — validated whole, then
+ *   activated-and-delivered by the injected dep: Home performs the intent
+ *   over `home:dock-nav` as the Home tab rises, so the clicked surface is
+ *   visible. The ask item never rides this channel; its prefs write is the
+ *   drawer overlay's own contract.
  * - `home:dock-nav-pending`: Home's mount-time pull of a routed intent that
  *   beat its `home:dock-nav` subscription (the cold-boot race — main routed
  *   the click while the renderer was still loading, and a push nobody is
@@ -478,9 +492,11 @@ function clampStageRect(rect: Rectangle, window: { width: number; height: number
  *   clears it; null when nothing is pending.
  * - `home:dock-prefs-get`/`home:dock-prefs-set`: the dock's own settings
  *   (app-settings.json `dockPrefs`: magnify, icon size, strength, auto-hide,
- *   the drag-arranged order). The aiDock pair's exact shape — the set merges
- *   and normalizes the patch, persists, and answers the effective value; the
- *   write trips watchDockPrefs, whose broadcast re-fits both dock mounts.
+ *   the drag-arranged order, the dragged-in custom launchers). The aiDock
+ *   pair's exact shape — the set merges and normalizes the patch, persists,
+ *   and answers the effective value; the write trips watchDockPrefs, whose
+ *   broadcast re-fits both dock mounts (and re-cuts the overlay's rect for
+ *   the new item count).
  * - `home:ai-permissions-get`/`home:ai-permissions-set` and
  *   `home:ai-session-allow-*`: the AI panel's global trust posture. The mode
  *   (auto / smart / paranoid) is one setting for the whole app — persisted
@@ -578,6 +594,7 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
       maxScale: unknown
       autoHide: unknown
       order: unknown
+      customItems: unknown
     }>
     const next = normalizeDockPrefs({
       magnify: typeof p.magnify === 'boolean' ? p.magnify : current.magnify,
@@ -587,6 +604,10 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
       // the field's presence adopts the patch — an explicit empty order is
       // "back to the default arrangement", not "keep the stored one"
       order: Object.hasOwn(p, 'order') ? p.order : current.order,
+      // the customs' presence adopts the patch the same way: a remove verb
+      // or a reset writes the list it means, a one-field patch (a slider)
+      // keeps the stored launchers
+      customItems: Object.hasOwn(p, 'customItems') ? p.customItems : current.customItems,
     })
     writeAppSetting(path, DOCK_PREFS_KEY, next)
     return next

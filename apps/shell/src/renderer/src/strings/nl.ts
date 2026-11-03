@@ -10,6 +10,8 @@ export const nl: Dict = {
   dockMenuClose: 'Tabblad sluiten',
   dockMenuOpenDrawer: 'Paneel openen',
   dockMenuCollapseDrawer: 'Paneel samenvouwen',
+  dockMenuRemove: 'Verwijderen',
+  dockCustomMissing: '{name} kon niet geopend worden — het is misschien verplaatst of verwijderd.',
   askThreadsTitle: 'Gesprekken',
   askThreadDelete: 'Gesprek „{label}” verwijderen',
   askThreadDeleteConfirm: 'Gesprek "{label}" verwijderen? De beurten kunnen niet worden hersteld.',

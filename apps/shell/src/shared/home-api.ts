@@ -16,7 +16,7 @@ import type { UpdateChannel, UpdateUiState } from './update-api'
 import type { RunEvent, RunSummary } from '@genoffice/project-store'
 import type { DesktopArrangeMode } from '@genoffice/cli/control-protocol'
 import type { AiDockPrefs } from './desktop-geometry'
-import type { DockOpenState, DockPrefs } from './dock-prefs'
+import type { DockCustomItem, DockOpenState, DockPrefs } from './dock-prefs'
 import type { PendingAskQuery } from './ask-forward'
 import type {
   AttachmentInfo,
@@ -38,7 +38,13 @@ import type {
 } from '@genoffice/agent-core'
 
 // re-exported for the preload, which types its bridge against this module
-export type { DockOpenState, DockPrefs } from './dock-prefs'
+export type {
+  DockCustomItem,
+  DockCustomCandidate,
+  DockCustomKind,
+  DockOpenState,
+  DockPrefs,
+} from './dock-prefs'
 export type {
   AgentTaskResult,
   AgentTaskStatus,
@@ -69,6 +75,39 @@ export interface AiLineageEntry {
   task: string
   summary: string
   at: string
+}
+
+// ---- the Knowledge Base center's answer shapes (知识库) ----
+
+/** one corpus source's readiness, as the center lists it */
+export interface KbSourceEntry {
+  kind: 'folder' | 'file'
+  path: string
+  name: string
+  /** entries extracted and searchable (files: 1 or 0) */
+  indexed: number
+  /** entries whose extraction failed (error or name-only) */
+  errors: number
+  status: 'ready' | 'indexing' | 'error' | 'empty'
+}
+
+/** the sources report: every source plus the pipeline's own state */
+export interface KbSourcesReport {
+  /** a walk or extraction batch is in flight (the report's global half) */
+  scanning: boolean
+  /** files waiting for extraction */
+  pending: number
+  sources: KbSourceEntry[]
+  /** the entry cap cut the file list (the index holds more than it showed) */
+  truncated: boolean
+}
+
+/** one recall-test hit: the path plus the matched excerpt */
+export interface KbRecallHit {
+  path: string
+  name: string
+  ext: string
+  snippet: string
 }
 import type { FoundSkill, ForeignSkillCandidate, InstalledPlugin } from './found-skill'
 import type { TabKind } from './tabs-api'
@@ -586,12 +625,21 @@ export interface DockHotEdgeReport {
  * settings/plugins, the template gallery for templates) WITHOUT raising the
  * Home tab — the closed surface is covered anyway, and a close that steals
  * focus from the document the person is reading would be the wrong verb.
+ *
+ * `custom` is a dragged-in launcher's click: the whole item rides the intent
+ * (not just its id) so Home can act even while its own prefs pull is still
+ * in flight — the doc-mode overlay rendered the item from the prefs it
+ * already holds, and the cold-boot race (a click that beats Home's mount)
+ * must not turn into a lost launch. Home resolves the verb live: the file
+ * may have vanished, the folder may no longer be a root, the app tile's
+ * surface may open as a modal over the rising tab.
  */
 export type DockNavIntent =
   | { kind: 'nav'; view: 'desktop' | 'recent' | 'starred' | 'cloud' }
   | { kind: 'settings'; section: 'general' | 'plugins' }
   | { kind: 'templates' }
   | { kind: 'close'; target: 'settings' | 'templates' | 'plugins' }
+  | { kind: 'custom'; custom: DockCustomItem }
 
 export interface HomeApi {
   /** unified recents across document types, newest first (paged) */
@@ -951,6 +999,30 @@ export interface HomeApi {
     limit?: number
     onlyPaths?: readonly string[]
   }): Promise<KbSearchHit[] | KbScopedSearchResult>
+  // ---- the Knowledge Base center (知识库): the corpus management surface ----
+  /** every source's readiness: the folder roots plus the indexed files
+   *  outside them, with the pipeline's own state on top */
+  kbSources?(): Promise<KbSourcesReport>
+  /**
+   * The recall test (召回测试): a full-index search — no scope narrowing,
+   * the center tests the whole KB — answering the top hits with their
+   * matched excerpt, so the person can verify retrieval quality before
+   * trusting the corpus.
+   */
+  kbRecallTest?(query: { q: string; limit?: number }): Promise<KbRecallHit[]>
+  /**
+   * Rebuild one source's index (重建索引): a file drops and re-extracts
+   * through the first-sight path; a folder drops every entry under it and
+   * the re-walk rebuilds them; omitted path = global (every errored entry
+   * drops, then a full re-walk). Answers how many entries dropped.
+   */
+  kbReindex?(request: { path?: string }): Promise<{ removed: number }>
+  /**
+   * The add-files verb: the multi-file picker, every picked file starred
+   * (the corpus's own file-source onboarding) and brought into the index at
+   * once. Answers the picked paths.
+   */
+  kbPickSourceFiles?(): Promise<string[]>
   /** one page of a corpus file's parsed text (path must be in the corpus
    *  scope). `onlyPaths` (the round scope) replaces the settings scope for
    *  the call and widens the gate to a selected file the index missed, when
@@ -1523,6 +1595,14 @@ export const HOME_CHANNELS = {
   aiLineageRecord: 'home:ai-lineage-record',
   /** renderer ↔ main: the lineage entry for a document path (null when none) */
   aiLineageGet: 'home:ai-lineage-get',
+  /** renderer ↔ main: the KB center's sources report (knowledge base) */
+  kbSources: 'kb:sources',
+  /** renderer ↔ main: the recall test — a full-index search with excerpts */
+  kbRecallTest: 'kb:recall',
+  /** renderer ↔ main: rebuild one source's index (or the whole KB) */
+  kbReindex: 'kb:reindex',
+  /** renderer ↔ main: the add-files picker (star + index at once) */
+  kbPickSourceFiles: 'kb:pick-source-files',
   /** renderer → main: record an always-allow into the app-session set */
   aiSessionAllowAdd: 'home:ai-session-allow-add',
   /** renderer → main: Home reports which dock targets are open (the overlay

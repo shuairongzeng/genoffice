@@ -10,6 +10,8 @@ export const zh = {
   dockMenuClose: '关闭标签',
   dockMenuOpenDrawer: '打开抽屉',
   dockMenuCollapseDrawer: '收起抽屉',
+  dockMenuRemove: '移除',
+  dockCustomMissing: '无法打开“{name}”：它可能已被移动或删除。',
   askThreadsTitle: '对话',
   askThreadDelete: '删除对话「{label}」',
   askThreadDeleteConfirm: '删除对话「{label}」？删除后无法恢复。',

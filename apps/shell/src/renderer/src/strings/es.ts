@@ -11,6 +11,8 @@ export const es: Dict = {
   dockMenuClose: 'Cerrar pestaña',
   dockMenuOpenDrawer: 'Abrir panel',
   dockMenuCollapseDrawer: 'Plegar panel',
+  dockMenuRemove: 'Quitar',
+  dockCustomMissing: 'No se pudo abrir {name}: puede que se haya movido o borrado.',
   askThreadsTitle: 'Conversaciones',
   askThreadDelete: 'Eliminar la conversación «{label}»',
   askThreadDeleteConfirm: '¿Eliminar la conversación "{label}"? No se podrá recuperar.',
