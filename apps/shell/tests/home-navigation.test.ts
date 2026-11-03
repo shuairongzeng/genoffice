@@ -4,7 +4,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { defaultAiSettings } from '@genoffice/ai-provider'
 import { Home, dockOpenViewOf } from '../src/renderer/src/Home'
-import { DOCK_AUTOHIDE_DELAY_MS } from '../src/renderer/src/dock-math'
+import { DOCK_AUTOHIDE_DELAY_MS, DOCK_GHOST_MS } from '../src/renderer/src/dock-math'
 import { normalizeDockPrefs } from '../src/shared/dock-prefs'
 import { LocaleProvider } from '../src/renderer/src/locale'
 import type { HomeTabEntry, RecentEntry } from '../src/shared/home-api'
@@ -921,5 +921,86 @@ describe("the dock's dragged-in launchers (dockPrefs.customItems)", () => {
     })
     await flush()
     expect(container.querySelector('.kb-center')).toBeTruthy()
+  })
+
+  it('a drop onto the pill flies the dock item in from the release point, then unmounts', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      // the desktop is where the drag lives; no customs yet — this drop
+      // adds the first one
+      localStorage.setItem('home.view', 'desktop')
+      prefsValue = {}
+      await mountWithCustoms()
+      // the pill's viewport rect (own property: the drag's hit test and the
+      // ghost's destination both read it)
+      const pill = container.querySelector<HTMLElement>('.dock')!
+      expect(pill).toBeTruthy()
+      Object.defineProperty(pill, 'getBoundingClientRect', {
+        value: () => ({
+          left: 500,
+          top: 700,
+          width: 200,
+          height: 60,
+          right: 700,
+          bottom: 760,
+          x: 500,
+          y: 700,
+          toJSON: () => ({}),
+        }),
+      })
+      // grab the desktop's Docs tile by its own position and drag it over
+      // the pill (window-level events: the drag arms its own listeners)
+      const docs = container.querySelector<HTMLElement>('.desktop-icon-item[aria-label="Docs"]')!
+      expect(docs).toBeTruthy()
+      const before = docs.closest('li') as HTMLElement
+      const startX = Number.parseInt(before.style.left, 10)
+      const startY = Number.parseInt(before.style.top, 10)
+      await act(async () => {
+        docs.dispatchEvent(
+          new MouseEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: startX,
+            clientY: startY,
+          }),
+        )
+      })
+      await act(async () => {
+        window.dispatchEvent(
+          new MouseEvent('pointermove', { bubbles: true, clientX: 600, clientY: 730 }),
+        )
+      })
+      await act(async () => {
+        window.dispatchEvent(
+          new MouseEvent('pointerup', { bubbles: true, clientX: 600, clientY: 730 }),
+        )
+      })
+      // the dock gained the launcher and the ghost is flying: pinned at the
+      // destination (the pill's slot, jsdom-zero offsets), carrying the
+      // release point as the from-deltas and the md tile's scale
+      expect(
+        container.querySelector('.dock-slot[data-item-id="dock:custom:app:app:docs"]'),
+      ).toBeTruthy()
+      const ghost = container.querySelector<HTMLElement>('.dock-ghost')!
+      expect(ghost.style.left).toBe('476px')
+      expect(ghost.style.top).toBe('676px')
+      expect(ghost.style.width).toBe('48px')
+      expect(ghost.style.getPropertyValue('--ghost-dx')).toBe('100px')
+      expect(ghost.style.getPropertyValue('--ghost-dy')).toBe('30px')
+      expect(Number(ghost.style.getPropertyValue('--ghost-scale'))).toBeCloseTo(64 / 48, 5)
+      expect(ghost.querySelector('.dock-tile.dock-tile-docs')).toBeTruthy()
+      // the flight ends a breath after the keyframes: the ghost unmounts,
+      // the launcher stays
+      await act(async () => {
+        vi.advanceTimersByTime(DOCK_GHOST_MS + 80)
+      })
+      expect(container.querySelector('.dock-ghost')).toBeNull()
+      expect(
+        container.querySelector('.dock-slot[data-item-id="dock:custom:app:app:docs"]'),
+      ).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+      localStorage.setItem('home.view', 'recent')
+    }
   })
 })

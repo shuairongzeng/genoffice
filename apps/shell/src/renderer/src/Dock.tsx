@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Fragment, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -8,8 +8,11 @@ import {
   DOCK_DEFAULT_MAX_SCALE,
   DOCK_DEFAULT_SIGMA_RATIO,
   DOCK_DRAG_IDLE_MS,
+  DOCK_PARTING_MS,
+  DOCK_POP_MS,
   applyDockOrder,
   dockOrderOf,
+  dockPartingPlan,
   dockReorderAt,
   dockScales,
   dockSlotWidth,
@@ -245,6 +248,111 @@ export function Dock(props: DockProps): React.JSX.Element {
   // measured centers the same way a resize does
   const orderSignature = displayedIds.flat().join('|')
 
+  // ── the parting FLIP: a composition change parts the row ──
+  // The insert/remove half of the drop-into-dock moment: the row children
+  // that keep their identity (slots AND separators) slide to their new
+  // places — inline translateX from the old layout, transitioned home —
+  // while a newcomer pops from the baseline instead (dockPartingPlan is the
+  // pure planner). The first mount lays out still, and the drag's own live
+  // swaps stay instant: the drag is the arrangement's authority while it
+  // runs. During the parting the fisheye stands down (its measured centers
+  // would fight mid-flight transforms); the settle timer clears the inline
+  // styles and the fisheye re-arms, its next pointerenter measuring the
+  // settled geometry. The doc-mode overlay gets the same parting for free
+  // — its prefs push is a composition change like any other.
+  const [parting, setParting] = useState(false)
+  /** the pill's row children by key: `slot:<itemId>` / `sep:<groupIndex>` */
+  const rowEls = useRef(new Map<string, HTMLElement>())
+  /** the last layout pass's untransformed lefts, by the same keys */
+  const rowLefts = useRef<Map<string, number> | null>(null)
+  /** the signature the cached lefts describe */
+  const rowSignature = useRef<string | null>(null)
+  const partingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** end any in-flight parting: jump to the settled layout, clear the styles */
+  const endParting = useCallback((): void => {
+    if (partingTimer.current) {
+      clearTimeout(partingTimer.current)
+      partingTimer.current = null
+    }
+    const root = rootRef.current
+    if (root) {
+      for (const child of root.children) {
+        if (!(child instanceof HTMLElement)) continue
+        child.classList.remove('dock-slot-entering')
+        child.style.transition = ''
+        child.style.transform = ''
+      }
+    }
+    setParting((was) => (was ? false : was))
+  }, [])
+  /** track one row child (ref callback) so the FLIP can measure it */
+  const trackRowEl =
+    (key: string) =>
+    (el: HTMLElement | null): void => {
+      if (el) rowEls.current.set(key, el)
+      else rowEls.current.delete(key)
+    }
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    // the fresh layout's lefts: offset metrics, immune to the transforms
+    // the previous parting may still be painting
+    const lefts = new Map<string, number>()
+    for (const [key, el] of rowEls.current) lefts.set(key, el.offsetLeft)
+    const prevLefts = rowLefts.current
+    const prevSignature = rowSignature.current
+    rowSignature.current = orderSignature
+    rowLefts.current = lefts
+    // still rows: the first mount, an unchanged composition (a slider pass,
+    // an auto-hide flip), a drag in flight (its swaps are instant by
+    // design), reduced motion (the insert is instant)
+    const settled =
+      prevSignature === null ||
+      prevSignature === orderSignature ||
+      draggingId !== null ||
+      liveOrder !== null ||
+      reducedMotion ||
+      !prevLefts
+    if (settled) {
+      endParting()
+      return
+    }
+    const plan = dockPartingPlan(prevLefts, lefts)
+    if (plan.deltas.size === 0 && plan.entering.length === 0) {
+      endParting()
+      return
+    }
+    // anything still in flight describes a layout that no longer exists:
+    // jump it to its end before the row parts again
+    endParting()
+    for (const [key, delta] of plan.deltas) {
+      const el = rowEls.current.get(key)
+      if (el) el.style.transform = `translateX(${delta}px)`
+    }
+    for (const key of plan.entering) {
+      rowEls.current.get(key)?.classList.add('dock-slot-entering')
+    }
+    setParting(true)
+    partingTimer.current = setTimeout(
+      () => endParting(),
+      Math.max(DOCK_PARTING_MS, DOCK_POP_MS) + 60,
+    )
+    // the slide begins on the next frame: the FLIP's starting transforms
+    // must commit first, then the transition carries each slot home
+    const frame = requestAnimationFrame(() => {
+      for (const key of plan.deltas.keys()) {
+        const el = rowEls.current.get(key)
+        if (!el) continue
+        el.style.transition = `transform ${DOCK_PARTING_MS}ms cubic-bezier(0.22, 0.61, 0.36, 1)`
+        el.style.transform = ''
+      }
+    })
+    return () => {
+      cancelAnimationFrame(frame)
+      endParting()
+    }
+  }, [orderSignature, draggingId, liveOrder, reducedMotion, endParting])
+
   // ── the context menu (right-click / Shift+F10 on a focused item) ──
   // anchored to the ITEM's own rect, not the pointer: the pointer's y is
   // inside the pill, so clamping "above the pointer" would land the menu on
@@ -301,7 +409,10 @@ export function Dock(props: DockProps): React.JSX.Element {
   // ── the fisheye gesture layer ──
   useEffect(() => {
     const root = rootRef.current
-    if (!root || reducedMotion || props.magnify === false || draggingId) return
+    // a parting in flight stands the fisheye down: its measured centers
+    // would fight mid-flight slot transforms, and the settle timer re-arms
+    // this effect the moment the row lands (the next enter re-measures)
+    if (!root || reducedMotion || props.magnify === false || draggingId || parting) return
     /** the slots in display order, collected at gesture start */
     let slots: HTMLDivElement[] = []
     /** each slot's un-magnified center in viewport px, measured at rest */
@@ -400,7 +511,7 @@ export function Dock(props: DockProps): React.JSX.Element {
       // listener left to collapse it
       snapSlotsToRest(root)
     }
-  }, [reducedMotion, props.magnify, draggingId, orderSignature])
+  }, [reducedMotion, props.magnify, draggingId, parting, orderSignature])
 
   // ── the drag layer (reorder within a group) ──
   // Pointer-only and threshold-gated, so an ordinary click never feels a
@@ -523,9 +634,11 @@ export function Dock(props: DockProps): React.JSX.Element {
       // capture the pointer on the pill so the drag survives leaving any
       // single child, snap the fisheye to rest (the drag must measure the
       // REST geometry — inline magnification widths would feed it phantom
-      // centers), then measure
+      // centers), end any parting still in flight (its slot transforms
+      // would feed the same measurement phantoms), then measure
       root.setPointerCapture(state.pointerId)
       root.classList.add('dock-drag-live')
+      endParting()
       snapSlotsToRest(root)
       state.centers = measureDragCenters()
       armDragIdle()
@@ -617,13 +730,28 @@ export function Dock(props: DockProps): React.JSX.Element {
   const menuEntries = menu ? (itemsById.get(menu.itemId)?.menu ?? null) : null
   const menuLabel = menu ? itemsById.get(menu.itemId)?.label : undefined
 
+  /**
+   * The root's ref callback, hoisted and memoized: an inline closure would
+   * change identity every render, and React answers that with the full
+   * detach/attach cycle — old(null) then new(node) — per re-render, leaving
+   * the host's pill handle null for the commit's duration and churning
+   * nothing but risk (a release that lands inside that window reads a null
+   * ref). One stable callback (keyed on the host's ref object, itself
+   * stable) keeps both refs live across every re-render.
+   */
+  const pillRef = props.pillRef
+  const rootRefCallback = useCallback(
+    (node: HTMLDivElement | null) => {
+      rootRef.current = node
+      if (pillRef) pillRef.current = node
+    },
+    [pillRef],
+  )
+
   return (
     <div
       className={`dock${props.hidden ? ' dock-hidden' : ''}`}
-      ref={(node) => {
-        rootRef.current = node
-        if (props.pillRef) props.pillRef.current = node
-      }}
+      ref={rootRefCallback}
       role="toolbar"
       aria-label={props.ariaLabel}
       style={{ '--dock-base': `${baseSize}px` } as React.CSSProperties}
@@ -638,12 +766,20 @@ export function Dock(props: DockProps): React.JSX.Element {
     >
       {displayedGroups.map((group, groupIndex) => (
         <Fragment key={groupIndex}>
-          {groupIndex > 0 && <span className="dock-separator" aria-hidden="true" />}
+          {groupIndex > 0 && (
+            <span
+              className="dock-separator"
+              aria-hidden="true"
+              data-sep={groupIndex}
+              ref={trackRowEl(`sep:${groupIndex}`)}
+            />
+          )}
           {group.map((item) => (
             <div
               key={item.id}
               className="dock-slot"
               data-item-id={item.id}
+              ref={trackRowEl(`slot:${item.id}`)}
               onPointerDown={(event) => onSlotPointerDown(event, item.id)}
             >
               <button

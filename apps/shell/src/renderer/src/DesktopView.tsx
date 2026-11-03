@@ -17,6 +17,7 @@ import type {
   RecentEntry,
 } from '../../shared/home-api'
 import type { DockCustomAddStatus, DockCustomCandidate } from '../../shared/dock-prefs'
+import type { DockGhostFrom } from './dock-ghost'
 import { DesktopPropsDialog, IconPropsDialog } from './DesktopProperties'
 import type { DesktopPropsTarget } from './DesktopProperties'
 import { ANIMATED_WALLPAPERS, DesktopWallpaperCenter } from './DesktopWallpaperCenter'
@@ -79,6 +80,9 @@ export const DESKTOP_CELL_H = 104
 /** inset of the first cell from the surface's top-left */
 export const DESKTOP_PAD_X = 12
 export const DESKTOP_PAD_Y = 12
+/** the app tile's visual footprint at the medium icon size — desktop.css's
+ * .desktop-tile — the size a dock fly-in ghost starts from */
+export const DESKTOP_TILE_BASE = 64
 /** write-through window: a burst of rearrangements costs one save */
 const SAVE_DEBOUNCE_MS = 300
 /** recents shown as icons, newest first */
@@ -235,12 +239,16 @@ export interface DesktopViewProps {
   readonly dockPillRef?: { current: HTMLElement | null }
   /**
    * A dragged icon was released over the dock's pill: hand Home the
-   * candidate (the desktop item's kind and target) and read back what the
-   * dock did with it — 'full' shows the surface notice, every accepted
-   * answer springs the icon back to its cell (the desktop keeps its icon;
-   * the dock gains a launcher).
+   * candidate (the desktop item's kind and target) with the release point
+   * and the icon's visual footprint (the fly-in ghost's start), and read
+   * back what the dock did with it — 'full' shows the surface notice, every
+   * accepted answer springs the icon back to its cell (the desktop keeps
+   * its icon; the dock gains a launcher).
    */
-  readonly onDockDrop?: (candidate: DockCustomCandidate) => DockCustomAddStatus | void
+  readonly onDockDrop?: (
+    candidate: DockCustomCandidate,
+    at: DockGhostFrom,
+  ) => DockCustomAddStatus | void
   /** the Home-root node the wallpaper backdrop portals into, so it paints
    * behind every surface; undefined (standalone) renders it in place */
   readonly backdropHost?: HTMLDivElement | null
@@ -1126,6 +1134,21 @@ export function DesktopView({
   const [press, setPress] = useState<PressState | null>(null)
   /** last drag end; a double-click fired this soon after is not an open */
   const dropGuardRef = useRef(0)
+  /**
+   * The gesture's read-time values, mirrored (the fisheye's physicsRef
+   * idiom). The press effect's closure owns the gesture's progress
+   * (`moved`, `last`), so the effect must re-arm ONLY for the gesture's own
+   * lifecycle (a new press) — never because a render-time value changed
+   * identity mid-flight. The drop callback is the live case: Home's
+   * handler re-creates itself when the dock prefs state does (a store
+   * broadcast — the watcher's delayed echo of the PREVIOUS drop's own
+   * write — lands mid-gesture), and a re-arm at that beat resets the
+   * gesture's closure state; the release then sees "never moved": no dock
+   * drop, no grid snap, no error. Everything the handlers read at event
+   * time rides this ref instead.
+   */
+  const gestureRef = useRef({ dockPillRef, onDockDrop, showNotice, s, iconScale })
+  gestureRef.current = { dockPillRef, onDockDrop, showNotice, s, iconScale }
 
   /**
    * Commit a drop. A plain drag claims the snapped cell and swaps whoever
@@ -1219,8 +1242,15 @@ export function DesktopView({
       group: readonly string[] | null,
     ): boolean => {
       if (group !== null && group.length >= 2) return false
-      const pill = dockPillRef?.current
-      if (!pill || !onDockDrop) return false
+      const {
+        dockPillRef: pillRef,
+        onDockDrop: drop,
+        showNotice: notice,
+        s: strings,
+        iconScale: scale,
+      } = gestureRef.current
+      const pill = pillRef?.current
+      if (!pill || !drop) return false
       const rect = pill.getBoundingClientRect()
       if (
         client.x < rect.left ||
@@ -1232,13 +1262,19 @@ export function DesktopView({
       }
       const icon = iconsRef.current.find((candidate) => candidate.id === d.id)
       if (!icon || icon.kind === 'widget' || (icon.kind !== 'app' && !icon.path)) return false
+      const at: DockGhostFrom = {
+        x: client.x,
+        y: client.y,
+        // the icon's visual footprint at its current size — the fly-in
+        // ghost's start scale (the desktop tile, not the cell)
+        size: Math.round(DESKTOP_TILE_BASE * scale),
+      }
       const status =
-        onDockDrop({ kind: icon.kind, target: icon.kind === 'app' ? icon.id : icon.path! }) ??
-        'added'
-      if (status === 'full') showNotice(s.noticeDockFull)
+        drop({ kind: icon.kind, target: icon.kind === 'app' ? icon.id : icon.path! }, at) ?? 'added'
+      if (status === 'full') notice(strings.noticeDockFull)
       // a duplicate earns the same honesty: the icon springs back AND the
       // person hears why nothing changed (a silent refusal reads as a bug)
-      if (status === 'duplicate') showNotice(s.noticeDockDuplicate)
+      if (status === 'duplicate') notice(strings.noticeDockDuplicate)
       return true
     }
     const finish = (commit: boolean, client?: { x: number; y: number }) => {
@@ -1271,7 +1307,7 @@ export function DesktopView({
       window.removeEventListener('pointercancel', onCancel)
       window.removeEventListener('blur', onCancel)
     }
-  }, [press, commitDrop, dockPillRef, onDockDrop, showNotice, s])
+  }, [press, commitDrop])
 
   // ── the rubber-band marquee (pointer events) ───────────
   // A left press on empty surface arms one gesture; ~4px of travel decides

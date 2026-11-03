@@ -57,6 +57,48 @@ async function mountDock(props: Partial<Parameters<typeof Dock>[0]> = {}): Promi
   )
 }
 
+/** re-render the mounted dock with fresh props (the FLIP's second pass) */
+async function rerenderDock(props: Partial<Parameters<typeof Dock>[0]> = {}): Promise<void> {
+  await act(async () =>
+    root.render(
+      createElement(Dock, {
+        groups: [threeItems()],
+        ariaLabel: 'Dock',
+        ...props,
+      } as Parameters<typeof Dock>[0]),
+    ),
+  )
+}
+
+/**
+ * The row's "layout" for FLIP tests: jsdom lays out nothing (offsetLeft is
+ * 0 everywhere), so the property is answered from a live map keyed the way
+ * the dock keys its row children (`slot:<itemId>` / `sep:<groupIndex>`) —
+ * the test edits the map between passes to move the "layout". The getter is
+ * defined on the prototype, the only place jsdom carries it, and restored
+ * whole afterwards.
+ */
+function stubRowLefts(): { lefts: Map<string, number>; restore: () => void } {
+  const lefts = new Map<string, number>()
+  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetLeft')!
+  Object.defineProperty(HTMLElement.prototype, 'offsetLeft', {
+    get(this: HTMLElement): number {
+      const key =
+        this.dataset?.itemId !== undefined
+          ? `slot:${this.dataset.itemId}`
+          : this.dataset?.sep !== undefined
+            ? `sep:${this.dataset.sep}`
+            : undefined
+      return key === undefined ? ((original.get?.call(this) as number) ?? 0) : (lefts.get(key) ?? 0)
+    },
+    configurable: true,
+  })
+  return {
+    lefts,
+    restore: () => Object.defineProperty(HTMLElement.prototype, 'offsetLeft', original),
+  }
+}
+
 /** patch each slot's rect with a synthetic base geometry, macOS pitch apart */
 function stubSlots(widths: number[], left = 100): void {
   const slots = [...container.querySelectorAll<HTMLElement>('.dock-slot')]
@@ -167,6 +209,22 @@ describe('the launcher contract', () => {
     expect(pillRef.current).toBe(container.querySelector('.dock'))
     await act(async () => root.unmount())
     expect(pillRef.current).toBeNull()
+  })
+
+  it('a re-render never detaches the pillRef: the callback is stable, no null window', async () => {
+    // an inline ref closure would churn identity per render, and React
+    // answers with old(null) then new(node) — a window where the host's
+    // drop hit-test would read a null ref. The memoized callback keeps the
+    // handle live across every re-render, composition changes included.
+    const pillRef = { current: null as HTMLElement | null }
+    await mountDock({ pillRef })
+    const node = pillRef.current
+    expect(node).toBeTruthy()
+    const extra: DockItem = { id: 'extra', label: 'Extra', icon: icon(), onSelect: vi.fn() }
+    await rerenderDock({ pillRef, groups: [[...threeItems(), extra]] })
+    expect(pillRef.current).toBe(node)
+    await rerenderDock({ pillRef, baseSize: 56 })
+    expect(pillRef.current).toBe(node)
   })
 })
 
@@ -838,5 +896,139 @@ describe('the menu anchoring (the item rect, the keyboard, the view)', () => {
     // horizontally at the item's center, not at the viewport's 0
     expect(Number.parseFloat(menu.style.left)).toBe(200 + 48 / 2)
     expect(Number.parseFloat(menu.style.top)).toBe(560 - 44)
+  })
+})
+
+describe('the parting FLIP (a composition change parts the row)', () => {
+  // jsdom has no pointer capture API: the drag-start path's calls are stubbed
+  beforeEach(() => {
+    Element.prototype.setPointerCapture = () => undefined
+    Element.prototype.releasePointerCapture = () => undefined
+  })
+
+  const dispatchOn = (el: Element, type: string, x: number, buttons = 1): void => {
+    el.dispatchEvent(
+      new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, button: 0, buttons }),
+    )
+  }
+  const rootEl = (): HTMLElement => container.querySelector<HTMLElement>('.dock')!
+  const slotOf = (id: string): HTMLElement =>
+    container.querySelector<HTMLElement>(`.dock-slot[data-item-id="${id}"]`)!
+
+  /** the newcomer that parts the row, landing between recent and starred */
+  const custom = (): DockItem => ({ id: 'custom', label: 'a.md', icon: icon(), onSelect: vi.fn() })
+  const rowWithCustom = (): DockItem[] => {
+    const items = threeItems()
+    return [items[0]!, custom(), items[1]!, items[2]!]
+  }
+
+  let lefts: Map<string, number>
+  let restoreLefts: () => void
+  beforeEach(() => {
+    const stub = stubRowLefts()
+    lefts = stub.lefts
+    restoreLefts = stub.restore
+  })
+  afterEach(() => restoreLefts())
+
+  /** the md-pitch layout of the base row, before the insert */
+  const seedBaseRow = (): void => {
+    lefts.set('slot:recent', 0)
+    lefts.set('slot:starred', 48)
+    lefts.set('slot:ask', 96)
+  }
+  /** the same row with the newcomer landed between recent and starred */
+  const seedPartedRow = (): void => {
+    lefts.set('slot:recent', 0)
+    lefts.set('slot:custom', 48)
+    lefts.set('slot:starred', 96)
+    lefts.set('slot:ask', 144)
+  }
+
+  it('an insert slides the outrun slots and pops the newcomer', async () => {
+    seedBaseRow()
+    await mountDock()
+    seedPartedRow()
+    await rerenderDock({ groups: [rowWithCustom()] })
+    // the FLIP's starting transforms: the outrun slots paint where they
+    // were, the untouched slot stays, the newcomer pops (never slides)
+    expect(slotOf('recent').style.transform).toBe('')
+    expect(slotOf('starred').style.transform).toBe('translateX(-48px)')
+    expect(slotOf('ask').style.transform).toBe('translateX(-48px)')
+    expect(slotOf('custom').style.transform).toBe('')
+    expect(slotOf('custom').classList.contains('dock-slot-entering')).toBe(true)
+    // the next frame carries them home
+    await flushFrames()
+    expect(slotOf('starred').style.transform).toBe('')
+    expect(slotOf('starred').style.transition).toContain('transform 250ms')
+    expect(slotOf('custom').style.transition).toBe('')
+  })
+
+  it('a removal closes the gap the same way: the tail slides, nothing pops', async () => {
+    seedPartedRow()
+    await mountDock({ groups: [rowWithCustom()] })
+    seedBaseRow()
+    await rerenderDock()
+    expect(slotOf('starred').style.transform).toBe('translateX(48px)')
+    expect(slotOf('ask').style.transform).toBe('translateX(48px)')
+    expect(container.querySelectorAll('.dock-slot-entering')).toHaveLength(0)
+  })
+
+  it('the fisheye stands down while the row parts; the settle clears it and re-arms', async () => {
+    // only the timers fake (the drag-idle test's pattern): the rAF queue is
+    // this suite's own manual stub and must stay real
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      seedBaseRow()
+      await mountDock()
+      seedPartedRow()
+      await rerenderDock({ groups: [rowWithCustom()] })
+      stubSlots([48, 48, 48, 48])
+      // mid-parting: the gesture layer is disarmed — a hover magnifies
+      // nothing (its measured centers would fight the mid-flight slots)
+      dispatch('pointerenter')
+      dispatch('pointermove', centerX(1))
+      await flushFrames()
+      expect(slotWidths().every((width) => width === '')).toBe(true)
+      // the settle timer: the inline styles drop, the pop ends
+      await act(async () => {
+        vi.advanceTimersByTime(310)
+      })
+      expect(slotOf('starred').style.transform).toBe('')
+      expect(slotOf('starred').style.transition).toBe('')
+      expect(slotOf('custom').classList.contains('dock-slot-entering')).toBe(false)
+      // the fisheye re-armed: the same hover now magnifies
+      dispatch('pointerenter')
+      dispatch('pointermove', centerX(1))
+      await flushFrames()
+      expect(slotWidths()[1]).not.toBe('')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reduced motion inserts instantly: no slide, no pop', async () => {
+    seedBaseRow()
+    await mountDock({ reducedMotion: true })
+    seedPartedRow()
+    await rerenderDock({ groups: [rowWithCustom()], reducedMotion: true })
+    expect(slotOf('starred').style.transform).toBe('')
+    expect(slotOf('ask').style.transform).toBe('')
+    expect(slotOf('custom').classList.contains('dock-slot-entering')).toBe(false)
+  })
+
+  it('a drag in flight owns the arrangement: its composition changes never part', async () => {
+    seedBaseRow()
+    await mountDock()
+    stubSlots([48, 48, 48])
+    // a drag begins (threshold crossed, the pointer captured on the pill)
+    await act(async () => dispatchOn(slotOf('recent'), 'pointerdown', centerX(0)))
+    await act(async () => dispatchOn(rootEl(), 'pointermove', centerX(0) + 10))
+    // an insert lands while the drag runs: instant, the same snap the
+    // drag's own live swaps take
+    seedPartedRow()
+    await rerenderDock({ groups: [rowWithCustom()] })
+    expect(slotOf('starred').style.transform).toBe('')
+    expect(slotOf('custom').classList.contains('dock-slot-entering')).toBe(false)
   })
 })

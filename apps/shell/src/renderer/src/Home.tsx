@@ -14,6 +14,7 @@ import {
 import { useDockBounce } from './dock-bounce'
 import { DOCK_AUTOHIDE_DELAY_MS } from './dock-math'
 import { dockCustomLabel, dockCustomIcon, dockCustomTile } from './dock-custom'
+import { DockFlyGhost, useDockFlyGhost, type DockGhostFrom } from './dock-ghost'
 import { desktopAppOpen, isOpenableDocument } from './desktop-items'
 import { HomeTabs } from './HomeTabs'
 import { KbAskPanel } from './KbAskPanel'
@@ -228,6 +229,15 @@ export function Home() {
   // optimistic local state keeps a drag's arrangement from snapping back
   // while the write round-trips, and the broadcast lands the same value.
   const [dockPrefs, setDockPrefs] = useState<DockPrefs>(() => normalizeDockPrefs(undefined))
+  /**
+   * The prefs' latest value, mirrored for event-time readers: the drop
+   * handler below must keep a STABLE identity — the desktop's drag gesture
+   * re-arms on its prop's identity, and the store watcher's delayed
+   * broadcast (the echo of the previous drop's own write) would otherwise
+   * change it mid-gesture. The render-time consumers keep reading the state.
+   */
+  const dockPrefsRef = useRef(dockPrefs)
+  dockPrefsRef.current = dockPrefs
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
     if (typeof api.getDockPrefs !== 'function') return
@@ -1132,9 +1142,13 @@ export function Home() {
   /** the pill's own element: the drop hit-test's rect, threaded into the dock and the desktop view */
   const dockPillRef = useRef<HTMLElement | null>(null)
 
+  /** the drop's fly-in ghost: the first half of the drop-into-dock moment */
+  const flyGhost = useDockFlyGhost(dockPillRef)
+  const beginFly = flyGhost.beginFly
+
   /** a dragged-in icon's release over the pill: join it to the dock, read back what happened */
   const handleDockDrop = useCallback(
-    (candidate: DockCustomCandidate): DockCustomAddStatus => {
+    (candidate: DockCustomCandidate, at: DockGhostFrom): DockCustomAddStatus => {
       // an app tile that already IS a built-in dock item must not duplicate
       // itself — the dock's own 设置中心 beside a dragged-in one reads as a
       // bug, not a feature (the mapping is app:X → dock:X by convention; the
@@ -1147,13 +1161,24 @@ export function Home() {
           return 'duplicate'
         }
       }
-      const result = addDockCustom(dockPrefs, candidate)
+      // the prefs arrive through the mirror: this callback's identity is
+      // the desktop gesture's stability (see dockPrefsRef above), and the
+      // broadcast's value is at most one beat stale at event time — the
+      // optimistic commit below has already applied the newer state
+      const prefs = dockPrefsRef.current
+      const result = addDockCustom(prefs, candidate)
       if (result.status === 'added') {
         commitDockPrefs({ customItems: result.prefs.customItems, order: result.prefs.order })
+        // the fly-in ghost takes the release point as its start and flies
+        // the dock item's own artwork to its slot (reduced motion refuses
+        // the flight — the insert is simply instant); the dock's parting
+        // FLIP is the other half, already armed by the composition change
+        const added = result.prefs.customItems[result.prefs.customItems.length - 1]!
+        beginFly(added, at, prefs.baseSize)
       }
       return result.status
     },
-    [dockPrefs, commitDockPrefs],
+    [commitDockPrefs, beginFly],
   )
 
   /** drop one custom launcher: the definition and its order entry go together */
@@ -2505,6 +2530,7 @@ export function Home() {
           {dockNotice}
         </div>
       )}
+      {flyGhost.ghost && <DockFlyGhost ghost={flyGhost.ghost} />}
       {dockPrefs.autoHide && (
         <div
           className="dock-hot-zone"

@@ -7,8 +7,12 @@ import {
   DOCK_BOUNCE_PERIOD_MS,
   DOCK_BOUNCE_TIMEOUT_MS,
   DOCK_AUTOHIDE_DELAY_MS,
+  DOCK_GHOST_MS,
+  DOCK_PARTING_MS,
+  DOCK_POP_MS,
   applyDockOrder,
   dockOrderOf,
+  dockPartingPlan,
   dockReorderAt,
   dockScales,
   dockSlotWidth,
@@ -283,5 +287,80 @@ describe('the reorder math (drag-to-arrange)', () => {
     expect(dockReorderAt(GROUPS, 'dock:ask', 7)).toBeNull()
     // an id that is not in the dock at all
     expect(dockReorderAt(GROUPS, 'dock:nope', 1)).toBeNull()
+  })
+})
+
+describe('the parting FLIP math (dockPartingPlan)', () => {
+  const before = new Map([
+    ['slot:docs', 0],
+    ['slot:sheets', 48],
+    ['slot:slides', 96],
+    ['sep:1', 144],
+  ])
+
+  it('an insert slides the outrun children, never the newcomer', () => {
+    // a custom launcher inserted at the row's head: everything after it
+    // slides right by one slot, the newcomer itself pops instead of sliding
+    const after = new Map([
+      ['slot:custom:file:/a.md', 0],
+      ['slot:docs', 48],
+      ['slot:sheets', 96],
+      ['slot:slides', 144],
+      ['sep:1', 192],
+    ])
+    const plan = dockPartingPlan(before, after)
+    expect(Object.fromEntries(plan.deltas)).toEqual({
+      'slot:docs': -48,
+      'slot:sheets': -48,
+      'slot:slides': -48,
+      'sep:1': -48,
+    })
+    expect(plan.entering).toEqual(['slot:custom:file:/a.md'])
+  })
+
+  it('a removal closes the gap: the tail slides back, the gone id drops', () => {
+    const after = new Map([
+      ['slot:docs', 0],
+      ['slot:slides', 48],
+      ['sep:1', 96],
+    ])
+    const plan = dockPartingPlan(before, after)
+    // slides moved (its delta) toward the freed spot; sheets is gone
+    expect(Object.fromEntries(plan.deltas)).toEqual({
+      'slot:slides': 48,
+      'sep:1': 48,
+    })
+    expect(plan.entering).toEqual([])
+  })
+
+  it('a child whose place did not move is not a movement; sub-pixel drift is noise', () => {
+    const after = new Map([
+      ['slot:docs', 0],
+      ['slot:sheets', 48.4],
+      ['slot:slides', 96],
+      ['sep:1', 144],
+    ])
+    const plan = dockPartingPlan(before, after)
+    // 0.4px is under the epsilon floor: nothing animates
+    expect(plan.deltas.size).toBe(0)
+    expect(plan.entering).toEqual([])
+    // a real move of one full pixel still counts
+    const moved = new Map([
+      ['slot:docs', 0],
+      ['slot:sheets', 49],
+      ['slot:slides', 96],
+      ['sep:1', 144],
+    ])
+    expect(Object.fromEntries(dockPartingPlan(before, moved).deltas)).toEqual({
+      'slot:sheets': -1,
+    })
+  })
+
+  it('the timing facts the component, the ghost and the CSS share', () => {
+    // the slide, the pop, the flight: the component's settle timer waits out
+    // the longer of the first two; the ghost's unmount rides the third
+    expect(DOCK_PARTING_MS).toBe(250)
+    expect(DOCK_POP_MS).toBe(200)
+    expect(DOCK_GHOST_MS).toBe(300)
   })
 })

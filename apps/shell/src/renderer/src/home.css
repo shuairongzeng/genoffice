@@ -242,6 +242,52 @@ body.mac .work-tabs {
   box-shadow: 0 6px 24px color-mix(in srgb, var(--text) 18%, transparent);
 }
 
+/* ── the drop's fly-in ghost ──
+ * The first half of the drop-into-dock moment: the dock item's own artwork
+ * flying from the release point to its slot's rest center. The element is
+ * pinned AT the destination; the keyframes carry the from-transform (the
+ * release point's offset and the desktop icon's scale) as custom
+ * properties, so the flight starts at mount no matter the paint timing,
+ * easing out over the flight and fading slightly at the end — the popped-in
+ * item reads as the landing, and the host unmounts the ghost a breath
+ * later. Fixed: the drop's own viewport frame. Above the desktop's content,
+ * under the pill itself (42 against the dock's 43): the ghost crosses
+ * beneath the frosted glass and merges into the row. The duration mirrors
+ * dock-math's DOCK_GHOST_MS. Reduce motion never sees it — the host skips
+ * the ghost under the same setting (the CSS guard is belt and braces).
+ */
+.dock-ghost {
+  position: fixed;
+  z-index: 42;
+  pointer-events: none;
+  animation: dock-ghost-fly 300ms cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+.dock-ghost .dock-tile {
+  width: 100%;
+  height: 100%;
+}
+
+@keyframes dock-ghost-fly {
+  from {
+    transform: translate(var(--ghost-dx), var(--ghost-dy)) scale(var(--ghost-scale));
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  to {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock-ghost {
+    animation: none;
+  }
+}
+
 /* ── the dock's standalone mount (?view=dock) ──
  * The surface the doc-mode native overlay (main/dock-overlay-view.ts) loads:
  * the entry fills the view — which main cuts as either the 3px hot strip or
@@ -399,6 +445,34 @@ html.dock-view body {
 
 .dock-tile-cloud {
   --tile-color: var(--dock-tile-cloud);
+}
+
+/* ── the parting FLIP (a composition change parts the row) ──
+ * The slide itself is inline (Dock.tsx sets each moved slot's transform and
+ * transition — the FLIP's starting offsets are per-instance facts); what
+ * lives here is the newcomer's pop. It grows from the pill's baseline
+ * (transform-origin matches the item's magnification origin), the
+ * ease-out-back overshoot reading as arrival. The duration mirrors
+ * dock-math's DOCK_POP_MS — the component's settle timer waits out the
+ * longer of pop and slide before clearing the inline styles. Reduce motion
+ * stands it down (the component skips the whole parting under the same
+ * setting — belt and braces, the bounce's pattern).
+ */
+.dock-slot-entering {
+  transform-origin: 50% 100%;
+  animation: dock-slot-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes dock-slot-pop {
+  from {
+    transform: scale(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock-slot-entering {
+    animation: none;
+  }
 }
 
 /* the app tiles' colors borrow the desktop's own tokens (the same tiles,

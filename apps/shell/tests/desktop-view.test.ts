@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LANGS, type Lang } from '@genoffice/i18n'
 import type { DesktopPrefs, FolderRoot, HomeApi, RecentEntry } from '../src/shared/home-api'
 import type { DockCustomCandidate } from '../src/shared/dock-prefs'
+import type { DockGhostFrom } from '../src/renderer/src/dock-ghost'
 import {
   DESKTOP_CELL_H,
   DESKTOP_CELL_W,
@@ -925,15 +926,20 @@ describe('DesktopView — dropping icons onto the dock', () => {
 
   it('a release over the pill hands the file icon over: the desktop keeps it, nothing saves', async () => {
     const drops: DockCustomCandidate[] = []
+    const releasePoints: DockGhostFrom[] = []
     await render('en', {
       dockPillRef: pill(),
-      onDockDrop: (item) => {
+      onDockDrop: (item, at) => {
         drops.push(item)
+        releasePoints.push(at)
         return 'added'
       },
     })
     await dragTo('gamma.pdf', insidePill.x, insidePill.y)
     expect(drops).toEqual([{ kind: 'file', target: '/docs/gamma.pdf' }])
+    // the release point and the icon's visual footprint ride along: the
+    // fly-in ghost's start (viewport coords, the md tile's size)
+    expect(releasePoints).toEqual([{ x: 600, y: 730, size: 64 }])
     // the icon springs home — no snap, no write-through
     expect(posOf('gamma.pdf')).toEqual({ x: `${cellPos(2, 1).x}px`, y: `${cellPos(2, 1).y}px` })
     await tick()
@@ -979,6 +985,78 @@ describe('DesktopView — dropping icons onto the dock', () => {
     expect(posOf('Docs')).toEqual({ x: `${cellPos(6, 0).x}px`, y: `${cellPos(6, 0).y}px` })
     await tick()
     expect(saves).toHaveLength(1)
+  })
+
+  it('a mid-gesture host re-render never disarms the drop (the prefs broadcast race)', async () => {
+    // the store watcher's broadcast lands a beat after a prefs WRITE — most
+    // often the previous drop's own — and it re-creates the host's drop
+    // callback. The gesture owns its progress in its effect's closure, so a
+    // re-arm at that beat would reset it and the release would die silently:
+    // no hit-test, no snap, the icon simply home. The gesture must ride out
+    // the re-render instead.
+    const dropsA: DockCustomCandidate[] = []
+    const dropsB: DockCustomCandidate[] = []
+    const over = {
+      dockPillRef: pill(),
+      onDockDrop: (item: DockCustomCandidate) => {
+        dropsA.push(item)
+        return 'added'
+      },
+    }
+    await render('en', over)
+    const before = posXY('gamma.pdf')
+    await act(async () => {
+      iconOf('gamma.pdf').dispatchEvent(
+        new MouseEvent('pointerdown', {
+          bubbles: true,
+          clientX: before.x,
+          clientY: before.y,
+          button: 0,
+        }),
+      )
+      await Promise.resolve()
+    })
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('pointermove', {
+          bubbles: true,
+          clientX: insidePill.x,
+          clientY: insidePill.y,
+        }),
+      )
+      await Promise.resolve()
+    })
+    // the broadcast lands mid-gesture: the host re-renders with a NEW drop
+    // callback identity (and fresh prop objects all around)
+    await act(async () => {
+      root.render(
+        createElement(DesktopView, {
+          ...props,
+          lang: 'en',
+          dockPillRef: pill(),
+          onDockDrop: (item: DockCustomCandidate) => {
+            dropsB.push(item)
+            return 'added'
+          },
+        }),
+      )
+      await Promise.resolve()
+    })
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('pointerup', {
+          bubbles: true,
+          clientX: insidePill.x,
+          clientY: insidePill.y,
+        }),
+      )
+      await Promise.resolve()
+    })
+    // the release reached the NEW callback through the surviving gesture
+    expect(dropsA).toEqual([])
+    expect(dropsB).toEqual([{ kind: 'file', target: '/docs/gamma.pdf' }])
+    await tick()
+    expect(saves).toEqual([])
   })
 
   it('a group drag over the pill keeps the grid commit: the dock takes one item, not a selection', async () => {

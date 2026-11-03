@@ -77,6 +77,59 @@ export const DOCK_AUTOHIDE_DELAY_MS = 300
  */
 export const DOCK_DRAG_IDLE_MS = 1500
 
+// ── the parting FLIP (a composition change parts the row) ──
+// The insert/remove half of the drop-into-dock moment: the slots that keep
+// their identity slide to their new places, the newcomer pops in. The
+// keyframes live in home.css; these are the timing facts the component and
+// the tests share, and the component's settle timer waits out the longer
+// of the two before it clears the inline styles and re-arms the fisheye.
+
+/** one moved slot's slide, ease-out */
+export const DOCK_PARTING_MS = 250
+/** the newcomer's pop, ease-out-back */
+export const DOCK_POP_MS = 200
+/** the fly-in ghost's flight, ease-out (Home's half of the moment) */
+export const DOCK_GHOST_MS = 300
+
+/**
+ * The parting FLIP's plan, pure: given each row child's (slots and
+ * separators alike, keyed however the caller keys them) position BEFORE the
+ * composition change and AFTER it — the layout's own lefts, transform-free
+ * (offset metrics, not rects) — answer the per-child delta each persisting
+ * child must start translated by to land home (`before − after`), plus the
+ * children that just entered the row (in `after` only): they pop, never
+ * slide. Children the change removed match nothing and drop. A child whose
+ * delta rounds to zero is no movement at all and is left out — sub-pixel
+ * drift must not shimmer the row.
+ */
+export interface DockPartingPlan {
+  /** child key → the px translateX its slot starts from */
+  readonly deltas: ReadonlyMap<string, number>
+  /** the child keys present only in `after`: the pop-ins */
+  readonly entering: readonly string[]
+}
+
+/** the sub-pixel floor under which a delta is not a movement */
+const DOCK_PARTING_EPSILON_PX = 1
+
+export function dockPartingPlan(
+  before: ReadonlyMap<string, number>,
+  after: ReadonlyMap<string, number>,
+): DockPartingPlan {
+  const deltas = new Map<string, number>()
+  const entering: string[] = []
+  for (const [key, left] of after) {
+    const was = before.get(key)
+    if (was === undefined) {
+      entering.push(key)
+      continue
+    }
+    const delta = was - left
+    if (Math.abs(delta) >= DOCK_PARTING_EPSILON_PX) deltas.set(key, delta)
+  }
+  return { deltas, entering }
+}
+
 // ── the reorder math (drag-to-arrange) ──
 
 /**
