@@ -2187,4 +2187,58 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
       expect(m.drawerOverlayWebContents()).toBeUndefined()
     })
   })
+
+  describe('browserDrawerInset (the Chrome-side-panel width the pages lose)', () => {
+    it("answers the drawer's window-px width over an active browser tab, 0 in every other state", () => {
+      let dock: AiDockPrefs = { width: 400, collapsed: false, petPos: null }
+      let scale = 1
+      const { m } = managerWithOverlay(
+        () => dock,
+        () => scale,
+      )
+      // Home active: the HTML drawer carries it, no inset
+      expect(m.browserDrawerInset()).toBe(0)
+      m.openBrowserTab()
+      expect(m.browserDrawerInset()).toBe(400)
+      // the interface scale multiplies the reservation (the drawer paints
+      // zoomed, so the freed strip must match its window-px width)
+      scale = 1.5
+      expect(m.browserDrawerInset()).toBe(600)
+      scale = 1
+      // collapsed: the floating pet's footprint, the page keeps its width
+      dock = { width: 400, collapsed: true, petPos: null }
+      expect(m.browserDrawerInset()).toBe(0)
+      dock = { width: 400, collapsed: false, petPos: null }
+      // a presentation stands the overlay down: no drawer, no inset
+      const chrome = lastCreatedView(createBrowserView)
+      chrome.webContents.listeners.get('enter-html-full-screen')!()
+      expect(m.browserDrawerInset()).toBe(0)
+      chrome.webContents.listeners.get('leave-html-full-screen')!()
+      expect(m.browserDrawerInset()).toBe(400)
+    })
+
+    it('a dock toggle re-runs the browser page layout: the pages track the drawer live', () => {
+      // the drawer toggle's own path is watchAiDock → layout(); this pins
+      // the manager's half of it — the same layout() a toggle rides calls
+      // syncView for every browser tab, and the inset the pages consult is
+      // read fresh (it answered 0 before the flip, 400 after)
+      let dock: AiDockPrefs = { width: 400, collapsed: true, petPos: null }
+      const { m } = managerWithOverlay(() => dock)
+      m.openBrowserTab()
+      const chrome = lastCreatedView(createBrowserView)
+      syncBrowserPageView.mockClear()
+      expect(m.browserDrawerInset()).toBe(0)
+      // the drawer opens (the write the watcher sees): the re-layout pass
+      dock = { width: 400, collapsed: false, petPos: null }
+      m.layout()
+      // the pass reached the browser's page placement with the shell window
+      // as host — and the inset the hook would read now answers 400
+      expect(syncBrowserPageView).toHaveBeenCalledWith(chrome.webContents, shellWindow)
+      expect(m.browserDrawerInset()).toBe(400)
+      // and closing it again flips back through the same pass
+      dock = { width: 400, collapsed: true, petPos: null }
+      m.layout()
+      expect(m.browserDrawerInset()).toBe(0)
+    })
+  })
 })

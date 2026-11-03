@@ -427,6 +427,20 @@ function wireEditorHooks(win: BrowserWindow, manager: TabManager, deps: ShellWin
     askAbout: (payload) => {
       deps.sendToShellRenderer(BROWSER_CHANNELS.askAbout, payload)
     },
+    // the Chrome-side-panel inset: while the AI drawer floats over the shell
+    // window (a browser tab active, expanded, nothing presenting), the
+    // browser's page views narrow by the drawer's window-px width and the
+    // drawer fills the freed strip instead of covering content. Only pages
+    // hosted in THIS window inset — a detached browser window carries no
+    // drawer — and every other state (Home active, collapsed, suppressed)
+    // answers 0 through the manager's own predicate. Read per layout, so a
+    // drawer toggle re-runs the pages' bounds through the same
+    // layout() → syncView → layoutPage pass the resize rides
+    drawerInsetRight: (host) => {
+      const win = deps.getShellWindow()
+      if (!win || win.isDestroyed() || host !== win) return 0
+      return (deps.getTabManager() ?? manager).browserDrawerInset()
+    },
   })
   // A redacted copy becomes this tab's document; the source still exists.
   setPdfRedactionSavedHook((wc, path) => {

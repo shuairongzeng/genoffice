@@ -49,7 +49,10 @@ import { applyNavigation, applyPageFavicon, applyPageTitle, type TabMetadata } f
  * time it parents, lays out, shows, hides or unpairs the chrome view (and
  * `layoutPage` mirrors the chrome's visibility), and the bounds are window
  * coordinates: `chromeView.getBounds()` plus the reported content-rect
- * offset.
+ * offset. The page narrows at its right edge while the shell's AI drawer
+ * floats over the host window (the Chrome-side-panel model, through the
+ * `drawerInsetRight` shell hook) — the page reflows, the drawer fills the
+ * freed strip, and the chrome above keeps the full width.
  *
  * Pages live in their own `persist:browser` session, so cookies, storage and
  * downloads never mix with the document apps' sessions. That session is
@@ -139,6 +142,20 @@ export interface BrowserShellHooks {
    * auto-sent).
    */
   askAbout: (payload: BrowserAskAboutPayload) => void
+  /**
+   * The width the page view's right edge gives up to the AI drawer — the
+   * Chrome-side-panel model: while the drawer floats over the shell window
+   * (a browser tab active, the drawer expanded, nothing presenting), the
+   * page view narrows by this many window px and reflows, and the drawer
+   * fills the freed strip instead of covering content. `host` is the window
+   * the page view is parented into: the shell answers its drawer's window-px
+   * width there; a detached browser window (no drawer of its own) and null
+   * (unparented) answer 0. The browser chrome keeps the full width — the
+   * drawer's strip over the omnibox is accepted (its content is
+   * center-left). Optional with a 0 default: a shell from before this wave
+   * keeps the over-the-page geometry rather than crashing.
+   */
+  drawerInsetRight?: (host: BrowserWindow | null) => number
 }
 
 let hooks: BrowserShellHooks | null = null
@@ -273,6 +290,16 @@ function asContentRect(rect: unknown): Rectangle | null {
  * chrome bounds plus the reported content-rect offset (or hold it hidden
  * until content exists to draw).
  *
+ * The Chrome-side-panel inset: while the AI drawer floats over the host
+ * window, the page view gives up the drawer's width at its right edge and
+ * the page reflows under it — content is never covered. The inset rides
+ * `drawerInsetRight(pageHost)` (the shell hooks), so a detached window and
+ * an unparented page answer 0, a collapsed drawer answers 0, and a
+ * fullscreen-restore pass never reaches here at all (the early return
+ * above). The inset is read PER LAYOUT: every parenting, navigation,
+ * resize and drawer toggle re-runs this, so the width tracks the drawer
+ * live. HTML fullscreen keeps its saved restore rect untouched.
+ *
  * The chrome renderer reports the rect in its own CSS pixels. The browser
  * chrome has not opted into `--ui-scale` (no `zoom: var(--ui-scale)` in its
  * styles and no zoomFactor set on its webContents), so CSS px and view px are
@@ -288,10 +315,14 @@ function layoutPage(tab: BrowserTab): void {
   }
   const base = tab.shell.getBounds()
   const rect = tab.contentRect
+  // the hook's absence (no shell wiring, a stale shell) answers 0: today's
+  // full-width geometry, never a crash; the clamp keeps a drawer wider than
+  // the content area from pushing the page to negative width
+  const inset = hooks?.drawerInsetRight?.(tab.pageHost) ?? 0
   tab.page.setBounds({
     x: base.x + rect.x,
     y: base.y + rect.y,
-    width: rect.width,
+    width: Math.max(0, rect.width - inset),
     height: rect.height,
   })
   // the page shows exactly while the chrome does: the TabManager hides the

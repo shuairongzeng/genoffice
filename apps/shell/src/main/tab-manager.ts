@@ -13,6 +13,7 @@ import { HOME_CHANNELS } from '../shared/home-api'
 import type { AiPetDragReport } from '../shared/home-api'
 import type { DockHotEdgeReport } from '../shared/home-api'
 import {
+  aiDockWidth,
   documentContentBounds,
   normalizeAiDock,
   type AiDockPrefs,
@@ -408,6 +409,26 @@ export class TabManager {
     const active = this.tabs.find((t) => t.id === this.activeId)
     if (!active || active.kind === 'home') return false
     return !this.drawerOverlaySuppressed()
+  }
+
+  /**
+   * The width the browser pages' right edge gives up to the AI drawer while
+   * it floats over the shell window — the Chrome-side-panel model (the page
+   * view narrows and reflows; the drawer fills the freed strip). The
+   * expanded drawer's window-px width (`aiDockWidth` at the live interface
+   * scale) while the overlay is the drawer's live host — a non-Home tab
+   * active and nothing presenting over the window; 0 otherwise: Home carries
+   * the HTML drawer, a presentation suppresses the overlay, collapsed is the
+   * pet's small footprint. Only the browser asks for it (the shell hook
+   * wires this into the browser's page layout); the docs app hosts the
+   * drawer in its own reserved slot and needs no inset, and a detached
+   * window's pages never reach this answer (the hook gates on the host).
+   */
+  browserDrawerInset(): number {
+    if (!this.drawerOverlayLive()) return 0
+    const dock = this.aiDock()
+    if (dock.collapsed) return 0
+    return aiDockWidth(dock, this.uiScale())
   }
 
   /**
