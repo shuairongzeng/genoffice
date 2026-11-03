@@ -4057,3 +4057,47 @@ button.kb-ask-card-name:hover {
 .desktop-todo-grip {
   opacity: 0.55;
 }
+
+/* the doc-bound empty state: the continuity marker (the document came from
+ * an AI task) above the suggestion cards the engine picked for THIS file */
+.kb-ask-doc-empty {
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 4px;
+}
+
+.kb-ask-doc-lineage {
+  margin: 0;
+  text-align: center;
+  font-size: 12.5px;
+  opacity: 0.75;
+  font-style: italic;
+}
+
+.kb-ask-suggestions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.kb-ask-suggestion {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-8);
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.kb-ask-suggestion:hover,
+.kb-ask-suggestion:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}

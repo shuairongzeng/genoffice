@@ -298,6 +298,7 @@ import { showErrorDialog } from './error-dialog'
 import { startRendererWatchdog } from './renderer-watchdog'
 import { watchAiDock, readAiDock, AI_DOCK_KEY } from './ai-dock'
 import { watchDockPrefs } from './dock-prefs'
+import { createAiLineage, type AiLineageStore } from './ai-lineage'
 import { readAiPermissions, shouldAskBrowserPageAction, watchAiPermissions } from './ai-permissions'
 import { createAiSessionAllows } from './ai-session-allows'
 import { DOCK_OPEN_NONE } from '../shared/dock-prefs'
@@ -631,6 +632,18 @@ function tabSleepEnabled(): boolean {
  * ai-session-allows.ts).
  */
 const aiSessionAllows = createAiSessionAllows()
+
+/**
+ * The AI lineage store (`userData/ai-lineage.jsonl`): the durable "this
+ * document came from an AI task" facts the doc-bound panel's continuity seed
+ * reads. One instance for the process — the store serializes its own writes —
+ * created lazily so the file's parent (userData) exists by the first record.
+ */
+let aiLineageStore: AiLineageStore | null = null
+const aiLineage = (): AiLineageStore =>
+  (aiLineageStore ??= createAiLineage({
+    filePath: join(app.getPath('userData'), 'ai-lineage.jsonl'),
+  }))
 
 let cachedAiPanelPrefs: AiPanelPrefs | null = null
 function currentAiPanelPrefs(): AiPanelPrefs {
@@ -6304,6 +6317,11 @@ registerHomeWorkbenchIpc({
   // and dying with the process — see ai-session-allows.ts for why it is not
   // persisted. A module-level instance: the set's lifetime IS the app's.
   sessionAllows: aiSessionAllows,
+  // the lineage store (lazily created above): the record/get channels' backing
+  aiLineage: {
+    record: (entry) => aiLineage().record(entry),
+    lineageFor: (path) => aiLineage().lineageFor(path),
+  },
   // the live shell content area a stage report is clamped into (0x0 while the
   // window is minimized/mid-restore, which skips the clamp)
   contentBounds: () => {

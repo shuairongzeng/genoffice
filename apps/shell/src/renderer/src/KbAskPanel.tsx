@@ -29,6 +29,7 @@ import {
   createShellSkill,
   DOCUMENT_AGENT_TOOL,
   EDIT_FILE_TOOL,
+  CREATE_DOCUMENT_TOOL,
   RUN_GENOFFICE_TOOL,
   SHELL_ADD_TODO_TOOL,
   SHELL_NAVIGATE_TOOL,
@@ -89,15 +90,18 @@ import type { Lang } from '@genoffice/i18n'
 import { activeProvider } from '@genoffice/ai-provider/browser'
 import type { ChatMessage, ChatMeta, ProjectApi, RunSummary } from '@genoffice/project-store'
 import { useI18n } from './locale'
+import type { StringKey } from './strings'
 import { useConfirm } from './ConfirmDialog'
 import { aiSetupNeeded } from './ai-setup-state'
 import type {
   AttachmentAddResult,
+  AiLineageEntry,
   BrowserAskAboutPayload,
   KbScopedSearchResult,
 } from '../../shared/home-api'
 import { AskAttachments } from './AskAttachments'
 import { planPendingAskQuery, type PendingAskQuery } from './ask-intent'
+import { suggestForDocument, type DocSuggestion } from './doc-suggestions'
 import {
   browserAskEvidenceSuffix,
   browserAskLabelOf,
@@ -219,6 +223,53 @@ const DOC_AGENT_STATUS_LABEL = {
   other: 'askDocAgentOther',
 } as const
 
+/** a suggestion key's chip-label string key */
+const SUGGESTION_LABEL_KEYS: Record<string, StringKey> = {
+  draft: 'askSugDraft',
+  outline: 'askSugOutline',
+  'continue-writing': 'askSugContinue',
+  expand: 'askSugExpand',
+  'fill-data': 'askSugFillData',
+  summarize: 'askSugSummarize',
+  polish: 'askSugPolish',
+  publish: 'askSugPublish',
+  translate: 'askSugTranslate',
+  'make-presentation': 'askSugPresentation',
+}
+
+/** a suggestion's chip label key ('summarize' → askSugSummarize) */
+function suggestionLabelKey(suggestion: DocSuggestion): StringKey {
+  return SUGGESTION_LABEL_KEYS[suggestion.key] ?? 'askSugSummarize'
+}
+
+/** a suggestion's parked-prompt string key, with the draft's topic variant; null for an unknown key */
+function suggestionPromptKey(suggestion: DocSuggestion): StringKey | null {
+  switch (suggestion.key) {
+    case 'draft':
+      return suggestion.params?.topic !== undefined ? 'askSugDraftPrompt' : 'askSugDraftPromptBare'
+    case 'outline':
+      return 'askSugOutlinePrompt'
+    case 'continue-writing':
+      return 'askSugContinuePrompt'
+    case 'expand':
+      return 'askSugExpandPrompt'
+    case 'fill-data':
+      return 'askSugFillDataPrompt'
+    case 'summarize':
+      return 'askSugSummarizePrompt'
+    case 'polish':
+      return 'askSugPolishPrompt'
+    case 'publish':
+      return 'askSugPublishPrompt'
+    case 'translate':
+      return 'askSugTranslatePrompt'
+    case 'make-presentation':
+      return 'askSugPresentationPrompt'
+    default:
+      return null
+  }
+}
+
 /** Collapsible thinking block for one answer: open while the run streams,
  * collapsed afterwards; a manual toggle wins over the live default */
 function KbThinkingBlock({ text, live, label }: { text: string; live: boolean; label: string }) {
@@ -319,24 +370,39 @@ export function firstQuestionOf(stored: readonly ChatMessage[]): string | undefi
 }
 
 /**
- * Claims the panel's transcript: resolves its ids, reads back what is already
- * stored, then writes whatever turns were asked before the ids landed — the
- * stored thread is older than anything asked meanwhile, so it is shown and
- * written first. `queued` is drained; a turn queued after the drain is the
- * caller's to flush once the ids are in hand.
+ * The thread identity a panel claims: a document's file path (the
+ * document-bound case — `resolveChat({filePath})`, the same per-document
+ * thread the editors' own panels use, so the docked/overlay panel and the
+ * doc's suppressed panel are ONE conversation) or a family root chatId
+ * (Home's `kb-ask`, the overlay's `kb-overlay-ask`).
+ */
+export interface PanelThreadIdentity {
+  /** the document's absolute path, or null/undefined for the family root */
+  docPath?: string | null
+  /** the family-root chatId, used when docPath is absent */
+  chatId: string
+}
+
+/**
+ * Claims the panel's transcript: resolves its ids (by document path, or the
+ * file-less family root), reads back what is already stored, then writes
+ * whatever turns were asked before the ids landed — the stored thread is
+ * older than anything asked meanwhile, so it is shown and written first.
+ * `queued` is drained; a turn queued after the drain is the caller's to
+ * flush once the ids are in hand.
  *
- * Split out of the effect so the ordering is testable without a DOM — the
- * panel is the only conversation in the app that belongs to no file, so
- * nothing else exercises the file-less `resolveChat` path end to end.
+ * Split out of the effect so the ordering is testable without a DOM.
  */
 export async function claimThread(
   api: ProjectApi,
-  chatId: string,
+  identity: PanelThreadIdentity,
   queued: Array<{ role: 'user' | 'assistant'; text: string }>,
   show: (messages: AskMessage[]) => void,
   stillCurrent: () => boolean,
 ): Promise<{ projectId: string; chatId: string }> {
-  const ids = await api.resolveChat({ filePath: null, tempChatId: chatId })
+  const ids = identity.docPath
+    ? await api.resolveChat({ filePath: identity.docPath })
+    : await api.resolveChat({ filePath: null, tempChatId: identity.chatId })
   // the retained window: what comes back feeds both the DOM rows and the
   // loop's restored history (which trims its own context to 40 turns), so a
   // 60-turn read loses the model nothing while capping the remount's parse
@@ -914,6 +980,15 @@ export function KbAskPanel({
   const [interruptedRuns, setInterruptedRuns] = useState<RunSummary[]>([])
   /** run handles by id, for the task rows' Stop buttons */
   const liveHandlesRef = useRef(new Map<string, AgentRunHandle>())
+  /**
+   * The lineage record queued for this run: the path a successful
+   * create_document saved, plus the person's raw question (the task). Held
+   * until finishLast — the outcome is the answer's first line, which only
+   * exists when the run completes.
+   */
+  const pendingLineageRef = useRef<{ path: string; task: string } | null>(null)
+  /** the current run's instruction (the lineage record's task text) */
+  const runInstructionRef = useRef('')
   const corpusRef = useRef<KbFileInfo[]>([])
   /**
    * The desktop loop's view of the other apps: which of their windows are open
@@ -964,16 +1039,138 @@ export function KbAskPanel({
    */
   const surfaceRoleRef = useRef(surfaceRole)
   surfaceRoleRef.current = surfaceRole
+  /**
+   * The document this panel is bound to: the active docs tab's file path, or
+   * null (Home, a browser tab, an untitled document, a non-docs kind). The
+   * panel's conversation then IS that document's thread — resolved by file
+   * path (the same per-document chat the editors' own suppressed panels
+   * use), so history loads on open, switches on tab change, and persists
+   * across restarts. Derived from the surface snapshot, so it follows every
+   * tab change the shell pushes.
+   */
+  const [docIdentity, setDocIdentity] = useState<{
+    path: string
+    kind: string
+    title: string
+  } | null>(null)
+  const docIdentityRef = useRef(docIdentity)
+  docIdentityRef.current = docIdentity
+  /** the doc-bound thread's path (null = the family root) */
+  const docPath = docIdentity?.path ?? null
+  /** the previous pass's docPath: the switch watcher's edge detector */
+  const prevDocPathRef = useRef<string | null>(null)
+  /** whether the claim effect has run once: the first claim has no thread to leave */
+  const hasClaimedRef = useRef(false)
+  /**
+   * The lineage entry for the bound document (null when the store has none
+   * or the query has not landed): the continuity seed's source — the panel
+   * greets a document its own task created with what that task was, and the
+   * suggestion cards rank the continuation verbs first.
+   */
+  const [docLineage, setDocLineage] = useState<AiLineageEntry | null>(null)
+  const docLineageRef = useRef(docLineage)
+  docLineageRef.current = docLineage
+  /** the lineage presence the suggestion engine ranks on (a plain boolean dep) */
+  const docHasLineage = docLineage !== null
+
+  /**
+   * The doc-bound empty state's suggestion cards: the engine's keys for the
+   * active document's metadata (kind, file name, title, lineage presence —
+   * wordCount/headings stay unknown to the shell and the engine tolerates
+   * them; isEmpty reads false: the shell cannot see the doc's content, only
+   * a doc-bound FILE is shown here, and a lineage doc ranks its verbs
+   * first anyway).
+   */
+  const docSuggestions = useMemo<readonly DocSuggestion[]>(() => {
+    if (docIdentity === null) return []
+    return suggestForDocument({
+      kind: docIdentity.kind,
+      fileName: docIdentity.path.split(/[\\/]/).pop() ?? docIdentity.path,
+      ...(docIdentity.title ? { title: docIdentity.title } : {}),
+      isEmpty: false,
+      hasLineage: docLineage !== null,
+    })
+    // docLineage presence is the metadata the engine ranks on; the entry
+    // itself (task text) is the marker's, not the cards'
+  }, [docIdentity, docHasLineage])
+  /**
+   * A suggestion click parks its localized prompt in the composer — never
+   * auto-sends (the person's Enter is what sends, the same contract every
+   * parked draft keeps).
+   */
+  const parkSuggestion = (suggestion: DocSuggestion): void => {
+    const key = suggestionPromptKey(suggestion)
+    const prompt =
+      key !== null && suggestion.params?.topic !== undefined
+        ? t(key, { topic: suggestion.params.topic })
+        : key !== null
+          ? t(key)
+          : ''
+    if (!prompt) return
+    setDraft(prompt)
+    composerRef.current?.focus()
+  }
+  /**
+   * Whether the first surface pull has landed: the claim effect waits for it
+   * so a panel opened over a docs tab claims the document's thread from the
+   * start, instead of claiming the family root and re-claiming a tick later
+   * (a flash of the wrong thread's history). A bridge without the channel
+   * resolves at once — the panel claims its family root exactly as before.
+   */
+  const [surfaceSettled, setSurfaceSettled] = useState(false)
+  const deriveDocIdentity = (): void => {
+    const tabs = surfaceTabsRef.current
+    const active = tabs?.find(
+      (t) => t.active && t.kind === 'docs' && t.filePath !== undefined && t.filePath !== '',
+    )
+    const next = active
+      ? { path: active.filePath as string, kind: active.kind, title: active.title }
+      : null
+    setDocIdentity((prev) => (prev?.path === next?.path ? prev : next))
+  }
+  // the lineage query rides the doc binding: activation and every switch
+  // re-ask for the document's AI origin (a record landing between tabs is
+  // picked up by the next switch; the query is one cheap main-side read)
+  useEffect(() => {
+    if (docPath === null) {
+      setDocLineage(null)
+      return
+    }
+    const api = window.aiOffice
+    if (typeof api?.aiLineageGet !== 'function') {
+      setDocLineage(null)
+      return
+    }
+    let current = true
+    void api
+      .aiLineageGet(docPath)
+      .then((entry) => {
+        if (current) setDocLineage(entry)
+      })
+      .catch(() => {
+        if (current) setDocLineage(null)
+      })
+    return () => {
+      current = false
+    }
+  }, [docPath])
   const refreshSurfaceTabs = (): Promise<void> => {
     const pull = window.aiOffice.getSurfaceTabs?.()
-    if (!pull) return Promise.resolve()
+    if (!pull) {
+      setSurfaceSettled(true)
+      return Promise.resolve()
+    }
     return pull
       .then((tabs: readonly SurfaceTab[]) => {
         surfaceTabsRef.current = tabs
+        deriveDocIdentity()
       })
       .catch(() => {
         // a failed pull keeps the last snapshot: the section degrades to the
         // last known surface, never to a wrong one
+      })
+      .finally(() => {
+        setSurfaceSettled(true)
       })
   }
   const refreshBrowserTabs = (): void => {
@@ -1049,6 +1246,12 @@ export function KbAskPanel({
   /** where this panel's transcript lives, once project-store has answered */
   const [activeChat, setActiveChat] = useState<string>(chatId)
   const [threads, setThreads] = useState<ListedThread[]>([])
+  /**
+   * The chatId the current claim resolved: the chips' active marker. While
+   * doc-bound this is the document's own id (not the family-root state), so
+   * the thread row the person is actually in shows as the active one.
+   */
+  const [claimedChatId, setClaimedChatId] = useState<string | null>(null)
   /**
    * The corpus scope the panel's guidance teaches (app-settings `kbScope`):
    * 'indexed' is the default and its empty state is about the index, 'starred'
@@ -1198,13 +1401,32 @@ export function KbAskPanel({
   }
 
   useEffect(() => {
-    // Claim whichever thread is active — the fixed home thread on mount, the
-    // chosen id after a chip click or a new thread. The ids resolve in the
-    // background, so a turn asked before they land is queued by persist() and
-    // flushed here rather than lost.
+    // A tab switch that moves the panel between document threads tears the
+    // old one down exactly like a chip click does: the messages, the loop's
+    // restored history and the queued turns belong to the thread being left.
+    // The mount's first pass (null → null, or the initial pull landing)
+    // has nothing to leave; `hasClaimedRef` keeps the FIRST real claim from
+    // tearing down an empty panel.
+    if (prevDocPathRef.current === docPath) return
+    const hadThread = hasClaimedRef.current
+    prevDocPathRef.current = docPath
+    if (hadThread) leaveThread()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- leaveThread is the panel's stable teardown verb
+  }, [docPath])
+
+  useEffect(() => {
+    // Claim whichever thread is active — the active document's when the
+    // panel is doc-bound, else the family root (the fixed home thread on
+    // mount, the chosen id after a chip click or a new thread). The claim
+    // waits for the first surface pull so a panel opened over a docs tab
+    // claims the document's thread from the start. The ids resolve in the
+    // background, so a turn asked before they land is queued by persist()
+    // and flushed here rather than lost.
+    if (!surfaceSettled) return
     const api = window.projectApi
     if (!api) return
     let current = true
+    hasClaimedRef.current = true
     // a question asked while the thread was loading stays on screen, below it
     const show = (restored: AskMessage[]): void => {
       mutateMessages((prev) => [...restored, ...prev])
@@ -1218,10 +1440,17 @@ export function KbAskPanel({
         if (current) cliContextRef.current = ctx
       })
       .catch(() => undefined)
-    void claimThread(api, activeChat, pendingRef.current, show, () => current)
+    void claimThread(
+      api,
+      docPath ? { docPath, chatId: activeChat } : { chatId: activeChat },
+      pendingRef.current,
+      show,
+      () => current,
+    )
       .then((ids) => {
         if (!current) return
         chatIdsRef.current = ids
+        setClaimedChatId(ids.chatId)
         for (const entry of pendingRef.current.splice(0)) persist(entry)
       })
       .catch(() => undefined)
@@ -1230,16 +1459,25 @@ export function KbAskPanel({
       current = false
     }
     // mutateMessages is identity-stable (ref + setter only), so it never
-    // re-triggers the claim
-  }, [activeChat, mutateMessages])
+    // re-triggers the claim; refreshThreads reads live refs (the doc
+    // binding, the store) — its identity is deliberately not a dependency
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docPath, activeChat, surfaceSettled, mutateMessages])
 
   const refreshThreads = async (api: ProjectApi): Promise<void> => {
     try {
-      const ids = await api.resolveChat({ filePath: null, tempChatId: chatId })
-      // Only this panel's own threads belong in the list: the default project
-      // also keeps every editor document's AI history — and the other mount's
-      // family (P0-1) — and listing those would offer deleting them from here.
-      const metas = panelThreads(await api.listChats({ projectId: ids.projectId }), chatId)
+      // the family root this mount lists: the document's own chatId when
+      // doc-bound (the doc's hash id plus the -ts threads this panel starts
+      // — a prefix-disjoint family, same rule as the mounts' roots), else
+      // the mount's root. Only this family belongs in the list: the default
+      // project also keeps every editor document's AI history — and the
+      // other mount's family (P0-1) — and listing those would offer
+      // deleting them from here.
+      const docPath = docIdentityRef.current?.path ?? null
+      const ids = docPath
+        ? await api.resolveChat({ filePath: docPath })
+        : await api.resolveChat({ filePath: null, tempChatId: chatId })
+      const metas = panelThreads(await api.listChats({ projectId: ids.projectId }), ids.chatId)
       // Labels ride on the listing itself, so a refresh is one call however
       // many threads are stored.
       setThreads(
@@ -1698,7 +1936,19 @@ export function KbAskPanel({
           runReasoningRef.current += text
           patchLast({ reasoning: runReasoningRef.current })
         },
-        onToolExecuted: ({ call, execution }) =>
+        onToolExecuted: ({ call, execution }) => {
+          // a successful create_document names the file it saved: the lineage
+          // record's path half (the settled artifact parse's own regex — the
+          // tool prints "  path: <abs>" under "saved <name>")
+          if (call.name === CREATE_DOCUMENT_TOOL && !execution.isError) {
+            const path = /^\s*path: (.+)$/m.exec(execution.output)?.[1]?.trim()
+            if (path) {
+              pendingLineageRef.current = {
+                path,
+                task: runInstructionRef.current,
+              }
+            }
+          }
           patchLast(
             (last) => ({
               artifacts: settleArtifact(last.artifacts, call, execution),
@@ -1708,7 +1958,8 @@ export function KbAskPanel({
             {
               sync: true,
             },
-          ),
+          )
+        },
         onToolStart: (call) => {
           // a delegated task begins its rolling status line immediately — sync,
           // like the tool-executed patches: the line must not wait a frame
@@ -1793,6 +2044,26 @@ export function KbAskPanel({
     if (last?.role === 'assistant' && last.streaming && last.text) {
       persist({ role: 'assistant', text: last.text })
     }
+    // the lineage record: a create_document run that succeeded in THIS turn
+    // writes "this document came from that task" (the task text + the
+    // answer's first line as the outcome), so the doc-bound panel that
+    // opens the file later can seed its conversation with it. Fire and
+    // forget — a failed record costs the seed, never the conversation.
+    const created = pendingLineageRef.current
+    if (created) {
+      pendingLineageRef.current = null
+      const summary =
+        last?.role === 'assistant' && last.text
+          ? (last.text.split('\n')[0]?.slice(0, 200) ?? '')
+          : ''
+      void window.aiOffice
+        .aiLineageRecord?.({
+          path: created.path,
+          task: created.task,
+          ...(summary ? { summary } : {}),
+        })
+        .catch(() => undefined)
+    }
     // sync: the finish must repaint now, not on the next frame — Stop and
     // onDone land in the same tick, and busy turns false in the same breath
     patchLast({ streaming: false }, { sync: true })
@@ -1811,6 +2082,19 @@ export function KbAskPanel({
     const files = attachments
     setAttachments([])
     return askWith(instruction, skills, files)
+  }
+
+  /**
+   * The lineage seed's context line: the model-facing half of the continuity
+   * ("你刚才做了什么" must answer). English by the scaffold precedent (the
+   * browser note's evidence line rides the question in the model's language;
+   * the VISIBLE marker is the localized one). The task and outcome are the
+   * store's own clamped text.
+   */
+  const lineageContextLine = (entry: AiLineageEntry): string => {
+    const task = entry.task.slice(0, 200)
+    const outcome = entry.summary ? ` Outcome: ${entry.summary.slice(0, 200)}` : ''
+    return `Document lineage — this document came from the task: "${task}".${outcome}`
   }
 
   const notice = (text: string): void => {
@@ -2009,6 +2293,19 @@ export function KbAskPanel({
     if (!instruction || busy || loopRef.current?.busy) return
     setBusy(true)
     refreshSettings()
+    // the lineage record's task half: the person's raw question this run answers
+    runInstructionRef.current = instruction
+    // the continuity seed: an EMPTY doc-bound thread whose document has
+    // lineage opens with the task's context riding the first question (the
+    // browser-note scaffold precedent — the line is visible in the
+    // transcript, stored with it, and seen by the model, so "what did you
+    // just do" answers). Only the first ask: once the thread has turns, the
+    // conversation itself is the context.
+    const lineageSeed =
+      docIdentityRef.current && docLineageRef.current && messagesRef.current.length === 0
+        ? lineageContextLine(docLineageRef.current)
+        : null
+    const question = lineageSeed ? `${lineageSeed}\n${instruction}` : instruction
     if (files.length > 0) {
       const seen = new Set(sentAttachmentsRef.current.map((a) => a.path))
       sentAttachmentsRef.current = [
@@ -2061,7 +2358,8 @@ export function KbAskPanel({
       corpusRef.current.length === 0 &&
       availableAttachments().length === 0 &&
       scopeRef.current.length === 0 &&
-      browserTabsRef.current.length === 0
+      browserTabsRef.current.length === 0 &&
+      docIdentityRef.current === null
     ) {
       // the scope says which empty this is: nothing starred yet, an empty
       // folders list, folders chosen whose files are not answerable yet, or
@@ -2075,10 +2373,10 @@ export function KbAskPanel({
       )
       mutateMessages((prev) => [
         ...prev,
-        { role: 'user', text: instruction, toolNotes: [], artifacts: [] },
+        { role: 'user', text: question, toolNotes: [], artifacts: [] },
         { role: 'assistant', text: guidance, toolNotes: [], artifacts: [] },
       ])
-      persist({ role: 'user', text: instruction })
+      persist({ role: 'user', text: question })
       persist({ role: 'assistant', text: guidance })
       setBusy(false)
       return
@@ -2087,7 +2385,7 @@ export function KbAskPanel({
       ...prev,
       {
         role: 'user',
-        text: instruction,
+        text: question,
         toolNotes: [],
         artifacts: [],
         ...(skills.length > 0 ? { skills: [...skills] } : {}),
@@ -2095,7 +2393,7 @@ export function KbAskPanel({
       },
       { role: 'assistant', text: '', toolNotes: [], artifacts: [], streaming: true },
     ])
-    persist({ role: 'user', text: instruction })
+    persist({ role: 'user', text: question })
     try {
       // the evidence pack's image half: the annotation's pin-time shot rides
       // the question as visual input (the same images channel file
@@ -2112,7 +2410,7 @@ export function KbAskPanel({
         return { base64: shot.base64, mime: shot.mime }
       }
       const [text, images, noteImage] = await Promise.all([
-        withSkillBodies(instruction, skills),
+        withSkillBodies(question, skills),
         collectImages(files),
         readNoteImage(),
         // the surface pull lands before the run starts: the loop re-reads the
@@ -2284,12 +2582,13 @@ export function KbAskPanel({
           {threads.map((thread) => (
             <div
               key={thread.chatId}
-              className={`kb-ask-thread-chip${thread.chatId === activeChat ? ' active' : ''}`}
+              data-chat={thread.chatId}
+              className={`kb-ask-thread-chip${thread.chatId === (claimedChatId ?? activeChat) ? ' active' : ''}`}
             >
               <button
                 type="button"
                 role="tab"
-                aria-selected={thread.chatId === activeChat}
+                aria-selected={thread.chatId === (claimedChatId ?? activeChat)}
                 title={thread.label}
                 onClick={() => openThread(thread.chatId)}
               >
@@ -2375,7 +2674,40 @@ export function KbAskPanel({
       >
         <div className="kb-ask-thread" ref={stick.scrollerRef}>
           <div className="kb-ask-thread-inner" ref={stick.contentRef}>
-            {messages.length === 0 && corpusCount === 0 && (
+            {/* the doc-bound empty state: the conversation IS this
+                document's thread, so the corpus onboarding gives way to the
+                document's own first moves — the suggestion cards (the
+                engine's keys, localized labels) and, when the lineage store
+                knows the document's AI origin, the visible continuity
+                marker (the model-facing half rides the first question as
+                the seed) */}
+            {messages.length === 0 && docIdentity !== null && (
+              <div className="kb-ask-doc-empty">
+                {docLineage !== null && (
+                  <p className="kb-ask-doc-lineage" data-testid="kb-ask-doc-lineage">
+                    {t('askDocLineage', { task: docLineage.task.slice(0, 120) })}
+                  </p>
+                )}
+                <div
+                  className="kb-ask-suggestions"
+                  role="group"
+                  aria-label={t('askDocSuggestTitle')}
+                >
+                  {docSuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.key}
+                      type="button"
+                      className="kb-ask-suggestion"
+                      data-key={suggestion.key}
+                      onClick={() => parkSuggestion(suggestion)}
+                    >
+                      {t(suggestionLabelKey(suggestion))}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {messages.length === 0 && docIdentity === null && corpusCount === 0 && (
               <div className="kb-ask-hero">
                 <div className="kb-ask-hero-icon" aria-hidden="true">
                   <IconBookOpen />
@@ -2423,11 +2755,14 @@ export function KbAskPanel({
                 </button>
               </div>
             )}
-            {messages.length === 0 && corpusCount !== null && corpusCount > 0 && (
-              <p className="kb-ask-hint">
-                {t(scopeKey('askIntro', 'askIntroFolders', 'askIntroIndexed'))}
-              </p>
-            )}
+            {messages.length === 0 &&
+              docIdentity === null &&
+              corpusCount !== null &&
+              corpusCount > 0 && (
+                <p className="kb-ask-hint">
+                  {t(scopeKey('askIntro', 'askIntroFolders', 'askIntroIndexed'))}
+                </p>
+              )}
             {messages.map((m, i) => (
               <AskMessageRow
                 key={i}
@@ -2472,9 +2807,9 @@ export function KbAskPanel({
         )}
       </div>
       {messages.length > 0 && (
-        <p className="kb-ask-nosave">
+        <p className="kb-ask-nosave" data-kind={docIdentity !== null ? 'doc' : 'panel'}>
           <IconInfo />
-          {t('askNoSave')}
+          {t(docIdentity !== null ? 'askDocSaved' : 'askNoSave')}
         </p>
       )}
       {gskEmail === null && provider === 'genspark' && (

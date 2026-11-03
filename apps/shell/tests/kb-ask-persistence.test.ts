@@ -108,7 +108,7 @@ describe('claiming the panel thread', () => {
     const shown: AskMessage[][] = []
     await claimThread(
       api,
-      'kb-ask',
+      { chatId: 'kb-ask' },
       [],
       (m) => shown.push(m),
       () => true,
@@ -131,7 +131,7 @@ describe('claiming the panel thread', () => {
     ]
     await claimThread(
       api,
-      'kb-ask',
+      { chatId: 'kb-ask' },
       queued,
       () => undefined,
       () => true,
@@ -156,7 +156,7 @@ describe('claiming the panel thread', () => {
     const shown: AskMessage[][] = []
     await claimThread(
       api,
-      'kb-ask',
+      { chatId: 'kb-ask' },
       [],
       (m) => shown.push(m),
       () => false,
@@ -169,7 +169,7 @@ describe('claiming the panel thread', () => {
     await expect(
       claimThread(
         api,
-        'kb-ask',
+        { chatId: 'kb-ask' },
         [],
         () => undefined,
         () => true,
@@ -291,7 +291,7 @@ describe('claiming the thread the panel switched to', () => {
     const { api, calls } = recorder([])
     await claimThread(
       api,
-      'kb-ask-1731',
+      { chatId: 'kb-ask-1731' },
       [],
       () => undefined,
       () => true,
@@ -333,7 +333,7 @@ describe('bounding the live transcript (issue 27 item 3)', () => {
     const { api, calls } = recorder([])
     await claimThread(
       api,
-      'kb-ask',
+      { chatId: 'kb-ask' },
       [],
       () => undefined,
       () => true,

@@ -18,6 +18,7 @@ import { DOCK_PREFS_KEY, readDockPrefs } from './dock-prefs'
 import { AI_PERMISSIONS_KEY, readAiPermissions } from './ai-permissions'
 import { asSessionAllowTool, type AiSessionAllows } from './ai-session-allows'
 import { asAiPermissionMode, type AiPermissionMode } from '@genoffice/ui/ai-permission-mode'
+import type { AiLineageEntry, AiLineageStore } from './ai-lineage'
 import { writeAppSetting } from './app-settings'
 import type { TabManager } from './tab-manager'
 
@@ -178,6 +179,14 @@ export interface HomeWorkbenchIpcDeps {
    */
   sessionAllows?: AiSessionAllows
   /**
+   * The AI lineage store (`ai-lineage.ts`): the record channel appends "this
+   * document came from an AI task" facts, the get channel answers a path's
+   * newest entry for the doc-bound panel's continuity seed. Injected like
+   * the session set; absent keeps record failing loudly (a silent no-op
+   * would lose lineage without a trace) and get answering null.
+   */
+  aiLineage?: Pick<AiLineageStore, 'record' | 'lineageFor'>
+  /**
    * Route one validated ask-intent handoff to the drawer's live surface
    * (P0-2): the native overlay's panel copy while a document tab is active
    * (main's own truth decides — the renderer's view of the active tab can lag
@@ -251,6 +260,36 @@ export interface HomeWorkbenchIpcDeps {
    * applyDockOpen — the cache lives where the push does.
    */
   takeDockOpen: () => DockOpenState
+}
+
+/** longest lineage path/task/summary the record channel accepts (the store caps the task itself) */
+const MAX_LINEAGE_PATH_CHARS = 4096
+const MAX_LINEAGE_TASK_CHARS = 2000
+const MAX_LINEAGE_SUMMARY_CHARS = 1000
+
+/**
+ * A lineage record the channel accepts, or null: `{ path, task }` as
+ * non-empty bounded strings, `summary` a bounded string when present. The
+ * panel's fire-and-forget write means a refusal surfaces as the caught
+ * error (the seed is lost, never the conversation); the shape check keeps
+ * junk out of the store's JSONL.
+ */
+function asAiLineageInput(value: unknown): { path: string; task: string; summary?: string } | null {
+  if (!value || typeof value !== 'object') return null
+  const entry = value as Record<string, unknown>
+  if (typeof entry.path !== 'string' || !entry.path.trim()) return null
+  if (entry.path.length > MAX_LINEAGE_PATH_CHARS) return null
+  if (typeof entry.task !== 'string' || !entry.task.trim()) return null
+  if (entry.task.length > MAX_LINEAGE_TASK_CHARS) return null
+  if (entry.summary !== undefined && typeof entry.summary !== 'string') return null
+  if (typeof entry.summary === 'string' && entry.summary.length > MAX_LINEAGE_SUMMARY_CHARS) {
+    return null
+  }
+  return {
+    path: entry.path,
+    task: entry.task,
+    ...(typeof entry.summary === 'string' && entry.summary ? { summary: entry.summary } : {}),
+  }
 }
 
 /** a reported content-stage rect, whole-pixel and inside the window; null on anything malformed */
@@ -558,6 +597,25 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
     if (tool === null) return false
     deps.sessionAllows?.add(tool)
     return true
+  })
+  // the AI lineage pair: the panel records "this document came from an AI
+  // task" when a create_document run succeeds, and the doc-bound panel asks
+  // for a path's entry on activation (the continuity seed's source). Input is
+  // validated whole — a malformed record is refused, never half-applied; the
+  // store's own caps (task length, the `at` stamp) apply past this gate
+  ipcMain.handle(HOME_CHANNELS.aiLineageRecord, async (_event, raw: unknown): Promise<void> => {
+    const entry = asAiLineageInput(raw)
+    if (entry === null) {
+      throw new Error(
+        'ai-lineage record needs { path, task } as non-empty strings (summary optional)',
+      )
+    }
+    if (!deps.aiLineage) throw new Error('the lineage store is not available')
+    await deps.aiLineage.record(entry)
+  })
+  ipcMain.handle(HOME_CHANNELS.aiLineageGet, (_event, raw: unknown): AiLineageEntry | null => {
+    if (typeof raw !== 'string' || !raw.trim()) return null
+    return deps.aiLineage?.lineageFor(raw) ?? null
   })
   // Home's open-target report: validated whole (the state machine's
   // consumers — running dots, bounce-ready — must never see a half-parsed

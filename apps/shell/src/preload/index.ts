@@ -13,6 +13,7 @@ import { normalizeAiPanelPrefs } from '@genoffice/ui/ai-panel-prefs'
 import { normalizeAiPermissionMode } from '@genoffice/ui/ai-permission-mode'
 import type {
   AccountLoginEvent,
+  AiLineageEntry,
   DockNavIntent,
   AccountStatus,
   CloudProjectsSnapshot,
@@ -872,6 +873,15 @@ const homeApi: HomeApi = {
   },
   async aiSessionAllowAdd(tool) {
     await ipcRenderer.invoke(HOME_CHANNELS.aiSessionAllowAdd, tool)
+  },
+  // the AI lineage pair: the panel records "this document came from an AI
+  // task" when a create_document run succeeds, and the doc-bound panel asks
+  // for a path's entry on activation (the continuity seed's source)
+  async aiLineageRecord(entry) {
+    await ipcRenderer.invoke(HOME_CHANNELS.aiLineageRecord, entry)
+  },
+  async aiLineageGet(path) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.aiLineageGet, path)) as AiLineageEntry | null
   },
   // Home's open-target report, fire-and-forget on change only: main caches
   // it and pushes the cached state to the doc-mode overlay's dock renderer

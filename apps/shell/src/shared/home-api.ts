@@ -63,6 +63,13 @@ export type { RunEvent, RunSummary } from '@genoffice/project-store'
 import type { AiPanelPrefs } from '@genoffice/ui/ai-panel-prefs'
 import type { AiPermissionMode } from '@genoffice/ui/ai-permission-mode'
 export type { AiPermissionMode }
+/** one "this document came from an AI task" fact (main/ai-lineage.ts's shape) */
+export interface AiLineageEntry {
+  path: string
+  task: string
+  summary: string
+  at: string
+}
 import type { FoundSkill, ForeignSkillCandidate, InstalledPlugin } from './found-skill'
 import type { TabKind } from './tabs-api'
 
@@ -834,6 +841,21 @@ export interface HomeApi {
    */
   aiSessionAllowHas?(tool: string): Promise<boolean>
   /**
+   * Record one "this document came from an AI task" fact
+   * (`home:ai-lineage-record`): the panel writes it when a create_document
+   * run succeeds, so a later doc-bound thread can open with the continuity
+   * context. Fire-and-forget; a failure costs the seed, never the
+   * conversation.
+   */
+  aiLineageRecord?(entry: { path: string; task: string; summary?: string }): Promise<void>
+  /**
+   * The lineage entry for one document path (`home:ai-lineage-get`), or null
+   * when the document has no recorded AI origin. The doc-bound panel queries
+   * on activation; the answer feeds the continuity seed and the suggestion
+   * cards' hasLineage flag.
+   */
+  aiLineageGet?(path: string): Promise<AiLineageEntry | null>
+  /**
    * Record an always-allow into the app-session set
    * (`home:ai-session-allow-add`): the confirm card's 始终允许（本会话） lands
    * here. Fire-and-forget; the consult reads it on the very next call.
@@ -1497,6 +1519,10 @@ export const HOME_CHANNELS = {
   openFolder: 'home:open-folder',
   /** renderer → main: does the app-session allow set hold this tool name? */
   aiSessionAllowHas: 'home:ai-session-allow-has',
+  /** renderer → main: record one "this document came from an AI task" fact */
+  aiLineageRecord: 'home:ai-lineage-record',
+  /** renderer ↔ main: the lineage entry for a document path (null when none) */
+  aiLineageGet: 'home:ai-lineage-get',
   /** renderer → main: record an always-allow into the app-session set */
   aiSessionAllowAdd: 'home:ai-session-allow-add',
   /** renderer → main: Home reports which dock targets are open (the overlay

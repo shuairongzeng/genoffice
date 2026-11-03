@@ -624,6 +624,114 @@ describe('registerHomeWorkbenchIpc', () => {
     })
   })
 
+  describe('the AI lineage channels (the doc-bound continuity seed)', () => {
+    /** a throwaway in-memory lineage store the record/get pair shares */
+    const lineageStore = () => {
+      const entries: Array<{ path: string; task: string; summary: string; at: string }> = []
+      return {
+        record: vi.fn(async (entry: { path: string; task: string; summary?: string }) => {
+          entries.push({
+            path: entry.path,
+            task: entry.task,
+            summary: entry.summary ?? '',
+            at: '2026-11-03T09:00:00.000Z',
+          })
+        }),
+        lineageFor: vi.fn((path: string) => entries.find((entry) => entry.path === path) ?? null),
+        entries,
+      }
+    }
+
+    it('records a validated entry and answers the newest one for its path', async () => {
+      const store = lineageStore()
+      registerWorkbench()
+      // injected per registration: re-register with the store
+      dir ??= mkdtempSync(join(tmpdir(), 'genoffice-workbench-'))
+      registerHomeWorkbenchIpc({
+        appSettingsPath: () => join(dir, 'app-settings.json'),
+        getTabManager: () => null,
+        contentBounds: () => ({ width: 800, height: 600 }),
+        forwardAskQuery,
+        isTrustedAskSender: () => true,
+        forwardBrowserAskAbout,
+        markDrawerOverlayReadyFor,
+        applyDrawerOverlayPetDrag,
+        reportDockHotEdge,
+        dockNavAction,
+        takeDockNavPending,
+        applyDockOpen,
+        takeDockOpen,
+        aiLineage: store,
+      })
+      await invoke('home:ai-lineage-record', {
+        path: '/desk/Report.docx',
+        task: 'make me a report',
+        summary: 'created it',
+      })
+      expect(store.record).toHaveBeenCalledWith({
+        path: '/desk/Report.docx',
+        task: 'make me a report',
+        summary: 'created it',
+      })
+      expect(await invoke('home:ai-lineage-get', '/desk/Report.docx')).toEqual({
+        path: '/desk/Report.docx',
+        task: 'make me a report',
+        summary: 'created it',
+        at: '2026-11-03T09:00:00.000Z',
+      })
+      // an unknown path answers null, never a throw
+      expect(await invoke('home:ai-lineage-get', '/desk/other.docx')).toBeNull()
+    })
+
+    it('a malformed record is refused whole, and the caps hold', async () => {
+      const store = lineageStore()
+      dir ??= mkdtempSync(join(tmpdir(), 'genoffice-workbench-'))
+      registerHomeWorkbenchIpc({
+        appSettingsPath: () => join(dir, 'app-settings.json'),
+        getTabManager: () => null,
+        contentBounds: () => ({ width: 800, height: 600 }),
+        forwardAskQuery,
+        isTrustedAskSender: () => true,
+        forwardBrowserAskAbout,
+        markDrawerOverlayReadyFor,
+        applyDrawerOverlayPetDrag,
+        reportDockHotEdge,
+        dockNavAction,
+        takeDockNavPending,
+        applyDockOpen,
+        takeDockOpen,
+        aiLineage: store,
+      })
+      for (const bad of [
+        null,
+        'entry',
+        {},
+        { path: '' },
+        { path: '/a.docx' },
+        { path: '/a.docx', task: ' ' },
+        { path: '/a.docx', task: 'x'.repeat(2001) },
+        { path: 'x'.repeat(4097), task: 'x' },
+        { path: '/a.docx', task: 't', summary: 42 },
+        { path: '/a.docx', task: 't', summary: 'x'.repeat(1001) },
+      ]) {
+        await expect(invoke('home:ai-lineage-record', bad)).rejects.toThrow(/lineage record needs/)
+      }
+      expect(store.record).not.toHaveBeenCalled()
+      // the get channel guards its own input: junk answers null
+      for (const bad of [undefined, 42, '', '   ']) {
+        expect(await invoke('home:ai-lineage-get', bad)).toBeNull()
+      }
+    })
+
+    it('without the store, record fails loudly and get answers null (the seed is absent, never wrong)', async () => {
+      registerWorkbench()
+      await expect(
+        invoke('home:ai-lineage-record', { path: '/a.docx', task: 't' }),
+      ).rejects.toThrow(/not available/)
+      expect(await invoke('home:ai-lineage-get', '/a.docx')).toBeNull()
+    })
+  })
+
   describe('the app-session allow set channels (the card’s 始终允许（本会话）)', () => {
     beforeEach(() => {
       sessionSet = createAiSessionAllows()
