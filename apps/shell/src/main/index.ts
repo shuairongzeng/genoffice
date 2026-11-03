@@ -12,7 +12,7 @@ import {
 } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, extname, join, resolve } from 'node:path'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import {
   BrowserWindow,
@@ -76,7 +76,6 @@ import { installCliLinkBestEffort } from './cli-link'
 import { registerIntegrationsIpc } from './integrations-ipc'
 import { registerPluginsIpc } from './plugins-ipc'
 import { registerTemplatesIpc } from './templates-ipc'
-import { broadcastTodosChanged, registerTodosIpc } from './todos-ipc'
 import {
   registerDesktopIpc,
   defaultWallpapersDir,
@@ -151,6 +150,9 @@ import {
   type MenuHost,
 } from './menus'
 import { registerHomeFileIpc, stringPaths } from './home-ipc'
+import { openEditorOf as openEditorGuard, openDocumentRefusal } from './open-editor-guard'
+import { isValidRawRenameName } from './rename-validation'
+import { addTodo, broadcastTodosChanged, registerTodosIpc } from './todos-ipc'
 import {
   genofficeLogout,
   gskLoginInfo,
@@ -208,6 +210,7 @@ import {
   readRecentFiles,
   readSlidesRecentFiles,
   readStarredFiles,
+  toggleStarredFile,
   recordRecentFile,
   registerAiIpc,
   registerDocsIpc,
@@ -3957,6 +3960,15 @@ function statMaybeFile(path: string): { isFile: () => boolean } | null {
   }
 }
 
+/** a directory stat the agent write executors use (missing = not one) */
+function isDirectoryAt(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 function fileTargetSources(): FileTargetSources {
   return {
     insideAnyRoot: (p) => insideAnyRoot(p),
@@ -6684,6 +6696,43 @@ app.whenReady().then(async () => {
   // tools (open_browser / navigate / list_tabs / switch_tab / open_path):
   // user-instructed, visible, reversible acts the prompt grades as ungated,
   // with the URL scheme gate (http/https only) enforced where the load runs.
+  /**
+   * The agent write powers' shared scope verdict (open-editor-guard's sibling
+   * seam): kb:read's corpus verdicts — the same sources the open_path dep
+   * reads — re-run on the realpath so a symlink whose target sits outside
+   * the scope cannot smuggle a file past the location verdict.
+   */
+  const agentPathAllowed = async (path: string): Promise<boolean> => {
+    const sources = {
+      indexHas: (p: string) => fileIndexStore?.has(p) ?? false,
+      starred: readStarredFiles(),
+      recents: readRecentFiles(),
+      aliases: readDesktopLayout(app.getPath('userData')).aliases,
+      insideAnyRoot,
+      scope: normalizeKbScope(readAppSettings(APP_SETTINGS_PATH()).kbScope),
+      scopeFolders: normalizeKbScopeFolders(readAppSettings(APP_SETTINGS_PATH()).kbScopeFolders),
+      statFile: statMaybeFile,
+    }
+    if (!(await kbOpenPathAllows(path, sources))) return false
+    const resolved = await realpath(path).catch(() => null)
+    if (resolved === null || resolved === path) return true
+    return kbOpenPathAllows(resolved, sources)
+  }
+  /** the refusal every agent write shares when the scope verdict says no */
+  const agentScopeRefusal = (path: string): Error =>
+    new Error(
+      `"${path.slice(0, 120)}" is outside the desktop's file scope — the agent may change files ` +
+        'the person has surfaced (starred or recent, inside a knowledge folder, or indexed). Ask ' +
+        'the person to handle this one themselves, or to add the file to the knowledge base first',
+    )
+  /** the open-document enumeration the write/move/rename guards read */
+  const agentOpenDocuments = async (): Promise<Array<{ path: string; kind: string }>> => {
+    const tabs = tabManager ? await tabManager.openDocuments() : []
+    const detached = await detachedOpenDocuments({ dirty: false })
+    return [...tabs, ...detached]
+      .filter((doc) => typeof doc.filePath === 'string' && doc.filePath !== '')
+      .map((doc) => ({ path: doc.filePath as string, kind: doc.kind }))
+  }
   registerBrowserSkillIpc({
     listBrowserTabs: async () => [
       ...(await detachedOpenDocuments()).filter((doc) => doc.kind === 'browser'),
@@ -6746,6 +6795,176 @@ app.whenReady().then(async () => {
       return [shellWc, overlayWc].filter((wc): wc is WebContents => !!wc && !wc.isDestroyed())
     },
     confirmPageAction: (request) => confirmBrowserPageAction(request),
+    // ── the shell's desktop powers (the new shell:* tools): each executor
+    // reuses the very helpers the Home channels own — the same scope
+    // verdicts, the same folder-tree and starred stores, the same atomic
+    // write and rename rules — so the agent's powers and the desktop's own
+    // behaviors cannot drift apart ──
+    closeTab: async (id) => {
+      if (!tabManager) return false
+      const manager = tabManager
+      // the strip's own close verb: the unsaved-changes guard runs, and a
+      // refused close answers false (the person kept the tab open)
+      await manager.closeTab(id)
+      return !manager.list().some((tab) => tab.id === id)
+    },
+    openFolder: (path) => {
+      // the folder view exists only for the knowledge folders' roots: the
+      // same verdict the folder tree's own navigation rests on
+      if (!insideAnyRoot(path)) return false
+      if (!shellWindow || shellWindow.isDestroyed()) return false
+      tabManager?.activateTab('home')
+      shellWindow.webContents.send(HOME_CHANNELS.openFolder, path)
+      revealShellWindow()
+      return true
+    },
+    listDirectory: async (path) => {
+      // the scope family: inside a folder root OR a desktop alias target
+      const aliases = readDesktopLayout(app.getPath('userData')).aliases
+      const allowed = insideAnyRoot(path) || aliases.includes(path)
+      if (!allowed) {
+        throw new Error(
+          `"${path.slice(0, 120)}" is outside the desktop's file scope — the agent lists ` +
+            'directories inside the knowledge folders and the desktop aliases. Ask the person to ' +
+            "add the folder from the desktop's folder menu first",
+        )
+      }
+      const entries: Array<{ name: string; kind: 'file' | 'folder'; size?: number }> = []
+      let truncated = false
+      const dirents = readdirSync(path, { withFileTypes: true })
+      dirents.sort((a, b) => a.name.localeCompare(b.name))
+      for (const entry of dirents) {
+        if (entries.length >= 200) {
+          truncated = true
+          break
+        }
+        const full = join(path, entry.name)
+        const isFolder = entry.isDirectory()
+        if (isFolder || entry.isFile()) {
+          let size: number | undefined
+          if (!isFolder) {
+            try {
+              size = statSync(full).size
+            } catch {
+              size = undefined
+            }
+          }
+          entries.push({
+            name: entry.name,
+            kind: isFolder ? 'folder' : 'file',
+            ...(size !== undefined ? { size } : {}),
+          })
+        }
+      }
+      return { dir: path, entries, truncated }
+    },
+    createDirectory: async (path) => {
+      if (!(await agentPathAllowed(path))) {
+        throw agentScopeRefusal(path)
+      }
+      // the parent must be an in-scope directory that exists
+      const parent = dirname(path)
+      if (!isDirectoryAt(parent)) {
+        throw new Error(
+          `"${parent.slice(0, 120)}" is not a directory — create the folder inside an existing one`,
+        )
+      }
+      if (existsSync(path)) {
+        // the folder-tree's own rule: a name collision is not an error, it
+        // is a new unique name (the desktop never clobbers)
+        const unique = uniqueNameIn(parent, basename(path), true)
+        mkdirSync(unique, { recursive: true })
+        return unique
+      }
+      mkdirSync(path, { recursive: false })
+      return path
+    },
+    writeTextFile: async (path, content) => {
+      if (!(await agentPathAllowed(path))) throw agentScopeRefusal(path)
+      // an app holding the file open owns its content — the edit_file guard,
+      // shared through open-editor-guard
+      const open = await agentOpenDocuments()
+      const openKind = openEditorGuard(path, open)
+      if (openKind !== null) {
+        throw openDocumentRefusal(path, openKind, 'writing')
+      }
+      const parent = dirname(path)
+      if (!isDirectoryAt(parent)) {
+        throw new Error(
+          `"${parent.slice(0, 120)}" is not a directory — write the file inside an existing one`,
+        )
+      }
+      await atomicWriteFile(path, Buffer.from(content, 'utf8'))
+      return path
+    },
+    moveFile: async (from, to) => {
+      for (const p of [from, to]) {
+        if (!(await agentPathAllowed(p))) throw agentScopeRefusal(p)
+      }
+      const open = await agentOpenDocuments()
+      for (const p of [from, to]) {
+        const openKind = openEditorGuard(p, open)
+        if (openKind !== null) {
+          throw openDocumentRefusal(p, openKind, 'moving')
+        }
+      }
+      if (!statMaybeFile(from)?.isFile()) {
+        throw new Error(
+          `"${from.slice(0, 120)}" is not a file — check the path with shell:list_directory`,
+        )
+      }
+      // the target: a directory moves the file under it; a full path must not
+      // exist (the desktop never clobbers — a collision takes a unique name)
+      let target = to
+      if (isDirectoryAt(to)) {
+        target = uniqueNameIn(to, basename(from))
+      } else if (existsSync(to)) {
+        target = uniqueNameIn(dirname(to), basename(to))
+      }
+      renameSync(from, target)
+      return target
+    },
+    renameFile: async (path, name) => {
+      if (!(await agentPathAllowed(path))) throw agentScopeRefusal(path)
+      const open = await agentOpenDocuments()
+      const openKind = openEditorGuard(path, open)
+      if (openKind !== null) {
+        throw openDocumentRefusal(path, openKind, 'renaming')
+      }
+      if (!statMaybeFile(path)?.isFile()) {
+        throw new Error(
+          `"${path.slice(0, 120)}" is not a file — check the path with shell:list_directory`,
+        )
+      }
+      if (!isValidRawRenameName(name)) {
+        throw new Error(
+          `"${name.slice(0, 80)}" is not a usable file name — it must keep the file's app ` +
+            'family (a .docx stays a document extension) and hold no path separators',
+        )
+      }
+      const target = join(dirname(path), name)
+      if (existsSync(target)) {
+        throw new Error(
+          `"${name.slice(0, 80)}" already exists in that folder — pick another name, or move the file instead`,
+        )
+      }
+      renameSync(path, target)
+      return target
+    },
+    starFile: (path) => {
+      if (!statMaybeFile(path)?.isFile()) return false
+      toggleStarredFile(path)
+      return true
+    },
+    unstarFile: (path) => {
+      removeStarredFiles([path])
+      return true
+    },
+    addTodo: async (text) => {
+      const list = await addTodo(app.getPath('userData'), text)
+      broadcastTodosChanged(list)
+      return list[0]!
+    },
   })
   // The document-agent delegation (W2): the dock's document_agent tool lands
   // here and routes to the ACTIVE docs tab's headless agent. The tab

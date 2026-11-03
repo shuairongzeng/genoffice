@@ -1084,6 +1084,14 @@ export function Home() {
     return unsubscribe
   }, [performDockNav])
 
+  // the shell:open_folder tool's surface half: main verified the path sits
+  // inside a folder root, activated this tab, and pushed the directory — the
+  // file rows open on it exactly as a folder click in the sidebar does
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    return api?.onOpenFolder?.((dir) => selectFolder(dir))
+  }, [selectFolder])
+
   // genoffice://ask?q=… and friends: the main process forwards deep links over
   // the home:deep-link channel. Softened because a preload from before the
   // contract shipped simply has no onDeepLink — the palette path above works

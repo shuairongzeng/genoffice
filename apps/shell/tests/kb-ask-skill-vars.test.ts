@@ -254,8 +254,22 @@ describe('KbAskPanel surface context', () => {
         'shell:list_tabs',
         'shell:switch_tab',
         'shell:open_path',
+        // the capability-completion wave: the desktop powers and the search
+        // habit's browser companions all ride the same request
+        'shell:close_tab',
+        'shell:open_folder',
+        'shell:list_directory',
+        'shell:create_folder',
+        'shell:write_text_file',
+        'shell:move_file',
+        'shell:rename_file',
+        'shell:star_file',
+        'shell:unstar_file',
+        'shell:add_todo',
       ]),
     )
+    // the search habit is part of the guidance now
+    expect(system).toContain('Searching the live web')
   })
 
   it("speaks the overlay mount's visibility line", async () => {
@@ -321,5 +335,44 @@ describe('KbAskPanel surface context', () => {
     await ask('summarize the starred notes')
 
     expect(started[0]!.system).toContain('no tab state is available right now')
+  })
+})
+
+describe('KbAskPanel browser tool composition (the capability-completion wave)', () => {
+  it('arms the new browser tools once a browser tab is open', async () => {
+    // the browser skill's tools exist only while the panel's tab snapshot
+    // holds a browser tab: arm the bridge the way a shell with one open does
+    ;(window as unknown as { aiOfficeTabs?: unknown }).aiOfficeTabs = {
+      onChanged: () => () => {},
+      list: async () => [{ id: 't1', kind: 'browser', title: 'Example', active: true }],
+    }
+    try {
+      surfaceTabs = [
+        { id: 't1', kind: 'browser', title: 'Example', active: true, url: 'https://example.com/' },
+      ]
+      render('en')
+      await settle()
+      await ask('read the page')
+      const tools = started[0]!.tools.map((tool) => tool.name)
+      expect(tools).toEqual(
+        expect.arrayContaining([
+          'browser:read_page',
+          'browser:screenshot_page',
+          'browser:fill_field',
+          'browser:click_element',
+          'browser:scroll_page',
+          'browser:download_file',
+          'browser:go_back',
+          'browser:go_forward',
+          'browser:reload',
+          'browser:wait_for',
+          'browser:press_key',
+          'browser:list_annotations',
+          'browser:clear_annotations',
+        ]),
+      )
+    } finally {
+      delete (window as unknown as { aiOfficeTabs?: unknown }).aiOfficeTabs
+    }
   })
 })

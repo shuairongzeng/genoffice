@@ -35,6 +35,16 @@ export const SHELL_NAVIGATE_TOOL = 'shell:navigate'
 export const SHELL_LIST_TABS_TOOL = 'shell:list_tabs'
 export const SHELL_SWITCH_TAB_TOOL = 'shell:switch_tab'
 export const SHELL_OPEN_PATH_TOOL = 'shell:open_path'
+export const SHELL_CLOSE_TAB_TOOL = 'shell:close_tab'
+export const SHELL_OPEN_FOLDER_TOOL = 'shell:open_folder'
+export const SHELL_LIST_DIRECTORY_TOOL = 'shell:list_directory'
+export const SHELL_CREATE_FOLDER_TOOL = 'shell:create_folder'
+export const SHELL_WRITE_TEXT_FILE_TOOL = 'shell:write_text_file'
+export const SHELL_MOVE_FILE_TOOL = 'shell:move_file'
+export const SHELL_RENAME_FILE_TOOL = 'shell:rename_file'
+export const SHELL_STAR_FILE_TOOL = 'shell:star_file'
+export const SHELL_UNSTAR_FILE_TOOL = 'shell:unstar_file'
+export const SHELL_ADD_TODO_TOOL = 'shell:add_todo'
 
 /** longest url/path/id argument the tools accept (the loop's schema check is per-type) */
 export const MAX_SHELL_URL_CHARS = 2000
@@ -52,6 +62,14 @@ export const MAX_SURFACE_TITLE_CHARS = 120
 export const MAX_SURFACE_URL_CHARS = 200
 export const MAX_SURFACE_PATH_CHARS = 300
 export const MAX_SURFACE_TABS = 8
+/** longest folder/file name the create/rename tools accept */
+export const MAX_SHELL_NAME_CHARS = 200
+/** longest write_text_file content (the edit tools' file-size class) */
+export const MAX_SHELL_CONTENT_CHARS = 200_000
+/** longest one todo's text (the todos store's own clamp) */
+export const MAX_TODO_CHARS = 500
+/** how many entries list_directory answers */
+export const MAX_DIRECTORY_ENTRIES = 200
 
 /**
  * One open tab as the surface context reports it: the shell strip's tabs and
@@ -231,9 +249,42 @@ You can act on the workspace itself, not only answer about it:
   file scope — a starred or recent file, a file in a knowledge folder, or an
   indexed file; anything else is refused, so ask the person to open it
   themselves instead.
-These are direct acts the person can see and undo, so they run without a
-confirmation step; use them when the person asks for exactly that ("open the
-browser", "go to this address", "open that file"), and say what you did.
+- shell:open_folder opens Home's folder view on a directory inside the
+  desktop's knowledge folders — the tool for "open this folder" when the
+  person names a folder the desktop already tracks. A path outside the roots
+  answers a guiding error (add the folder root from the desktop's folder
+  menu first).
+- shell:list_directory lists one directory's entries (name, file or folder,
+  size; capped at 200) for a path inside a folder root or a desktop alias
+  target — the tool for "what is in this folder?". Read-only.
+- shell:create_folder creates a directory (inside a folder root; a
+  risk-gated write — the person approves each call).
+- shell:write_text_file writes one text file's whole content (the notes and
+  config class; a risk-gated, scope-verdicted write — for editing a file
+  that already exists in place, prefer edit_file).
+- shell:move_file and shell:rename_file rearrange the desktop's files —
+  both ends scope-verdicted, neither side may be open in an editor, and both
+  are risk-gated (a wrong move is the person's data in the wrong place).
+- shell:star_file and shell:unstar_file toggle the desktop star on a file —
+  the starred list every panel search reads. Trivially reversible, so they
+  run ungated.
+- shell:add_todo appends one item to the desktop's todo card. Trivially
+  reversible, so it runs ungated.
+- shell:close_tab closes one tab by its id from shell:list_tabs. Closing a
+  document tab can discard unsaved work (the close guard runs, an unsaved
+  tab prompts the person), so it is risk-gated.
+These are direct acts the person can see and undo, so the ungated ones run
+without a confirmation step; use them when the person asks for exactly that
+("open the browser", "go to this address", "open that file", "star this",
+"add a todo"), and say what you did.
+
+## Searching the live web (do this without being asked)
+- For anything that needs the live web — today's price, a page's current
+  content, anything with 最新/现在/latest/today in it — open or navigate a
+  browser tab and read the page yourself; never say you cannot browse or ask
+  the person to look it up. Combine shell:open_browser or shell:navigate with
+  browser:read_page, and browser:scroll_page / browser:wait_for when the page
+  loads its content lazily.
 
 ## Routing your actions (decide this before choosing any tool)
 - The active tab is an open document and the task is about that document →
@@ -334,6 +385,163 @@ const INPUT_TOOLS = [
         path: { type: 'string', description: 'absolute path of the file to open' },
       },
       required: ['path'],
+    },
+  },
+  {
+    name: SHELL_CLOSE_TAB_TOOL,
+    description:
+      'Close one tab by its id from shell:list_tabs — the 关闭标签页 verb ("close that tab", ' +
+      '"关掉这个页面"). Never closes the Home tab. A document tab with unsaved work runs the ' +
+      'same close guard as its own close button (the person answers the save prompt), so the ' +
+      'user approves each call before it runs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'the tab id from shell:list_tabs' },
+      },
+      required: ['id'],
+    },
+    risk: 'high',
+  },
+  {
+    name: SHELL_OPEN_FOLDER_TOOL,
+    description:
+      "Open the desktop's folder view (the Home tab) on a directory inside a knowledge " +
+      'folder root — the tool for 打开文件夹 / "open this folder". The path must be absolute ' +
+      'and inside a folder the desktop already tracks; outside the roots the answer says to ' +
+      "add the folder from the desktop's folder menu first.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'absolute path of the folder to open' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: SHELL_LIST_DIRECTORY_TOOL,
+    description:
+      "List one directory's entries — name, file or folder, size (capped at 200) — the tool " +
+      'for 文件夹里有什么 / "what is in this folder?". The path must be inside a knowledge ' +
+      'folder root or be a desktop alias target; read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'absolute path of the directory to list' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: SHELL_CREATE_FOLDER_TOOL,
+    description:
+      'Create a directory inside a knowledge folder root — the tool for 新建文件夹. A ' +
+      'write the user approves each call (risk-gated); the name may not contain path ' +
+      'separators (a nested path needs one call per level).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'absolute path of the folder to create (inside a folder root)',
+        },
+      },
+      required: ['path'],
+    },
+    risk: 'high',
+  },
+  {
+    name: SHELL_WRITE_TEXT_FILE_TOOL,
+    description:
+      "Write one text file's whole content (notes, configs, scripts — the .md/.txt/.json " +
+      'class). A scope-verdicted, risk-gated write; the parent folder must be inside the ' +
+      "desktop's file scope. For changing part of a file that already exists, prefer " +
+      'edit_file.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'absolute path of the file to write' },
+        content: { type: 'string', description: 'the whole text content to write' },
+      },
+      required: ['path', 'content'],
+    },
+    risk: 'high',
+  },
+  {
+    name: SHELL_MOVE_FILE_TOOL,
+    description:
+      'Move one file to a new directory — the tool for 移动 / "put this in that folder". ' +
+      "Both ends must be inside the desktop's file scope and neither side may be open in " +
+      "an editor; a risk-gated move (a wrong move puts the person's data somewhere wrong).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'absolute path of the file to move' },
+        to: {
+          type: 'string',
+          description:
+            "the target path (the file's new absolute path, or a directory to move into)",
+        },
+      },
+      required: ['from', 'to'],
+    },
+    risk: 'high',
+  },
+  {
+    name: SHELL_RENAME_FILE_TOOL,
+    description:
+      'Rename one file in place — the tool for 重命名 / "call this something else". The new ' +
+      "name is a bare name (no path separators); the file must be inside the desktop's file " +
+      'scope, not open in an editor, and keep its app family (a .docx stays a document ' +
+      'extension). Risk-gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'absolute path of the file to rename' },
+        name: { type: 'string', description: 'the new bare file name' },
+      },
+      required: ['path', 'name'],
+    },
+    risk: 'high',
+  },
+  {
+    name: SHELL_STAR_FILE_TOOL,
+    description:
+      'Add the desktop star to a file — the starred list every panel search reads; the tool ' +
+      'for 收藏 / "star this". The file must exist; starring is trivially reversible ' +
+      '(shell:unstar_file), so it runs ungated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'absolute path of the file to star' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: SHELL_UNSTAR_FILE_TOOL,
+    description:
+      'Remove the desktop star from a file (收藏的取消). Trivially reversible, ungated; a ' +
+      'file that was never starred answers that it was already unstarred.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'absolute path of the file to unstar' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: SHELL_ADD_TODO_TOOL,
+    description:
+      'Append one item to the desktop\'s todo card — the tool for "提醒我…" / "add a to-do". ' +
+      'Trivially reversible (the person checks it off), so it runs ungated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'the todo text (one line)' },
+      },
+      required: ['text'],
     },
   },
 ] as const
@@ -438,6 +646,193 @@ export function createShellSkill(deps: ShellSkillDeps): AgentSkill {
               mutated: true,
             }
           }
+          case SHELL_CLOSE_TAB_TOOL: {
+            const id = call.input.id
+            if (typeof id !== 'string' || !id.trim()) {
+              return badInput('`id` must be a non-empty string (from shell:list_tabs)')
+            }
+            if (id.length > MAX_SHELL_TAB_ID_CHARS) {
+              return badInput(`\`id\` must be at most ${MAX_SHELL_TAB_ID_CHARS} characters`)
+            }
+            await deps.execute(SHELL_CLOSE_TAB_TOOL, { id })
+            return {
+              output: `closed tab ${id} (an unsaved document ran its save prompt first)`,
+              summary: `closed tab ${id}`,
+              mutated: true,
+            }
+          }
+          case SHELL_OPEN_FOLDER_TOOL: {
+            const path = call.input.path
+            if (typeof path !== 'string' || !path.trim()) {
+              return badInput('`path` must be a non-empty absolute path')
+            }
+            if (path.length > MAX_SHELL_PATH_CHARS) {
+              return badInput(`\`path\` must be at most ${MAX_SHELL_PATH_CHARS} characters`)
+            }
+            await deps.execute(SHELL_OPEN_FOLDER_TOOL, { path })
+            return {
+              output: `opened the folder view on ${path} (the Home tab rose)`,
+              summary: `opened folder ${baseName(path)}`,
+              mutated: true,
+            }
+          }
+          case SHELL_LIST_DIRECTORY_TOOL: {
+            const path = call.input.path
+            if (typeof path !== 'string' || !path.trim()) {
+              return badInput('`path` must be a non-empty absolute path')
+            }
+            if (path.length > MAX_SHELL_PATH_CHARS) {
+              return badInput(`\`path\` must be at most ${MAX_SHELL_PATH_CHARS} characters`)
+            }
+            const listing = (await deps.execute(SHELL_LIST_DIRECTORY_TOOL, {
+              path,
+            })) as {
+              dir: string
+              entries: Array<{ name: string; kind: string; size?: number }>
+              truncated: boolean
+            }
+            return {
+              output: formatDirectoryList(listing),
+              summary: `listed ${baseName(listing.dir)}`,
+            }
+          }
+          case SHELL_CREATE_FOLDER_TOOL: {
+            const path = call.input.path
+            if (typeof path !== 'string' || !path.trim()) {
+              return badInput('`path` must be a non-empty absolute path')
+            }
+            if (path.length > MAX_SHELL_PATH_CHARS) {
+              return badInput(`\`path\` must be at most ${MAX_SHELL_PATH_CHARS} characters`)
+            }
+            if (nameOf(path).length > MAX_SHELL_NAME_CHARS) {
+              return badInput(`the folder name must be at most ${MAX_SHELL_NAME_CHARS} characters`)
+            }
+            const created = (await deps.execute(SHELL_CREATE_FOLDER_TOOL, {
+              path,
+            })) as string
+            return {
+              output: `created the folder ${created}`,
+              summary: `created folder ${baseName(created)}`,
+              mutated: true,
+            }
+          }
+          case SHELL_WRITE_TEXT_FILE_TOOL: {
+            const path = call.input.path
+            const content = call.input.content
+            if (typeof path !== 'string' || !path.trim()) {
+              return badInput('`path` must be a non-empty absolute path')
+            }
+            if (path.length > MAX_SHELL_PATH_CHARS) {
+              return badInput(`\`path\` must be at most ${MAX_SHELL_PATH_CHARS} characters`)
+            }
+            if (typeof content !== 'string') {
+              return badInput('`content` must be a string (the whole file text)')
+            }
+            if (content.length > MAX_SHELL_CONTENT_CHARS) {
+              return badInput(
+                `\`content\` must be at most ${MAX_SHELL_CONTENT_CHARS} characters — write in parts with edit_file instead`,
+              )
+            }
+            const written = (await deps.execute(SHELL_WRITE_TEXT_FILE_TOOL, {
+              path,
+              content,
+            })) as string
+            return {
+              output: `wrote ${written} (${content.length} characters)`,
+              summary: `wrote ${baseName(written)}`,
+              mutated: true,
+            }
+          }
+          case SHELL_MOVE_FILE_TOOL: {
+            const from = call.input.from
+            const to = call.input.to
+            if (typeof from !== 'string' || !from.trim()) {
+              return badInput('`from` must be a non-empty absolute path')
+            }
+            if (typeof to !== 'string' || !to.trim()) {
+              return badInput('`to` must be a non-empty absolute path')
+            }
+            for (const p of [from, to]) {
+              if (p.length > MAX_SHELL_PATH_CHARS) {
+                return badInput(
+                  `\`from\`/\`to\` must be at most ${MAX_SHELL_PATH_CHARS} characters`,
+                )
+              }
+            }
+            const moved = (await deps.execute(SHELL_MOVE_FILE_TOOL, { from, to })) as string
+            return {
+              output: `moved ${from} to ${moved}`,
+              summary: `moved ${baseName(from)}`,
+              mutated: true,
+            }
+          }
+          case SHELL_RENAME_FILE_TOOL: {
+            const path = call.input.path
+            const name = call.input.name
+            if (typeof path !== 'string' || !path.trim()) {
+              return badInput('`path` must be a non-empty absolute path')
+            }
+            if (path.length > MAX_SHELL_PATH_CHARS) {
+              return badInput(`\`path\` must be at most ${MAX_SHELL_PATH_CHARS} characters`)
+            }
+            if (typeof name !== 'string' || !name.trim()) {
+              return badInput('`name` must be a non-empty bare file name (no path separators)')
+            }
+            if (name.length > MAX_SHELL_NAME_CHARS) {
+              return badInput(`\`name\` must be at most ${MAX_SHELL_NAME_CHARS} characters`)
+            }
+            if (/[\\/]/.test(name)) {
+              return badInput(
+                '`name` is a bare file name — move the file with shell:move_file instead',
+              )
+            }
+            const renamed = (await deps.execute(SHELL_RENAME_FILE_TOOL, {
+              path,
+              name,
+            })) as string
+            return {
+              output: `renamed ${path} to ${renamed}`,
+              summary: `renamed to ${baseName(renamed)}`,
+              mutated: true,
+            }
+          }
+          case SHELL_STAR_FILE_TOOL:
+          case SHELL_UNSTAR_FILE_TOOL: {
+            const path = call.input.path
+            if (typeof path !== 'string' || !path.trim()) {
+              return badInput('`path` must be a non-empty absolute path')
+            }
+            if (path.length > MAX_SHELL_PATH_CHARS) {
+              return badInput(`\`path\` must be at most ${MAX_SHELL_PATH_CHARS} characters`)
+            }
+            await deps.execute(call.name, { path })
+            return {
+              output:
+                call.name === SHELL_STAR_FILE_TOOL
+                  ? `starred ${path} — every panel search reads the starred list`
+                  : `removed the star from ${path}`,
+              summary: `${call.name === SHELL_STAR_FILE_TOOL ? 'starred' : 'unstarred'} ${baseName(path)}`,
+              mutated: true,
+            }
+          }
+          case SHELL_ADD_TODO_TOOL: {
+            const text = call.input.text
+            if (typeof text !== 'string' || !text.trim()) {
+              return badInput('`text` must be a non-empty string')
+            }
+            if (text.length > MAX_TODO_CHARS) {
+              return badInput(`\`text\` must be at most ${MAX_TODO_CHARS} characters`)
+            }
+            const todo = (await deps.execute(SHELL_ADD_TODO_TOOL, { text })) as {
+              id: string
+              text: string
+            }
+            return {
+              output: `added to the todo card: "${todo.text}"`,
+              summary: 'added a todo',
+              mutated: true,
+            }
+          }
           default:
             return { output: `unknown shell tool: ${call.name}`, isError: true, summary: call.name }
         }
@@ -463,6 +858,30 @@ function formatTabList(tabs: readonly SurfaceTab[]): string {
     'Open tabs (id | kind | title | url or file):',
     ...tabs.map((tab) => tabLine(tab, false)),
   ].join('\n')
+}
+
+/** a directory listing as list_directory renders it (the cap named when hit) */
+function formatDirectoryList(listing: {
+  dir: string
+  entries: Array<{ name: string; kind: string; size?: number }>
+  truncated: boolean
+}): string {
+  if (listing.entries.length === 0) {
+    return `${listing.dir} is empty.`
+  }
+  const lines = listing.entries.map((entry) => {
+    const size = entry.size !== undefined ? ` · ${entry.size} bytes` : ''
+    return `- ${entry.name} (${entry.kind}${size})`
+  })
+  return [
+    `Entries of ${listing.dir} (${listing.entries.length}${listing.truncated ? ` of more — the list stops at 200` : ''}):`,
+    ...lines,
+  ].join('\n')
+}
+
+/** a path's own name (the last segment), for the bare-name validations */
+function nameOf(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path
 }
 
 function hostOf(url: string): string {

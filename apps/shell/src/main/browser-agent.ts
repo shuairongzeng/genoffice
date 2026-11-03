@@ -1,26 +1,54 @@
+import { existsSync, mkdirSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
-import { isAbsolute } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { app, ipcMain, session, webContents } from 'electron'
 import type { NativeImage, WebContents } from 'electron'
 import * as browserModule from '../../../browser/src/main/browser-main'
 import { resolveAddressInput } from '../../../browser/src/main/url-input'
 import {
+  dedupeDownloadName,
+  sanitizeDownloadFilename,
+} from '../../../browser/src/main/page-session'
+import { atomicWriteFile } from './atomic-write'
+import {
   BROWSER_CLICK_TOOL,
+  BROWSER_CLEAR_ANNOTATIONS_TOOL,
+  BROWSER_DOWNLOAD_TOOL,
   BROWSER_FILL_FIELD_TOOL,
+  BROWSER_GO_BACK_TOOL,
+  BROWSER_GO_FORWARD_TOOL,
+  BROWSER_LIST_ANNOTATIONS_TOOL,
+  BROWSER_PRESS_KEYS,
+  BROWSER_PRESS_KEY_TOOL,
   BROWSER_READ_ANNOTATION_SHOT_TOOL,
   BROWSER_READ_PAGE_TOOL,
+  BROWSER_RELOAD_TOOL,
   BROWSER_SCREENSHOT_TOOL,
+  BROWSER_SCROLL_TOOL,
+  BROWSER_WAIT_FOR_TOOL,
   MAX_ANNOTATION_ID_CHARS,
+  MAX_DOWNLOAD_URL_CHARS,
   MAX_FILL_VALUE_CHARS,
   MAX_SELECTOR_CHARS,
   MAX_SHELL_PATH_CHARS,
   MAX_SHELL_TAB_ID_CHARS,
   MAX_SHELL_URL_CHARS,
+  MAX_WAIT_MS,
+  SHELL_ADD_TODO_TOOL,
+  SHELL_CLOSE_TAB_TOOL,
+  SHELL_CREATE_FOLDER_TOOL,
+  SHELL_LIST_DIRECTORY_TOOL,
   SHELL_LIST_TABS_TOOL,
+  SHELL_MOVE_FILE_TOOL,
   SHELL_NAVIGATE_TOOL,
   SHELL_OPEN_BROWSER_TOOL,
+  SHELL_OPEN_FOLDER_TOOL,
   SHELL_OPEN_PATH_TOOL,
+  SHELL_RENAME_FILE_TOOL,
+  SHELL_STAR_FILE_TOOL,
   SHELL_SWITCH_TAB_TOOL,
+  SHELL_UNSTAR_FILE_TOOL,
+  SHELL_WRITE_TEXT_FILE_TOOL,
   formatPageOutline,
   type BrowserActionResult,
   type BrowserAnnotationShot,
@@ -31,6 +59,7 @@ import {
   type BrowserScreenshot,
   type SurfaceTab,
 } from '@genoffice/agent-core'
+import type { TodoItem } from '../shared/home-api'
 
 /**
  * Shell-main half of the dock's browser skill (charter workstream W2b). The
@@ -462,6 +491,93 @@ function pageActionScript(action: 'click' | 'fill', selector: string, value: str
 })()`
 }
 
+/**
+ * The scroll script: a direction with an amount (down is the default screen),
+ * the page's extremes, or one element scrolled into view. Runs in the
+ * isolated world like every page action; the scroll target is the document
+ * unless an element is named. Answers the same {ok, detail} shape.
+ */
+function pageScrollScript(
+  direction: 'up' | 'down' | 'top' | 'bottom' | undefined,
+  amount: number | undefined,
+  selector: string | undefined,
+): string {
+  const args = JSON.stringify({ direction, amount, selector })
+  return `(() => {
+  const args = ${args}
+  try {
+    if (args.selector) {
+      let el
+      try { el = document.querySelector(args.selector) } catch (e) {
+        return { ok: false, detail: '"' + args.selector + '" is not a valid CSS selector' }
+      }
+      if (!el) return { ok: false, detail: 'no element matches "' + args.selector + '" — the page may have changed; read the page again' }
+      try { el.scrollIntoView({ block: 'center' }) } catch (e) {
+        try { el.scrollIntoView() } catch (e2) {}
+      }
+      return { ok: true, detail: 'scrolled the element matching "' + args.selector + '" into view' }
+    }
+    const by = args.amount !== undefined ? Math.max(0, Math.round(args.amount)) : Math.round(window.innerHeight * 0.9)
+    if (args.direction === 'top') { window.scrollTo({ top: 0 }); return { ok: true, detail: 'scrolled to the top of the page' } }
+    if (args.direction === 'bottom') { window.scrollTo({ top: document.documentElement.scrollHeight }); return { ok: true, detail: 'scrolled to the bottom of the page' } }
+    window.scrollBy({ top: args.direction === 'up' ? -by : by })
+    return { ok: true, detail: 'scrolled ' + (args.direction === 'up' ? 'up' : 'down') + ' by ' + by + 'px' }
+  } catch (e) {
+    return { ok: false, detail: 'the page refused the scroll: ' + (e && e.message ? e.message : String(e)) }
+  }
+})()`
+}
+
+/**
+ * The href/src resolution script (browser:download_file's selector path):
+ * answers the element's link address — an anchor's href, or any element's
+ * src (img/video/audio/source/iframe) — resolved absolute by the DOM itself.
+ */
+function pageResolveUrlScript(selector: string): string {
+  const args = JSON.stringify({ selector })
+  return `(() => {
+  const args = ${args}
+  try {
+    let el
+    try { el = document.querySelector(args.selector) } catch (e) {
+      return { ok: false, detail: '"' + args.selector + '" is not a valid CSS selector' }
+    }
+    if (!el) return { ok: false, detail: 'no element matches "' + args.selector + '" — the page may have changed; read the page again' }
+    const raw = el.tagName === 'A' || el.tagName === 'AREA' ? el.getAttribute('href') : el.getAttribute('src')
+    if (!raw) return { ok: false, detail: 'the element matching "' + args.selector + '" carries no href or src to download' }
+    try {
+      const abs = new URL(raw, document.baseURI).href
+      if (abs.startsWith('http://') || abs.startsWith('https://')) return { ok: true, url: abs }
+      return { ok: false, detail: 'the element points at "' + abs.slice(0, 120) + '", which is not an http/https address' }
+    } catch (e) {
+      return { ok: false, detail: "the element's address does not resolve against the page" }
+    }
+  } catch (e) {
+    return { ok: false, detail: 'the page refused the lookup: ' + (e && e.message ? e.message : String(e)) }
+  }
+})()`
+}
+
+/**
+ * The wait script (browser:wait_for's selector path): polls every 100ms until
+ * the selector matches something, bounded by the caller's timeout. The
+ * deadline is baked into the script so the in-page loop cannot outlive the
+ * main-side timeout.
+ */
+function pageWaitScript(selector: string, timeoutMs: number): string {
+  const args = JSON.stringify({ selector, deadline: Date.now() + Math.max(0, timeoutMs) })
+  return `(async () => {
+  const args = ${args}
+  const check = () => { try { return !!document.querySelector(args.selector) } catch (e) { return false } }
+  if (check()) return { ok: true, detail: 'the element matching "' + args.selector + '" is already present' }
+  while (Date.now() < args.deadline) {
+    await new Promise((r) => setTimeout(r, 100))
+    if (check()) return { ok: true, detail: 'the element matching "' + args.selector + '" appeared' }
+  }
+  return { ok: false, detail: 'the element matching "' + args.selector + '" did not appear within the wait — the page may have changed; read it again' }
+})()`
+}
+
 // ── the shell operator tools (the desktop's own actions) ───────────────────
 
 /**
@@ -573,6 +689,56 @@ export interface BrowserAgentDeps {
   pathAllowed(path: string): boolean | Promise<boolean>
   /** open a local file into its app tab; false when nothing opens it */
   openPath(path: string): boolean | Promise<boolean>
+  // ── the shell's desktop powers (the new shell:* tools' executors) ──
+  /** close one strip tab by id (the close guard runs); false when the id names none or is Home */
+  closeTab(id: string): boolean | Promise<boolean>
+  /** open Home's folder view on a path inside a folder root; false when it is not */
+  openFolder(path: string): boolean | Promise<boolean>
+  /**
+   * List one directory: the entries (name/kind/size, capped) for a path the
+   * scope verdicts allow — inside a folder root or the desktop alias targets.
+   * Structured errors for refused paths.
+   */
+  listDirectory(path: string): Promise<ListDirectoryResult>
+  /** create a directory (scope-verdicted, unique-named); answers the created path */
+  createDirectory(path: string): Promise<string>
+  /**
+   * Write a text file (scope-verdicted, atomic, open-document-guarded);
+   * answers the written path.
+   */
+  writeTextFile(path: string, content: string): Promise<string>
+  /**
+   * Move one file (both ends scope-verdicted, neither open in an editor);
+   * answers the target path.
+   */
+  moveFile(from: string, to: string): Promise<string>
+  /**
+   * Rename one file (scope-verdicted, open-document-guarded, the app-family
+   * rename rules); answers the new path.
+   */
+  renameFile(path: string, name: string): Promise<string>
+  /** star one file in the desktop's starred store; false when the file is missing */
+  starFile(path: string): boolean | Promise<boolean>
+  /** remove the desktop star from one file (missing is fine — already unstarred) */
+  unstarFile(path: string): boolean | Promise<boolean>
+  /** append one todo to the desktop's todos store; answers the stored entry */
+  addTodo(text: string): Promise<TodoItem>
+}
+
+/** one entry `shell:list_directory` answers */
+export interface DirectoryEntry {
+  name: string
+  kind: 'file' | 'folder'
+  /** files only: size in bytes when stat knew it */
+  size?: number
+}
+
+/** what `shell:list_directory` answers */
+export interface ListDirectoryResult {
+  dir: string
+  entries: DirectoryEntry[]
+  /** true when more than the cap were present (the answer names the cut) */
+  truncated: boolean
 }
 
 /** the tab + chrome + page the call resolved to, or a guiding error */
@@ -721,6 +887,195 @@ async function actOnPage(
   }
 }
 
+/** run one {ok, detail}-shaped page script in the isolated world, bounded */
+async function runPageScript(
+  page: WebContents,
+  code: string,
+  label: string,
+): Promise<BrowserActionResult> {
+  let raw: unknown
+  try {
+    raw = await withTimeout(
+      page.executeJavaScriptInIsolatedWorld(PAGE_ACTION_WORLD, [{ code }], true),
+      ACTION_TIMEOUT_MS,
+      label,
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { ok: false, detail: `${label} failed: ${message}` }
+  }
+  const r = (raw ?? {}) as { ok?: unknown; detail?: unknown }
+  if (r.ok === true && typeof r.detail === 'string') return { ok: true, detail: r.detail }
+  return {
+    ok: false,
+    detail: typeof r.detail === 'string' ? r.detail : `${label} answered without a result`,
+  }
+}
+
+/**
+ * One key press into the page through the real input pipeline
+ * (sendInputEvent — a trusted event, the way a physical key lands). The
+ * whitelist's form-navigation keys only; the mapping is Electron's own key
+ * code names.
+ */
+const PRESS_KEY_CODES: Record<string, string> = {
+  enter: 'Return',
+  tab: 'Tab',
+  escape: 'Escape',
+  arrowup: 'Up',
+  arrowdown: 'Down',
+  arrowleft: 'Left',
+  arrowright: 'Right',
+}
+
+async function pressKeyOnPage(page: WebContents, key: string): Promise<BrowserActionResult> {
+  const keyCode = PRESS_KEY_CODES[key]
+  if (keyCode === undefined) {
+    return {
+      ok: false,
+      detail: `"${key}" is not one of the accepted keys — use browser:fill_field for text`,
+    }
+  }
+  try {
+    page.sendInputEvent({ type: 'rawKeyDown', keyCode })
+    page.sendInputEvent({ type: 'keyUp', keyCode })
+    return { ok: true, detail: `sent ${key} into the page's focused control` }
+  } catch (error) {
+    return {
+      ok: false,
+      detail: `the page refused the ${key} press: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+}
+
+/**
+ * wait_for's two halves: a selector waits on the page's own poll script; no
+ * selector waits for the page to finish loading (an idle page answers at
+ * once, a loading one races its did-stop-loading against the timeout).
+ */
+async function waitForPage(
+  page: WebContents,
+  selector: string | undefined,
+  timeoutMs: number,
+): Promise<BrowserActionResult> {
+  if (selector !== undefined) {
+    return runPageScript(page, pageWaitScript(selector, timeoutMs), 'the wait')
+  }
+  if (!page.isLoading()) {
+    return { ok: true, detail: 'the page is not loading — it is ready to read' }
+  }
+  return new Promise<BrowserActionResult>((resolve) => {
+    let settled = false
+    const done = (result: BrowserActionResult): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      page.removeListener('did-stop-loading', onStop)
+      resolve(result)
+    }
+    const timer = setTimeout(
+      () =>
+        done({
+          ok: false,
+          detail: `the page was still loading after ${Math.round(timeoutMs / 1000)}s — read it now and see how far it got, or wait again`,
+        }),
+      timeoutMs,
+    )
+    const onStop = (): void => done({ ok: true, detail: 'the page finished loading' })
+    page.on('did-stop-loading', onStop)
+  })
+}
+
+/**
+ * The download: resolve the address (the call's url, or the selector's
+ * href/src through the page's own resolution), require http/https, fetch,
+ * and sink the bytes under the suite's Downloads folder with the same
+ * de-duplicated, sanitized naming the session's will-download handler uses
+ * — one download story, whichever path started it.
+ */
+async function downloadFromPage(
+  page: WebContents,
+  url: string | undefined,
+  selector: string | undefined,
+): Promise<{
+  path: string
+  url: string
+  source: 'url' | 'selector'
+  bytes?: number
+}> {
+  let target = url
+  let source: 'url' | 'selector' = 'url'
+  if (url === undefined) {
+    // the selector path: the page's own script resolves the element's
+    // href/src to an absolute http(s) address, or answers why it cannot
+    const raw = await withTimeout(
+      page.executeJavaScriptInIsolatedWorld(
+        PAGE_ACTION_WORLD,
+        [{ code: pageResolveUrlScript(selector!) }],
+        true,
+      ),
+      ACTION_TIMEOUT_MS,
+      'the address lookup',
+    )
+    const r = (raw ?? {}) as { ok?: unknown; url?: unknown; detail?: unknown }
+    if (r.ok !== true || typeof r.url !== 'string') {
+      throw new Error(
+        typeof r.detail === 'string'
+          ? r.detail
+          : "the element's address could not be read from the page",
+      )
+    }
+    target = r.url
+    source = 'selector'
+  }
+  const parsed = (() => {
+    try {
+      return new URL(target!)
+    } catch {
+      return null
+    }
+  })()
+  if (parsed === null || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) {
+    throw new Error(
+      `"${(target ?? '').slice(0, 120)}" is not an http/https address — downloads fetch the web only`,
+    )
+  }
+  // fetch and sink: the same directory, dedupe and sanitize as will-download
+  const dir = join(app.getPath('userData'), 'Downloads')
+  mkdirSync(dir, { recursive: true })
+  const name = dedupeDownloadName(
+    (candidate) => existsSync(join(dir, candidate)),
+    sanitizeDownloadFilename(baseNameOf(parsed.pathname) || 'download'),
+  )
+  const target2 = join(dir, name)
+  const response = await fetch(parsed)
+  if (!response.ok) {
+    throw new Error(
+      `the download failed: the server answered ${response.status} ${response.statusText || ''} — check the address, or open it in the browser`,
+    )
+  }
+  const bytes = Buffer.from(await response.arrayBuffer())
+  await atomicWriteFile(target2, bytes)
+  return { path: target2, url: parsed.href, source, bytes: bytes.length }
+}
+
+/**
+ * The annotation-clearing contract: a main-process `clearAnnotationsFor(url)`
+ * export on the browser module, consumed as defensively as the read and shot
+ * contracts above — a build without the export answers 0 (nothing cleared),
+ * a throwing store costs the call an honest error.
+ */
+function clearAnnotationsFor(url: string): number {
+  const clearer = (browserModule as { clearAnnotationsFor?: (url: string) => number })
+    .clearAnnotationsFor
+  if (typeof clearer !== 'function') return 0
+  return clearer(url)
+}
+
+function baseNameOf(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path
+}
+
 /**
  * One browser skill tool call, routed to the active browser tab's page — or
  * one of the shell operator tools (open_browser / navigate / list_tabs /
@@ -743,6 +1098,11 @@ export async function executeBrowserSkillAction(
   | readonly SurfaceTab[]
   | { id: string }
   | { path: string }
+  | { url: string; annotations: BrowserPageAnnotation[] }
+  | { url: string; removed: number }
+  | { path: string; url: string; source: 'url' | 'selector'; bytes?: number }
+  | ListDirectoryResult
+  | TodoItem
 > {
   switch (tool) {
     case BROWSER_READ_PAGE_TOOL:
@@ -817,6 +1177,142 @@ export async function executeBrowserSkillAction(
         )
       }
       return actOnPage(page, action, selector, value)
+    }
+    // ── the new page tools: movement, download, history, wait, key,
+    // annotations — all routed to the active tab's page like the ones above,
+    // all ungated (visible and reversible) except clear_annotations, whose
+    // risk grade lives in the skill's tool table ──
+    case BROWSER_SCROLL_TOOL: {
+      const { page } = await resolveTarget(deps)
+      const direction = input.direction
+      const amount = input.amount
+      const selector = input.selector
+      if (
+        direction !== undefined &&
+        !['up', 'down', 'top', 'bottom'].includes(direction as string)
+      ) {
+        throw new Error('`direction` must be one of up, down, top, bottom')
+      }
+      if (
+        amount !== undefined &&
+        (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0)
+      ) {
+        throw new Error('`amount` must be a positive number of pixels')
+      }
+      if (selector !== undefined && typeof selector !== 'string') {
+        throw new Error('`selector` must be a string when present')
+      }
+      if (typeof selector === 'string' && selector.length > MAX_SELECTOR_CHARS) {
+        throw new Error(`\`selector\` must be at most ${MAX_SELECTOR_CHARS} characters`)
+      }
+      return runPageScript(
+        page,
+        pageScrollScript(
+          direction as 'up' | 'down' | 'top' | 'bottom' | undefined,
+          amount,
+          selector,
+        ),
+        'the scroll',
+      )
+    }
+    case BROWSER_DOWNLOAD_TOOL: {
+      const url = input.url
+      const selector = input.selector
+      if (url === undefined && selector === undefined) {
+        throw new Error('give either `url` or `selector`')
+      }
+      if (url !== undefined && typeof url !== 'string') {
+        throw new Error('`url` must be a string when present')
+      }
+      if (typeof url === 'string' && url.length > MAX_DOWNLOAD_URL_CHARS) {
+        throw new Error(`\`url\` must be at most ${MAX_DOWNLOAD_URL_CHARS} characters`)
+      }
+      if (selector !== undefined && typeof selector !== 'string') {
+        throw new Error('`selector` must be a string when present')
+      }
+      if (typeof selector === 'string' && selector.length > MAX_SELECTOR_CHARS) {
+        throw new Error(`\`selector\` must be at most ${MAX_SELECTOR_CHARS} characters`)
+      }
+      const { page } = await resolveTarget(deps)
+      return downloadFromPage(page, url, selector)
+    }
+    case BROWSER_GO_BACK_TOOL:
+    case BROWSER_GO_FORWARD_TOOL:
+    case BROWSER_RELOAD_TOOL: {
+      const { tab, page } = await resolveTarget(deps)
+      const verb =
+        tool === BROWSER_GO_BACK_TOOL
+          ? 'back'
+          : tool === BROWSER_GO_FORWARD_TOOL
+            ? 'forward'
+            : 'reload'
+      try {
+        if (verb === 'back') {
+          if (!page.navigationHistory.canGoBack()) {
+            return { ok: false, detail: 'the page has no earlier history to go back to' }
+          }
+          page.goBack()
+        } else if (verb === 'forward') {
+          if (!page.navigationHistory.canGoForward()) {
+            return { ok: false, detail: 'the page has no later history to go forward to' }
+          }
+          page.goForward()
+        } else {
+          page.reload()
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          detail: `the page refused the ${verb}: ${error instanceof Error ? error.message : String(error)}`,
+        }
+      }
+      return {
+        ok: true,
+        detail: `${verb === 'reload' ? 'reloaded' : `went ${verb}`} the page of "${tab.title || tab.id}"`,
+      }
+    }
+    case BROWSER_WAIT_FOR_TOOL: {
+      const { page } = await resolveTarget(deps)
+      const selector = input.selector
+      const timeoutMs = input.timeoutMs
+      if (selector !== undefined && typeof selector !== 'string') {
+        throw new Error('`selector` must be a string when present')
+      }
+      if (typeof selector === 'string' && selector.length > MAX_SELECTOR_CHARS) {
+        throw new Error(`\`selector\` must be at most ${MAX_SELECTOR_CHARS} characters`)
+      }
+      let wait = 5000
+      if (timeoutMs !== undefined) {
+        if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+          throw new Error('`timeoutMs` must be a positive number')
+        }
+        if (timeoutMs > MAX_WAIT_MS) {
+          throw new Error(`\`timeoutMs\` must be at most ${MAX_WAIT_MS}`)
+        }
+        wait = timeoutMs
+      }
+      return waitForPage(page, selector, wait)
+    }
+    case BROWSER_PRESS_KEY_TOOL: {
+      const { page } = await resolveTarget(deps)
+      const key = input.key
+      if (typeof key !== 'string' || !(BROWSER_PRESS_KEYS as readonly string[]).includes(key)) {
+        throw new Error(`\`key\` must be one of ${BROWSER_PRESS_KEYS.join(', ')}`)
+      }
+      return pressKeyOnPage(page, key)
+    }
+    case BROWSER_LIST_ANNOTATIONS_TOOL: {
+      const { page } = await resolveTarget(deps)
+      return { url: page.getURL(), annotations: browserAnnotationsFor(page.getURL()) }
+    }
+    case BROWSER_CLEAR_ANNOTATIONS_TOOL: {
+      const { page } = await resolveTarget(deps)
+      const url = input.url
+      if (url !== undefined && typeof url !== 'string') {
+        throw new Error('`url` must be a string when present (omit it to clear the active page)')
+      }
+      const target = typeof url === 'string' && url.trim() ? url : page.getURL()
+      return { url: target, removed: clearAnnotationsFor(target) }
     }
     // ── the shell operator tools: UNGATED by design (each is a direct
     // execution of the person's instruction, immediately visible, trivially
@@ -949,6 +1445,135 @@ export async function executeBrowserSkillAction(
       }
       return { path }
     }
+    // ── the shell's desktop powers: the new shell:* tools. Validation here
+    // mirrors the skill's (the renderer's) checks; the scope verdicts and
+    // the app-side guards (open-document refusal, unique names, atomic
+    // writes) live behind the deps, wired in index.ts against the same
+    // helpers the Home channels use ──
+    case SHELL_CLOSE_TAB_TOOL: {
+      const id = input.id
+      if (typeof id !== 'string' || !id.trim()) {
+        throw new Error('`id` must be a non-empty string (from shell:list_tabs)')
+      }
+      if (id.length > MAX_SHELL_TAB_ID_CHARS) {
+        throw new Error(`\`id\` must be at most ${MAX_SHELL_TAB_ID_CHARS} characters`)
+      }
+      if (id === 'home') {
+        throw new Error('the Home tab cannot be closed — pass a document or browser tab id')
+      }
+      const closed = await Promise.resolve(deps.closeTab(id))
+      if (!closed) {
+        throw new Error(
+          `no open tab matches id "${id}" — list the tabs with shell:list_tabs and pass a live id`,
+        )
+      }
+      return { id }
+    }
+    case SHELL_OPEN_FOLDER_TOOL: {
+      const path = input.path
+      if (typeof path !== 'string' || !path.trim()) {
+        throw new Error('`path` must be a non-empty absolute path')
+      }
+      if (path.length > MAX_SHELL_PATH_CHARS) {
+        throw new Error(`\`path\` must be at most ${MAX_SHELL_PATH_CHARS} characters`)
+      }
+      if (!isAbsolute(path)) {
+        throw new Error(`\`path\` must be absolute: "${path.slice(0, 120)}"`)
+      }
+      const opened = await Promise.resolve(deps.openFolder(path))
+      if (!opened) {
+        throw new Error(
+          `"${path.slice(0, 120)}" is not inside a folder the desktop tracks — the folder view ` +
+            "opens only on knowledge folders. Ask the person to add the folder from the desktop's " +
+            'folder menu (文件 ▸ 添加文件夹) first, then try again',
+        )
+      }
+      return { path }
+    }
+    case SHELL_LIST_DIRECTORY_TOOL: {
+      const path = input.path
+      if (typeof path !== 'string' || !path.trim()) {
+        throw new Error('`path` must be a non-empty absolute path')
+      }
+      if (path.length > MAX_SHELL_PATH_CHARS) {
+        throw new Error(`\`path\` must be at most ${MAX_SHELL_PATH_CHARS} characters`)
+      }
+      if (!isAbsolute(path)) {
+        throw new Error(`\`path\` must be absolute: "${path.slice(0, 120)}"`)
+      }
+      return deps.listDirectory(path)
+    }
+    case SHELL_CREATE_FOLDER_TOOL: {
+      const path = input.path
+      if (typeof path !== 'string' || !path.trim()) {
+        throw new Error('`path` must be a non-empty absolute path')
+      }
+      if (path.length > MAX_SHELL_PATH_CHARS) {
+        throw new Error(`\`path\` must be at most ${MAX_SHELL_PATH_CHARS} characters`)
+      }
+      if (!isAbsolute(path)) {
+        throw new Error(`\`path\` must be absolute: "${path.slice(0, 120)}"`)
+      }
+      return { path: await deps.createDirectory(path) }
+    }
+    case SHELL_WRITE_TEXT_FILE_TOOL: {
+      const path = input.path
+      const content = input.content
+      if (typeof path !== 'string' || !path.trim()) {
+        throw new Error('`path` must be a non-empty absolute path')
+      }
+      if (path.length > MAX_SHELL_PATH_CHARS) {
+        throw new Error(`\`path\` must be at most ${MAX_SHELL_PATH_CHARS} characters`)
+      }
+      if (typeof content !== 'string') throw new Error('`content` must be a string')
+      return { path: await deps.writeTextFile(path, content) }
+    }
+    case SHELL_MOVE_FILE_TOOL: {
+      const from = input.from
+      const to = input.to
+      if (typeof from !== 'string' || !from.trim()) {
+        throw new Error('`from` must be a non-empty absolute path')
+      }
+      if (typeof to !== 'string' || !to.trim()) {
+        throw new Error('`to` must be a non-empty absolute path')
+      }
+      return { path: await deps.moveFile(from, to) }
+    }
+    case SHELL_RENAME_FILE_TOOL: {
+      const path = input.path
+      const name = input.name
+      if (typeof path !== 'string' || !path.trim()) {
+        throw new Error('`path` must be a non-empty absolute path')
+      }
+      if (typeof name !== 'string' || !name.trim()) {
+        throw new Error('`name` must be a non-empty bare file name')
+      }
+      return { path: await deps.renameFile(path, name) }
+    }
+    case SHELL_STAR_FILE_TOOL:
+    case SHELL_UNSTAR_FILE_TOOL: {
+      const path = input.path
+      if (typeof path !== 'string' || !path.trim()) {
+        throw new Error('`path` must be a non-empty absolute path')
+      }
+      const ok = await Promise.resolve(
+        tool === SHELL_STAR_FILE_TOOL ? deps.starFile(path) : deps.unstarFile(path),
+      )
+      if (!ok) {
+        throw new Error(
+          `"${path.slice(0, 120)}" does not exist — star a file that is on disk (list the ` +
+            'directory with shell:list_directory if you are unsure of the path)',
+        )
+      }
+      return { path }
+    }
+    case SHELL_ADD_TODO_TOOL: {
+      const text = input.text
+      if (typeof text !== 'string' || !text.trim()) {
+        throw new Error('`text` must be a non-empty string')
+      }
+      return deps.addTodo(text)
+    }
     default:
       throw new Error(`unknown browser tool: ${tool}`)
   }
@@ -994,6 +1619,27 @@ export interface BrowserAgentIpcDeps {
   pathAllowed(path: string): boolean | Promise<boolean>
   /** open a local file into its app tab; false when nothing opens it */
   openPath(path: string): boolean | Promise<boolean>
+  // ── the shell's desktop powers (the new shell:* tools' wiring) ──
+  /** close one strip tab by id (the close guard runs); false when the id names none or is Home */
+  closeTab(id: string): boolean | Promise<boolean>
+  /** open Home's folder view on a path inside a folder root; false when it is not */
+  openFolder(path: string): boolean | Promise<boolean>
+  /** list one directory (scope-verdicted); structured errors for refused paths */
+  listDirectory(path: string): Promise<ListDirectoryResult>
+  /** create a directory (scope-verdicted, unique-named); answers the created path */
+  createDirectory(path: string): Promise<string>
+  /** write a text file (scope-verdicted, atomic, open-document-guarded) */
+  writeTextFile(path: string, content: string): Promise<string>
+  /** move one file (both ends scope-verdicted, neither open in an editor) */
+  moveFile(from: string, to: string): Promise<string>
+  /** rename one file (scope-verdicted, open-document-guarded, app-family rules) */
+  renameFile(path: string, name: string): Promise<string>
+  /** star one file in the desktop's starred store; false when the file is missing */
+  starFile(path: string): boolean | Promise<boolean>
+  /** remove the desktop star from one file */
+  unstarFile(path: string): boolean | Promise<boolean>
+  /** append one todo to the desktop's todos store; answers the stored entry */
+  addTodo(text: string): Promise<TodoItem>
 }
 
 /**
@@ -1041,6 +1687,16 @@ export function registerBrowserSkillIpc(deps: BrowserAgentIpcDeps): void {
         listSurfaceTabs: () => deps.listSurfaceTabs(),
         pathAllowed: (path) => deps.pathAllowed(path),
         openPath: (path) => deps.openPath(path),
+        closeTab: (id) => deps.closeTab(id),
+        openFolder: (path) => deps.openFolder(path),
+        listDirectory: (path) => deps.listDirectory(path),
+        createDirectory: (path) => deps.createDirectory(path),
+        writeTextFile: (path, content) => deps.writeTextFile(path, content),
+        moveFile: (from, to) => deps.moveFile(from, to),
+        renameFile: (path, name) => deps.renameFile(path, name),
+        starFile: (path) => deps.starFile(path),
+        unstarFile: (path) => deps.unstarFile(path),
+        addTodo: (text) => deps.addTodo(text),
       },
       tool,
       (input ?? {}) as Record<string, unknown>,

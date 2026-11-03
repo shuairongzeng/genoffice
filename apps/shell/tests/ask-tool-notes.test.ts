@@ -103,3 +103,39 @@ describe('appendToolNote', () => {
     ])
   })
 })
+
+describe('toolNoteDetail for the capability-completion tools', () => {
+  const note = (name: string, input: Record<string, unknown>): string | undefined =>
+    toolNoteDetail({ id: 'c1', name, input })
+
+  it('the browser movement/download/annotation tools name their target', () => {
+    expect(note('browser:scroll_page', { direction: 'down', amount: 800 })).toBe('browser · down')
+    expect(note('browser:scroll_page', { selector: '.feed' })).toBe('browser · .feed')
+    expect(note('browser:download_file', { url: 'https://example.com/x.zip' })).toBe(
+      'browser · example.com',
+    )
+    expect(note('browser:go_back', {})).toBe('browser · history')
+    expect(note('browser:reload', {})).toBe('browser · history')
+    expect(note('browser:press_key', { key: 'enter' })).toBe('browser · enter')
+    expect(note('browser:list_annotations', {})).toBe('browser · annotations')
+    expect(note('browser:clear_annotations', {})).toBe('browser · annotations')
+    // the reads stay bare
+    expect(note('browser:read_page', {})).toBeUndefined()
+    expect(note('browser:wait_for', { selector: '.r' })).toBeUndefined()
+  })
+
+  it('the shell desktop tools name the folder, file, todo or id they touched', () => {
+    expect(note('shell:open_folder', { path: '/kb/drafts' })).toBe('shell · drafts')
+    expect(note('shell:list_directory', { path: '/kb' })).toBe('shell · kb')
+    expect(note('shell:create_folder', { path: '/kb/new' })).toBe('shell · new')
+    expect(note('shell:write_text_file', { path: '/kb/a.txt', content: 'x' })).toBe('a.txt')
+    expect(note('shell:move_file', { from: '/kb/a.txt', to: '/kb2/a.txt' })).toBe('a.txt')
+    expect(note('shell:rename_file', { path: '/kb/a.txt', name: 'b.txt' })).toBe('b.txt')
+    expect(note('shell:star_file', { path: '/kb/a.md' })).toBe('a.md')
+    expect(note('shell:unstar_file', { path: '/kb/a.md' })).toBe('a.md')
+    expect(note('shell:close_tab', { id: 't2' })).toBe('shell · t2')
+    expect(note('shell:add_todo', { text: 'buy milk tomorrow' })).toBe('buy milk tomorrow')
+    // list_tabs stays bare
+    expect(note('shell:list_tabs', {})).toBeUndefined()
+  })
+})

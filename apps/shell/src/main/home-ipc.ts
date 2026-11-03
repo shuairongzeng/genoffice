@@ -1,4 +1,4 @@
-import { existsSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs'
+import { existsSync, renameSync, rmSync, statSync } from 'node:fs'
 import { readFile as readFileText, realpath } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { basename, dirname, join } from 'node:path'
@@ -10,6 +10,7 @@ import {
   showOpenDialogWithMemory,
 } from '@genoffice/electron-utils'
 import { atomicWriteFile } from './atomic-write'
+import { openEditorOf as openEditorGuard } from './open-editor-guard'
 import { readAppSettings, writeAppSetting } from './app-settings'
 import { TabManager } from './tab-manager'
 import { handleDroppedFiles, type DroppedFilesDeps } from './dropped-files'
@@ -460,32 +461,12 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
    * app has open right now (strip tabs plus detached editor windows), with
    * each path's app kind — injected because only index.ts holds the live
    * lists. Those tools are for text files nobody has open; an open path
-   * belongs to its app's own agent.
-   *
-   * Both sides are canonicalized before the compare (the tab-manager's
-   * canonicalPath precedent): `realpathSync.native` resolves symlinks and
-   * the on-disk letter case, NFC normalization folds the decomposition macOS
-   * hands back — so a path the model spells differently from the tab's own
-   * record (/var vs /private/var, a case variant, a composed vs decomposed
-   * name) still matches the open document it is, and the guard cannot be
-   * sidestepped by a spelling change. An unresolvable path (the file is
-   * gone) folds to its normalized raw form — nothing open matches it anyway.
+   * belongs to its app's own agent. The canonicalized compare itself lives
+   * in open-editor-guard.ts (shared with the shell tools' write/move/rename
+   * executors since the capability-completion wave).
    */
-  const openEditorOf = async (path: string): Promise<string | null> => {
-    const open = await host.openDocumentPaths()
-    const canon = (p: string): string => {
-      try {
-        return realpathSync.native(p).normalize('NFC')
-      } catch {
-        return p.replaceAll('\\', '/').normalize('NFC')
-      }
-    }
-    const normalized = canon(path)
-    for (const entry of open) {
-      if (canon(entry.path) === normalized) return entry.kind
-    }
-    return null
-  }
+  const openEditorOf = async (path: string): Promise<string | null> =>
+    openEditorGuard(path, host.openDocumentPaths ? await host.openDocumentPaths() : [])
 
   // edit_file: one patch-style edit of an in-scope text file. The panel's
   // confirmation card gated it renderer-side (risk:'high', session-allowable);

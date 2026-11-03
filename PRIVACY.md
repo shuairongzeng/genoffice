@@ -16,7 +16,17 @@ documents, and the addresses of open browser tabs — the active browser tab's
 full address, background browser tabs contribute only their site name. Files
 the AI panel's desktop tools may open, edit, or delete stay inside the scope
 the knowledge base reads (starred, recent, knowledge-folder, and indexed
-files). How much the tools ask before acting is the panel's permission mode —
+files). The panel's other capabilities follow the same scope: it can scroll,
+navigate, go back, reload, wait on, and press a key in the active browser
+tab; save a web file into the suite's Downloads folder (the same place the
+browser's own downloads land); list and clear the page annotations you
+left (clearing asks first); list, create, and open the knowledge folders;
+write text files, move and rename files (scope-checked, never under an
+open document); star and unstar files; add to the todo card; and close a
+tab (asked first). Web searches it performs itself — the browser's
+read/scroll/download tools on the active tab — so pages you have open are
+fetched and read as part of the request. How much the tools ask before
+acting is the panel's permission mode —
 one setting for the whole app (the dropdown beside the model picker, in every
 panel): "Fully automatic" runs every tool without asking, deletions included,
 and deletion's remaining safety net is the OS trash (a deleted file stays

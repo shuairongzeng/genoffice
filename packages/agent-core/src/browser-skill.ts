@@ -24,6 +24,15 @@ export const BROWSER_SCREENSHOT_TOOL = 'browser:screenshot_page'
 export const BROWSER_READ_ANNOTATION_SHOT_TOOL = 'browser:read_annotation_shot'
 export const BROWSER_FILL_FIELD_TOOL = 'browser:fill_field'
 export const BROWSER_CLICK_TOOL = 'browser:click_element'
+export const BROWSER_SCROLL_TOOL = 'browser:scroll_page'
+export const BROWSER_DOWNLOAD_TOOL = 'browser:download_file'
+export const BROWSER_GO_BACK_TOOL = 'browser:go_back'
+export const BROWSER_GO_FORWARD_TOOL = 'browser:go_forward'
+export const BROWSER_RELOAD_TOOL = 'browser:reload'
+export const BROWSER_WAIT_FOR_TOOL = 'browser:wait_for'
+export const BROWSER_PRESS_KEY_TOOL = 'browser:press_key'
+export const BROWSER_LIST_ANNOTATIONS_TOOL = 'browser:list_annotations'
+export const BROWSER_CLEAR_ANNOTATIONS_TOOL = 'browser:clear_annotations'
 
 /** one browser tab, as the dock's tab strip reports it to the loop */
 export interface BrowserTabSnapshot {
@@ -119,6 +128,42 @@ export interface BrowserActionResult {
   detail: string
 }
 
+/** what a successful `browser:download_file` answers */
+export interface BrowserDownloadResult {
+  /** the absolute path the bytes landed at (under the browser's Downloads sink) */
+  path: string
+  /** the address actually fetched (the url argument, or the selector's resolved href/src) */
+  url: string
+  /** where the address came from — the call's `url` argument or a page element */
+  source: 'url' | 'selector'
+  /** the saved size in bytes, when the fetch could measure it */
+  bytes?: number
+}
+
+/** what a successful `browser:clear_annotations` answers */
+export interface BrowserClearAnnotationsResult {
+  /** how many records (and their shot files) were dropped */
+  removed: number
+  /** the URL whose annotations were cleared (the page's, or the argument's) */
+  url: string
+}
+
+/** the form-navigation keys press_key accepts (fill_field covers text) */
+export const BROWSER_PRESS_KEYS = [
+  'enter',
+  'tab',
+  'escape',
+  'arrowup',
+  'arrowdown',
+  'arrowleft',
+  'arrowright',
+] as const
+export type BrowserPressKey = (typeof BROWSER_PRESS_KEYS)[number]
+
+/** the scroll directions scroll_page accepts */
+export const BROWSER_SCROLL_DIRECTIONS = ['up', 'down', 'top', 'bottom'] as const
+export type BrowserScrollDirection = (typeof BROWSER_SCROLL_DIRECTIONS)[number]
+
 export interface BrowserSkillDeps {
   /**
    * The open browser tabs right now; null before the first refresh or when the
@@ -135,6 +180,27 @@ export interface BrowserSkillDeps {
   readAnnotationShot(id: string): Promise<BrowserAnnotationShot | null>
   fillField(selector: string, value: string): Promise<BrowserActionResult>
   clickElement(selector: string): Promise<BrowserActionResult>
+  /** scroll the active page (a direction, an amount, or an element into view) */
+  scrollPage(
+    direction: BrowserScrollDirection | undefined,
+    amount: number | undefined,
+    selector: string | undefined,
+  ): Promise<BrowserActionResult>
+  /** fetch a url (or a selector's resolved href/src) into the Downloads sink */
+  downloadFile(
+    url: string | undefined,
+    selector: string | undefined,
+  ): Promise<BrowserDownloadResult>
+  /** the page's own history/navigation verbs: back, forward, reload */
+  navigateHistory(action: 'back' | 'forward' | 'reload'): Promise<BrowserActionResult>
+  /** wait for a selector to appear, or the page to finish loading */
+  waitFor(selector: string | undefined, timeoutMs: number): Promise<BrowserActionResult>
+  /** send one form-navigation key into the page (the whitelist's class) */
+  pressKey(key: BrowserPressKey): Promise<BrowserActionResult>
+  /** the active page's annotations (the read's annotation half, alone) */
+  listAnnotations(): Promise<BrowserPageAnnotation[]>
+  /** drop the annotations keyed to a URL (the page's when the argument is absent) */
+  clearAnnotations(url: string | undefined): Promise<BrowserClearAnnotationsResult>
 }
 
 // ── the read_page budget ───────────────────────────────────────────────────
@@ -233,6 +299,9 @@ export function formatPageOutline(
 const BROWSER_SKILL_PROMPT = `## The desktop's web browser (the active browser tab)
 The desktop's browser app is open; these tools see and act on its *active* tab
 (the tab currently in front). Each turn's context lists the open browser tabs.
+- Search the web without being asked: whenever the answer needs the live web,
+  open or navigate a browser tab and read the page yourself — do not tell the
+  person to look it up.
 - Read before you act: browser:read_page returns the page's outline — title,
   URL, text blocks, and every interactive element with the CSS selector that
   addresses it — plus the annotations the user left on the page (each with its
@@ -250,14 +319,29 @@ The desktop's browser app is open; these tools see and act on its *active* tab
   not retry as-is", and a page that changed since the read fails with a
   structured error — re-read the page, then retry with a selector from the new
   outline.
+- The page-movement tools: browser:scroll_page (the person says 翻一下 / scroll down
+  a screen; a selector scrolls that element into view), browser:go_back /
+  browser:go_forward / browser:reload (the chrome's own navigation verbs),
+  browser:press_key (one Enter/Tab/Escape/arrow into the focused control —
+  form navigation, not text; fill_field covers text), and browser:wait_for
+  (hold until a selector appears or the page finishes loading — use it after
+  a click that navigates). All are user-visible and reversible, so they run
+  ungated.
+- browser:download_file saves a file — the person's 下载 / save this: pass the
+  address, or a selector whose element carries the href/src (a download link,
+  an image, a video). The bytes land under the suite's Downloads folder with a
+  de-duplicated name; the tool's answer names the saved path.
+- browser:list_annotations answers just the page's annotations (cheaper than a
+  full read when that is all you need). browser:clear_annotations drops the
+  user's markers for a URL — a deletion, so it is risk-gated.
 - The tools follow the open tabs: with no browser tab open they are absent from
   the tool list — ask the user to open a web page in the desktop's browser
   (the Web tile on the desktop, or + in the tab strip) instead of retrying, and
   never claim a page action that no tool call performed.
 - Boundaries: only the active tab's top document is visible (no cross-origin
-  iframes, no other tabs, no page source); the tools never navigate, download
-  or open new tabs, and cannot log in for the user. If the person means a
-  different page, ask them to switch to that tab first.`
+  iframes, no other tabs, no page source); new tabs open only through
+  shell:open_browser, and the tools cannot log in for the user. If the person
+  means a different page, ask them to switch to that tab first.`
 
 const DEGRADED = (tool: string): ToolExecution => ({
   output:
@@ -273,6 +357,14 @@ export const MAX_SELECTOR_CHARS = 500
 export const MAX_FILL_VALUE_CHARS = 10_000
 /** longest annotation id read_annotation_shot accepts (ids are uuid-shaped) */
 export const MAX_ANNOTATION_ID_CHARS = 100
+/** longest address download_file accepts (the URL tools' own cap) */
+export const MAX_DOWNLOAD_URL_CHARS = 2000
+/** how far one scroll_page call may move (px — a whole page is ~1000) */
+export const MAX_SCROLL_PX = 100_000
+/** the wait_for timeout cap: a wait longer than this is a refusal, not a hang */
+export const MAX_WAIT_MS = 10_000
+/** longest write_text_file content (the edit tools' own file-size class) */
+export const MAX_LIST_ANNOTATIONS_URL_CHARS = 2000
 
 const INPUT_TOOLS: Record<string, AgentToolDef> = {
   [BROWSER_FILL_FIELD_TOOL]: {
@@ -309,6 +401,134 @@ const INPUT_TOOLS: Record<string, AgentToolDef> = {
         },
       },
       required: ['selector'],
+    },
+    risk: 'high',
+  },
+  [BROWSER_SCROLL_TOOL]: {
+    name: BROWSER_SCROLL_TOOL,
+    description:
+      'Scroll the active browser page — the tool for 翻一下 / "scroll down" / "show me more". ' +
+      'Give a direction (down is the default), an amount in pixels (default ~one screen), ' +
+      'or a selector to bring that element into view. Visible and reversible, so it runs ' +
+      'without a confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        direction: {
+          type: 'string',
+          enum: [...BROWSER_SCROLL_DIRECTIONS],
+          description: 'up, down (default), top or bottom',
+        },
+        amount: {
+          type: 'number',
+          description: 'pixels to move (a screen is ~800; ignored with top/bottom)',
+        },
+        selector: {
+          type: 'string',
+          description: 'scroll this element (from read_page) into view instead',
+        },
+      },
+    },
+  },
+  [BROWSER_DOWNLOAD_TOOL]: {
+    name: BROWSER_DOWNLOAD_TOOL,
+    description:
+      'Save a file from the web — the tool for 下载 / "save this". Pass the address, or a ' +
+      'selector whose element carries the href/src (a download link, an image, a video — ' +
+      "read_page lists them). The bytes land under the suite's Downloads folder with a " +
+      'de-duplicated name; the answer names the saved path. Only http/https addresses.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'the address to fetch' },
+        selector: {
+          type: 'string',
+          description: "element whose href/src is the file, from read_page's element list",
+        },
+      },
+    },
+  },
+  [BROWSER_GO_BACK_TOOL]: {
+    name: BROWSER_GO_BACK_TOOL,
+    description:
+      "Go back one step in the active page's history — the browser's own back button, for " +
+      '"go back" / 返回 / 上一页. Visible and reversible, so it runs without a confirmation.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  [BROWSER_GO_FORWARD_TOOL]: {
+    name: BROWSER_GO_FORWARD_TOOL,
+    description:
+      "Go forward one step in the active page's history (after a go_back). Visible and " +
+      'reversible, so it runs without a confirmation.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  [BROWSER_RELOAD_TOOL]: {
+    name: BROWSER_RELOAD_TOOL,
+    description:
+      'Reload the active page — the tool for 刷新 / "refresh" / a page that looks stale or ' +
+      'changed since the last read. Visible and reversible, so it runs without a confirmation.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  [BROWSER_WAIT_FOR_TOOL]: {
+    name: BROWSER_WAIT_FOR_TOOL,
+    description:
+      'Hold until the active page is ready: a selector appears, or (no selector) the page ' +
+      'finishes loading. Use it after a click or navigation that changes the page, before ' +
+      'reading or acting again. Waits at most 10 seconds, then answers a timeout.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description: 'CSS selector to wait for (from the page you expect to land on)',
+        },
+        timeoutMs: {
+          type: 'number',
+          description: 'how long to wait, in milliseconds (default 5000, cap 10000)',
+        },
+      },
+    },
+  },
+  [BROWSER_PRESS_KEY_TOOL]: {
+    name: BROWSER_PRESS_KEY_TOOL,
+    description:
+      "Send one key into the active page's focused control — the form-navigation class: " +
+      'enter (submit the focused form), tab / escape, the arrows. For typing text use ' +
+      'browser:fill_field instead. Visible and reversible, so it runs without a confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: {
+          type: 'string',
+          enum: [...BROWSER_PRESS_KEYS],
+          description: 'enter, tab, escape, arrowup, arrowdown, arrowleft or arrowright',
+        },
+      },
+      required: ['key'],
+    },
+  },
+  [BROWSER_LIST_ANNOTATIONS_TOOL]: {
+    name: BROWSER_LIST_ANNOTATIONS_TOOL,
+    description:
+      "List the user's annotations on the active browser page — the marker list alone " +
+      '(read_page also carries it; this is the cheaper call when the markers are all you ' +
+      'need). Read-only.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  [BROWSER_CLEAR_ANNOTATIONS_TOOL]: {
+    name: BROWSER_CLEAR_ANNOTATIONS_TOOL,
+    description:
+      "Delete the user's annotations for one URL — the active page's when no `url` is " +
+      'passed. The markers (and their pin-time screenshots) are gone for good, so the ' +
+      'user approves each call before it runs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'the page whose annotations to clear (default: the active page)',
+        },
+      },
     },
     risk: 'high',
   },
@@ -376,6 +596,15 @@ export function createBrowserSkill(deps: BrowserSkillDeps): AgentSkill {
         },
         INPUT_TOOLS[BROWSER_FILL_FIELD_TOOL]!,
         INPUT_TOOLS[BROWSER_CLICK_TOOL]!,
+        INPUT_TOOLS[BROWSER_SCROLL_TOOL]!,
+        INPUT_TOOLS[BROWSER_DOWNLOAD_TOOL]!,
+        INPUT_TOOLS[BROWSER_GO_BACK_TOOL]!,
+        INPUT_TOOLS[BROWSER_GO_FORWARD_TOOL]!,
+        INPUT_TOOLS[BROWSER_RELOAD_TOOL]!,
+        INPUT_TOOLS[BROWSER_WAIT_FOR_TOOL]!,
+        INPUT_TOOLS[BROWSER_PRESS_KEY_TOOL]!,
+        INPUT_TOOLS[BROWSER_LIST_ANNOTATIONS_TOOL]!,
+        INPUT_TOOLS[BROWSER_CLEAR_ANNOTATIONS_TOOL]!,
       ]
     },
     buildContext: () => {
@@ -452,6 +681,183 @@ export function createBrowserSkill(deps: BrowserSkillDeps): AgentSkill {
               `clicked ${describeTarget(selector)}`,
             )
           }
+          case BROWSER_SCROLL_TOOL: {
+            const direction = call.input.direction
+            const amount = call.input.amount
+            const selector = call.input.selector
+            if (
+              direction !== undefined &&
+              typeof direction === 'string' &&
+              !(BROWSER_SCROLL_DIRECTIONS as readonly string[]).includes(direction)
+            ) {
+              return badInput(
+                BROWSER_SCROLL_TOOL,
+                '`direction` must be one of up, down, top, bottom',
+              )
+            }
+            if (
+              amount !== undefined &&
+              (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0)
+            ) {
+              return badInput(BROWSER_SCROLL_TOOL, '`amount` must be a positive number of pixels')
+            }
+            if (amount !== undefined && amount > MAX_SCROLL_PX) {
+              return badInput(BROWSER_SCROLL_TOOL, `\`amount\` must be at most ${MAX_SCROLL_PX}`)
+            }
+            if (selector !== undefined && typeof selector !== 'string') {
+              return badInput(BROWSER_SCROLL_TOOL, '`selector` must be a string when present')
+            }
+            if (typeof selector === 'string' && selector.length > MAX_SELECTOR_CHARS) {
+              return badInput(
+                BROWSER_SCROLL_TOOL,
+                `\`selector\` must be at most ${MAX_SELECTOR_CHARS} characters`,
+              )
+            }
+            const result = await deps.scrollPage(
+              direction as BrowserScrollDirection | undefined,
+              amount,
+              selector,
+            )
+            return executeAction(
+              result,
+              summarizeScroll(direction as BrowserScrollDirection | undefined, amount, selector),
+            )
+          }
+          case BROWSER_DOWNLOAD_TOOL: {
+            const url = call.input.url
+            const selector = call.input.selector
+            if (url === undefined && selector === undefined) {
+              return badInput(
+                BROWSER_DOWNLOAD_TOOL,
+                'give either `url` (the address to fetch) or `selector` (an element carrying the href/src)',
+              )
+            }
+            if (url !== undefined && typeof url !== 'string') {
+              return badInput(BROWSER_DOWNLOAD_TOOL, '`url` must be a string when present')
+            }
+            if (typeof url === 'string' && url.length > MAX_DOWNLOAD_URL_CHARS) {
+              return badInput(
+                BROWSER_DOWNLOAD_TOOL,
+                `\`url\` must be at most ${MAX_DOWNLOAD_URL_CHARS} characters`,
+              )
+            }
+            if (selector !== undefined && typeof selector !== 'string') {
+              return badInput(BROWSER_DOWNLOAD_TOOL, '`selector` must be a string when present')
+            }
+            if (typeof selector === 'string' && selector.length > MAX_SELECTOR_CHARS) {
+              return badInput(
+                BROWSER_DOWNLOAD_TOOL,
+                `\`selector\` must be at most ${MAX_SELECTOR_CHARS} characters`,
+              )
+            }
+            const saved = await deps.downloadFile(url, selector)
+            return {
+              output:
+                `saved ${saved.source === 'selector' ? "the selected element's file" : 'the address'} ` +
+                `(${saved.url}) to ${saved.path}` +
+                (saved.bytes !== undefined ? ` — ${saved.bytes} bytes` : '') +
+                '. Tell the person where it landed.',
+              summary: `downloaded ${saved.path.split(/[\\/]/).pop() ?? 'file'}`,
+              mutated: true,
+            }
+          }
+          case BROWSER_GO_BACK_TOOL:
+          case BROWSER_GO_FORWARD_TOOL:
+          case BROWSER_RELOAD_TOOL: {
+            const action: 'back' | 'forward' | 'reload' =
+              call.name === BROWSER_GO_BACK_TOOL
+                ? 'back'
+                : call.name === BROWSER_GO_FORWARD_TOOL
+                  ? 'forward'
+                  : 'reload'
+            const result = await deps.navigateHistory(action)
+            return executeAction(result, `went ${action === 'reload' ? 'reload' : action}`)
+          }
+          case BROWSER_WAIT_FOR_TOOL: {
+            const selector = call.input.selector
+            const timeoutMs = call.input.timeoutMs
+            if (selector !== undefined && typeof selector !== 'string') {
+              return badInput(BROWSER_WAIT_FOR_TOOL, '`selector` must be a string when present')
+            }
+            if (typeof selector === 'string' && selector.length > MAX_SELECTOR_CHARS) {
+              return badInput(
+                BROWSER_WAIT_FOR_TOOL,
+                `\`selector\` must be at most ${MAX_SELECTOR_CHARS} characters`,
+              )
+            }
+            let wait = 5000
+            if (timeoutMs !== undefined) {
+              if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+                return badInput(BROWSER_WAIT_FOR_TOOL, '`timeoutMs` must be a positive number')
+              }
+              // the cap is a refusal, not a clamp: a 60s wait is the wrong
+              // request, and silently shortening it would lie about the wait
+              if (timeoutMs > MAX_WAIT_MS) {
+                return badInput(
+                  BROWSER_WAIT_FOR_TOOL,
+                  `\`timeoutMs\` must be at most ${MAX_WAIT_MS} (a longer wait is a job for the person, not the model)`,
+                )
+              }
+              wait = timeoutMs
+            }
+            const result = await deps.waitFor(selector, wait)
+            // a wait observes; it changes nothing on the page
+            return executeAction(
+              result,
+              selector ? `waited for ${describeTarget(selector)}` : 'waited for the load',
+              false,
+            )
+          }
+          case BROWSER_PRESS_KEY_TOOL: {
+            const key = call.input.key
+            if (
+              typeof key !== 'string' ||
+              !(BROWSER_PRESS_KEYS as readonly string[]).includes(key)
+            ) {
+              return badInput(
+                BROWSER_PRESS_KEY_TOOL,
+                `\`key\` must be one of ${BROWSER_PRESS_KEYS.join(', ')} — for typing text use browser:fill_field`,
+              )
+            }
+            const result = await deps.pressKey(key as BrowserPressKey)
+            return executeAction(result, `pressed ${key}`)
+          }
+          case BROWSER_LIST_ANNOTATIONS_TOOL: {
+            const list = await deps.listAnnotations()
+            if (list.length === 0) {
+              return {
+                output: 'the page carries no annotations — nothing the user marked',
+                summary: 'listed annotations',
+              }
+            }
+            return {
+              output: formatAnnotationList(list),
+              summary: `listed ${list.length} annotations`,
+            }
+          }
+          case BROWSER_CLEAR_ANNOTATIONS_TOOL: {
+            const url = call.input.url
+            if (url !== undefined && typeof url !== 'string') {
+              return badInput(
+                BROWSER_CLEAR_ANNOTATIONS_TOOL,
+                '`url` must be a string when present (omit it to clear the active page)',
+              )
+            }
+            if (typeof url === 'string' && url.length > MAX_LIST_ANNOTATIONS_URL_CHARS) {
+              return badInput(
+                BROWSER_CLEAR_ANNOTATIONS_TOOL,
+                `\`url\` must be at most ${MAX_LIST_ANNOTATIONS_URL_CHARS} characters`,
+              )
+            }
+            const cleared = await deps.clearAnnotations(url)
+            return {
+              output:
+                `dropped ${cleared.removed} annotation${cleared.removed === 1 ? '' : 's'} (and their ` +
+                `pin-time screenshots) for ${cleared.url}`,
+              summary: `cleared ${cleared.removed} annotations`,
+              mutated: true,
+            }
+          }
           default:
             return {
               output: `unknown browser tool: ${call.name}`,
@@ -526,11 +932,51 @@ async function executeReadShot(deps: BrowserSkillDeps, id: string): Promise<Tool
   }
 }
 
-async function executeAction(result: BrowserActionResult, summary: string): Promise<ToolExecution> {
+async function executeAction(
+  result: BrowserActionResult,
+  summary: string,
+  mutates = true,
+): Promise<ToolExecution> {
   if (result.ok) {
-    return { output: result.detail, summary, mutated: true }
+    // a wait observes: `mutated` stays absent for it, exactly like a read
+    return mutates
+      ? { output: result.detail, summary, mutated: true }
+      : { output: result.detail, summary }
   }
   return { output: result.detail, isError: true, summary: 'page action failed' }
+}
+
+/** one scroll's chip text: what moved and how far */
+function summarizeScroll(
+  direction: BrowserScrollDirection | undefined,
+  amount: number | undefined,
+  selector: string | undefined,
+): string {
+  if (selector) return `scrolled to ${describeTarget(selector)}`
+  if (direction === 'top') return 'scrolled to top'
+  if (direction === 'bottom') return 'scrolled to bottom'
+  return `scrolled ${direction ?? 'down'} ${Math.round(amount ?? 800)}px`
+}
+
+/** the list_annotations answer: the read's annotation block, alone */
+function formatAnnotationList(annotations: readonly BrowserPageAnnotation[]): string {
+  const budget = READ_PAGE_BUDGET
+  const clip = (text: string, max: number): string =>
+    text.length > max ? `${text.slice(0, max)}…` : text
+  const lines: string[] = [
+    `Annotations on the page (${annotations.length}${annotations.length > budget.annotations ? `, showing ${budget.annotations}` : ''}):`,
+  ]
+  for (const a of annotations.slice(0, budget.annotations)) {
+    const note = a.note ? clip(a.note, budget.annotationChars) : ''
+    const snippet = a.textSnippet ? clip(a.textSnippet, budget.annotationChars) : ''
+    const where = a.selector ? ` (${a.selector})` : ''
+    const id = a.id ? ` id=${a.id}` : ''
+    const shot = a.hasShot ? ' · screenshot on file — browser:read_annotation_shot' : ''
+    lines.push(
+      `- ${[note, snippet && `"${snippet}"`].filter(Boolean).join(' — ') || '(unlabeled)'}${where}${id}${shot}`,
+    )
+  }
+  return lines.join('\n')
 }
 
 function badInput(tool: string, message: string): ToolExecution {

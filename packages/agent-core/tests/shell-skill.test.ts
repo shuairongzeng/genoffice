@@ -4,11 +4,21 @@ import type { AgentToolCall } from '../src/types'
 import {
   MAX_SHELL_TAB_ID_CHARS,
   MAX_SHELL_URL_CHARS,
+  SHELL_ADD_TODO_TOOL,
+  SHELL_CLOSE_TAB_TOOL,
+  SHELL_CREATE_FOLDER_TOOL,
+  SHELL_LIST_DIRECTORY_TOOL,
   SHELL_LIST_TABS_TOOL,
+  SHELL_MOVE_FILE_TOOL,
   SHELL_NAVIGATE_TOOL,
   SHELL_OPEN_BROWSER_TOOL,
+  SHELL_OPEN_FOLDER_TOOL,
   SHELL_OPEN_PATH_TOOL,
+  SHELL_RENAME_FILE_TOOL,
+  SHELL_STAR_FILE_TOOL,
   SHELL_SWITCH_TAB_TOOL,
+  SHELL_UNSTAR_FILE_TOOL,
+  SHELL_WRITE_TEXT_FILE_TOOL,
   createShellSkill,
   formatSurfaceSection,
   type ShellSkillDeps,
@@ -76,7 +86,7 @@ const call = (name: string, input: Record<string, unknown> = {}): AgentToolCall 
 })
 
 describe('the shell skill surface', () => {
-  it('offers exactly the five tools, ungated — open_browser is what makes tabs exist', () => {
+  it('offers the full tool set, with the write/rearrange tools risk-gated', () => {
     const { skill } = skillWith(TABS)
     expect(skill.tools.map((t) => t.name)).toEqual([
       SHELL_OPEN_BROWSER_TOOL,
@@ -84,9 +94,43 @@ describe('the shell skill surface', () => {
       SHELL_LIST_TABS_TOOL,
       SHELL_SWITCH_TAB_TOOL,
       SHELL_OPEN_PATH_TOOL,
+      SHELL_CLOSE_TAB_TOOL,
+      SHELL_OPEN_FOLDER_TOOL,
+      SHELL_LIST_DIRECTORY_TOOL,
+      SHELL_CREATE_FOLDER_TOOL,
+      SHELL_WRITE_TEXT_FILE_TOOL,
+      SHELL_MOVE_FILE_TOOL,
+      SHELL_RENAME_FILE_TOOL,
+      SHELL_STAR_FILE_TOOL,
+      SHELL_UNSTAR_FILE_TOOL,
+      SHELL_ADD_TODO_TOOL,
     ])
-    for (const tool of skill.tools) expect(tool.risk).toBeUndefined()
+    // the visible, reversible acts stay ungated; the ones that close work,
+    // create, write or rearrange the person's files card first
     const byName = new Map(skill.tools.map((t) => [t.name, t]))
+    for (const name of [
+      SHELL_OPEN_BROWSER_TOOL,
+      SHELL_NAVIGATE_TOOL,
+      SHELL_LIST_TABS_TOOL,
+      SHELL_SWITCH_TAB_TOOL,
+      SHELL_OPEN_PATH_TOOL,
+      SHELL_OPEN_FOLDER_TOOL,
+      SHELL_LIST_DIRECTORY_TOOL,
+      SHELL_STAR_FILE_TOOL,
+      SHELL_UNSTAR_FILE_TOOL,
+      SHELL_ADD_TODO_TOOL,
+    ]) {
+      expect(byName.get(name)!.risk, `${name} risk`).toBeUndefined()
+    }
+    for (const name of [
+      SHELL_CLOSE_TAB_TOOL,
+      SHELL_CREATE_FOLDER_TOOL,
+      SHELL_WRITE_TEXT_FILE_TOOL,
+      SHELL_MOVE_FILE_TOOL,
+      SHELL_RENAME_FILE_TOOL,
+    ]) {
+      expect(byName.get(name)!.risk, `${name} risk`).toBe('high')
+    }
     expect(byName.get(SHELL_OPEN_BROWSER_TOOL)!.inputSchema).not.toHaveProperty('required')
     expect(byName.get(SHELL_OPEN_BROWSER_TOOL)!.inputSchema).toMatchObject({
       type: 'object',
@@ -94,11 +138,22 @@ describe('the shell skill surface', () => {
     expect(byName.get(SHELL_NAVIGATE_TOOL)!.inputSchema).toMatchObject({ required: ['url'] })
     expect(byName.get(SHELL_SWITCH_TAB_TOOL)!.inputSchema).toMatchObject({ required: ['id'] })
     expect(byName.get(SHELL_OPEN_PATH_TOOL)!.inputSchema).toMatchObject({ required: ['path'] })
+    expect(byName.get(SHELL_CLOSE_TAB_TOOL)!.inputSchema).toMatchObject({ required: ['id'] })
+    expect(byName.get(SHELL_WRITE_TEXT_FILE_TOOL)!.inputSchema).toMatchObject({
+      required: ['path', 'content'],
+    })
+    expect(byName.get(SHELL_MOVE_FILE_TOOL)!.inputSchema).toMatchObject({
+      required: ['from', 'to'],
+    })
+    expect(byName.get(SHELL_RENAME_FILE_TOOL)!.inputSchema).toMatchObject({
+      required: ['path', 'name'],
+    })
+    expect(byName.get(SHELL_ADD_TODO_TOOL)!.inputSchema).toMatchObject({ required: ['text'] })
   })
 
   it('offers the tools even before the first surface snapshot lands', () => {
     const { skill } = skillWith(null)
-    expect(skill.tools).toHaveLength(5)
+    expect(skill.tools).toHaveLength(15)
     expect(skill.systemPrompt).toContain('no tab state is available right now')
   })
 
@@ -485,5 +540,107 @@ describe('shell tool execution', () => {
     expect(execution.isError).toBe(true)
     expect(execution.output).toContain('unknown shell tool')
     expect(execute).not.toHaveBeenCalled()
+  })
+})
+
+describe('the desktop-power tools (close/folder/list/write/move/rename/star/todo)', () => {
+  it('close_tab forwards the id and the result names the tab', async () => {
+    const { skill, execute } = skillWith(TABS, {}, (tool, input) => ({ id: input.id }))
+    const result = await skill.executeTool(call(SHELL_CLOSE_TAB_TOOL, { id: 't2' }))
+    expect(execute).toHaveBeenCalledWith(SHELL_CLOSE_TAB_TOOL, { id: 't2' })
+    expect(result.isError).toBeUndefined()
+    expect(result.mutated).toBe(true)
+    expect(result.output).toContain('closed tab t2')
+  })
+
+  it('open_folder and list_directory forward the path; the listing renders', async () => {
+    const { skill, execute } = skillWith(TABS, {}, (tool, input) =>
+      tool === SHELL_LIST_DIRECTORY_TOOL
+        ? {
+            dir: '/kb',
+            entries: [
+              { name: 'notes.md', kind: 'file', size: 512 },
+              { name: 'drafts', kind: 'folder' },
+            ],
+            truncated: false,
+          }
+        : { path: input.path },
+    )
+    const opened = await skill.executeTool(call(SHELL_OPEN_FOLDER_TOOL, { path: '/kb/drafts' }))
+    expect(execute).toHaveBeenCalledWith(SHELL_OPEN_FOLDER_TOOL, { path: '/kb/drafts' })
+    expect(opened.output).toContain('opened the folder view on /kb/drafts')
+    const listed = await skill.executeTool(call(SHELL_LIST_DIRECTORY_TOOL, { path: '/kb' }))
+    expect(listed.output).toContain('Entries of /kb (2):')
+    expect(listed.output).toContain('- notes.md (file · 512 bytes)')
+    expect(listed.output).toContain('- drafts (folder)')
+  })
+
+  it('create_folder, write_text_file, move_file and rename_file forward their arguments', async () => {
+    const { skill, execute } = skillWith(TABS, {}, (_tool, input) => input)
+    await skill.executeTool(call(SHELL_CREATE_FOLDER_TOOL, { path: '/kb/new' }))
+    expect(execute).toHaveBeenCalledWith(SHELL_CREATE_FOLDER_TOOL, { path: '/kb/new' })
+    await skill.executeTool(
+      call(SHELL_WRITE_TEXT_FILE_TOOL, { path: '/kb/a.txt', content: 'hello' }),
+    )
+    expect(execute).toHaveBeenCalledWith(SHELL_WRITE_TEXT_FILE_TOOL, {
+      path: '/kb/a.txt',
+      content: 'hello',
+    })
+    const moved = await skill.executeTool(
+      call(SHELL_MOVE_FILE_TOOL, { from: '/kb/a.txt', to: '/kb2/a.txt' }),
+    )
+    expect(execute).toHaveBeenCalledWith(SHELL_MOVE_FILE_TOOL, {
+      from: '/kb/a.txt',
+      to: '/kb2/a.txt',
+    })
+    expect(moved.output).toContain('moved /kb/a.txt')
+    await skill.executeTool(call(SHELL_RENAME_FILE_TOOL, { path: '/kb/a.txt', name: 'b.txt' }))
+    expect(execute).toHaveBeenCalledWith(SHELL_RENAME_FILE_TOOL, {
+      path: '/kb/a.txt',
+      name: 'b.txt',
+    })
+  })
+
+  it('the write/rename validations refuse before the bridge', async () => {
+    const { skill, execute } = skillWith(TABS)
+    for (const [tool, input, pattern] of [
+      [SHELL_WRITE_TEXT_FILE_TOOL, { path: '/kb/a.txt' }, /content/],
+      [SHELL_RENAME_FILE_TOOL, { path: '/kb/a.txt', name: 'sub/b.txt' }, /bare file name/],
+      [SHELL_CREATE_FOLDER_TOOL, { path: '' }, /non-empty/],
+      [SHELL_CLOSE_TAB_TOOL, { id: '' }, /non-empty/],
+    ] as const) {
+      const result = await skill.executeTool(call(tool, input as Record<string, unknown>))
+      expect(result.isError, `${tool}`).toBe(true)
+      expect(result.output, `${tool}`).toMatch(pattern as RegExp)
+    }
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('star/unstar forward the path and add_todo forwards the text', async () => {
+    const { skill, execute } = skillWith(TABS, {}, (_tool, input) => ({
+      id: 'todo-9',
+      ...input,
+      done: false,
+    }))
+    const starred = await skill.executeTool(call(SHELL_STAR_FILE_TOOL, { path: '/kb/a.md' }))
+    expect(execute).toHaveBeenCalledWith(SHELL_STAR_FILE_TOOL, { path: '/kb/a.md' })
+    expect(starred.output).toContain('starred /kb/a.md')
+    await skill.executeTool(call(SHELL_UNSTAR_FILE_TOOL, { path: '/kb/a.md' }))
+    expect(execute).toHaveBeenCalledWith(SHELL_UNSTAR_FILE_TOOL, { path: '/kb/a.md' })
+    const todo = await skill.executeTool(call(SHELL_ADD_TODO_TOOL, { text: 'buy milk' }))
+    expect(execute).toHaveBeenCalledWith(SHELL_ADD_TODO_TOOL, { text: 'buy milk' })
+    expect(todo.output).toContain('buy milk')
+    // an over-long todo is clamped by the store, but the tool refuses first
+    const long = await skill.executeTool(call(SHELL_ADD_TODO_TOOL, { text: 'x'.repeat(501) }))
+    expect(long.isError).toBe(true)
+    expect(long.output).toMatch(/at most 500/)
+  })
+
+  it("the prompt carries the search habit: the live web is the agent's to search", () => {
+    const { skill } = skillWith(TABS)
+    expect(skill.systemPrompt).toContain('Searching the live web')
+    expect(skill.systemPrompt).toMatch(/without being asked/)
+    expect(skill.systemPrompt).toContain('shell:open_folder')
+    expect(skill.systemPrompt).toContain('shell:add_todo')
   })
 })

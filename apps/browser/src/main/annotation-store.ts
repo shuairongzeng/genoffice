@@ -58,6 +58,12 @@ export interface AnnotationStore {
    * when the id is unknown.
    */
   remove(id: string): boolean
+  /**
+   * Drop every record keyed to one URL — and with them their shot files —
+   * answering how many went (0 for an unknown URL or unusable key). The
+   * browser:clear_annotations tool's store half.
+   */
+  clearForUrl(url: string): number
   /** read the file again (tests; runtime keeps the in-memory list current) */
   reload(): void
 }
@@ -153,6 +159,23 @@ export function createAnnotationStore(spec: AnnotationStoreSpec): AnnotationStor
         deleteAnnotationShot(userData, id, spec.onShotError)
       }
       return true
+    },
+    clearForUrl: (url) => {
+      const key = normalizeAnnotationUrl(url)
+      if (key === null) return 0
+      const doomed = records.filter((record) => record.url === key)
+      if (doomed.length === 0) return 0
+      persist(records.filter((record) => record.url !== key))
+      // every dropped record's shot file leaves with it, exactly as a
+      // one-by-one remove() would do
+      const userData = spec.userData?.()
+      if (userData !== undefined) {
+        for (const record of doomed) {
+          if (record.shotPath !== undefined)
+            deleteAnnotationShot(userData, record.id, spec.onShotError)
+        }
+      }
+      return doomed.length
     },
     reload: () => {
       records = readList(spec.path())

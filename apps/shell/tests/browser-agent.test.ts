@@ -21,6 +21,7 @@ import type { WebContents } from 'electron'
 const browserExports = vi.hoisted(() => ({
   readAnnotationsFor: undefined as undefined | ((url: string) => unknown),
   readAnnotationShot: undefined as undefined | ((id: string) => unknown),
+  clearAnnotationsFor: undefined as undefined | ((url: string) => number),
   // the navigate tool awaits the load's commit: the fake answers the same
   // promise shape the real one does
   browserNavigate: undefined as
@@ -29,13 +30,20 @@ const browserExports = vi.hoisted(() => ({
 
 vi.mock('../../browser/src/main/browser-main', () => browserExports)
 
+const atomicWrites = vi.hoisted(() => [] as Array<{ path: string; bytes: Buffer }>)
+vi.mock('../src/main/atomic-write', () => ({
+  atomicWriteFile: async (path: string, bytes: Buffer) => {
+    atomicWrites.push({ path, bytes })
+  },
+}))
+
 const appOn = vi.hoisted(() => vi.fn())
 const ipcHandlers = vi.hoisted(() => new Map<string, (event: unknown, call: unknown) => unknown>())
 const sessions = vi.hoisted(() => new Map<string, { id: string }>())
 const webContentsById = vi.hoisted(() => new Map<number, unknown>())
 
 vi.mock('electron', () => ({
-  app: { on: appOn },
+  app: { on: appOn, getPath: () => '/tmp/genoffice-browser-agent-test' },
   ipcMain: {
     handle: (channel: string, handler: (event: unknown, call: unknown) => unknown) => {
       ipcHandlers.set(channel, handler)
@@ -57,16 +65,35 @@ vi.mock('electron', () => ({
 }))
 
 import {
+  BROWSER_CLEAR_ANNOTATIONS_TOOL,
   BROWSER_CLICK_TOOL,
+  BROWSER_DOWNLOAD_TOOL,
   BROWSER_FILL_FIELD_TOOL,
+  BROWSER_GO_BACK_TOOL,
+  BROWSER_GO_FORWARD_TOOL,
+  BROWSER_LIST_ANNOTATIONS_TOOL,
+  BROWSER_PRESS_KEY_TOOL,
   BROWSER_READ_ANNOTATION_SHOT_TOOL,
   BROWSER_READ_PAGE_TOOL,
+  BROWSER_RELOAD_TOOL,
   BROWSER_SCREENSHOT_TOOL,
+  BROWSER_SCROLL_TOOL,
+  BROWSER_WAIT_FOR_TOOL,
+  SHELL_ADD_TODO_TOOL,
+  SHELL_CLOSE_TAB_TOOL,
+  SHELL_CREATE_FOLDER_TOOL,
+  SHELL_LIST_DIRECTORY_TOOL,
   SHELL_LIST_TABS_TOOL,
+  SHELL_MOVE_FILE_TOOL,
   SHELL_NAVIGATE_TOOL,
   SHELL_OPEN_BROWSER_TOOL,
+  SHELL_OPEN_FOLDER_TOOL,
   SHELL_OPEN_PATH_TOOL,
+  SHELL_RENAME_FILE_TOOL,
+  SHELL_STAR_FILE_TOOL,
   SHELL_SWITCH_TAB_TOOL,
+  SHELL_UNSTAR_FILE_TOOL,
+  SHELL_WRITE_TEXT_FILE_TOOL,
   createShellSkill,
   type BrowserPageRead,
   type SurfaceTab,
@@ -154,6 +181,17 @@ function depsWith(
     listSurfaceTabs: () => [] as readonly SurfaceTab[],
     pathAllowed: () => true,
     openPath: () => true,
+    // the shell's desktop powers: permissive defaults the tests override
+    closeTab: () => true,
+    openFolder: () => true,
+    listDirectory: () => Promise.resolve({ dir: '/tmp/kb', entries: [], truncated: false }),
+    createDirectory: (path) => Promise.resolve(path),
+    writeTextFile: (path) => Promise.resolve(path),
+    moveFile: (_from, to) => Promise.resolve(to),
+    renameFile: (path, name) => Promise.resolve(`${path}/${name}`),
+    starFile: () => true,
+    unstarFile: () => true,
+    addTodo: (text) => Promise.resolve({ id: 'todo-1', text, done: false }),
     ...extra,
   }
 }
@@ -1322,5 +1360,357 @@ describe('the shell operator tools (ungated, validated)', () => {
         path: '',
       }),
     ).rejects.toThrow(/`path` must be/)
+  })
+})
+
+// ── the new page tools (movement, download, history, wait, key, annotations) ─
+
+describe('the new page tools', () => {
+  it("scroll_page runs its script on the active tab's page, in the isolated world", async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    const result = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_SCROLL_TOOL,
+      { direction: 'down', amount: 800 },
+    )) as { ok: boolean; detail: string }
+    expect(result.ok).toBe(true)
+    expect(page.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(
+      42,
+      [expect.objectContaining({ code: expect.stringContaining('scrollBy') })],
+      true,
+    )
+    expect(chrome.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled()
+    // a bad direction is refused before the page is touched
+    await expect(
+      executeBrowserSkillAction(depsWith(chrome, page, [TAB]), BROWSER_SCROLL_TOOL, {
+        direction: 'sideways',
+      }),
+    ).rejects.toThrow(/direction/)
+  })
+
+  it('download_file fetches the address and sinks it under Downloads (the will-download story)', async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    atomicWrites.length = 0
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const saved = (await executeBrowserSkillAction(
+        depsWith(chrome, page, [TAB]),
+        BROWSER_DOWNLOAD_TOOL,
+        { url: 'https://example.com/report.pdf' },
+      )) as { path: string; url: string; source: string; bytes: number }
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.objectContaining({ href: 'https://example.com/report.pdf' }),
+      )
+      expect(saved.url).toBe('https://example.com/report.pdf')
+      expect(saved.source).toBe('url')
+      expect(saved.bytes).toBe(4)
+      expect(saved.path).toMatch(/Downloads\/report\.pdf$/)
+      expect(atomicWrites).toHaveLength(1)
+      expect(atomicWrites[0]!.path).toBe(saved.path)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('download_file refuses non-web schemes and an address neither argument names', async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    await expect(
+      executeBrowserSkillAction(depsWith(chrome, page, [TAB]), BROWSER_DOWNLOAD_TOOL, {
+        url: 'file:///etc/passwd',
+      }),
+    ).rejects.toThrow(/not an http\/https address/)
+    await expect(
+      executeBrowserSkillAction(depsWith(chrome, page, [TAB]), BROWSER_DOWNLOAD_TOOL, {}),
+    ).rejects.toThrow(/either `url` or `selector`/)
+  })
+
+  it("download_file's selector path resolves the element's address through the page", async () => {
+    const chrome = makeWc()
+    const page = makeWc({
+      executeJavaScriptInIsolatedWorld: vi.fn(async () => ({
+        ok: true,
+        url: 'https://cdn.example.com/pic.png',
+      })),
+    })
+    atomicWrites.length = 0
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      arrayBuffer: async () => new Uint8Array([9]).buffer,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const saved = (await executeBrowserSkillAction(
+        depsWith(chrome, page, [TAB]),
+        BROWSER_DOWNLOAD_TOOL,
+        { selector: 'img.hero' },
+      )) as { source: string; url: string }
+      expect(page.executeJavaScriptInIsolatedWorld).toHaveBeenCalled()
+      expect(saved.source).toBe('selector')
+      expect(saved.url).toBe('https://cdn.example.com/pic.png')
+      expect(saved.path).toMatch(/pic\.png$/)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('go_back / go_forward drive the page history and answer its edges', async () => {
+    const chrome = makeWc()
+    const page = makeWc({
+      navigationHistory: { canGoBack: () => true, canGoForward: () => false },
+      goBack: vi.fn(),
+      goForward: vi.fn(),
+    } as unknown as Partial<FakeWc>)
+    const back = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_GO_BACK_TOOL,
+      {},
+    )) as { ok: boolean }
+    expect(back.ok).toBe(true)
+    expect(page.goBack).toHaveBeenCalled()
+    const forward = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_GO_FORWARD_TOOL,
+      {},
+    )) as { ok: boolean; detail: string }
+    expect(forward.ok).toBe(false)
+    expect(forward.detail).toContain('no later history')
+    expect(page.goForward).not.toHaveBeenCalled()
+  })
+
+  it('reload drives the page and wait_for answers an idle page at once', async () => {
+    const chrome = makeWc()
+    const page = makeWc({
+      reload: vi.fn(),
+      isLoading: () => false,
+    } as unknown as Partial<FakeWc>)
+    const reloaded = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_RELOAD_TOOL,
+      {},
+    )) as { ok: boolean }
+    expect(reloaded.ok).toBe(true)
+    expect(page.reload).toHaveBeenCalled()
+    const waited = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_WAIT_FOR_TOOL,
+      { timeoutMs: 1000 },
+    )) as { ok: boolean; detail: string }
+    expect(waited.ok).toBe(true)
+    expect(waited.detail).toContain('not loading')
+    // the wait cap is a refusal, not a clamp
+    await expect(
+      executeBrowserSkillAction(depsWith(chrome, page, [TAB]), BROWSER_WAIT_FOR_TOOL, {
+        timeoutMs: 60_000,
+      }),
+    ).rejects.toThrow(/at most 10000/)
+  })
+
+  it("wait_for with a selector runs the page's poll script with the deadline baked in", async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    const waited = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_WAIT_FOR_TOOL,
+      { selector: '.results', timeoutMs: 2000 },
+    )) as { ok: boolean; detail: string }
+    expect(waited.ok).toBe(true)
+    expect(page.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(
+      42,
+      [expect.objectContaining({ code: expect.stringContaining('.results') })],
+      true,
+    )
+  })
+
+  it('press_key sends the whitelisted key through the real input pipeline, and refuses others', async () => {
+    const chrome = makeWc()
+    const sendInputEvent = vi.fn()
+    const page = makeWc({ sendInputEvent } as unknown as Partial<FakeWc>)
+    const pressed = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB]),
+      BROWSER_PRESS_KEY_TOOL,
+      { key: 'enter' },
+    )) as { ok: boolean }
+    expect(pressed.ok).toBe(true)
+    expect(sendInputEvent).toHaveBeenCalledWith({ type: 'rawKeyDown', keyCode: 'Return' })
+    expect(sendInputEvent).toHaveBeenCalledWith({ type: 'keyUp', keyCode: 'Return' })
+    await expect(
+      executeBrowserSkillAction(depsWith(chrome, page, [TAB]), BROWSER_PRESS_KEY_TOOL, {
+        key: 'a',
+      }),
+    ).rejects.toThrow(/must be one of/)
+  })
+
+  it("list_annotations answers the page's records; clear drops them by URL", async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    browserExports.readAnnotationsFor = () => [
+      { id: 'ann-1', selector: '#q', note: 'the search box' },
+    ]
+    try {
+      const listed = (await executeBrowserSkillAction(
+        depsWith(chrome, page, [TAB]),
+        BROWSER_LIST_ANNOTATIONS_TOOL,
+        {},
+      )) as { url: string; annotations: unknown[] }
+      expect(listed.url).toBe('https://example.com/')
+      expect(listed.annotations).toHaveLength(1)
+      // clear: the browser module's export answers the count
+      browserExports.clearAnnotationsFor = () => 2
+      const cleared = (await executeBrowserSkillAction(
+        depsWith(chrome, page, [TAB]),
+        BROWSER_CLEAR_ANNOTATIONS_TOOL,
+        {},
+      )) as { url: string; removed: number }
+      expect(cleared.removed).toBe(2)
+      expect(cleared.url).toBe('https://example.com/')
+    } finally {
+      browserExports.readAnnotationsFor = undefined
+      browserExports.clearAnnotationsFor = undefined
+    }
+  })
+})
+
+// ── the shell's desktop powers (the new shell:* tools) ───────────────────────
+
+describe('the shell desktop tools', () => {
+  it("close_tab refuses the Home tab and unknown ids, and routes the strip's own verb", async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    await expect(
+      executeBrowserSkillAction(depsWith(chrome, page, [TAB]), SHELL_CLOSE_TAB_TOOL, {
+        id: 'home',
+      }),
+    ).rejects.toThrow(/Home tab cannot be closed/)
+    const closeTab = vi.fn(async () => false)
+    await expect(
+      executeBrowserSkillAction(depsWith(chrome, page, [TAB], { closeTab }), SHELL_CLOSE_TAB_TOOL, {
+        id: 't404',
+      }),
+    ).rejects.toThrow(/no open tab matches/)
+    expect(closeTab).toHaveBeenCalledWith('t404')
+    const ok = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB], { closeTab: async () => true }),
+      SHELL_CLOSE_TAB_TOOL,
+      { id: 't2' },
+    )) as { id: string }
+    expect(ok.id).toBe('t2')
+  })
+
+  it('open_folder answers the guiding error when the path is not inside a root', async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    await expect(
+      executeBrowserSkillAction(
+        depsWith(chrome, page, [TAB], { openFolder: () => false }),
+        SHELL_OPEN_FOLDER_TOOL,
+        { path: '/tmp/nowhere' },
+      ),
+    ).rejects.toThrow(/not inside a folder the desktop tracks/)
+    const opened = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB], { openFolder: () => true }),
+      SHELL_OPEN_FOLDER_TOOL,
+      { path: '/tmp/kb' },
+    )) as { path: string }
+    expect(opened.path).toBe('/tmp/kb')
+  })
+
+  it('list_directory routes to the dep and the write/rearrange tools route with their args', async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    const listDirectory = vi.fn(async () => ({
+      dir: '/tmp/kb',
+      entries: [
+        { name: 'notes.md', kind: 'file', size: 12 },
+        { name: 'sub', kind: 'folder' },
+      ],
+      truncated: false,
+    }))
+    const listed = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB], { listDirectory }),
+      SHELL_LIST_DIRECTORY_TOOL,
+      { path: '/tmp/kb' },
+    )) as { entries: unknown[] }
+    expect(listDirectory).toHaveBeenCalledWith('/tmp/kb')
+    expect(listed.entries).toHaveLength(2)
+
+    const createDirectory = vi.fn(async (path: string) => path)
+    const created = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB], { createDirectory }),
+      SHELL_CREATE_FOLDER_TOOL,
+      { path: '/tmp/kb/new' },
+    )) as { path: string }
+    expect(createDirectory).toHaveBeenCalledWith('/tmp/kb/new')
+    expect(created.path).toBe('/tmp/kb/new')
+
+    const writeTextFile = vi.fn(async (path: string, _content: string) => path)
+    await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB], { writeTextFile }),
+      SHELL_WRITE_TEXT_FILE_TOOL,
+      { path: '/tmp/kb/a.txt', content: 'hello' },
+    )
+    expect(writeTextFile).toHaveBeenCalledWith('/tmp/kb/a.txt', 'hello')
+
+    const moveFile = vi.fn(async (_from: string, to: string) => to)
+    await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB], { moveFile }),
+      SHELL_MOVE_FILE_TOOL,
+      { from: '/tmp/kb/a.txt', to: '/tmp/kb2/a.txt' },
+    )
+    expect(moveFile).toHaveBeenCalledWith('/tmp/kb/a.txt', '/tmp/kb2/a.txt')
+
+    const renameFile = vi.fn(async (path: string, name: string) => `${path}-${name}`)
+    await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB], { renameFile }),
+      SHELL_RENAME_FILE_TOOL,
+      { path: '/tmp/kb/a.txt', name: 'b.txt' },
+    )
+    expect(renameFile).toHaveBeenCalledWith('/tmp/kb/a.txt', 'b.txt')
+  })
+
+  it('star/unstar refuse a missing file, and add_todo routes the text', async () => {
+    const chrome = makeWc()
+    const page = makeWc()
+    await expect(
+      executeBrowserSkillAction(
+        depsWith(chrome, page, [TAB], { starFile: () => false }),
+        SHELL_STAR_FILE_TOOL,
+        { path: '/tmp/gone.md' },
+      ),
+    ).rejects.toThrow(/does not exist/)
+    const starFile = vi.fn(() => true)
+    await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB], { starFile }),
+      SHELL_STAR_FILE_TOOL,
+      {
+        path: '/tmp/kb/a.md',
+      },
+    )
+    expect(starFile).toHaveBeenCalledWith('/tmp/kb/a.md')
+    const unstarFile = vi.fn(() => true)
+    await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB], { unstarFile }),
+      SHELL_UNSTAR_FILE_TOOL,
+      { path: '/tmp/kb/a.md' },
+    )
+    expect(unstarFile).toHaveBeenCalledWith('/tmp/kb/a.md')
+    const addTodo = vi.fn(async (text: string) => ({ id: 'todo-1', text, done: false }))
+    const todo = (await executeBrowserSkillAction(
+      depsWith(chrome, page, [TAB], { addTodo }),
+      SHELL_ADD_TODO_TOOL,
+      { text: 'buy milk' },
+    )) as { id: string; text: string }
+    expect(addTodo).toHaveBeenCalledWith('buy milk')
+    expect(todo).toEqual({ id: 'todo-1', text: 'buy milk', done: false })
   })
 })

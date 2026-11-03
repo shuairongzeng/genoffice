@@ -1,6 +1,14 @@
 import {
   BROWSER_CLICK_TOOL,
+  BROWSER_CLEAR_ANNOTATIONS_TOOL,
+  BROWSER_DOWNLOAD_TOOL,
   BROWSER_FILL_FIELD_TOOL,
+  BROWSER_GO_BACK_TOOL,
+  BROWSER_GO_FORWARD_TOOL,
+  BROWSER_LIST_ANNOTATIONS_TOOL,
+  BROWSER_PRESS_KEY_TOOL,
+  BROWSER_RELOAD_TOOL,
+  BROWSER_SCROLL_TOOL,
   CREATE_DOCUMENT_TOOL,
   DELETE_FILE_TOOL,
   DOCUMENT_AGENT_TOOL,
@@ -8,9 +16,19 @@ import {
   LOAD_GUIDE_TOOL,
   READ_ATTACHMENT_TOOL,
   RUN_GENOFFICE_TOOL,
+  SHELL_ADD_TODO_TOOL,
+  SHELL_CLOSE_TAB_TOOL,
+  SHELL_CREATE_FOLDER_TOOL,
+  SHELL_LIST_DIRECTORY_TOOL,
+  SHELL_MOVE_FILE_TOOL,
   SHELL_NAVIGATE_TOOL,
+  SHELL_OPEN_FOLDER_TOOL,
   SHELL_OPEN_PATH_TOOL,
+  SHELL_RENAME_FILE_TOOL,
+  SHELL_STAR_FILE_TOOL,
   SHELL_SWITCH_TAB_TOOL,
+  SHELL_UNSTAR_FILE_TOOL,
+  SHELL_WRITE_TEXT_FILE_TOOL,
   type AgentToolCall,
 } from '@genoffice/agent-core'
 
@@ -95,25 +113,87 @@ export function toolNoteDetail(
     return name ? baseName(name) : undefined
   }
   // the shell tools: the verb's own target — the address navigated to, the
-  // file opened, the tab switched to; the reads (list_tabs) need no detail
+  // file opened, the tab switched to, the folder listed, the todo's opening
+  // words; the reads (list_tabs, list_directory) carry the folder they read
   if (call.name.startsWith('shell:')) {
+    const inputString = (key: string): string | undefined => {
+      const raw = (call.input as Record<string, unknown>)[key]
+      return typeof raw === 'string' && raw.trim() ? raw.trim() : undefined
+    }
     if (call.name === SHELL_NAVIGATE_TOOL) {
-      const url = typeof call.input.url === 'string' ? call.input.url.trim() : ''
+      const url = inputString('url')
       return url ? `shell · ${hostOf(url)}` : 'shell'
     }
     if (call.name === SHELL_OPEN_PATH_TOOL) {
-      const path = typeof call.input.path === 'string' ? call.input.path.trim() : ''
+      const path = inputString('path')
       return path ? baseName(path) : 'shell'
     }
-    if (call.name === SHELL_SWITCH_TAB_TOOL) {
-      const id = typeof call.input.id === 'string' ? call.input.id.trim() : ''
+    if (call.name === SHELL_SWITCH_TAB_TOOL || call.name === SHELL_CLOSE_TAB_TOOL) {
+      const id = inputString('id')
       return id ? `shell · ${id.slice(0, 24)}` : 'shell'
+    }
+    if (
+      call.name === SHELL_OPEN_FOLDER_TOOL ||
+      call.name === SHELL_LIST_DIRECTORY_TOOL ||
+      call.name === SHELL_CREATE_FOLDER_TOOL
+    ) {
+      const path = inputString('path')
+      return path ? `shell · ${baseName(path) || path}` : 'shell'
+    }
+    if (
+      call.name === SHELL_WRITE_TEXT_FILE_TOOL ||
+      call.name === SHELL_MOVE_FILE_TOOL ||
+      call.name === SHELL_STAR_FILE_TOOL ||
+      call.name === SHELL_UNSTAR_FILE_TOOL
+    ) {
+      const path = inputString('path') ?? inputString('from')
+      return path ? baseName(path) : 'shell'
+    }
+    if (call.name === SHELL_RENAME_FILE_TOOL) {
+      const name = inputString('name')
+      return name || 'shell'
+    }
+    if (call.name === SHELL_ADD_TODO_TOOL) {
+      const text = inputString('text')
+      return text ? text.slice(0, 40) : 'shell'
     }
     return undefined
   }
-  // the browser tools: a page action names its target selector; a read or
-  // screenshot needs no detail (the label already says the domain)
+  // the browser tools: a page action names its target selector; the new
+  // movement/download/annotation tools name the direction, the saved file,
+  // or the page's markers; the reads (read_page, screenshot, wait_for) need
+  // no detail (the label already says the domain)
   if (call.name.startsWith('browser:')) {
+    if (call.name === BROWSER_SCROLL_TOOL) {
+      const direction = typeof call.input.direction === 'string' ? call.input.direction : ''
+      const selector = typeof call.input.selector === 'string' ? call.input.selector.trim() : ''
+      return selector
+        ? `browser · ${selector.slice(0, 40)}`
+        : direction
+          ? `browser · ${direction}`
+          : 'browser · down'
+    }
+    if (call.name === BROWSER_DOWNLOAD_TOOL) {
+      const url = typeof call.input.url === 'string' ? call.input.url.trim() : ''
+      return url ? `browser · ${hostOf(url) || url.slice(0, 40)}` : 'browser'
+    }
+    if (
+      call.name === BROWSER_GO_BACK_TOOL ||
+      call.name === BROWSER_GO_FORWARD_TOOL ||
+      call.name === BROWSER_RELOAD_TOOL
+    ) {
+      return 'browser · history'
+    }
+    if (call.name === BROWSER_PRESS_KEY_TOOL) {
+      const key = typeof call.input.key === 'string' ? call.input.key : ''
+      return key ? `browser · ${key}` : 'browser'
+    }
+    if (
+      call.name === BROWSER_LIST_ANNOTATIONS_TOOL ||
+      call.name === BROWSER_CLEAR_ANNOTATIONS_TOOL
+    ) {
+      return 'browser · annotations'
+    }
     if (call.name !== BROWSER_FILL_FIELD_TOOL && call.name !== BROWSER_CLICK_TOOL) {
       return undefined
     }

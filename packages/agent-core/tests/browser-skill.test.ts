@@ -11,15 +11,26 @@ import type {
 } from '../src/types'
 import {
   AgentLoop,
+  BROWSER_CLEAR_ANNOTATIONS_TOOL,
   BROWSER_CLICK_TOOL,
+  BROWSER_DOWNLOAD_TOOL,
   BROWSER_FILL_FIELD_TOOL,
+  BROWSER_GO_BACK_TOOL,
+  BROWSER_GO_FORWARD_TOOL,
+  BROWSER_LIST_ANNOTATIONS_TOOL,
+  BROWSER_PRESS_KEY_TOOL,
   BROWSER_READ_ANNOTATION_SHOT_TOOL,
   BROWSER_READ_PAGE_TOOL,
+  BROWSER_RELOAD_TOOL,
   BROWSER_SCREENSHOT_TOOL,
+  BROWSER_SCROLL_TOOL,
+  BROWSER_WAIT_FOR_TOOL,
   MAX_SELECTOR_CHARS,
   createBrowserSkill,
   formatPageOutline,
   type BrowserActionResult,
+  type BrowserClearAnnotationsResult,
+  type BrowserDownloadResult,
   type BrowserPageRead,
   type BrowserSkillDeps,
   type BrowserTabSnapshot,
@@ -54,6 +65,13 @@ interface Harness {
     readAnnotationShot: ReturnType<typeof vi.fn>
     fillField: ReturnType<typeof vi.fn>
     clickElement: ReturnType<typeof vi.fn>
+    scrollPage: ReturnType<typeof vi.fn>
+    downloadFile: ReturnType<typeof vi.fn>
+    navigateHistory: ReturnType<typeof vi.fn>
+    waitFor: ReturnType<typeof vi.fn>
+    pressKey: ReturnType<typeof vi.fn>
+    listAnnotations: ReturnType<typeof vi.fn>
+    clearAnnotations: ReturnType<typeof vi.fn>
   }
 }
 
@@ -86,6 +104,32 @@ function skillWith(
       ok: true,
       detail: 'clicked the element',
     })),
+    scrollPage: vi.fn(async (): Promise<BrowserActionResult> => ({
+      ok: true,
+      detail: 'scrolled down by 720px',
+    })),
+    downloadFile: vi.fn(async (): Promise<BrowserDownloadResult> => ({
+      path: '/userData/Downloads/report.pdf',
+      url: 'https://example.com/report.pdf',
+      source: 'url',
+      bytes: 2048,
+    })),
+    navigateHistory: vi.fn(async (): Promise<BrowserActionResult> => ({
+      ok: true,
+      detail: 'went back the page',
+    })),
+    waitFor: vi.fn(async (): Promise<BrowserActionResult> => ({
+      ok: true,
+      detail: 'the page finished loading',
+    })),
+    pressKey: vi.fn(async (): Promise<BrowserActionResult> => ({ ok: true, detail: 'sent enter' })),
+    listAnnotations: vi.fn(async () => [
+      { id: 'ann-1', selector: '#q', note: 'the search box', hasShot: true },
+    ]),
+    clearAnnotations: vi.fn(async (): Promise<BrowserClearAnnotationsResult> => ({
+      removed: 2,
+      url: 'https://example.com/',
+    })),
   }
   const deps: BrowserSkillDeps = { openTabs: () => openTabs, ...fns, ...overrides }
   return { skill: createBrowserSkill(deps), deps: fns }
@@ -98,7 +142,7 @@ const call = (name: string, input: Record<string, unknown> = {}): AgentToolCall 
 })
 
 describe('the browser skill surface', () => {
-  it('offers exactly the five tools, with fill/click gated as high-risk', () => {
+  it('offers the tool set, with fill/click/clear gated as high-risk', () => {
     const { skill } = skillWith(TABS)
     expect(skill.tools.map((t) => t.name)).toEqual([
       BROWSER_READ_PAGE_TOOL,
@@ -106,6 +150,15 @@ describe('the browser skill surface', () => {
       BROWSER_READ_ANNOTATION_SHOT_TOOL,
       BROWSER_FILL_FIELD_TOOL,
       BROWSER_CLICK_TOOL,
+      BROWSER_SCROLL_TOOL,
+      BROWSER_DOWNLOAD_TOOL,
+      BROWSER_GO_BACK_TOOL,
+      BROWSER_GO_FORWARD_TOOL,
+      BROWSER_RELOAD_TOOL,
+      BROWSER_WAIT_FOR_TOOL,
+      BROWSER_PRESS_KEY_TOOL,
+      BROWSER_LIST_ANNOTATIONS_TOOL,
+      BROWSER_CLEAR_ANNOTATIONS_TOOL,
     ])
     const byName = new Map(skill.tools.map((t) => [t.name, t]))
     expect(byName.get(BROWSER_READ_PAGE_TOOL)!.risk).toBeUndefined()
@@ -113,6 +166,22 @@ describe('the browser skill surface', () => {
     expect(byName.get(BROWSER_READ_ANNOTATION_SHOT_TOOL)!.risk).toBeUndefined()
     expect(byName.get(BROWSER_FILL_FIELD_TOOL)!.risk).toBe('high')
     expect(byName.get(BROWSER_CLICK_TOOL)!.risk).toBe('high')
+    // the page-movement and download tools are visible and reversible:
+    // ungated like the reads, with clear_annotations the one new gate (it
+    // deletes the user's markers)
+    for (const name of [
+      BROWSER_SCROLL_TOOL,
+      BROWSER_DOWNLOAD_TOOL,
+      BROWSER_GO_BACK_TOOL,
+      BROWSER_GO_FORWARD_TOOL,
+      BROWSER_RELOAD_TOOL,
+      BROWSER_WAIT_FOR_TOOL,
+      BROWSER_PRESS_KEY_TOOL,
+      BROWSER_LIST_ANNOTATIONS_TOOL,
+    ]) {
+      expect(byName.get(name)!.risk).toBeUndefined()
+    }
+    expect(byName.get(BROWSER_CLEAR_ANNOTATIONS_TOOL)!.risk).toBe('high')
     // the action tools declare their arguments
     expect(byName.get(BROWSER_FILL_FIELD_TOOL)!.inputSchema).toMatchObject({
       required: ['selector', 'value'],
@@ -122,6 +191,9 @@ describe('the browser skill surface', () => {
     })
     expect(byName.get(BROWSER_READ_ANNOTATION_SHOT_TOOL)!.inputSchema).toMatchObject({
       required: ['id'],
+    })
+    expect(byName.get(BROWSER_PRESS_KEY_TOOL)!.inputSchema).toMatchObject({
+      required: ['key'],
     })
     // the prompt names the boundary: active tab, read before acting, approval
     expect(skill.systemPrompt).toMatch(/active.? tab/i)
@@ -589,5 +661,95 @@ describe('the loop attaches a tool image to the next model request', () => {
     await flush()
     expect(clickElement).toHaveBeenCalledWith('#go')
     await expect(handle.done).resolves.toMatchObject({ text: 'clicked it for you' })
+  })
+})
+
+describe('the new page tools (movement, download, history, wait, key, annotations)', () => {
+  it('scroll_page forwards direction, amount and selector, and the result rides the action shape', async () => {
+    const { skill, deps } = skillWith(TABS)
+    const result = await skill.executeTool(
+      call(BROWSER_SCROLL_TOOL, { direction: 'down', amount: 800 }),
+    )
+    expect(deps.scrollPage).toHaveBeenCalledWith('down', 800, undefined)
+    expect(result.isError).toBeUndefined()
+    expect(result.output).toContain('scrolled')
+    // a bare call defaults to a screen down
+    await skill.executeTool(call(BROWSER_SCROLL_TOOL, {}))
+    expect(deps.scrollPage).toHaveBeenLastCalledWith(undefined, undefined, undefined)
+  })
+
+  it('scroll_page validates its arguments before the bridge', async () => {
+    const { skill, deps } = skillWith(TABS)
+    for (const [input, message] of [
+      [{ direction: 'sideways' }, /direction/],
+      [{ amount: -5 }, /amount/],
+      [{ amount: 500_000 }, /at most/],
+      [{ selector: 'x'.repeat(501) }, /at most/],
+    ] as const) {
+      const result = await skill.executeTool(
+        call(BROWSER_SCROLL_TOOL, input as Record<string, unknown>),
+      )
+      expect(result.isError, JSON.stringify(input)).toBe(true)
+      expect(result.output, JSON.stringify(input)).toMatch(message as RegExp)
+    }
+    expect(deps.scrollPage).not.toHaveBeenCalled()
+  })
+
+  it('download_file answers the saved path and refuses a call naming neither argument', async () => {
+    const { skill } = skillWith(TABS)
+    const saved = await skill.executeTool(
+      call(BROWSER_DOWNLOAD_TOOL, { url: 'https://example.com/x.zip' }),
+    )
+    expect(saved.isError).toBeUndefined()
+    expect(saved.output).toContain('/userData/Downloads/report.pdf')
+    expect(saved.output).toContain('2048 bytes')
+    const neither = await skill.executeTool(call(BROWSER_DOWNLOAD_TOOL, {}))
+    expect(neither.isError).toBe(true)
+    expect(neither.output).toMatch(/either `url`/)
+  })
+
+  it('the history verbs and press_key forward to the bridge and validate', async () => {
+    const { skill, deps } = skillWith(TABS)
+    await skill.executeTool(call(BROWSER_GO_BACK_TOOL, {}))
+    await skill.executeTool(call(BROWSER_GO_FORWARD_TOOL, {}))
+    await skill.executeTool(call(BROWSER_RELOAD_TOOL, {}))
+    expect(deps.navigateHistory).toHaveBeenNthCalledWith(1, 'back')
+    expect(deps.navigateHistory).toHaveBeenNthCalledWith(2, 'forward')
+    expect(deps.navigateHistory).toHaveBeenNthCalledWith(3, 'reload')
+    const pressed = await skill.executeTool(call(BROWSER_PRESS_KEY_TOOL, { key: 'tab' }))
+    expect(deps.pressKey).toHaveBeenCalledWith('tab')
+    expect(pressed.isError).toBeUndefined()
+    const refused = await skill.executeTool(call(BROWSER_PRESS_KEY_TOOL, { key: 'q' }))
+    expect(refused.isError).toBe(true)
+    expect(refused.output).toMatch(/fill_field/)
+  })
+
+  it('wait_for forwards the selector and timeout, and the cap is a refusal', async () => {
+    const { skill, deps } = skillWith(TABS)
+    await skill.executeTool(call(BROWSER_WAIT_FOR_TOOL, { selector: '.r', timeoutMs: 2500 }))
+    expect(deps.waitFor).toHaveBeenCalledWith('.r', 2500)
+    const capped = await skill.executeTool(call(BROWSER_WAIT_FOR_TOOL, { timeoutMs: 30_000 }))
+    expect(capped.isError).toBe(true)
+    expect(capped.output).toMatch(/at most 10000/)
+    expect(deps.waitFor).toHaveBeenCalledTimes(1)
+    // a wait observes: never marked mutated
+    const waited = await skill.executeTool(call(BROWSER_WAIT_FOR_TOOL, {}))
+    expect(waited.mutated).toBeUndefined()
+  })
+
+  it('list_annotations renders the marker list; clear answers the dropped count', async () => {
+    const { skill } = skillWith(TABS)
+    const listed = await skill.executeTool(call(BROWSER_LIST_ANNOTATIONS_TOOL, {}))
+    expect(listed.output).toContain('ann-1')
+    expect(listed.output).toContain('the search box')
+    expect(listed.output).toContain('screenshot on file')
+    const cleared = await skill.executeTool(call(BROWSER_CLEAR_ANNOTATIONS_TOOL, {}))
+    expect(cleared.output).toContain('dropped 2 annotations')
+    expect(cleared.mutated).toBe(true)
+    // the annotations are absent with no browser tab
+    const { skill: empty } = skillWith([])
+    const degraded = await empty.executeTool(call(BROWSER_LIST_ANNOTATIONS_TOOL, {}))
+    expect(degraded.isError).toBe(true)
+    expect(degraded.output).toContain('no browser tab is open')
   })
 })

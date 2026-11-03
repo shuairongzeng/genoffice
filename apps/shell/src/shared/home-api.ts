@@ -848,6 +848,12 @@ export interface HomeApi {
    */
   reportDockOpen?(state: DockOpenState): void
   /**
+   * Open Home's folder view on a directory (`home:open-folder`, main → the
+   * shell renderer): the shell:open_folder tool's surface half — the Home
+   * tab is active (or rises) and its file rows show the folder.
+   */
+  onOpenFolder?(handler: (dir: string) => void): () => void
+  /**
    * The open-target report landed (`home:dock-open`, main → the overlay's
    * dock renderer): the entry's running dots and bounce-ready both consume
    * it. Subscribe before pulling {@link takeDockOpen} on mount — the same
@@ -1486,6 +1492,9 @@ export const HOME_CHANNELS = {
   /** main → renderer: the permission mode changed in the store (any panel
    *  mount's write — every mount's gate and chip follow it) */
   aiPermissionsChanged: 'home:ai-permissions-changed',
+  /** main → renderer: open Home's folder view on this directory (the
+   *  shell:open_folder tool's surface half — Home rises with the folder) */
+  openFolder: 'home:open-folder',
   /** renderer → main: does the app-session allow set hold this tool name? */
   aiSessionAllowHas: 'home:ai-session-allow-has',
   /** renderer → main: record an always-allow into the app-session set */

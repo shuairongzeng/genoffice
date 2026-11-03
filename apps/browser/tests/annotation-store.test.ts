@@ -365,3 +365,24 @@ describe('the store', () => {
     expect(onDisk.map((r) => r.id)).toContain(pinned!.id)
   })
 })
+
+describe("clearForUrl — the clear_annotations tool's store half", () => {
+  it('drops every record keyed to the URL, and only those', async () => {
+    const s = store()
+    s.add(URL_A, DRAFT)
+    s.add(URL_A, { ...DRAFT, selector: '#signup' })
+    s.add(URL_B, { ...DRAFT, selector: '#other' })
+    await new Promise((r) => setTimeout(r, 30))
+    // a fragment-stripped key clears its whole page — the tool's url
+    // argument and the page's own URL normalize to the same key
+    expect(s.clearForUrl(URL_A)).toBe(2)
+    expect(s.list()).toHaveLength(1)
+    expect(s.listForUrl(URL_A)).toHaveLength(0)
+    expect(s.listForUrl(URL_B)).toHaveLength(1)
+    await new Promise((r) => setTimeout(r, 30))
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toHaveLength(1)
+    // an unknown URL clears nothing; junk answers 0
+    expect(s.clearForUrl('https://nowhere.example.com/')).toBe(0)
+    expect(s.clearForUrl('not a url')).toBe(0)
+  })
+})

@@ -888,6 +888,16 @@ const homeApi: HomeApi = {
   async takeDockOpen() {
     return (await ipcRenderer.invoke(HOME_CHANNELS.dockOpenGet)) as DockOpenState
   },
+  // main asks the Home surface to open a folder view (the shell:open_folder
+  // tool's other half): the payload is the directory path, guarded to a
+  // string like every push
+  onOpenFolder(handler) {
+    const listener = (_event: IpcRendererEvent, dir: unknown) => {
+      if (typeof dir === 'string' && dir) handler(dir)
+    }
+    ipcRenderer.on(HOME_CHANNELS.openFolder, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.openFolder, listener)
+  },
   // the live surface context: both panel mounts pull this per send to feed
   // the agent loop's "current surface" prompt section
   async getSurfaceTabs() {

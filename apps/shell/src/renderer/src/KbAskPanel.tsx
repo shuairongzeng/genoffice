@@ -3,10 +3,19 @@ import {
   AgentLoop,
   ATTACHMENT_IMAGE_EXTS,
   BROWSER_CLICK_TOOL,
+  BROWSER_CLEAR_ANNOTATIONS_TOOL,
+  BROWSER_DOWNLOAD_TOOL,
   BROWSER_FILL_FIELD_TOOL,
+  BROWSER_GO_BACK_TOOL,
+  BROWSER_GO_FORWARD_TOOL,
+  BROWSER_LIST_ANNOTATIONS_TOOL,
+  BROWSER_PRESS_KEY_TOOL,
   BROWSER_READ_ANNOTATION_SHOT_TOOL,
   BROWSER_READ_PAGE_TOOL,
+  BROWSER_RELOAD_TOOL,
   BROWSER_SCREENSHOT_TOOL,
+  BROWSER_SCROLL_TOOL,
+  BROWSER_WAIT_FOR_TOOL,
   composeSkills,
   createAttachmentsSkill,
   createBrowserSkill,
@@ -21,10 +30,14 @@ import {
   DOCUMENT_AGENT_TOOL,
   EDIT_FILE_TOOL,
   RUN_GENOFFICE_TOOL,
+  SHELL_ADD_TODO_TOOL,
   SHELL_NAVIGATE_TOOL,
   SHELL_OPEN_BROWSER_TOOL,
+  SHELL_OPEN_FOLDER_TOOL,
   SHELL_OPEN_PATH_TOOL,
+  SHELL_STAR_FILE_TOOL,
   SHELL_SWITCH_TAB_TOOL,
+  SHELL_UNSTAR_FILE_TOOL,
   skillContextVars,
   withAttachedSkills,
   type AgentImage,
@@ -33,6 +46,9 @@ import {
   type AttachmentInfo,
   type BrowserActionResult,
   type BrowserAnnotationShot,
+  type BrowserClearAnnotationsResult,
+  type BrowserDownloadResult,
+  type BrowserPageAnnotation,
   type BrowserPageRead,
   type BrowserScreenshot,
   type BrowserTabSnapshot,
@@ -670,19 +686,20 @@ const AskMessageRow = memo(function AskMessageRow({
 /**
  * Paranoid mode's classification table: the tools whose risk grade leaves
  * them ungated (risk absent = 'low') that still CHANGE something — the shell
- * operator's visible desktop acts. Everything risk:'high' or 'always-ask'
- * already cards in every mode that asks, and every pure read —
- * search_knowledge_base, read_knowledge_file, read_attachment,
- * shell:list_tabs, the browser read tools, the proxied apps' read tools —
- * stays cardless even in paranoid (asking about a read is noise that trains
- * the person to click Allow).
+ * operator's visible desktop acts, the browser page-movement class, and the
+ * reversible state writes (stars, todos, downloads). Everything
+ * risk:'high' or 'always-ask' already cards in every mode that asks, and
+ * every pure read — search_knowledge_base, read_knowledge_file,
+ * read_attachment, shell:list_tabs, browser:read_page / screenshot /
+ * read_annotation_shot / wait_for / list_annotations, the proxied apps' read
+ * tools — stays cardless even in paranoid (asking about a read is noise that
+ * trains the person to click Allow).
  *
- * | tool                     | class          | why it cards in paranoid          |
- * |--------------------------|----------------|-----------------------------------|
- * | shell:open_browser       | opens          | a new tab appears, is made active |
- * | shell:navigate           | navigates      | the page the person sees changes  |
- * | shell:switch_tab         | moves surface  | the person's view switches        |
- * | shell:open_path          | opens          | a file opens into a new tab       |
+ * | tool class                     | members                                                            |
+ * |--------------------------------|--------------------------------------------------------------------|
+ * | shell surface moves            | open_browser, navigate, switch_tab, open_path, open_folder         |
+ * | browser surface moves          | scroll_page, go_back, go_forward, reload, press_key               |
+ * | reversible state writes        | star_file, unstar_file, add_todo, download_file                   |
  *
  * A new low-risk tool that acts lands here or it will not card in paranoid —
  * the failure direction is today's behavior (cardless), never a regression
@@ -693,6 +710,16 @@ const PARANOID_CARDS_TOOLS = new Set([
   SHELL_NAVIGATE_TOOL,
   SHELL_SWITCH_TAB_TOOL,
   SHELL_OPEN_PATH_TOOL,
+  SHELL_OPEN_FOLDER_TOOL,
+  BROWSER_SCROLL_TOOL,
+  BROWSER_GO_BACK_TOOL,
+  BROWSER_GO_FORWARD_TOOL,
+  BROWSER_RELOAD_TOOL,
+  BROWSER_PRESS_KEY_TOOL,
+  SHELL_STAR_FILE_TOOL,
+  SHELL_UNSTAR_FILE_TOOL,
+  SHELL_ADD_TODO_TOOL,
+  BROWSER_DOWNLOAD_TOOL,
 ])
 
 /** does this call change anything, per the mode's honest classification? */
@@ -1508,6 +1535,43 @@ export function KbAskPanel({
           selector,
           confirmed: true,
         }) as Promise<BrowserActionResult>,
+      // the new page powers, same bridge, same active-tab routing: the
+      // movement/download/history/wait/key/annotation tools forward
+      // verbatim (the bridge carries the tool name; main validates and
+      // routes), and the fill/click marker above stays exactly where it was
+      scrollPage: (direction, amount, selector) =>
+        browserBridgeCall(BROWSER_SCROLL_TOOL, {
+          ...(direction !== undefined ? { direction } : {}),
+          ...(amount !== undefined ? { amount } : {}),
+          ...(selector !== undefined ? { selector } : {}),
+        }) as Promise<BrowserActionResult>,
+      downloadFile: (url, selector) =>
+        browserBridgeCall(BROWSER_DOWNLOAD_TOOL, {
+          ...(url !== undefined ? { url } : {}),
+          ...(selector !== undefined ? { selector } : {}),
+        }) as Promise<BrowserDownloadResult>,
+      navigateHistory: (action) =>
+        browserBridgeCall(
+          action === 'back'
+            ? BROWSER_GO_BACK_TOOL
+            : action === 'forward'
+              ? BROWSER_GO_FORWARD_TOOL
+              : BROWSER_RELOAD_TOOL,
+          {},
+        ) as Promise<BrowserActionResult>,
+      waitFor: (selector, timeoutMs) =>
+        browserBridgeCall(BROWSER_WAIT_FOR_TOOL, {
+          ...(selector !== undefined ? { selector } : {}),
+          timeoutMs,
+        }) as Promise<BrowserActionResult>,
+      pressKey: (key) =>
+        browserBridgeCall(BROWSER_PRESS_KEY_TOOL, { key }) as Promise<BrowserActionResult>,
+      listAnnotations: () =>
+        browserBridgeCall(BROWSER_LIST_ANNOTATIONS_TOOL, {}) as Promise<BrowserPageAnnotation[]>,
+      clearAnnotations: (url) =>
+        browserBridgeCall(BROWSER_CLEAR_ANNOTATIONS_TOOL, {
+          ...(url !== undefined ? { url } : {}),
+        }) as Promise<BrowserClearAnnotationsResult>,
     })
     // the shell operator skill: the surface context (live, per send) plus the
     // desktop's own actions — open a browser tab, navigate the active one,

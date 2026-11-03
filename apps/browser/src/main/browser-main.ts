@@ -660,6 +660,15 @@ export function readAnnotationsFor(url: string): BrowserAnnotation[] {
   return [...annotations().listForUrl(url)]
 }
 
+/**
+ * Drop every annotation keyed to one URL (and with them the records' shot
+ * files) — the browser:clear_annotations tool's main-process half. Answers
+ * how many went; an unknown URL clears nothing.
+ */
+export function clearAnnotationsFor(url: string): number {
+  return annotations().clearForUrl(url)
+}
+
 /** the shot payload `browser:read_annotation_shot` answers (agent-core's shape) */
 export interface BrowserAnnotationShotResult extends AnnotationShotFile {
   /** the annotation the shot belongs to (echoed for the model-facing text) */
