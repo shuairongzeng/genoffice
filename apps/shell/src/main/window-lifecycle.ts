@@ -71,6 +71,7 @@ import {
   collectHomeTabsState,
   createHomeTabsBroadcaster,
   installHomeTabsPush,
+  tabsChangedDualSend,
   type HomeTabsPush,
 } from './home-tabs-ipc'
 import { HOME_CHANNELS } from '../shared/home-api'
@@ -188,7 +189,14 @@ export function createShellWindow(deps: ShellWindowDeps): void {
   const manager = new TabManager(
     win,
     () => {
-      win.webContents.send(TABS_CHANNELS.changed, manager.list())
+      const tabs = manager.list()
+      win.webContents.send(TABS_CHANNELS.changed, tabs)
+      // the drawer's overlay panel copy listens on this same channel (its
+      // document binding re-derives from tab changes): without its own copy
+      // a doc opened mid-drawer never re-claims, and the panel keeps showing
+      // the previous document's thread
+      const overlayWc = manager.drawerOverlayWebContents()
+      if (overlayWc && !overlayWc.isDestroyed()) overlayWc.send(TABS_CHANNELS.changed, tabs)
       pushHomeTabs.push()
       deps.publishOpenDocumentsIfOwner([...manager.openFilePaths(), ...detachedFilePaths()])
       // the pinned widgets layer over the Home desktop: another tab covering
@@ -217,7 +225,11 @@ export function createShellWindow(deps: ShellWindowDeps): void {
   // the full list even when nothing changed since.
   const pushHomeTabs: HomeTabsPush = createHomeTabsBroadcaster({
     collect: () => collectHomeTabsState(manager, detachedOpenDocuments),
-    send: (state) => deps.sendToShellRenderer(HOME_CHANNELS.tabsChanged, state),
+    // dual-target: the Home strip in the shell renderer, and the drawer
+    // overlay's panel copy — the doc-bound thread claim follows the tab
+    // pushes, so a document opened while the drawer stays open switches the
+    // panel's conversation to it (tabsChangedDualSend's contract)
+    send: tabsChangedDualSend(deps.sendToShellRenderer, () => manager.drawerOverlayWebContents()),
   })
   installHomeTabsPush(pushHomeTabs)
   win.webContents.on('did-finish-load', () => pushHomeTabs.push(true))

@@ -121,6 +121,27 @@ export function createHomeTabsBroadcaster(deps: {
   }
 }
 
+/**
+ * The tabs-changed push's dual-target send: the shell window's renderer (the
+ * Home strip) AND the drawer overlay's panel copy. The overlay is the
+ * drawer's live surface while a document is active, and its doc-bound thread
+ * claim follows the SAME tab pushes the strip does — without this, a user
+ * opening another document while the drawer stays open left the overlay's
+ * panel on the previous document's conversation (the meeting-minutes repro).
+ * The same pattern index.ts's aiDockChanged broadcast uses: the overlay's
+ * webContents through the pass-through, skipped while it does not exist.
+ */
+export function tabsChangedDualSend(
+  sendToShellRenderer: (channel: string, payload?: unknown) => void,
+  overlayWebContents: () => WebContents | undefined,
+): (state: HomeTabsState) => void {
+  return (state) => {
+    sendToShellRenderer(HOME_CHANNELS.tabsChanged, state)
+    const wc = overlayWebContents()
+    if (wc && !wc.isDestroyed()) wc.send(HOME_CHANNELS.tabsChanged, state)
+  }
+}
+
 export interface HomeTabsIpcDeps {
   getTabManager: () => TabManager | null
   /** detached editor windows in the open-documents shape (ids are `detached:<n>`) */

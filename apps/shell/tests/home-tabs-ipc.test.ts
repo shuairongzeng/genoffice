@@ -74,6 +74,7 @@ import {
   notifyHomeTabsChanged,
   registerHomeTabsIpc,
   registerHomeWorkbenchIpc,
+  tabsChangedDualSend,
 } from '../src/main/home-tabs-ipc'
 import { createAiSessionAllows } from '../src/main/ai-session-allows'
 import { readAiPermissions } from '../src/main/ai-permissions'
@@ -110,6 +111,42 @@ function stateOf(tabs: Array<Partial<HomeTabsState['tabs'][number]>>): HomeTabsS
     activeId: 'home',
   }
 }
+
+describe('tabsChangedDualSend (the meeting-minutes repro fix)', () => {
+  /** a fake overlay webContents: records sends, flippable destroyed */
+  const overlayWc = (destroyed = false) => ({
+    destroyed,
+    send: vi.fn(),
+    isDestroyed: () => destroyed,
+  })
+
+  it("delivers the push to BOTH the shell renderer and the drawer overlay's panel copy", () => {
+    const sendToShellRenderer = vi.fn()
+    const wc = overlayWc()
+    const send = tabsChangedDualSend(sendToShellRenderer, () => wc as never)
+    const state = stateOf([{ id: 'home' }])
+    send(state)
+    // the Home strip in the shell window...
+    expect(sendToShellRenderer).toHaveBeenCalledWith('home:tabs-changed', state)
+    // ...and the overlay panel, which needs the same push to switch its
+    // doc-bound thread when the person opens another document while the
+    // drawer stays open
+    expect(wc.send).toHaveBeenCalledWith('home:tabs-changed', state)
+  })
+
+  it('skips the overlay while it does not exist or is destroyed, and still delivers to the shell renderer', () => {
+    const sendToShellRenderer = vi.fn()
+    const send = tabsChangedDualSend(sendToShellRenderer, () => undefined)
+    send(stateOf([{ id: 'home' }]))
+    expect(sendToShellRenderer).toHaveBeenCalledTimes(1)
+    // a destroyed overlay (mid-crash, mid-reload) is skipped, not thrown on
+    const dead = overlayWc(true)
+    const send2 = tabsChangedDualSend(sendToShellRenderer, () => dead as never)
+    expect(() => send2(stateOf([{ id: 't1', kind: 'docs' }]))).not.toThrow()
+    expect(dead.send).not.toHaveBeenCalled()
+    expect(sendToShellRenderer).toHaveBeenCalledTimes(2)
+  })
+})
 
 describe('createHomeTabsBroadcaster', () => {
   it('collects and sends the state', async () => {

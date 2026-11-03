@@ -989,6 +989,15 @@ export function KbAskPanel({
   const pendingLineageRef = useRef<{ path: string; task: string } | null>(null)
   /** the current run's instruction (the lineage record's task text) */
   const runInstructionRef = useRef('')
+  /**
+   * The docPath the CURRENT claim ran under (null for a family claim): set
+   * when the claim resolves, after its history has already been restored —
+   * so an ask that passes this guard is provably writing into the doc's
+   * thread, not a stale identity mid-switch. The lineage seed's authority.
+   */
+  const claimedDocPathRef = useRef<string | null>(null)
+  /** doc paths whose first question already carried the lineage seed (once, ever) */
+  const seededDocPathsRef = useRef(new Set<string>())
   const corpusRef = useRef<KbFileInfo[]>([])
   /**
    * The desktop loop's view of the other apps: which of their windows are open
@@ -1451,6 +1460,10 @@ export function KbAskPanel({
         if (!current) return
         chatIdsRef.current = ids
         setClaimedChatId(ids.chatId)
+        // the seed's authority: this claim ran for THIS docPath (null for a
+        // family claim), after the history restore inside the claim — an
+        // ask that follows it is provably in the thread the identity says
+        claimedDocPathRef.current = docPath
         for (const entry of pendingRef.current.splice(0)) persist(entry)
       })
       .catch(() => undefined)
@@ -1498,6 +1511,10 @@ export function KbAskPanel({
     loopRef.current?.reset()
     confirm.clear()
     chatIdsRef.current = null
+    // the doc claim being left is no longer the seed's authority: an ask
+    // before the next claim resolves writes into a thread that is not yet
+    // provably the document's, so it must not carry the lineage line
+    claimedDocPathRef.current = null
     pendingRef.current = []
     mutateMessages(() => [])
     setAttachedSkills([])
@@ -2295,15 +2312,28 @@ export function KbAskPanel({
     refreshSettings()
     // the lineage record's task half: the person's raw question this run answers
     runInstructionRef.current = instruction
-    // the continuity seed: an EMPTY doc-bound thread whose document has
+    // the continuity seed: an EMPTY doc-CLAIMED thread whose document has
     // lineage opens with the task's context riding the first question (the
     // browser-note scaffold precedent — the line is visible in the
     // transcript, stored with it, and seen by the model, so "what did you
-    // just do" answers). Only the first ask: once the thread has turns, the
-    // conversation itself is the context.
+    // just do" answers). Three guards make it airtight:
+    // - CLAIMED on a doc, and the claim still matches the live identity: the
+    //   ask lands while the claim and the surface snapshot agree — a stale
+    //   snapshot mid-switch cannot seed the thread the ask is NOT in (the
+    //   flapping-identity repro seeded the family thread);
+    // - the thread is EMPTY: once turns exist, the conversation itself is the
+    //   context;
+    // - not already seeded: the doc's first question carries the line once,
+    //   even across flaps that empty the panel again (a switch home and
+    //   back, a claim re-run).
+    const claimedDocPath = claimedDocPathRef.current
     const lineageSeed =
-      docIdentityRef.current && docLineageRef.current && messagesRef.current.length === 0
-        ? lineageContextLine(docLineageRef.current)
+      claimedDocPath !== null &&
+      docIdentityRef.current?.path === claimedDocPath &&
+      docLineageRef.current &&
+      messagesRef.current.length === 0 &&
+      !seededDocPathsRef.current.has(claimedDocPath)
+        ? (seededDocPathsRef.current.add(claimedDocPath), lineageContextLine(docLineageRef.current))
         : null
     const question = lineageSeed ? `${lineageSeed}\n${instruction}` : instruction
     if (files.length > 0) {

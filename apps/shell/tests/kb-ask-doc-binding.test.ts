@@ -48,8 +48,15 @@ const BROWSER_TAB: SurfaceTab = {
   url: 'https://example.com/',
 }
 
-/** the doc-bound thread's stable id (the store's chatIdForFile seam: path-keyed) */
-const chatIdForPath = (path: string): string => `chat-${path.replace(/[^a-z0-9]/gi, '')}`
+/** the doc-bound thread's stable id (the store's chatIdForFile seam: a path hash — unicode-safe here so CJK file names never collide) */
+const chatIdForPath = (path: string): string => {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < path.length; i++) {
+    hash ^= path.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return `chat-${hash.toString(16)}`
+}
 
 let host: HTMLDivElement
 let root: Root
@@ -294,6 +301,35 @@ describe('the doc-bound thread identity', () => {
   })
 })
 
+describe('the drawer stays open while another document opens (the meeting-minutes repro)', () => {
+  it("a tabs push mid-drawer switches the panel to the newly opened document's thread", async () => {
+    // doc A's thread has history; the drawer is open on it
+    const a = chatIdForPath('/desk/星际旅行指南.docx')
+    chats.set(a, [
+      { seq: 0, ts: '2026-11-03T09:00:00.000Z', role: 'user', text: 'write the guide' },
+      { seq: 1, ts: '2026-11-03T09:00:01.000Z', role: 'assistant', text: 'the guide says…' },
+    ])
+    surfaceTabs = [DOC_TAB('/desk/星际旅行指南.docx', '星际旅行指南')]
+    render()
+    await settle()
+    expect(host.querySelector('.kb-ask-thread')?.textContent).toContain('write the guide')
+    // the person opens a different document while the drawer stays open: the
+    // tab push (what the fixed dual-send delivers to this renderer) is the
+    // ONLY signal — B's thread is empty, so its empty state shows
+    await switchTab([DOC_TAB('/desk/会议纪要.docx', '会议纪要')])
+    const text = host.querySelector('.kb-ask-thread')?.textContent ?? ''
+    expect(text).not.toContain('write the guide')
+    // B's empty state carries the suggestion cards, not A's history
+    const cards = [...host.querySelectorAll('.kb-ask-suggestion')] as HTMLButtonElement[]
+    expect(cards.length).toBeGreaterThan(0)
+    // and a question now writes into B's thread
+    await ask('summarize the minutes')
+    expect([...chats.get(chatIdForPath('/desk/会议纪要.docx'))!].map((m) => m.text)).toContain(
+      'summarize the minutes',
+    )
+  })
+})
+
 describe('the continuity seed', () => {
   const PATH = '/desk/generated.docx'
   const lineage = {
@@ -340,6 +376,83 @@ describe('the continuity seed', () => {
     const marker = host.querySelector('.kb-ask-doc-lineage')
     expect(marker).toBeTruthy()
     expect(marker!.textContent).toContain('write a quarterly report')
+  })
+})
+
+describe("the seed's airtight guards (the flapping-identity repro)", () => {
+  const PATH = '/desk/gen.docx'
+  const lineage = {
+    path: PATH,
+    task: 'write it',
+    summary: 'made it',
+    at: '2026-11-02T09:00:00.000Z',
+  }
+
+  it('never lands in a family-root thread, and never twice: flapping null↔doc does not re-seed', async () => {
+    lineageByPath[PATH] = lineage
+    surfaceTabs = [DOC_TAB(PATH)]
+    render()
+    await settle()
+    await ask('first question')
+    const userTexts = () =>
+      started.map((r) => r.messages.find((m) => m.role === 'user')?.text ?? '')
+    expect(userTexts().filter((t) => t.includes('Document lineage'))).toHaveLength(1)
+
+    // flap to a non-doc surface: the family thread's ask carries NO seed
+    await switchTab([HOME_TAB])
+    await ask('family question')
+    expect(userTexts().at(-1)).not.toContain('Document lineage')
+
+    // flap back to the doc: its thread has the seeded turn stored — history
+    // restores, and the next ask does not seed again
+    await switchTab([DOC_TAB(PATH)])
+    const text = host.querySelector('.kb-ask-thread')?.textContent ?? ''
+    expect(text).toContain('Document lineage')
+    expect(text).toContain('first question')
+    await ask('third question')
+    expect(userTexts().at(-1)).not.toContain('Document lineage')
+    // exactly one seed, across every ask in the flap cycle
+    expect(userTexts().filter((t) => t.includes('Document lineage'))).toHaveLength(1)
+  })
+
+  it('an ask before the doc claim resolves carries no seed (the claim is the authority)', async () => {
+    // the claim's resolve is delayed past the ask: the thread identity is
+    // in flight, so the lineage line must not ride a question whose thread
+    // is not provably the document's yet
+    lineageByPath[PATH] = lineage
+    surfaceTabs = [DOC_TAB(PATH)]
+    render()
+    await settle()
+    // a slow claim on a switch to another lineage doc
+    const OTHER = '/desk/other.docx'
+    lineageByPath[OTHER] = lineage
+    let release: (() => void) | null = null
+    const realResolveChat = projectApi.resolveChat
+    ;(projectApi as { resolveChat: unknown }).resolveChat = async (args: {
+      filePath: string | null
+      tempChatId?: string
+    }) => {
+      const promise = realResolveChat(args)
+      if (args.filePath === OTHER && release === null) {
+        await new Promise<void>((resolve) => {
+          release = resolve
+          // released after the ask below lands
+        })
+      }
+      return promise
+    }
+    await switchTab([DOC_TAB(OTHER)])
+    await ask('raced question')
+    release?.()
+    await settle()
+    const raced = started.at(-1)!.messages.find((m) => m.role === 'user')?.text ?? ''
+    expect(raced).not.toContain('Document lineage')
+    // and once the claim resolves, the thread is empty of the seed: the
+    // next ask is the person's question alone (the moment passed)
+    await ask('settled question')
+    expect(started.at(-1)!.messages.find((m) => m.role === 'user')?.text).not.toContain(
+      'Document lineage',
+    )
   })
 })
 
