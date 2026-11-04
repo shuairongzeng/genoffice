@@ -140,6 +140,23 @@ body.vib .home {
   border-color: var(--glass-border);
 }
 
+/* the desktop's context menus wear the same glass: an opaque white slab over
+   the dark aurora reads as a flashlight — the icon menu (.desktop-icon-menu),
+   the surface and multi menus (.desktop-menu) and the flyout submenu alike */
+.home.desktop-mode[data-wallpaper-tone='dark'] .folder-menu.desktop-menu,
+.home.desktop-mode[data-wallpaper-tone='dark'] .folder-menu.desktop-icon-menu,
+.home.desktop-mode[data-wallpaper-tone='dark'] .desktop-menu .desktop-submenu {
+  background: color-mix(in srgb, rgb(var(--glass-bg)) 78%, transparent);
+  border-color: var(--glass-border);
+  -webkit-backdrop-filter: blur(28px) saturate(1.25);
+  backdrop-filter: blur(28px) saturate(1.25);
+  --text: #f2f2f5;
+  --text-muted: rgb(242 242 245 / 62%);
+  --text-tertiary: rgb(242 242 245 / 45%);
+  --surface-subtle: rgb(255 255 255 / 8%);
+  color: var(--text);
+}
+
 /* macOS traffic lights (titleBarStyle: hiddenInset) sit over the tab strip's
    left end now that the retired sidebar no longer owns that corner — keep
    the first tab clear of them, the way the logo band below them used to */
@@ -846,8 +863,10 @@ html.dock-view body {
 
 .home-body {
   position: relative;
-  /* above the lifted wallpaper backdrop (z 0) */
-  z-index: 2;
+  /* no z-index of its own: a z here would box every descendant into one
+   * stacking context and pin the desktop's menus (60), dialogs (70/100) and
+   * palette (200) under the AI drawer (40), a sibling of this node. The
+   * wallpaper backdrop sits at -1 instead, so the content needs no lift */
   flex: 1;
   min-width: 0;
   display: flex;
@@ -2363,10 +2382,12 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
 
 /* fixed-position popup; left/top are set in a layout effect (placeFolderMenu) so it
    opens to the right of the pointer and stays inside the viewport, and it
-   escapes the scrollable tree without the tree losing overflow-y */
+   escapes the scrollable tree without the tree losing overflow-y. z 60: above
+   the AI drawer (40) — a desktop right-click with the bubble open must still
+   be clickable where they overlap — below the settings modal (70) */
 .folder-menu {
   position: fixed;
-  z-index: 30;
+  z-index: 60;
   min-width: 160px;
   padding: 5px;
   background: var(--surface);

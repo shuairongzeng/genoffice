@@ -152,8 +152,8 @@
  * open): a small pill over the icons, non-interactive, gone in a few
  * seconds. bottom clears the dock's pill at its largest (baseSize 64 +
  * padding/dot ≈ 94px + the 9px window margin — 112px keeps a gap even
- * there); the dock lives outside the home-body stacking context, so the
- * notice can never win a z fight with it; it simply never overlaps instead */
+ * there); the notice wears no z-index of its own, so the dock (43) always
+ * out-stacks it; it simply never overlaps instead */
 .desktop-notice {
   position: absolute;
   left: 50%;
@@ -301,16 +301,23 @@
  * DesktopView portals its .desktop-backdrop in here, so the wallpaper (and
  * the aurora behind it) covers the whole window while every fixed-position
  * surface (menus, the settings modal, the command palette) still stacks
- * above it. z-index 0 keeps it under the stage; pointer-events none keeps
- * it pure scenery. */
+ * above it. z-index -1 keeps it under the content's normal flow;
+ * pointer-events none keeps it pure scenery. */
 .home.desktop-mode {
   position: relative;
+  /* one stacking context for the whole desktop frame: the backdrop at -1,
+   * the content layer un-z'd above it, and the fixed-position surfaces
+   * (menus 60, drawer 40, todo 46…) ordering themselves inside it */
+  isolation: isolate;
 }
 
 .home.desktop-mode .home-desktop-backdrop {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  /* below the content's normal flow, not at 0 behind a stacking-context
+   * wrapper: with .home-body un-z'd, the surfaces inside it (menus,
+   * dialogs) can order themselves against the drawer directly */
+  z-index: -1;
   overflow: hidden;
   pointer-events: none;
 }

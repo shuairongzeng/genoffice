@@ -2232,9 +2232,9 @@ export function DesktopView({
           {resolved.map(({ icon, pos }, index) => {
             const dragging = drag !== null && drag.id === icon.id
             // the source cell stays put (dimmed) while the carried copy lives
-            // in the body portal below — the desktop's home-body stacking
-            // context (z 2) would otherwise pin the carried icon under the
-            // dock (43) no matter what z-index it wears
+            // in the body portal below — nothing in the surface's subtree
+            // (overflow, transforms, a future z-index) can clip or cover the
+            // icon mid-flight over the dock
             const style = { left: pos.x, top: pos.y }
             return (
               <li
@@ -2286,10 +2286,10 @@ export function DesktopView({
             }}
           />
         )}
-        {/* the carried icon's avatar: portaled to the body so it escapes the
-         * home-body stacking context (z 2) — inside it, no z-index can lift the
-         * avatar above the dock (43) it must fly over. drag.x/y are
-         * surface-relative; the avatar positions in viewport px */}
+        {/* the carried icon's avatar: portaled to the body so nothing in the
+         * surface's subtree can clip or stack over it while it flies to the
+         * dock (43). drag.x/y are surface-relative; the avatar positions in
+         * viewport px */}
         {drag !== null &&
           (() => {
             const icon = iconsRef.current.find((candidate) => candidate.id === drag.id)
@@ -2318,7 +2318,7 @@ export function DesktopView({
         )}
         {menu && !menuMulti && (
           <div
-            className="folder-menu"
+            className="folder-menu desktop-icon-menu"
             role="menu"
             ref={(el) => {
               menuRef.current = el
