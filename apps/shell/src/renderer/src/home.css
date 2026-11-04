@@ -1327,9 +1327,13 @@ body.ai-pet-dragging {
 /* the docked shape: the overlay view fits the docs app's reserved AI slot
    exactly, so the panel is IN the app's layout — it reads as the app's own
    panel, flat against the editor beside it (the app-panel idiom's separating
-   edge, no floating chrome). The floating shape keeps today's look. */
+   edge, no floating chrome). The floating shape keeps today's look. The seam
+   border goes on BOTH edges: the docs/sheets slot docks the panel LEFT (seam
+   on the right) while a right-docked host would need the left one — the edge
+   against the window's own border is invisible either way. */
 .ask-panel-entry.ask-panel-embedded .ask-panel-panel {
   border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
 }
 
 /* ── the pet ⇄ panel morph, the overlay view's approximation ──
