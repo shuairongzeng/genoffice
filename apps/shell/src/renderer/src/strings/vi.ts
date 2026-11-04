@@ -17,6 +17,7 @@ export const vi: Dict = {
   askThreadDeleteConfirm: 'Xóa cuộc trò chuyện "{label}"? Không thể khôi phục lại.',
   askThreadNew: 'Cuộc trò chuyện mới',
   askLibraryButton: 'Thư viện hội thoại',
+  askLibraryBack: 'Quay lại',
   askLibrarySearch: 'Tìm hội thoại…',
   askLibrarySectionPinned: 'Đã ghim',
   askLibrarySectionDocs: 'Theo tài liệu',

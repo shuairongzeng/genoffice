@@ -18,6 +18,7 @@ export const ja: Dict = {
   askThreadDeleteConfirm: '「{label}」の会話を削除しますか？削除すると元に戻せません。',
   askThreadNew: '新しい会話',
   askLibraryButton: '会話ライブラリ',
+  askLibraryBack: '戻る',
   askLibrarySearch: '会話を検索…',
   askLibrarySectionPinned: 'ピン留め',
   askLibrarySectionDocs: 'ドキュメントに追従',

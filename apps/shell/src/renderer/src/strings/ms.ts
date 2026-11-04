@@ -17,6 +17,7 @@ export const ms: Dict = {
   askThreadDeleteConfirm: 'Padam perbualan "{label}"? Ia tidak dapat dikembalikan selepas dipadam.',
   askThreadNew: 'Perbualan baharu',
   askLibraryButton: 'Pustaka perbualan',
+  askLibraryBack: 'Kembali',
   askLibrarySearch: 'Cari perbualan…',
   askLibrarySectionPinned: 'Disemat',
   askLibrarySectionDocs: 'Mengikuti dokumen',

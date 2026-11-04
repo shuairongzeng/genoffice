@@ -18,6 +18,7 @@ export const id: Dict = {
   askThreadDeleteConfirm: 'Hapus percakapan "{label}"? Isinya tidak dapat dikembalikan.',
   askThreadNew: 'Percakapan baru',
   askLibraryButton: 'Pustaka percakapan',
+  askLibraryBack: 'Kembali',
   askLibrarySearch: 'Cari percakapan…',
   askLibrarySectionPinned: 'Disematkan',
   askLibrarySectionDocs: 'Mengikuti dokumen',

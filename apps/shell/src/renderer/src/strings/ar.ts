@@ -18,6 +18,7 @@ export const ar: Dict = {
   askThreadDeleteConfirm: 'حذف المحادثة "{label}"؟ لا يمكن استرجاعها بعد الحذف.',
   askThreadNew: 'محادثة جديدة',
   askLibraryButton: 'مكتبة المحادثات',
+  askLibraryBack: 'رجوع',
   askLibrarySearch: 'ابحث في المحادثات…',
   askLibrarySectionPinned: 'المثبّتة',
   askLibrarySectionDocs: 'تابعة للمستند',

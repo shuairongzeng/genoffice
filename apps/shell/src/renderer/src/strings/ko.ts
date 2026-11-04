@@ -18,6 +18,7 @@ export const ko: Dict = {
   askThreadDeleteConfirm: '"{label}" 대화를 삭제할까요? 삭제 후에는 복구할 수 없습니다.',
   askThreadNew: '새 대화',
   askLibraryButton: '대화 라이브러리',
+  askLibraryBack: '뒤로',
   askLibrarySearch: '대화 검색…',
   askLibrarySectionPinned: '고정됨',
   askLibrarySectionDocs: '문서를 따라감',

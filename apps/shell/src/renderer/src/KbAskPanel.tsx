@@ -2829,6 +2829,18 @@ export function KbAskPanel({
         >
           <div className="kb-ask-library-head">
             <div className="kb-ask-library-title-row">
+              {/* the way back: the library covers the whole conversation, so an
+                  always-visible affordance beats expecting Esc (which still
+                  works) — the mockup's header gains the back chevron on the left */}
+              <button
+                type="button"
+                className="kb-ask-library-back"
+                aria-label={t('askLibraryBack')}
+                title={t('askLibraryBack')}
+                onClick={closeLibrary}
+              >
+                ‹
+              </button>
               <div className="kb-ask-library-title">{t('askThreadsTitle')}</div>
               <button
                 type="button"

@@ -17,6 +17,7 @@ export const he: Dict = {
   askThreadDeleteConfirm: 'למחוק את השיחה "{label}"? לא ניתן לשחזר אותה.',
   askThreadNew: 'שיחה חדשה',
   askLibraryButton: 'ספריית השיחות',
+  askLibraryBack: 'חזור',
   askLibrarySearch: 'חיפוש בשיחות…',
   askLibrarySectionPinned: 'מוצמדות',
   askLibrarySectionDocs: 'עוקבות אחר המסמך',

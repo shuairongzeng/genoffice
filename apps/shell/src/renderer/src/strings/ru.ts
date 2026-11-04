@@ -18,6 +18,7 @@ export const ru: Dict = {
   askThreadDeleteConfirm: 'Удалить переписку «{label}»? Восстановить её будет нельзя.',
   askThreadNew: 'Новый диалог',
   askLibraryButton: 'Библиотека диалогов',
+  askLibraryBack: 'Назад',
   askLibrarySearch: 'Поиск диалогов…',
   askLibrarySectionPinned: 'Закреплённые',
   askLibrarySectionDocs: 'Следуют за документом',

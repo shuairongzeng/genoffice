@@ -17,6 +17,7 @@ export const zhTW: Dict = {
   askThreadDeleteConfirm: '刪除對話「{label}」？刪除後無法復原。',
   askThreadNew: '新增對話',
   askLibraryButton: '會話庫',
+  askLibraryBack: '返回',
   askLibrarySearch: '搜尋會話…',
   askLibrarySectionPinned: '置頂',
   askLibrarySectionDocs: '跟著文件走',

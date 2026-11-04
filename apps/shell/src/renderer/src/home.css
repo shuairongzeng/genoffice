@@ -4115,12 +4115,37 @@ button.kb-ask-card-name:hover {
 .kb-ask-library-title-row {
   display: flex;
   align-items: center;
+  gap: 8px;
   margin-bottom: 10px;
+}
+
+/* the back chevron: the same quiet icon-button grade as the panel header's */
+.kb-ask-library-back {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 18px;
+  line-height: 1;
+  padding-bottom: 2px;
+  cursor: pointer;
+}
+.kb-ask-library-back:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
 }
 
 .kb-ask-library-title {
   font-size: 14px;
   font-weight: 600;
+  /* the row's baseline is the title's: the new-thread button is a taller
+   * pill — keep the title on the shared center line, not the baseline */
+  line-height: 1;
 }
 
 .kb-ask-library-new {

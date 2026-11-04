@@ -19,6 +19,7 @@ export const de: Dict = {
   askThreadDeleteConfirm: 'Gespräch „{label}" löschen? Es lässt sich nicht wiederherstellen.',
   askThreadNew: 'Neue Unterhaltung',
   askLibraryButton: 'Konversationsbibliothek',
+  askLibraryBack: 'Zurück',
   askLibrarySearch: 'Konversationen suchen…',
   askLibrarySectionPinned: 'Angeheftet',
   askLibrarySectionDocs: 'Folgen dem Dokument',

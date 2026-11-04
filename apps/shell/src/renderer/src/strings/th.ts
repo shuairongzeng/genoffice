@@ -18,6 +18,7 @@ export const th: Dict = {
   askThreadDeleteConfirm: 'ลบบทสนทนา "{label}" ใช่ไหม ลบแล้วจะไม่สามารถกู้คืนได้',
   askThreadNew: 'การสนทนาใหม่',
   askLibraryButton: 'คลังบทสนทนา',
+  askLibraryBack: 'ย้อนกลับ',
   askLibrarySearch: 'ค้นหาบทสนทนา…',
   askLibrarySectionPinned: 'ปักหมุดแล้ว',
   askLibrarySectionDocs: 'ตามเอกสาร',

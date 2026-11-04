@@ -17,6 +17,7 @@ export const nl: Dict = {
   askThreadDeleteConfirm: 'Gesprek "{label}" verwijderen? De beurten kunnen niet worden hersteld.',
   askThreadNew: 'Nieuw gesprek',
   askLibraryButton: 'Gespreksbibliotheek',
+  askLibraryBack: 'Terug',
   askLibrarySearch: 'Gesprekken zoeken…',
   askLibrarySectionPinned: 'Vastgemaakt',
   askLibrarySectionDocs: 'Volgen het document',

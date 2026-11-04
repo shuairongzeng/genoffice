@@ -17,6 +17,7 @@ export const en: Dict = {
   askThreadDeleteConfirm: 'Delete "{label}"? Its turns cannot be recovered.',
   askThreadNew: 'New conversation',
   askLibraryButton: 'Conversation library',
+  askLibraryBack: 'Back',
   askLibrarySearch: 'Search conversations…',
   askLibrarySectionPinned: 'Pinned',
   askLibrarySectionDocs: 'Follow the document',

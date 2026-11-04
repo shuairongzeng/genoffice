@@ -17,6 +17,7 @@ export const cs: Dict = {
   askThreadDeleteConfirm: 'Smazat konverzaci „{label}"? Nebude možné ji obnovit.',
   askThreadNew: 'Nová konverzace',
   askLibraryButton: 'Knihovna konverzací',
+  askLibraryBack: 'Zpět',
   askLibrarySearch: 'Hledat konverzace…',
   askLibrarySectionPinned: 'Připnuté',
   askLibrarySectionDocs: 'Svázané s dokumentem',

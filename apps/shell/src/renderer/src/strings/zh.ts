@@ -17,6 +17,7 @@ export const zh = {
   askThreadDeleteConfirm: '删除对话「{label}」？删除后无法恢复。',
   askThreadNew: '新建对话',
   askLibraryButton: '会话库',
+  askLibraryBack: '返回',
   askLibrarySearch: '搜索会话…',
   askLibrarySectionPinned: '置顶',
   askLibrarySectionDocs: '跟着文档走',

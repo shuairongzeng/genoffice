@@ -18,6 +18,7 @@ export const es: Dict = {
   askThreadDeleteConfirm: '¿Eliminar la conversación "{label}"? No se podrá recuperar.',
   askThreadNew: 'Nueva conversación',
   askLibraryButton: 'Biblioteca de conversaciones',
+  askLibraryBack: 'Atrás',
   askLibrarySearch: 'Buscar conversaciones…',
   askLibrarySectionPinned: 'Fijadas',
   askLibrarySectionDocs: 'Siguen al documento',

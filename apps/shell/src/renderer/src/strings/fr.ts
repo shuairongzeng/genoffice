@@ -19,6 +19,7 @@ export const fr: Dict = {
     'Supprimer la conversation « {label} » ? Elle ne pourra pas être récupérée.',
   askThreadNew: 'Nouvelle conversation',
   askLibraryButton: 'Bibliothèque de conversations',
+  askLibraryBack: 'Retour',
   askLibrarySearch: 'Rechercher des conversations…',
   askLibrarySectionPinned: 'Épinglées',
   askLibrarySectionDocs: 'Liées au document',

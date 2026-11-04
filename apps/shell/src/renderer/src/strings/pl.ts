@@ -17,6 +17,7 @@ export const pl: Dict = {
   askThreadDeleteConfirm: 'Usunąć rozmowę „{label}"? Nie będzie można jej odzyskać.',
   askThreadNew: 'Nowa rozmowa',
   askLibraryButton: 'Biblioteka rozmów',
+  askLibraryBack: 'Wstecz',
   askLibrarySearch: 'Szukaj rozmów…',
   askLibrarySectionPinned: 'Przypięte',
   askLibrarySectionDocs: 'Powiązane z dokumentem',

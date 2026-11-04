@@ -17,6 +17,7 @@ export const hi: Dict = {
   askThreadDeleteConfirm: '"{label}" बातचीत हटाएँ? इसे वापस नहीं किया जा सकेगा।',
   askThreadNew: 'नई बातचीत',
   askLibraryButton: 'बातचीत लाइब्रेरी',
+  askLibraryBack: 'वापस',
   askLibrarySearch: 'बातचीत खोजें…',
   askLibrarySectionPinned: 'पिन की गईं',
   askLibrarySectionDocs: 'दस्तावेज़ के साथ',

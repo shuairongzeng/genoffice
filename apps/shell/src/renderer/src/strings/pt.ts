@@ -17,6 +17,7 @@ export const pt: Dict = {
   askThreadDeleteConfirm: 'Excluir a conversa "{label}"? Ela não poderá ser recuperada.',
   askThreadNew: 'Nova conversa',
   askLibraryButton: 'Biblioteca de conversas',
+  askLibraryBack: 'Voltar',
   askLibrarySearch: 'Pesquisar conversas…',
   askLibrarySectionPinned: 'Fixadas',
   askLibrarySectionDocs: 'Seguem o documento',
