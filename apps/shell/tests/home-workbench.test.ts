@@ -9,6 +9,7 @@ import {
   AI_DOCK_WIDTH_DEFAULT,
   AI_DOCK_WIDTH_MAX,
   clampDockWidth,
+  drawerMorphFromPet,
   normalizeAiDockPrefs,
 } from '../src/renderer/src/AiDock'
 import type { AiDockPrefs, HomeApi, HomeTabEntry } from '../src/shared/home-api'
@@ -686,5 +687,213 @@ describe('the strip without the push channel', () => {
     expect(titles).toEqual(['Desktop', 'brief.docx'])
     expect(container.querySelector('.work-tab-desktop')!.className).not.toContain('active')
     window.aiOfficeTabs = undefined as unknown as Window['aiOfficeTabs']
+  })
+})
+
+describe('the pet ⇄ panel morph (the pure geometry)', () => {
+  /** the pet's footprint over a 400×768 panel at the window's right edge */
+  const PANEL = { x: 624, y: 0, width: 400, height: 768 }
+
+  it("the origin is the pet's center in the panel's local space, whatever the perch", () => {
+    // the default perch: the window's bottom-right corner
+    const corner = drawerMorphFromPet({ x: 940, y: 690, width: 68, height: 62 }, PANEL)!
+    expect(corner.originX).toBe(974 - 624)
+    expect(corner.originY).toBe(721)
+    // dragged to the top-left, far from the panel: the origin follows the bird
+    const topLeft = drawerMorphFromPet({ x: 40, y: 60, width: 68, height: 62 }, PANEL)!
+    expect(topLeft.originX).toBe(74 - 624)
+    expect(topLeft.originY).toBe(91)
+    // dragged onto the panel's middle: the origin lands inside it
+    const mid = drawerMorphFromPet({ x: 700, y: 300, width: 68, height: 62 }, PANEL)!
+    expect(mid.originX).toBe(734 - 624)
+    expect(mid.originY).toBe(331)
+  })
+
+  it("the from-scales render the panel at the pet's footprint; the radius the pet's rounding", () => {
+    const plan = drawerMorphFromPet({ x: 940, y: 690, width: 68, height: 62 }, PANEL)!
+    expect(plan.scaleX).toBeCloseTo(68 / 400, 5)
+    expect(plan.scaleY).toBeCloseTo(62 / 768, 5)
+    // the stronger shrink direction carries the pet's 14px rounding up
+    expect(plan.radius).toBeCloseTo(14 / (62 / 768), 0)
+  })
+
+  it('the zoomed renderer divides the viewport offsets into the chrome space', () => {
+    const plan = drawerMorphFromPet({ x: 940, y: 690, width: 68, height: 62 }, PANEL, 2)!
+    expect(plan.originX).toBeCloseTo((974 - 624) / 2, 5)
+    expect(plan.originY).toBeCloseTo(721 / 2, 5)
+    // the scale ratios are zoom-blind: both rects live in the same space
+    expect(plan.scaleX).toBeCloseTo(68 / 400, 5)
+  })
+
+  it('a rectless world answers null: no honest morph, the plain flip stands', () => {
+    // jsdom's zero boxes, or a not-yet-laid-out tree
+    expect(drawerMorphFromPet({ x: 0, y: 0, width: 0, height: 0 }, PANEL)).toBeNull()
+    expect(
+      drawerMorphFromPet(
+        { x: 940, y: 690, width: 68, height: 62 },
+        { x: 0, y: 0, width: 0, height: 768 },
+      ),
+    ).toBeNull()
+  })
+})
+
+describe('the pet ⇄ panel morph (the wired component)', () => {
+  /** stub one element's rect (own property — the suite's established pattern) */
+  const stubRect = (
+    el: Element,
+    rect: { x: number; y: number; width: number; height: number },
+  ): void => {
+    Object.defineProperty(el, 'getBoundingClientRect', {
+      value: () => ({
+        left: rect.x,
+        top: rect.y,
+        width: rect.width,
+        height: rect.height,
+        right: rect.x + rect.width,
+        bottom: rect.y + rect.height,
+        x: rect.x,
+        y: rect.y,
+        toJSON: () => ({}),
+      }),
+    })
+  }
+  /** the pet's default perch and the panel's open box in the test viewport */
+  const PET_RECT = { x: 940, y: 690, width: 68, height: 62 }
+  const PANEL_RECT = { x: 1024 - 400, y: 0, width: 400, height: 768 }
+
+  /** the rect stubs the morph reads (jsdom answers zero boxes otherwise) */
+  const stubMorphRects = (): void => {
+    stubRect(pet(), PET_RECT)
+    stubRect(drawerPanel(), PANEL_RECT)
+  }
+
+  it('opening grows the panel out of the pet: the class, the origin, the from-scales', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      getAiDock.mockImplementation(async () => ({
+        width: 400,
+        collapsed: true,
+        petPos: null,
+      }))
+      await mountHome(baseApi())
+      stubMorphRects()
+      await click(pet())
+      // the open morph: the phase class rides the drawer, the plan rides the
+      // panel's inline style, and the pet is mid-absorb
+      expect(drawer().className).toContain('morph-open')
+      const style = drawerPanel().style
+      expect(style.transformOrigin).toBe(`${974 - 624}px 721px`)
+      expect(style.getPropertyValue('--morph-sx')).toBeCloseTo(68 / 400, 5)
+      expect(style.getPropertyValue('--morph-sy')).toBeCloseTo(62 / 768, 5)
+      expect(pet().className).toContain('absorb')
+      // the transformation settles: the classes drop, the panel stands open
+      await act(async () => {
+        vi.advanceTimersByTime(280)
+      })
+      expect(drawer().className).not.toContain('morph-open')
+      expect(pet().className).not.toContain('absorb')
+      expect(drawer().className).toContain('open')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a toggle while the morph runs is ignored; it lands once the creature settles', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      getAiDock.mockImplementation(async () => ({
+        width: 400,
+        collapsed: true,
+        petPos: null,
+      }))
+      await mountHome(baseApi())
+      stubMorphRects()
+      setAiDock.mockClear()
+      await click(pet())
+      // mid-morph: the pet's own click is swallowed (no stutter)
+      await act(async () => {
+        vi.advanceTimersByTime(100)
+      })
+      await click(pet())
+      expect(setAiDock).toHaveBeenCalledTimes(1)
+      // settled: the next click retracts through the close morph
+      await act(async () => {
+        vi.advanceTimersByTime(200)
+      })
+      await click(pet())
+      expect(setAiDock).toHaveBeenCalledTimes(2)
+      expect(setAiDock).toHaveBeenLastCalledWith({ collapsed: true })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('Esc retracts through the same close morph, and the pet gulps when it lands', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await mountHome(baseApi())
+      stubMorphRects()
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      })
+      expect(drawer().className).toContain('morph-close')
+      expect(drawer().className).not.toContain('open')
+      // the shrink lands: the panel hides, the bird swallows
+      await act(async () => {
+        vi.advanceTimersByTime(250)
+      })
+      expect(drawer().className).not.toContain('morph-close')
+      expect(pet().className).toContain('gulp')
+      await act(async () => {
+        vi.advanceTimersByTime(300)
+      })
+      expect(pet().className).not.toContain('gulp')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("the origin tracks the pet's dragged position at the moment of the toggle", async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      getAiDock.mockImplementation(async () => ({
+        width: 400,
+        collapsed: true,
+        petPos: { x: 120, y: 80 },
+      }))
+      await mountHome(baseApi())
+      // the bird dragged near the top-left: the growth must come from THERE
+      stubRect(pet(), { x: 120, y: 80, width: 68, height: 62 })
+      stubRect(drawerPanel(), PANEL_RECT)
+      await click(pet())
+      expect(drawerPanel().style.transformOrigin).toBe(`${154 - 624}px 111px`)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reduced motion skips the morph whole: no classes, no gate, instant flips', async () => {
+    const query = { matches: true, addEventListener: () => {}, removeEventListener: () => {} }
+    const matchMedia = vi.fn(() => query)
+    vi.stubGlobal('matchMedia', matchMedia as unknown as typeof window.matchMedia)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      getAiDock.mockImplementation(async () => ({
+        width: 400,
+        collapsed: true,
+        petPos: null,
+      }))
+      await mountHome(baseApi())
+      stubMorphRects()
+      await click(pet())
+      expect(drawer().className).not.toContain('morph-open')
+      expect(pet().className).not.toContain('absorb')
+      // and no gate: an immediate second toggle goes through
+      await click(pet())
+      expect(setAiDock).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
   })
 })

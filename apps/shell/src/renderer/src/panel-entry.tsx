@@ -3,10 +3,15 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { HomeApi } from '../../shared/home-api'
 import type { PendingAskQuery } from '../../shared/ask-forward'
 import {
+  AI_DOCK_WIDTH_DEFAULT,
+  aiMotionReduced,
   clampPetPos,
   chromeScale,
+  DRAWER_MORPH_CLOSE_MS,
+  DRAWER_MORPH_OPEN_MS,
   MascotSvg,
   PET_CLICK_SLOP,
+  PET_GULP_MS,
   PET_MARGIN,
   PET_SIZE,
   type AiPetPos,
@@ -56,6 +61,13 @@ import { KbAskPanel } from './KbAskPanel'
  * overlay, so the drawer itself answers Esc — clearing a non-empty draft
  * first, then collapsing through the same `home:ai-dock-set` write the pet
  * makes.
+ *
+ * The pet ⇄ panel morph plays here too, as the doc-mode approximation: the
+ * overlay's native bounds do not animate, so this renderer runs the same
+ * keyframes inside the view — the panel scales in from the pet's corner
+ * perch on expand and shrinks toward it on collapse (the panel clipping
+ * into the bird's footprint as main's own shrink lands, read as being
+ * eaten); the pet then gulps, the same satisfied munch.
  *
  * The floating pet is the drawer's whole affordance here: the same bird, the
  * same click-to-toggle contract, and — while collapsed, when the view
@@ -117,6 +129,8 @@ export function panelApiReady(api: Partial<HomeApi> | undefined | null): boolean
 interface OverlayDockState {
   known: boolean
   collapsed: boolean
+  /** the persisted drawer width (the open morph's fallback denominator) */
+  width: number
 }
 
 export function AskPanelEntry(): React.JSX.Element | null {
@@ -139,22 +153,28 @@ export function AskPanelEntry(): React.JSX.Element | null {
   // preload's fallback below), because this tree must not guess: the view may
   // be pet-sized, and a panel painted into it is garbage pixels over the
   // document, just as a pet painted into a drawer-sized hole is a blank flash
-  const [dock, setDock] = useState<OverlayDockState>({ known: false, collapsed: true })
+  const [dock, setDock] = useState<OverlayDockState>({
+    known: false,
+    collapsed: true,
+    width: AI_DOCK_WIDTH_DEFAULT,
+  })
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi> | undefined
     if (typeof api?.getAiDock !== 'function' || typeof api?.onAiDockChanged !== 'function') {
       // a stale preload without the prefs channels: the drawer is the only
       // shape this mount can express (the pet-only one needs them)
-      setDock({ known: true, collapsed: false })
+      setDock({ known: true, collapsed: false, width: AI_DOCK_WIDTH_DEFAULT })
       return
     }
     void api
       .getAiDock()
-      .then((prefs) => setDock({ known: true, collapsed: prefs.collapsed }))
-      .catch(() => setDock({ known: true, collapsed: false }))
+      .then((prefs) => setDock({ known: true, collapsed: prefs.collapsed, width: prefs.width }))
+      .catch(() => setDock({ known: true, collapsed: false, width: AI_DOCK_WIDTH_DEFAULT }))
     // the broadcast that follows every settled store write (including this
     // view's own pet commits): the tree flips with the view's own shape
-    return api.onAiDockChanged((prefs) => setDock({ known: true, collapsed: prefs.collapsed }))
+    return api.onAiDockChanged((prefs) =>
+      setDock({ known: true, collapsed: prefs.collapsed, width: prefs.width }),
+    )
   }, [])
   // pet-only and the not-yet-known boot paint nothing but the bird: html and
   // body must drop their backgrounds so the transparent view shows the
@@ -163,6 +183,84 @@ export function AskPanelEntry(): React.JSX.Element | null {
     document.documentElement.classList.toggle('ask-panel-pet-only', !dock.known || dock.collapsed)
     return () => document.documentElement.classList.remove('ask-panel-pet-only')
   }, [dock])
+
+  /* ── the pet ⇄ panel morph, the doc-mode approximation ──
+   * The overlay's native bounds do not animate (main cuts the view pet-sized
+   * or drawer-sized on the write), so this renderer plays the same
+   * transformation INSIDE the view: the panel scales in from the pet's
+   * corner on expand — the bird perches at the overlay's bottom-right, so
+   * the origin is that corner, stable — and on collapse it shrinks toward
+   * the corner while main's own shrink lands, the panel clipped into the
+   * bird's footprint reading as being eaten. The from-scales are the pet's
+   * footprint over the view's own box (the view IS the panel's bounds when
+   * expanded), computed per flip; reduced motion skips the whole thing, and
+   * the pet's click is gated while a morph runs exactly like Home's. */
+  const [panelMorph, setPanelMorph] = useState<'open' | 'close' | null>(null)
+  /**
+   * The view's own box the last time it was expanded, remembered so the
+   * OPEN morph's from-scales can reference the drawer the view is about to
+   * become: the optimistic flip fires while the view is still pet-sized
+   * (main's resize lands a beat later), so the live innerWidth/innerHeight
+   * at that moment would make the from-state the pet's size over ITSELF.
+   * While expanded the effect below keeps it fresh; the very first open of
+   * a pet-only boot falls back to the prefs' width and the screen's height
+   * (a close-enough denominator for a cosmetic scale).
+   */
+  const expandedViewportRef = useRef<{ width: number; height: number } | null>(null)
+  useEffect(() => {
+    if (!dock.known || dock.collapsed) return
+    /** the view IS the drawer's box right now (never at the open flip
+     *  itself — the optimistic state change beats main's resize, and a
+     *  pet-sized window must not overwrite the memory) */
+    const record = (): void => {
+      if (window.innerWidth <= PET_SIZE.width + 80) return
+      expandedViewportRef.current = { width: window.innerWidth, height: window.innerHeight }
+    }
+    record()
+    window.addEventListener('resize', record)
+    return () => window.removeEventListener('resize', record)
+  }, [dock.known, dock.collapsed])
+  const [petGulp, setPetGulp] = useState(false)
+  const morphBusyRef = useRef(false)
+  const morphTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const gulpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevExpandedRef = useRef<boolean | null>(null)
+  useEffect(() => {
+    if (!dock.known) return
+    const expanded = !dock.collapsed
+    if (prevExpandedRef.current === expanded) return
+    const firstObservation = prevExpandedRef.current === null
+    prevExpandedRef.current = expanded
+    // the boot's known-answer is the state the view loaded in, not a flip
+    if (firstObservation || aiMotionReduced()) return
+    const phase = expanded ? 'open' : 'close'
+    setPanelMorph(phase)
+    morphBusyRef.current = true
+    if (morphTimerRef.current) clearTimeout(morphTimerRef.current)
+    morphTimerRef.current = setTimeout(
+      () => {
+        morphTimerRef.current = null
+        morphBusyRef.current = false
+        setPanelMorph(null)
+        if (phase === 'close') {
+          setPetGulp(true)
+          if (gulpTimerRef.current) clearTimeout(gulpTimerRef.current)
+          gulpTimerRef.current = setTimeout(() => {
+            gulpTimerRef.current = null
+            setPetGulp(false)
+          }, PET_GULP_MS)
+        }
+      },
+      (expanded ? DRAWER_MORPH_OPEN_MS : DRAWER_MORPH_CLOSE_MS) + 30,
+    )
+  }, [dock])
+  useEffect(
+    () => () => {
+      if (morphTimerRef.current) clearTimeout(morphTimerRef.current)
+      if (gulpTimerRef.current) clearTimeout(gulpTimerRef.current)
+    },
+    [],
+  )
   // the drawer's docked shape (main pushes the flip when the view fits the
   // docs app's reserved slot instead of the window's right edge): the panel's
   // chrome reads as the app's own panel while docked — flat against the app's
@@ -207,6 +305,8 @@ export function AskPanelEntry(): React.JSX.Element | null {
     return null
   }
   const toggle = (): void => {
+    // mid-morph toggles are ignored (the same stutter rule Home's pet keeps)
+    if (morphBusyRef.current) return
     // the write goes through the same `home:ai-dock-set` contract Home's pet
     // writes, so the main process's overlay (watchAiDock → layout) and every
     // other copy of the prefs follow it; the local flip is the optimistic
@@ -236,7 +336,23 @@ export function AskPanelEntry(): React.JSX.Element | null {
           the same contract Home's drawer keeps (a streaming answer keeps
           streaming), and the subscriptions it armed are why the ready
           handshake means what it means */}
-      <div className="ask-panel-panel" hidden={dock.collapsed}>
+      <div
+        className={`ask-panel-panel${panelMorph ? ` ask-panel-morph-${panelMorph}` : ''}`}
+        /* the close morph keeps the panel mounted-and-visible for its own
+           shrink (the hidden flip lands with the morph's timer, not the
+           broadcast's arrival); the from-scales are the pet's footprint over
+           this view's box, set inline the same way Home's panel carries them */
+        hidden={dock.collapsed && panelMorph !== 'close'}
+        style={
+          panelMorph
+            ? ({
+                transformOrigin: '100% 100%',
+                ...morphFromScales(dock, expandedViewportRef.current, chromeScale()),
+                '--morph-radius': '120px',
+              } as React.CSSProperties)
+            : undefined
+        }
+      >
         <KbAskPanel
           chatId={OVERLAY_CHAT_ID}
           /* the surface context's visibility line: while the drawer floats it
@@ -271,7 +387,7 @@ export function AskPanelEntry(): React.JSX.Element | null {
           }}
         />
       </div>
-      <OverlayPet collapsed={dock.collapsed} onToggle={toggle} />
+      <OverlayPet collapsed={dock.collapsed} gulp={petGulp} onToggle={toggle} />
     </div>
   )
 }
@@ -323,11 +439,37 @@ export function petDragPosition(
   )
 }
 
+/**
+ * The morph's from-scales for one flip: the pet's footprint over the view's
+ * box. Close computes against the live box (the view IS the drawer at that
+ * moment); open — the optimistic flip beats main's resize — against the
+ * remembered expanded box, else the prefs' width over the screen's height.
+ */
+function morphFromScales(
+  dock: OverlayDockState,
+  remembered: { width: number; height: number } | null,
+  scale: number,
+): { '--morph-sx': number; '--morph-sy': number } {
+  const petW = PET_SIZE.width * scale
+  const petH = PET_SIZE.height * scale
+  if (dock.collapsed) {
+    return { '--morph-sx': petW / window.innerWidth, '--morph-sy': petH / window.innerHeight }
+  }
+  const box = remembered ?? {
+    width: dock.width * scale,
+    height: (window.screen?.height ?? 800) * scale,
+  }
+  return { '--morph-sx': petW / box.width, '--morph-sy': petH / box.height }
+}
+
 function OverlayPet({
   collapsed,
+  gulp,
   onToggle,
 }: {
   collapsed: boolean
+  /** the close morph landed: the satisfied munch plays on the bird */
+  gulp: boolean
   onToggle: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
@@ -456,7 +598,7 @@ function OverlayPet({
   return (
     <button
       type="button"
-      className="ai-pet"
+      className={`ai-pet${gulp ? ' gulp' : ''}`}
       /* collapsed: the view IS the pet's bounds (main sized it around the
          bird), so the pet perches at its own origin — unless a drag is live,
          when it follows the pointer across the window-wide surface; expanded:

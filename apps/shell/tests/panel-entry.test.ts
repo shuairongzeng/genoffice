@@ -396,53 +396,133 @@ describe('the two shapes (the drawer and the pet-only view)', () => {
     expect(root.classList.contains('ask-panel-embedded')).toBe(false)
   })
 
-  it('the broadcast flips the shape with the view, both ways', async () => {
-    await mountEntry(panelApi(overlayChannels({ width: 400, collapsed: true, petPos: null })))
-    expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(true)
-    await act(async () => dockChangedHandler!({ width: 400, collapsed: false, petPos: null }))
-    expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(false)
-    expect(
-      container!.querySelector('.ask-panel-entry')!.classList.contains('ask-panel-pet-only'),
-    ).toBe(false)
-    await act(async () => dockChangedHandler!({ width: 400, collapsed: true, petPos: null }))
-    expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(true)
+  it('the broadcast flips the shape with the view, both ways, morphing each flip', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await mountEntry(panelApi(overlayChannels({ width: 400, collapsed: true, petPos: null })))
+      expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(true)
+      await act(async () => dockChangedHandler!({ width: 400, collapsed: false, petPos: null }))
+      // the expand plays the pet ⇄ panel morph: the corner-origin scale-in
+      expect(
+        container!.querySelector('.ask-panel-panel')!.classList.contains('ask-panel-morph-open'),
+      ).toBe(true)
+      expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(false)
+      expect(
+        container!.querySelector('.ask-panel-entry')!.classList.contains('ask-panel-pet-only'),
+      ).toBe(false)
+      await act(async () => {
+        vi.advanceTimersByTime(280)
+      })
+      expect(
+        container!.querySelector('.ask-panel-panel')!.classList.contains('ask-panel-morph-open'),
+      ).toBe(false)
+      // the collapse plays the close morph: the panel stays mounted and
+      // visible for its own shrink, then hides with the morph's timer
+      await act(async () => dockChangedHandler!({ width: 400, collapsed: true, petPos: null }))
+      expect(
+        container!.querySelector('.ask-panel-panel')!.classList.contains('ask-panel-morph-close'),
+      ).toBe(true)
+      expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(false)
+      await act(async () => {
+        vi.advanceTimersByTime(250)
+      })
+      expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("the doc-mode morph anchors at the pet's corner perch, pet-footprint scales", async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await mountEntry(panelApi(overlayChannels({ width: 400, collapsed: true, petPos: null })))
+      await act(async () => dockChangedHandler!({ width: 400, collapsed: false, petPos: null }))
+      const panel = container!.querySelector<HTMLElement>('.ask-panel-panel')!
+      expect(panel.classList.contains('ask-panel-morph-open')).toBe(true)
+      // the overlay\'s pet perches at the bottom-right (the docked slot\'s
+      // own corner when embedded), so the origin IS that corner — stable
+      // whatever the view\'s size, no per-toggle math to drift
+      expect(panel.style.transformOrigin).toBe('100% 100%')
+      // the from-scales are the pet\'s footprint over this view\'s box (the
+      // test viewport is 1024 wide, the zoom reads as 1)
+      expect(Number(panel.style.getPropertyValue('--morph-sx'))).toBeCloseTo(68 / 1024, 5)
+      expect(Number(panel.style.getPropertyValue('--morph-sy'))).toBeCloseTo(62 / 768, 5)
+      await act(async () => {
+        vi.advanceTimersByTime(280)
+      })
+      expect(panel.classList.contains('ask-panel-morph-open')).toBe(false)
+      expect(panel.style.transformOrigin).toBe('')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("the pet-only pet's click expands the drawer, the expanded pet's collapses it", async () => {
-    await mountEntry(panelApi(overlayChannels({ width: 400, collapsed: true, petPos: null })))
-    const pet = container!.querySelector<HTMLButtonElement>('.ai-pet')!
-    await act(async () => pet.click())
-    expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
-    // the optimistic flip: the tree is already the drawer, broadcast pending
-    expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(false)
-    setAiDock.mockClear()
-    await act(async () => dockChangedHandler!({ width: 400, collapsed: false, petPos: null }))
-    const petAgain = container!.querySelector<HTMLButtonElement>('.ai-pet')!
-    await act(async () => petAgain.click())
-    expect(setAiDock).toHaveBeenCalledWith({ collapsed: true })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await mountEntry(panelApi(overlayChannels({ width: 400, collapsed: true, petPos: null })))
+      const pet = container!.querySelector<HTMLButtonElement>('.ai-pet')!
+      await act(async () => pet.click())
+      expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
+      // the optimistic flip: the tree is already the drawer, broadcast pending
+      expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(false)
+      setAiDock.mockClear()
+      await act(async () => dockChangedHandler!({ width: 400, collapsed: false, petPos: null }))
+      // the open morph is still running: a click now is ignored (the
+      // stutter rule), and lands once the transformation settles
+      await act(async () => {
+        vi.advanceTimersByTime(100)
+      })
+      const midMorph = container!.querySelector<HTMLButtonElement>('.ai-pet')!
+      await act(async () => midMorph.click())
+      expect(setAiDock).not.toHaveBeenCalled()
+      await act(async () => {
+        vi.advanceTimersByTime(200)
+      })
+      const petAgain = container!.querySelector<HTMLButtonElement>('.ai-pet')!
+      await act(async () => petAgain.click())
+      expect(setAiDock).toHaveBeenCalledWith({ collapsed: true })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
-  it('a failed toggle write rolls the optimistic flip back', async () => {
+  it('a failed toggle write rolls the optimistic flip back through the close morph', async () => {
     // the optimistic flip renders the drawer into a pet-sized view — if the
     // write fails, that is a panel crammed into the pet's rect, and only the
     // rollback keeps the tree honest (guarded: a broadcast that landed in
-    // the meantime is the truth, whatever it says)
-    await mountEntry(panelApi(overlayChannels({ width: 400, collapsed: true, petPos: null })))
-    const pet = container!.querySelector<HTMLButtonElement>('.ai-pet')!
-    setAiDock.mockImplementationOnce(() => Promise.reject(new Error('store gone')))
-    // a synchronous act: the rejection is still a pending microtask, so the
-    // optimistic flip is what renders
-    act(() => pet.click())
-    expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
-    expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(false)
-    await act(async () => {
-      for (let i = 0; i < 4; i++) await Promise.resolve()
-    })
-    // the rejected write rolled the flip back: pet-only again
-    expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(true)
-    expect(
-      container!.querySelector('.ask-panel-entry')!.classList.contains('ask-panel-pet-only'),
-    ).toBe(true)
+    // the meantime is the truth, whatever it says). The rollback itself is a
+    // collapse edge, so it plays the close morph: the panel stays mounted
+    // and visible for its shrink, then hides with the morph's timer
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await mountEntry(panelApi(overlayChannels({ width: 400, collapsed: true, petPos: null })))
+      const pet = container!.querySelector<HTMLButtonElement>('.ai-pet')!
+      setAiDock.mockImplementationOnce(() => Promise.reject(new Error('store gone')))
+      // a synchronous act: the rejection is still a pending microtask, so the
+      // optimistic flip is what renders
+      act(() => pet.click())
+      expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
+      expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(false)
+      await act(async () => {
+        for (let i = 0; i < 4; i++) await Promise.resolve()
+      })
+      // the rejected write rolled the flip back: the close morph is playing
+      expect(
+        container!.querySelector('.ask-panel-panel')!.classList.contains('ask-panel-morph-close'),
+      ).toBe(true)
+      expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(false)
+      await act(async () => {
+        vi.advanceTimersByTime(250)
+      })
+      // pet-only again, hidden once the shrink has landed
+      expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(true)
+      expect(
+        container!.querySelector('.ask-panel-entry')!.classList.contains('ask-panel-pet-only'),
+      ).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

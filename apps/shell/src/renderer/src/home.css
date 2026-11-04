@@ -984,14 +984,16 @@ html.genoffice-popover-open .ai-drawer-head {
   display: none;
 }
 
-/* the panel: slides in from the right edge OVER the content (translateX; the
-   global prefers-reduced-motion rule at this file's foot zeroes the
-   transition, so it simply appears there). While open the transform is none,
-   not translateX(0) — the fixed-position popovers inside the panel (model
-   picker, slash palette) must keep the viewport as their containing block,
-   and any live transform would become it. Closed, visibility (delayed to the
-   slide's end) pulls the panel out of the tab order instead of leaving an
-   offscreen focus target. */
+/* the panel: opens by the pet ⇄ panel morph (the keyframes below — the panel
+   grows out of the pet's own rect, transform-origin computed per toggle) and
+   closes by the same morph run backwards (the panel shrinks into the pet,
+   which then gulps). The old slide-in is gone. While open the transform is
+   none, not translateX(0) — the fixed-position popovers inside the panel
+   (model picker, slash palette) must keep the viewport as their containing
+   block, and any live transform would become it (the morph's own transform
+   is transient, and nothing portals during one). Closed, the panel rests
+   offscreen and visibility (delayed past the morph's end) pulls it out of
+   the tab order instead of leaving an offscreen focus target. */
 .ai-drawer-panel {
   position: fixed;
   top: 0;
@@ -1007,15 +1009,95 @@ html.genoffice-popover-open .ai-drawer-head {
   border-left: 1px solid var(--border);
   --ai-drawer-shadow: -16px 0 36px rgb(0 0 0 / 16%);
   box-shadow: var(--ai-drawer-shadow);
-  transition: transform 0.2s ease;
 }
 
 .ai-drawer:not(.open) .ai-drawer-panel {
   transform: translateX(100%);
   visibility: hidden;
-  transition:
-    transform 0.2s ease,
-    visibility 0s 0.2s;
+  transition: visibility 0s 0.2s;
+}
+
+/* ── the pet ⇄ panel morph ──
+ * One creature, two forms: the panel grows out of the pet (open) and gets
+ * eaten back into it (close). The transform-origin and the from-scales are
+ * per-toggle facts (the pet can be dragged anywhere), set inline as custom
+ * properties by AiDock; the keyframes read them. Open eases out over 250ms
+ * (AiDock's DRAWER_MORPH_OPEN_MS), close accelerates in over 220ms
+ * (DRAWER_MORPH_CLOSE_MS) and holds its end state until the class drops
+ * (the panel then rests offscreen and hidden — invisible either way, so no
+ * flash). Both classes force visibility so the closed panel stays watchable
+ * through its own shrink. The mask's own fade is untouched (it overlays the
+ * morph, dimming the content as the creature takes shape). */
+.ai-drawer.morph-open .ai-drawer-panel,
+.ai-drawer.morph-close .ai-drawer-panel {
+  visibility: visible;
+  transition: none;
+}
+
+.ai-drawer.morph-open .ai-drawer-panel {
+  animation: ai-drawer-morph-open 250ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes ai-drawer-morph-open {
+  from {
+    transform: scale(var(--morph-sx, 1), var(--morph-sy, 1));
+    opacity: 0;
+    border-radius: var(--morph-radius, 160px);
+  }
+}
+
+.ai-drawer.morph-close .ai-drawer-panel {
+  animation: ai-drawer-morph-close 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@keyframes ai-drawer-morph-close {
+  to {
+    transform: scale(var(--morph-sx, 1), var(--morph-sy, 1));
+    opacity: 0;
+    border-radius: var(--morph-radius, 160px);
+  }
+}
+
+/* the pet's halves of the moment: opening, the bird dissolves into the panel
+ * that grows out of it and re-perches when the growth lands; closing, the
+ * satisfied munch — a squash-and-settle gulp (scaleY 1→0.75→1.06→1) grounded
+ * at the feet once the panel is eaten. The gulp rides the button's transform
+ * (the drag moves left/top, never the transform, so the two never fight). */
+.ai-pet.absorb {
+  animation: ai-pet-absorb 250ms ease-out;
+}
+
+@keyframes ai-pet-absorb {
+  55% {
+    opacity: 0;
+  }
+}
+
+.ai-pet.gulp {
+  animation: ai-pet-gulp 300ms cubic-bezier(0.3, 0.7, 0.3, 1);
+  transform-origin: 50% 100%;
+}
+
+@keyframes ai-pet-gulp {
+  40% {
+    transform: scaleY(0.75);
+  }
+  75% {
+    transform: scaleY(1.06);
+  }
+}
+
+/* the global reduced-motion rule below (animation-duration: 0.01ms) already
+ * zeroes these keyframes; the JS skips arming the morph under the same
+ * setting, so neither the classes nor the click gate ever engage — belt and
+ * braces, the bounce's pattern */
+@media (prefers-reduced-motion: reduce) {
+  .ai-drawer.morph-open .ai-drawer-panel,
+  .ai-drawer.morph-close .ai-drawer-panel,
+  .ai-pet.absorb,
+  .ai-pet.gulp {
+    animation: none;
+  }
 }
 
 .ai-drawer-head {
@@ -1205,6 +1287,25 @@ body.ai-pet-dragging {
    edge, no floating chrome). The floating shape keeps today's look. */
 .ask-panel-entry.ask-panel-embedded .ask-panel-panel {
   border-left: 1px solid var(--border);
+}
+
+/* ── the pet ⇄ panel morph, the overlay view's approximation ──
+ * The native overlay's bounds do not animate (main cuts the view pet-sized
+ * or drawer-sized on the write), so this view plays the same transformation
+ * inside itself: the panel scales in from the pet's corner — the bird
+ * perches at the overlay's bottom-right while expanded, so the origin is
+ * that corner, stable, whatever the drawer's width or the docked slot —
+ * and on collapse shrinks toward the corner while main's own shrink lands
+ * (the panel clips into the bird's footprint: read as being eaten). The
+ * same keyframes Home's drawer morphs with; the from-scales arrive inline
+ * per flip. The docked slot's shape gets the identical treatment: the pet's
+ * perch is the slot's bottom-right corner. */
+.ask-panel-morph-open {
+  animation: ai-drawer-morph-open 250ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.ask-panel-morph-close {
+  animation: ai-drawer-morph-close 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 /* pet-only: the view has shrunk to the bird (a transparent WebContentsView),

@@ -21,11 +21,15 @@ import { useI18n } from './locale'
  *   no layout width anywhere (the main process reserves nothing for it — see
  *   desktop-geometry.ts), so the content stage spans the full window right of
  *   the sidebar whether the panel is around or not.
- * - open: the drawer — a right-edge overlay panel that slides in over the
- *   content (`translateX`, instant under prefers-reduced-motion), never
- *   beside it. Esc, the scrim and the pet's click all close it; the width
- *   handle on the drawer's leading edge resizes it (committed to the prefs on
- *   release, never mid-drag; a double-click resets the default width).
+ * - open: the drawer — a right-edge overlay panel, never beside the content.
+ *   The open/close transformation is the pet ⇄ panel morph: the panel grows
+ *   out of the pet's own rect and shrinks back into it (the keyframes in
+ *   home.css, the origin computed per toggle from the pet's live position —
+ *   see drawerMorphFromPet), instant under prefers-reduced-motion. Esc, the
+ *   scrim and the pet's click all close it (each through the same morph,
+ *   gated while one runs); the width handle on the drawer's leading edge
+ *   resizes it (committed to the prefs on release, never mid-drag; a
+ *   double-click resets the default width).
  *
  * The panel body (Home's KbAskPanel) stays mounted in both states and through
  * every transition — closing hides it, it never unmounts, so a streaming
@@ -103,6 +107,81 @@ export function writeLocalAiDockPrefs(prefs: AiDockPrefs): void {
 
 /** pointer travel (viewport px) under which a press counts as a click, not a drag */
 export const PET_CLICK_SLOP = 5
+
+/* ── the pet ⇄ panel morph ──
+ * The pet and the drawer are one creature in two forms; the morph makes the
+ * transformation visible. The open keyframes grow the panel out of the pet's
+ * own rect (scale/opacity/border-radius), the close keyframes shrink it back
+ * into the same spot — both anchored at a transform-origin computed at the
+ * moment of the toggle, because the pet can be dragged anywhere and the
+ * shrink must land where the bird actually is. Pure math, exported so the
+ * geometry is testable alone; the CSS (home.css) reads the answer through
+ * custom properties. */
+
+/** the pet button's corner rounding (CSS px, .ai-pet's border-radius) */
+const PET_CORNER_RADIUS = 14
+
+/** the morph's computed facts, all in the panel's LOCAL (chrome) space */
+export interface DrawerMorph {
+  /** the transform-origin x (chrome px): the pet's center over the panel */
+  readonly originX: number
+  /** the transform-origin y (chrome px) */
+  readonly originY: number
+  /** the from-scale x that renders the panel at the pet's width */
+  readonly scaleX: number
+  /** the from-scale y that renders the panel at the pet's height */
+  readonly scaleY: number
+  /** the from border-radius (chrome px) that renders the pet's rounding */
+  readonly radius: number
+}
+
+/**
+ * The morph between the pet's rect and the panel's: the origin is the pet's
+ * CENTER expressed in the panel's local space (viewport rects in, chrome px
+ * out — the renderer is `zoom`ed, so the division by `scale` lands the
+ * origin where the bird actually perches), and the from-scales are the pet's
+ * footprint over the panel's box, so the keyframes' `from` state paints the
+ * panel exactly as the pet's size and shape. The panel's own x is passed in
+ * as its OPEN-position left (the closed panel is translated offscreen, so
+ * the caller computes `window.innerWidth - rect.width`, which is true in
+ * both states). Rects with no box (jsdom, a not-yet-laid-out tree) answer
+ * null: no honest morph, the caller falls back to the plain flip.
+ */
+export function drawerMorphFromPet(
+  pet: { x: number; y: number; width: number; height: number },
+  panel: { x: number; y: number; width: number; height: number },
+  scale = 1,
+): DrawerMorph | null {
+  if (pet.width <= 0 || pet.height <= 0 || panel.width <= 0 || panel.height <= 0) return null
+  const petCx = pet.x + pet.width / 2
+  const petCy = pet.y + pet.height / 2
+  const scaleX = pet.width / panel.width
+  const scaleY = pet.height / panel.height
+  return {
+    originX: (petCx - panel.x) / scale,
+    originY: (petCy - panel.y) / scale,
+    scaleX,
+    scaleY,
+    // the pet's rendered rounding, expressed in the panel's local space: the
+    // stronger shrink direction wins (a tall panel shrinks far more in y, so
+    // the y curvature is the honest one to match)
+    radius: PET_CORNER_RADIUS / Math.min(scaleX, scaleY),
+  }
+}
+
+/** prefers-reduced-motion, guarded for test DOMs that lack matchMedia */
+export function aiMotionReduced(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+}
+
+/** the morph timings (CSS mirrors these; the timers clear the classes) */
+export const DRAWER_MORPH_OPEN_MS = 250
+export const DRAWER_MORPH_CLOSE_MS = 220
+export const PET_GULP_MS = 300
 
 /**
  * The interface scale as this renderer sees it (`--ui-scale`, an inline style
@@ -309,10 +388,95 @@ export function AiDock({
     window.addEventListener('blur', onCancel)
   }, [])
 
+  /* ── the pet ⇄ panel morph ──
+   * The prop's edge arms it: whatever flipped the drawer (the pet, the scrim,
+   * Esc, a broadcast from the overlay's pet) gets the same transformation,
+   * because the morph watches the state, not the gesture. The origin comes
+   * from the pet's LIVE rect at the moment of the toggle (the bird may have
+   * been dragged anywhere) and the panel's open-position box; reduced motion
+   * skips the whole thing (the flip is instant, the CSS global rule would
+   * zero the keyframes anyway — this also skips the click gate, so a
+   * motion-sensitive setup never eats a toggle). While a morph runs the
+   * in-drawer toggles are ignored: a second toggle mid-flight would stutter
+   * the transformation (and race its timers). */
+  const [morph, setMorph] = useState<DrawerMorph | null>(null)
+  const [morphPhase, setMorphPhase] = useState<'open' | 'close' | null>(null)
+  const [petGulp, setPetGulp] = useState(false)
+  const morphBusyRef = useRef(false)
+  const petRef = useRef<HTMLButtonElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const morphTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const gulpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevOpenRef = useRef(open)
+
+  useEffect(() => {
+    if (prevOpenRef.current === open) return
+    prevOpenRef.current = open
+    if (aiMotionReduced()) return
+    const petRect = petRef.current?.getBoundingClientRect()
+    const panelRect = panelRef.current?.getBoundingClientRect()
+    const scale = chromeScale()
+    const plan =
+      petRect && panelRect
+        ? drawerMorphFromPet(
+            { x: petRect.left, y: petRect.top, width: petRect.width, height: petRect.height },
+            {
+              x: window.innerWidth - panelRect.width,
+              y: panelRect.top,
+              width: panelRect.width,
+              height: panelRect.height,
+            },
+            scale,
+          )
+        : null
+    if (!plan) return
+    const phase = open ? 'open' : 'close'
+    morphBusyRef.current = true
+    setMorph(plan)
+    setMorphPhase(phase)
+    if (morphTimerRef.current) clearTimeout(morphTimerRef.current)
+    morphTimerRef.current = setTimeout(
+      () => {
+        morphTimerRef.current = null
+        morphBusyRef.current = false
+        setMorph(null)
+        setMorphPhase(null)
+        // the close lands: the pet swallows — the squash-and-settle gulp, the
+        // satisfied munch after the panel is eaten
+        if (phase === 'close') {
+          setPetGulp(true)
+          if (gulpTimerRef.current) clearTimeout(gulpTimerRef.current)
+          gulpTimerRef.current = setTimeout(() => {
+            gulpTimerRef.current = null
+            setPetGulp(false)
+          }, PET_GULP_MS)
+        }
+      },
+      (open ? DRAWER_MORPH_OPEN_MS : DRAWER_MORPH_CLOSE_MS) + 30,
+    )
+  }, [open])
+
+  useEffect(
+    () => () => {
+      if (morphTimerRef.current) clearTimeout(morphTimerRef.current)
+      if (gulpTimerRef.current) clearTimeout(gulpTimerRef.current)
+    },
+    [],
+  )
+
+  /** the drawer's own collapse paths (the scrim, the header's ×): gated like
+   *  the pet's click so a mid-morph press never stutters the transformation */
+  const requestCollapse = (): void => {
+    if (morphBusyRef.current) return
+    onCollapseRef.current()
+  }
+
   /** the pet's whole click contract: a click toggles the drawer (open when
-   *  closed, retract when open); the trailing click of a real drag is ignored */
+   *  closed, retract when open); the trailing click of a real drag is ignored,
+   *  and so is any click while a morph is still transforming */
   const onPetClick = () => {
     if (petDragMovedRef.current) return
+    if (morphBusyRef.current) return
     if (collapsed) onExpandRef.current()
     else onCollapseRef.current()
   }
@@ -321,11 +485,14 @@ export function AiDock({
     petDragMovedRef.current = false
   }
 
-  /** Esc retracts the open drawer, the same as the scrim and the pet's click */
+  /** Esc retracts the open drawer, the same as the scrim and the pet's click
+   *  (and through the same morph, with the same mid-flight gate) */
   useEffect(() => {
     if (!open || docActive) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCollapseRef.current()
+      if (event.key !== 'Escape') return
+      if (morphBusyRef.current) return
+      onCollapseRef.current()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -337,7 +504,8 @@ export function AiDock({
     <>
       <button
         type="button"
-        className="ai-pet"
+        ref={petRef}
+        className={`ai-pet${morphPhase === 'open' ? ' absorb' : ''}${petGulp ? ' gulp' : ''}`}
         style={{ left: shownPetPos.x, top: shownPetPos.y }}
         aria-label={t(collapsed ? 'dockExpand' : 'dockCollapse')}
         title={t(collapsed ? 'dockExpand' : 'dockCollapse')}
@@ -353,11 +521,27 @@ export function AiDock({
        * view above it (main/ai-drawer-view.ts) — this HTML copy stays hidden
        * (the panel mounted underneath) while that one shows. */}
       <section
-        className={`ai-drawer${open ? ' open' : ''}${docActive ? ' doc-covered' : ''}`}
+        className={`ai-drawer${open ? ' open' : ''}${docActive ? ' doc-covered' : ''}${
+          morphPhase ? ` morph-${morphPhase}` : ''
+        }`}
         aria-label={t('navAsk')}
       >
-        <div className="ai-drawer-mask" aria-hidden="true" onClick={onCollapse} />
-        <div className="ai-drawer-panel" style={{ width: shownWidth }}>
+        <div className="ai-drawer-mask" aria-hidden="true" onClick={requestCollapse} />
+        <div
+          ref={panelRef}
+          className="ai-drawer-panel"
+          style={
+            morph
+              ? ({
+                  width: shownWidth,
+                  transformOrigin: `${morph.originX}px ${morph.originY}px`,
+                  '--morph-sx': morph.scaleX,
+                  '--morph-sy': morph.scaleY,
+                  '--morph-radius': `${morph.radius}px`,
+                } as React.CSSProperties)
+              : { width: shownWidth }
+          }
+        >
           <header className="ai-drawer-head">
             <span className="ai-drawer-title">{t('navAsk')}</span>
             <button
@@ -365,7 +549,7 @@ export function AiDock({
               className="ai-drawer-collapse"
               aria-label={t('dockCollapse')}
               title={t('dockCollapse')}
-              onClick={onCollapse}
+              onClick={requestCollapse}
             >
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path
