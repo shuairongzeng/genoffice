@@ -130,6 +130,9 @@ body.vib .home {
   --border: rgb(255 255 255 / 10%);
   --border-subtle: rgb(255 255 255 / 8%);
   --color-border-default: var(--border);
+  /* the hover/secondary fills (the library's search box, row hovers): a
+   * whisper of light, not the theme's light gray */
+  --hover: rgb(255 255 255 / 7%);
   color: var(--text);
 }
 .home.desktop-mode[data-wallpaper-tone='dark'] .dock {
@@ -4367,8 +4370,16 @@ button.kb-ask-card-name:hover {
   z-index: 5;
   display: flex;
   flex-direction: column;
-  background: var(--bg-content, var(--surface));
+  /* a solid sheet in the bubble's own tone: the library fully covers the
+   * thread, so translucency would just smear the conversation into the
+   * list — the bubble's own color, solid, reads as the same surface */
+  background: var(--surface);
   animation: kb-ask-library-in 0.22s ease;
+}
+
+/* over the dark glass the library's sheet is the glass's own base color */
+.home.desktop-mode[data-wallpaper-tone='dark'] .kb-ask-library {
+  background: rgb(var(--glass-bg));
 }
 
 @keyframes kb-ask-library-in {
