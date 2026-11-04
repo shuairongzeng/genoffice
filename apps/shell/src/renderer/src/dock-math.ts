@@ -315,3 +315,33 @@ export function dockSlotWidth(baseSize: number, scale: number): number {
   const s = Number.isFinite(scale) && scale >= 1 ? scale : 1
   return Math.round(baseSize * s)
 }
+
+// ── the drag-over insert preview (the gap that opens before the drop) ──
+
+/**
+ * The launchers group's position in the dock's group sequence. The groups'
+ * boundaries are fixed — nav | launchers | ask — and the insert preview
+ * lives inside the launchers group only: the gap never crosses a
+ * separator, never enters the nav or the ask tail. Both mounts (Home and
+ * the doc-mode entry) build their groups in this shape.
+ */
+export const DOCK_LAUNCHERS_GROUP = 1
+
+/**
+ * The insert preview's index: where a gap would open in the launchers
+ * group for a drag's pointer at `x` — the count of the group's slot
+ * centers strictly left of it (the centers ascend, being the DOM order).
+ * Before the first center the gap opens at the group's head; between two
+ * centers, between them; past the last, at the group's end — the gap
+ * before the ask tail, today's append position. Bounded by construction:
+ * the caller passes only the launchers' own centers, so the answer is
+ * always a position INSIDE the group, never across a separator.
+ */
+export function dockInsertIndex(centers: readonly number[], x: number): number {
+  let index = 0
+  for (const center of centers) {
+    if (center >= x) break
+    index += 1
+  }
+  return index
+}

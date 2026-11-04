@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { applyDockOrder } from '../src/renderer/src/dock-math'
 import { DOCK_PREFS_KEY, readDockPrefs } from '../src/main/dock-prefs'
 import {
   DOCK_BASE_DEFAULT,
@@ -186,6 +187,133 @@ describe('the dragged-in custom launchers (dockPrefs.customItems)', () => {
     expect(next.customItems).toEqual([appItem])
     expect(next.order).not.toContain(fileItem.id)
     expect(removeDockCustom(next, fileItem.id)).toBe(next)
+  })
+
+  it('a placed insert ranks the whole launchers group explicitly, the newcomer spliced at the index', () => {
+    // a fresh store: no launchers ids are listed, so splicing next to a
+    // neighbor's rank could not work — the group is ranked whole instead
+    const fresh = normalizeDockPrefs(undefined)
+    const head = addDockCustom(
+      fresh,
+      { kind: 'file', target: '/docs/a.md' },
+      {
+        launchers: ['dock:settings', 'dock:templates', 'dock:plugins'],
+        index: 0,
+      },
+    )
+    expect(head.status).toBe('added')
+    expect(head.prefs.customItems).toEqual([fileItem])
+    expect(head.prefs.order).toEqual([
+      'dock:custom:file:/docs/a.md',
+      'dock:settings',
+      'dock:templates',
+      'dock:plugins',
+    ])
+    // applyDockOrder reproduces the previewed arrangement: the group is
+    // ranked in the new sequence (the groups model Home's post-add
+    // composition — the customs are the group's coded tail), the others
+    // keep their coded places
+    expect(
+      applyDockOrder(
+        [
+          ['dock:desktop', 'dock:recent'],
+          ['dock:settings', 'dock:templates', 'dock:plugins', 'dock:custom:file:/docs/a.md'],
+          ['dock:ask'],
+        ],
+        head.prefs.order,
+      ),
+    ).toEqual([
+      ['dock:desktop', 'dock:recent'],
+      ['dock:custom:file:/docs/a.md', 'dock:settings', 'dock:templates', 'dock:plugins'],
+      ['dock:ask'],
+    ])
+    // between two members, past the last (the gap before ask), and a clamped
+    // out-of-range index
+    expect(
+      addDockCustom(
+        fresh,
+        { kind: 'file', target: '/docs/a.md' },
+        {
+          launchers: ['dock:settings', 'dock:templates', 'dock:plugins'],
+          index: 2,
+        },
+      ).prefs.order,
+    ).toEqual(['dock:settings', 'dock:templates', 'dock:custom:file:/docs/a.md', 'dock:plugins'])
+    expect(
+      addDockCustom(
+        fresh,
+        { kind: 'file', target: '/docs/a.md' },
+        {
+          launchers: ['dock:settings', 'dock:templates', 'dock:plugins'],
+          index: 3,
+        },
+      ).prefs.order,
+    ).toEqual(['dock:settings', 'dock:templates', 'dock:plugins', 'dock:custom:file:/docs/a.md'])
+    expect(
+      addDockCustom(
+        fresh,
+        { kind: 'file', target: '/docs/a.md' },
+        {
+          launchers: ['dock:settings'],
+          index: 99,
+        },
+      ).prefs.order,
+    ).toEqual(['dock:settings', 'dock:custom:file:/docs/a.md'])
+  })
+
+  it('a placed insert among already-arranged customs keeps their sequence and the others intact', () => {
+    // the store holds an arranged nav and a launchers sequence with an
+    // existing custom; the newcomer takes a middle gap (the place's
+    // launchers are the DISPLAYED sequence, the same applyDockOrder output
+    // Home feeds it) without disturbing either
+    const prefs = normalizeDockPrefs({
+      order: ['dock:recent', 'dock:desktop', 'dock:settings', 'dock:custom:app:app:docs'],
+    })
+    const placed = addDockCustom(
+      prefs,
+      { kind: 'file', target: '/docs/a.md' },
+      {
+        launchers: ['dock:settings', 'dock:templates', 'dock:plugins', 'dock:custom:app:app:docs'],
+        index: 2,
+      },
+    )
+    expect(placed.prefs.order).toEqual([
+      'dock:recent',
+      'dock:desktop',
+      'dock:settings',
+      'dock:templates',
+      'dock:custom:file:/docs/a.md',
+      'dock:plugins',
+      'dock:custom:app:app:docs',
+    ])
+    // the block may sit anywhere in the flat sequence: ranks only matter
+    // within a group, and the displayed groups follow
+    expect(
+      applyDockOrder(
+        [
+          ['dock:desktop', 'dock:recent'],
+          [
+            'dock:settings',
+            'dock:templates',
+            'dock:plugins',
+            'dock:custom:app:app:docs',
+            'dock:custom:file:/docs/a.md',
+          ],
+          ['dock:ask'],
+        ],
+        placed.prefs.order,
+      ),
+    ).toEqual([
+      ['dock:recent', 'dock:desktop'],
+      [
+        'dock:settings',
+        'dock:templates',
+        'dock:custom:file:/docs/a.md',
+        'dock:plugins',
+        'dock:custom:app:app:docs',
+      ],
+      ['dock:ask'],
+    ])
   })
 
   it('sameDockPrefs counts the customs by exact sequence', () => {

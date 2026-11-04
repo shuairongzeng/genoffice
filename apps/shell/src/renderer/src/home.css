@@ -475,6 +475,34 @@ html.dock-view body {
   }
 }
 
+/* ── the drag-over insert preview (the gap that opens before the drop) ──
+ * A spacer slot spliced into the launchers group at the previewed index
+ * while a desktop icon is dragged over the pill: its width grows 0 → base
+ * (~150ms ease-out), so the neighbors part live around the carried icon —
+ * the row showing where the item would land, the way macOS does. The base
+ * width IS the full slot, so the animation only describes the entry; when
+ * the preview ends the node unmounts outright — on a drop the real slot
+ * takes its place in the same commit (the spacer's width becomes the
+ * item's, no double-wide beat), and on a leave the gap closing instantly
+ * is the honest answer. Reduce motion opens the gap without animation
+ * (the width stands at base).
+ */
+.dock-slot-preview {
+  animation: dock-preview-open 150ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes dock-preview-open {
+  from {
+    width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock-slot-preview {
+    animation: none;
+  }
+}
+
 /* the app tiles' colors borrow the desktop's own tokens (the same tiles,
  * one registry): a dragged-in app launcher looks exactly like its desktop
  * icon, whatever surface it perches on */

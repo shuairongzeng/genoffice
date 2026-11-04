@@ -249,6 +249,14 @@ export interface DesktopViewProps {
     candidate: DockCustomCandidate,
     at: DockGhostFrom,
   ) => DockCustomAddStatus | void
+  /**
+   * The drag-over insert preview's channel: while the drag is over the
+   * dock's pill, each move reports the pointer's x in viewport px (the
+   * pill's own hit rect decides "over"); null when the pointer leaves the
+   * pill and on every drag end, whatever the outcome. The host feeds the x
+   * to the dock, which opens the gap the drop would land in.
+   */
+  readonly onDockHover?: (x: number | null) => void
   /** the Home-root node the wallpaper backdrop portals into, so it paints
    * behind every surface; undefined (standalone) renders it in place */
   readonly backdropHost?: HTMLDivElement | null
@@ -455,6 +463,7 @@ export function DesktopView({
   onNewFolder,
   dockPillRef,
   onDockDrop,
+  onDockHover,
   backdropHost,
 }: DesktopViewProps): ReactElement {
   const s = desktopStrings(lang)
@@ -1147,8 +1156,8 @@ export function DesktopView({
    * drop, no grid snap, no error. Everything the handlers read at event
    * time rides this ref instead.
    */
-  const gestureRef = useRef({ dockPillRef, onDockDrop, showNotice, s, iconScale })
-  gestureRef.current = { dockPillRef, onDockDrop, showNotice, s, iconScale }
+  const gestureRef = useRef({ dockPillRef, onDockDrop, onDockHover, showNotice, s, iconScale })
+  gestureRef.current = { dockPillRef, onDockDrop, onDockHover, showNotice, s, iconScale }
 
   /**
    * Commit a drop. A plain drag claims the snapped cell and swaps whoever
@@ -1227,6 +1236,21 @@ export function DesktopView({
         y: Math.max(0, event.clientY - rect.top - d.grabY),
       }
       setDrag({ id: d.id, x: last.x, y: last.y })
+      // the drag-over insert preview: while the carried icon is over the
+      // pill, the host wants the pointer's x (the dock opens the gap the
+      // drop would land in); off the pill, the gap closes. Read through the
+      // gesture mirror — the channel's identity may churn per render
+      const { onDockHover: hover, dockPillRef: pillRef } = gestureRef.current
+      if (hover) {
+        const pillRect = pillRef?.current?.getBoundingClientRect()
+        const over =
+          pillRect !== undefined &&
+          event.clientX >= pillRect.left &&
+          event.clientX <= pillRect.right &&
+          event.clientY >= pillRect.top &&
+          event.clientY <= pillRect.bottom
+        hover(over ? event.clientX : null)
+      }
     }
     /**
      * A release over the dock's pill is a drop-onto-dock, not a grid snap:
@@ -1278,6 +1302,10 @@ export function DesktopView({
       return true
     }
     const finish = (commit: boolean, client?: { x: number; y: number }) => {
+      // the gesture is over, whatever the outcome: the preview's gap closes
+      // (the batched state lands with the drop's own write in one commit —
+      // on a dock drop the real slot takes the spacer's place)
+      gestureRef.current.onDockHover?.(null)
       if (commit && moved && last) {
         if (client && dockDropAt(client, d.group)) {
           dropGuardRef.current = Date.now() + DROP_DBLCLICK_GUARD_MS

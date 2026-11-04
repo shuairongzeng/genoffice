@@ -8,9 +8,11 @@ import {
   DOCK_DEFAULT_MAX_SCALE,
   DOCK_DEFAULT_SIGMA_RATIO,
   DOCK_DRAG_IDLE_MS,
+  DOCK_LAUNCHERS_GROUP,
   DOCK_PARTING_MS,
   DOCK_POP_MS,
   applyDockOrder,
+  dockInsertIndex,
   dockOrderOf,
   dockPartingPlan,
   dockReorderAt,
@@ -161,6 +163,17 @@ export interface DockProps {
    * internal ref live alongside this one.
    */
   readonly pillRef?: { current: HTMLElement | null }
+  /**
+   * The drag-over insert preview: a desktop icon is being dragged over the
+   * pill, and this is the pointer's x in viewport px (null once the pointer
+   * leaves the pill or the drag ends). The dock opens a gap in the
+   * launchers group where the item would land — the live parting the drop
+   * previews — and reports the insertion index through
+   * {@link onInsertPreview} so the eventual drop lands exactly there.
+   */
+  readonly insertPreview?: number | null
+  /** the previewed insertion index changed (null when no preview is live) */
+  readonly onInsertPreview?: (index: number | null) => void
   /**
    * An interaction that must hold the dock open (the context menu is open,
    * a drag is in progress) — the doc-mode entry pins its reveal on this so
@@ -353,6 +366,41 @@ export function Dock(props: DockProps): React.JSX.Element {
     }
   }, [orderSignature, draggingId, liveOrder, reducedMotion, endParting])
 
+  // ── the drag-over insert preview: the gap that opens before the drop ──
+  // While a desktop icon is dragged over the pill (the host feeds the
+  // pointer's x through `insertPreview`), a spacer slot opens in the
+  // launchers group at the index the pointer names — the width animation
+  // parts the neighbors live, the way macOS shows where the item would
+  // land. The index rides `onInsertPreview` back to the host so the
+  // eventual drop lands exactly at the previewed gap; the preview never
+  // crosses the group's separators (the math runs on the launchers' own
+  // centers only). The spacer is not a row child to the FLIP's eyes (no
+  // data-item-id, not tracked in rowEls): the display sequence's signature
+  // is unchanged, so no parting fires for the preview itself.
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null)
+  const insertPreview = props.insertPreview ?? null
+  const onInsertPreview = props.onInsertPreview
+  useLayoutEffect(() => {
+    if (insertPreview === null) {
+      setPreviewIndex((was) => (was === null ? was : null))
+      onInsertPreview?.(null)
+      return
+    }
+    // the launchers group's slot centers, measured live: the fisheye stands
+    // down during a drag-over, so the slots rest at their true geometry
+    const ids = displayedIds[DOCK_LAUNCHERS_GROUP] ?? []
+    const centers: number[] = []
+    for (const id of ids) {
+      const el = rowEls.current.get(`slot:${id}`)
+      if (!el) continue
+      const rect = el.getBoundingClientRect()
+      centers.push(rect.left + rect.width / 2)
+    }
+    const index = dockInsertIndex(centers, insertPreview)
+    setPreviewIndex((was) => (was === index ? was : index))
+    onInsertPreview?.(index)
+  }, [insertPreview, displayedIds, onInsertPreview])
+
   // ── the context menu (right-click / Shift+F10 on a focused item) ──
   // anchored to the ITEM's own rect, not the pointer: the pointer's y is
   // inside the pill, so clamping "above the pointer" would land the menu on
@@ -411,8 +459,19 @@ export function Dock(props: DockProps): React.JSX.Element {
     const root = rootRef.current
     // a parting in flight stands the fisheye down: its measured centers
     // would fight mid-flight slot transforms, and the settle timer re-arms
-    // this effect the moment the row lands (the next enter re-measures)
-    if (!root || reducedMotion || props.magnify === false || draggingId || parting) return
+    // this effect the moment the row lands (the next enter re-measures).
+    // An active insert preview does the same — a drag is over the pill, and
+    // the preview's gap owns the row's shape, not the magnification
+    if (
+      !root ||
+      reducedMotion ||
+      props.magnify === false ||
+      draggingId ||
+      parting ||
+      insertPreview !== null
+    ) {
+      return
+    }
     /** the slots in display order, collected at gesture start */
     let slots: HTMLDivElement[] = []
     /** each slot's un-magnified center in viewport px, measured at rest */
@@ -443,7 +502,15 @@ export function Dock(props: DockProps): React.JSX.Element {
       frame = requestAnimationFrame(apply)
     }
 
-    const onEnter = (): void => {
+    const onEnter = (event: PointerEvent): void => {
+      // a held-button enter is the desktop's icon drag arriving over the
+      // pill: the insert preview owns the row while the drag is over it,
+      // and magnifying under the carried icon would fight the gap — stand
+      // down (the plain re-enter after the drag re-arms the gesture)
+      if (event.buttons & 1) {
+        centers = null
+        return
+      }
       // a re-entry can land mid-collapse (the leave transition still running):
       // snap to rest before measuring, or the centers would describe the
       // half-magnified layout. Transitions off first, so the snap is instant.
@@ -459,6 +526,24 @@ export function Dock(props: DockProps): React.JSX.Element {
 
     const onMove = (event: PointerEvent): void => {
       if (centers === null) return
+      // the drag crossed onto the pill mid-hover (the hover armed first,
+      // the icon's drag arrived after): the same stand-down, plus the
+      // collapse so no magnified width survives the preview
+      if (event.buttons & 1) {
+        if (frame) {
+          cancelAnimationFrame(frame)
+          frame = 0
+        }
+        centers = null
+        pointerX = null
+        root.classList.add('dock-collapsing')
+        for (const slot of slots) {
+          slot.style.width = ''
+          const item = slot.firstElementChild
+          if (item instanceof HTMLElement) item.style.transform = ''
+        }
+        return
+      }
       pointerX = event.clientX
       schedule()
     }
@@ -511,7 +596,7 @@ export function Dock(props: DockProps): React.JSX.Element {
       // listener left to collapse it
       snapSlotsToRest(root)
     }
-  }, [reducedMotion, props.magnify, draggingId, parting, orderSignature])
+  }, [reducedMotion, props.magnify, draggingId, parting, insertPreview, orderSignature])
 
   // ── the drag layer (reorder within a group) ──
   // Pointer-only and threshold-gated, so an ordinary click never feels a
@@ -548,7 +633,12 @@ export function Dock(props: DockProps): React.JSX.Element {
     return [...root.children].filter(
       (child): child is HTMLElement =>
         child instanceof HTMLElement &&
-        (child.classList.contains('dock-slot') || child.classList.contains('dock-separator')),
+        // the insert preview's spacer is not a droppable slot: the dock's
+        // own drag never runs while a preview is live (one pointer, one
+        // gesture), but the enumeration stays honest regardless
+        ((child.classList.contains('dock-slot') &&
+          !child.classList.contains('dock-slot-preview')) ||
+          child.classList.contains('dock-separator')),
     )
   }
 
@@ -764,82 +854,105 @@ export function Dock(props: DockProps): React.JSX.Element {
       onPointerUp={onRootPointerUp}
       onPointerCancel={onRootPointerCancel}
     >
-      {displayedGroups.map((group, groupIndex) => (
-        <Fragment key={groupIndex}>
-          {groupIndex > 0 && (
-            <span
-              className="dock-separator"
-              aria-hidden="true"
-              data-sep={groupIndex}
-              ref={trackRowEl(`sep:${groupIndex}`)}
-            />
-          )}
-          {group.map((item) => (
-            <div
-              key={item.id}
-              className="dock-slot"
-              data-item-id={item.id}
-              ref={trackRowEl(`slot:${item.id}`)}
-              onPointerDown={(event) => onSlotPointerDown(event, item.id)}
-            >
-              <button
-                type="button"
-                className="dock-item"
-                data-tip={item.label}
-                aria-label={item.label}
-                aria-current={item.active ? 'true' : undefined}
-                aria-haspopup={item.menu ? 'menu' : undefined}
-                onClick={(event) => {
-                  if (suppressedClick.current) {
-                    suppressedClick.current = false
-                    event.preventDefault()
-                    return
-                  }
-                  item.onSelect()
-                }}
-                onContextMenu={
-                  item.menu
-                    ? (event) => {
+      {displayedGroups.map((group, groupIndex) => {
+        // the insert preview's spacer, spliced into the launchers group at
+        // the previewed index: its width animation parts the neighbors
+        // live. Not a slot to any layer's eyes — no id, no button, not
+        // tracked — and reduced motion sees it at full width with the
+        // entry animation off (home.css)
+        const previewAt =
+          groupIndex === DOCK_LAUNCHERS_GROUP && previewIndex !== null ? previewIndex : null
+        const members =
+          previewAt === null
+            ? group
+            : [...group.slice(0, previewAt), null, ...group.slice(previewAt)]
+        return (
+          <Fragment key={groupIndex}>
+            {groupIndex > 0 && (
+              <span
+                className="dock-separator"
+                aria-hidden="true"
+                data-sep={groupIndex}
+                ref={trackRowEl(`sep:${groupIndex}`)}
+              />
+            )}
+            {members.map((item) =>
+              item === null ? (
+                <div
+                  key="dock-insert-preview"
+                  className="dock-slot dock-slot-preview"
+                  aria-hidden="true"
+                />
+              ) : (
+                <div
+                  key={item.id}
+                  className="dock-slot"
+                  data-item-id={item.id}
+                  ref={trackRowEl(`slot:${item.id}`)}
+                  onPointerDown={(event) => onSlotPointerDown(event, item.id)}
+                >
+                  <button
+                    type="button"
+                    className="dock-item"
+                    data-tip={item.label}
+                    aria-label={item.label}
+                    aria-current={item.active ? 'true' : undefined}
+                    aria-haspopup={item.menu ? 'menu' : undefined}
+                    onClick={(event) => {
+                      if (suppressedClick.current) {
+                        suppressedClick.current = false
                         event.preventDefault()
-                        // the item's own rect anchors the menu (above it),
-                        // and the keyboard contextmenu — which arrives with
-                        // no pointer coordinates — falls back to the focused
-                        // button's rect center; a real right-click steers
-                        // the horizontal placement with its pointer x
-                        const rect = event.currentTarget.getBoundingClientRect()
-                        const keyboard = event.clientX === 0 && event.clientY === 0
-                        setMenu({
-                          itemId: item.id,
-                          x: keyboard ? rect.left + rect.width / 2 : event.clientX,
-                          top: rect.top,
-                        })
+                        return
                       }
-                    : undefined
-                }
-              >
-                {item.tile ? (
-                  <span
-                    className={[
-                      'dock-tile',
-                      `dock-tile-${item.tile}`,
-                      props.bouncing === item.id && !reducedMotion ? 'dock-bouncing' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
+                      item.onSelect()
+                    }}
+                    onContextMenu={
+                      item.menu
+                        ? (event) => {
+                            event.preventDefault()
+                            // the item's own rect anchors the menu (above it),
+                            // and the keyboard contextmenu — which arrives with
+                            // no pointer coordinates — falls back to the focused
+                            // button's rect center; a real right-click steers
+                            // the horizontal placement with its pointer x
+                            const rect = event.currentTarget.getBoundingClientRect()
+                            const keyboard = event.clientX === 0 && event.clientY === 0
+                            setMenu({
+                              itemId: item.id,
+                              x: keyboard ? rect.left + rect.width / 2 : event.clientX,
+                              top: rect.top,
+                            })
+                          }
+                        : undefined
+                    }
                   >
-                    {item.icon}
-                  </span>
-                ) : (
-                  item.icon
-                )}
-              </button>
-              {/* the dot rides the slot, not the button: the button carries the
-                  magnification transform and the indicator must not grow */}
-              {(item.active || item.running) && <span className="dock-dot" aria-hidden="true" />}
-            </div>
-          ))}
-        </Fragment>
-      ))}
+                    {item.tile ? (
+                      <span
+                        className={[
+                          'dock-tile',
+                          `dock-tile-${item.tile}`,
+                          props.bouncing === item.id && !reducedMotion ? 'dock-bouncing' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                      >
+                        {item.icon}
+                      </span>
+                    ) : (
+                      item.icon
+                    )}
+                  </button>
+                  {/* the dot rides the slot, not the button: the button carries the
+                      magnification transform and the indicator must not grow */}
+                  {(item.active || item.running) && (
+                    <span className="dock-dot" aria-hidden="true" />
+                  )}
+                </div>
+              ),
+            )}
+          </Fragment>
+        )
+      })}
       {menuEntries &&
         menu &&
         createPortal(

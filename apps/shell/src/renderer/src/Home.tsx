@@ -3,6 +3,7 @@ import type { DragEvent as ReactDragEvent } from 'react'
 import { AiDock, normalizeAiDockPrefs, readLocalAiDockPrefs, writeLocalAiDockPrefs } from './AiDock'
 import {
   addDockCustom,
+  type DockCustomPlace,
   normalizeDockPrefs,
   removeDockCustom,
   type DockCustomAddStatus,
@@ -12,7 +13,7 @@ import {
   type DockPrefs,
 } from '../../shared/dock-prefs'
 import { useDockBounce } from './dock-bounce'
-import { DOCK_AUTOHIDE_DELAY_MS } from './dock-math'
+import { DOCK_AUTOHIDE_DELAY_MS, DOCK_LAUNCHERS_GROUP, applyDockOrder } from './dock-math'
 import { dockCustomLabel, dockCustomIcon, dockCustomTile } from './dock-custom'
 import { DockFlyGhost, useDockFlyGhost, type DockGhostFrom } from './dock-ghost'
 import { desktopAppOpen, isOpenableDocument } from './desktop-items'
@@ -1146,6 +1147,21 @@ export function Home() {
   const flyGhost = useDockFlyGhost(dockPillRef)
   const beginFly = flyGhost.beginFly
 
+  // ── the drag-over insert preview: the desktop reports the pointer over
+  // the pill, the dock reports back where its gap opened. The x rides state
+  // (the dock's prop must follow the pointer live); the INDEX rides a ref —
+  // nothing renders from it, and the drop handler reads it at event time
+  // without re-creating itself (the gesture-stability lesson: the handler's
+  // identity must never churn mid-drag).
+  const [dockInsertPreview, setDockInsertPreview] = useState<number | null>(null)
+  const handleDockHover = useCallback((x: number | null) => {
+    setDockInsertPreview((prev) => (prev === x ? prev : x))
+  }, [])
+  const dockInsertIndexRef = useRef<number | null>(null)
+  const handleInsertPreview = useCallback((index: number | null) => {
+    dockInsertIndexRef.current = index
+  }, [])
+
   /** a dragged-in icon's release over the pill: join it to the dock, read back what happened */
   const handleDockDrop = useCallback(
     (candidate: DockCustomCandidate, at: DockGhostFrom): DockCustomAddStatus => {
@@ -1166,7 +1182,23 @@ export function Home() {
       // broadcast's value is at most one beat stale at event time — the
       // optimistic commit below has already applied the newer state
       const prefs = dockPrefsRef.current
-      const result = addDockCustom(prefs, candidate)
+      // the previewed position: the dock reported the launchers-group index
+      // its gap opened at, and the drop lands exactly there — the group's
+      // displayed ids come from the same applyDockOrder the dock runs, so
+      // the newcomer ranks where the gap was. No preview rode the drag (a
+      // quick release, a pointer that never crossed the pill's hit rect
+      // before the up) → the append-before-ask default
+      let place: DockCustomPlace | undefined
+      const index = dockInsertIndexRef.current
+      if (index !== null) {
+        const launchers =
+          applyDockOrder(
+            dockGroupsRef.current.map((group) => group.map((item) => item.id)),
+            prefs.order,
+          )[DOCK_LAUNCHERS_GROUP] ?? []
+        place = { launchers, index }
+      }
+      const result = addDockCustom(prefs, candidate, place)
       if (result.status === 'added') {
         commitDockPrefs({ customItems: result.prefs.customItems, order: result.prefs.order })
         // the fly-in ghost takes the release point as its start and flies
@@ -2515,6 +2547,8 @@ export function Home() {
         bouncing={bounce.bouncing}
         hidden={dockPrefs.autoHide && !dockShown}
         pillRef={dockPillRef}
+        insertPreview={dockInsertPreview}
+        onInsertPreview={handleInsertPreview}
         onInteractionChange={onDockInteraction}
         onPointerEnter={() => {
           dockHoveredRef.current = true
@@ -2571,6 +2605,7 @@ export function Home() {
               onNewFolder={newFolderOnDesktop}
               dockPillRef={dockPillRef}
               onDockDrop={handleDockDrop}
+              onDockHover={handleDockHover}
               backdropHost={backdropHost}
             />
           ) : selectedFolder && rootOf(selectedFolder, roots)?.readable ? (

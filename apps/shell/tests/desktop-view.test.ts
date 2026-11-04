@@ -1059,6 +1059,100 @@ describe('DesktopView — dropping icons onto the dock', () => {
     expect(saves).toEqual([])
   })
 
+  it('the hover channel: x while the drag is over the pill, null off it and at the end', async () => {
+    const hovers: Array<number | null> = []
+    await render('en', {
+      dockPillRef: pill(),
+      onDockDrop: () => 'added',
+      onDockHover: (x) => hovers.push(x),
+    })
+    // the gesture: press on gamma, travel onto the pill, off it, back on,
+    // release over it — the reports follow the pointer's beat
+    const before = posXY('gamma.pdf')
+    await act(async () => {
+      iconOf('gamma.pdf').dispatchEvent(
+        new MouseEvent('pointerdown', {
+          bubbles: true,
+          clientX: before.x,
+          clientY: before.y,
+          button: 0,
+        }),
+      )
+      await Promise.resolve()
+    })
+    const move = (x: number, y: number): Promise<void> =>
+      act(async () => {
+        window.dispatchEvent(
+          new MouseEvent('pointermove', { bubbles: true, clientX: x, clientY: y }),
+        )
+        await Promise.resolve()
+      })
+    // a sub-threshold move reports nothing (the drag has not begun)
+    await move(before.x + 2, before.y + 2)
+    expect(hovers).toEqual([])
+    // onto the pill: the x rides through, one report per move
+    await move(insidePill.x - 20, insidePill.y)
+    await move(insidePill.x, insidePill.y)
+    expect(hovers).toEqual([insidePill.x - 20, insidePill.x])
+    // off the pill (above it): null
+    await move(insidePill.x, insidePill.y - 200)
+    expect(hovers.at(-1)).toBeNull()
+    // back on, then the release: the drop consumes the preview and the
+    // channel closes with the gesture
+    await move(insidePill.x, insidePill.y)
+    expect(hovers.at(-1)).toBe(insidePill.x)
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('pointerup', {
+          bubbles: true,
+          clientX: insidePill.x,
+          clientY: insidePill.y,
+        }),
+      )
+      await Promise.resolve()
+    })
+    expect(hovers.at(-1)).toBeNull()
+  })
+
+  it('a cancelled drag closes the hover channel too', async () => {
+    const hovers: Array<number | null> = []
+    await render('en', {
+      dockPillRef: pill(),
+      onDockDrop: () => 'added',
+      onDockHover: (x) => hovers.push(x),
+    })
+    const before = posXY('gamma.pdf')
+    await act(async () => {
+      iconOf('gamma.pdf').dispatchEvent(
+        new MouseEvent('pointerdown', {
+          bubbles: true,
+          clientX: before.x,
+          clientY: before.y,
+          button: 0,
+        }),
+      )
+      await Promise.resolve()
+    })
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('pointermove', {
+          bubbles: true,
+          clientX: insidePill.x,
+          clientY: insidePill.y,
+        }),
+      )
+      await Promise.resolve()
+    })
+    expect(hovers).toEqual([insidePill.x])
+    // the window loses focus mid-drag: the gesture rolls back and the
+    // preview's gap closes with it
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+      await Promise.resolve()
+    })
+    expect(hovers.at(-1)).toBeNull()
+  })
+
   it('a group drag over the pill keeps the grid commit: the dock takes one item, not a selection', async () => {
     const drops: DockCustomCandidate[] = []
     stored = { positions: { 'app:docs': cellPos(0, 0), 'app:sheets': cellPos(1, 0) } }

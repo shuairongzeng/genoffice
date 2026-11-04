@@ -8,9 +8,11 @@ import {
   DOCK_BOUNCE_TIMEOUT_MS,
   DOCK_AUTOHIDE_DELAY_MS,
   DOCK_GHOST_MS,
+  DOCK_LAUNCHERS_GROUP,
   DOCK_PARTING_MS,
   DOCK_POP_MS,
   applyDockOrder,
+  dockInsertIndex,
   dockOrderOf,
   dockPartingPlan,
   dockReorderAt,
@@ -362,5 +364,38 @@ describe('the parting FLIP math (dockPartingPlan)', () => {
     expect(DOCK_PARTING_MS).toBe(250)
     expect(DOCK_POP_MS).toBe(200)
     expect(DOCK_GHOST_MS).toBe(300)
+  })
+})
+
+describe('the drag-over insert preview (dockInsertIndex)', () => {
+  // three launchers' slot centers, a rest pitch apart
+  const CENTERS = [124, 172, 220]
+
+  it('before the first center the gap opens at the group head', () => {
+    expect(dockInsertIndex(CENTERS, 0)).toBe(0)
+    expect(dockInsertIndex(CENTERS, 123.9)).toBe(0)
+  })
+
+  it('between two centers the gap opens between them; on a center, before it', () => {
+    expect(dockInsertIndex(CENTERS, 148)).toBe(1)
+    expect(dockInsertIndex(CENTERS, 200)).toBe(2)
+    // a pointer exactly on a slot's center opens the gap BEFORE the slot
+    expect(dockInsertIndex(CENTERS, 124)).toBe(0)
+    expect(dockInsertIndex(CENTERS, 172)).toBe(1)
+  })
+
+  it('past the last center the gap opens at the group end — before the ask tail', () => {
+    expect(dockInsertIndex(CENTERS, 220.1)).toBe(3)
+    expect(dockInsertIndex(CENTERS, 5000)).toBe(3)
+  })
+
+  it('the answer is bounded by construction: the group is the whole world', () => {
+    // the caller passes only the launchers' centers, so even a wild x can
+    // never name a position across a separator: 0..centers.length, always
+    expect(dockInsertIndex([], 300)).toBe(0)
+    expect(dockInsertIndex(CENTERS, Number.NEGATIVE_INFINITY)).toBe(0)
+    expect(dockInsertIndex(CENTERS, Number.POSITIVE_INFINITY)).toBe(CENTERS.length)
+    // and the launchers group sits at the fixed second position
+    expect(DOCK_LAUNCHERS_GROUP).toBe(1)
   })
 })

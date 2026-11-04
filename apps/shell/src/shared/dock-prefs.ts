@@ -202,18 +202,41 @@ export function sameDockPrefs(a: DockPrefs, b: DockPrefs): boolean {
 export type DockCustomAddStatus = 'added' | 'duplicate' | 'full' | 'invalid'
 
 /**
+ * Where a positioned insert lands: the launchers group's displayed ids (the
+ * arrangement applyDockOrder produces, WITHOUT the newcomer) and the index
+ * the newcomer takes among them — 0 is the group's head, `launchers.length`
+ * the gap before the ask tail.
+ */
+export interface DockCustomPlace {
+  readonly launchers: readonly string[]
+  /** clamped into [0, launchers.length] */
+  readonly index: number
+}
+
+/**
  * One dragged-in desktop icon joined onto the prefs: the candidate validated
  * (an empty or oversized target answers `invalid`), a repeat of an item the
  * dock already carries answered `duplicate` (nothing changes, nothing
  * writes), a drop past DOCK_CUSTOM_CAP answered `full` (the pill's
- * composition stands). An `added` item lands at the END of the customs list
- * and the END of the order sequence — applyDockOrder places it after the
+ * composition stands).
+ *
+ * Without a `place` an `added` item lands at the END of the customs list and
+ * the END of the order sequence — applyDockOrder places it after the
  * launchers group's coded members, before the ask tail, exactly where the
- * drop released it.
+ * drop released it. With one, the newcomer takes the previewed position: the
+ * order is rebuilt so the launchers group is ranked explicitly, in its new
+ * sequence, with the newcomer spliced at the index. Ranking the whole group
+ * at once is the robust way to express "between THESE two neighbors" —
+ * splicing a single id next to a neighbor's rank only works when the
+ * sequence already lists both, and a fresh store lists neither. The group's
+ * ranks matter only within the group (membership is the groups' own, never
+ * the sequence's), so the block may sit anywhere in the flat order — the
+ * ids outside it keep their relative arrangement untouched.
  */
 export function addDockCustom(
   prefs: DockPrefs,
   candidate: DockCustomCandidate,
+  place?: DockCustomPlace,
 ): { status: DockCustomAddStatus; prefs: DockPrefs } {
   const target = candidate.target.trim()
   const item = asDockCustomItem({
@@ -226,13 +249,20 @@ export function addDockCustom(
     return { status: 'duplicate', prefs }
   }
   if (prefs.customItems.length >= DOCK_CUSTOM_CAP) return { status: 'full', prefs }
+  const customItems = [...prefs.customItems, item]
+  if (!place) {
+    return {
+      status: 'added',
+      prefs: { ...prefs, customItems, order: [...prefs.order, item.id] },
+    }
+  }
+  const index = Math.min(Math.max(Math.round(place.index), 0), place.launchers.length)
+  const block = [...place.launchers.slice(0, index), item.id, ...place.launchers.slice(index)]
+  const inBlock = new Set(block)
+  const rest = prefs.order.filter((id) => !inBlock.has(id))
   return {
     status: 'added',
-    prefs: {
-      ...prefs,
-      customItems: [...prefs.customItems, item],
-      order: [...prefs.order, item.id],
-    },
+    prefs: { ...prefs, customItems, order: [...rest, ...block] },
   }
 }
 

@@ -1003,4 +1003,103 @@ describe("the dock's dragged-in launchers (dockPrefs.customItems)", () => {
       localStorage.setItem('home.view', 'recent')
     }
   })
+
+  it('a drop lands at the previewed gap: the drag-over preview parts the row and positions the insert', async () => {
+    localStorage.setItem('home.view', 'desktop')
+    prefsValue = {}
+    await mountWithCustoms()
+    const pill = container.querySelector<HTMLElement>('.dock')!
+    Object.defineProperty(pill, 'getBoundingClientRect', {
+      value: () => ({
+        left: 500,
+        top: 700,
+        width: 200,
+        height: 60,
+        right: 700,
+        bottom: 760,
+        x: 500,
+        y: 700,
+        toJSON: () => ({}),
+      }),
+    })
+    // the launchers' slots at real centers (own-property rects: a spy on an
+    // instance method patches the prototype) — settings 544, templates 594,
+    // plugins 644, so a pointer at x=600 previews the gap between templates
+    // and plugins
+    const stubSlot = (id: string, left: number): void => {
+      const slot = container.querySelector<HTMLElement>(`.dock-slot[data-item-id="${id}"]`)!
+      Object.defineProperty(slot, 'getBoundingClientRect', {
+        value: () => ({
+          left,
+          top: 710,
+          width: 48,
+          height: 48,
+          right: left + 48,
+          bottom: 758,
+          x: left,
+          y: 710,
+          toJSON: () => ({}),
+        }),
+      })
+    }
+    stubSlot('dock:settings', 520)
+    stubSlot('dock:templates', 570)
+    stubSlot('dock:plugins', 620)
+    // the drag: press the Docs tile, move onto the pill (the preview opens
+    // live), dwell, release
+    const docs = container.querySelector<HTMLElement>('.desktop-icon-item[aria-label="Docs"]')!
+    const before = docs.closest('li') as HTMLElement
+    const startX = Number.parseInt(before.style.left, 10)
+    const startY = Number.parseInt(before.style.top, 10)
+    await act(async () => {
+      docs.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          bubbles: true,
+          button: 0,
+          clientX: startX,
+          clientY: startY,
+        }),
+      )
+    })
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('pointermove', { bubbles: true, clientX: 600, clientY: 730 }),
+      )
+    })
+    // the preview is live: the gap opened between templates and plugins
+    const order = [...container.querySelectorAll<HTMLElement>('.dock-slot')].map(
+      (slot) => slot.dataset.itemId ?? 'PREVIEW',
+    )
+    expect(order).toEqual([
+      'dock:desktop',
+      'dock:recent',
+      'dock:starred',
+      'dock:settings',
+      'dock:templates',
+      'PREVIEW',
+      'dock:plugins',
+      'dock:ask',
+    ])
+    // the release: the drop lands exactly at the previewed gap
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('pointerup', { bubbles: true, clientX: 600, clientY: 730 }),
+      )
+    })
+    expect(
+      container.querySelector('.dock-slot[data-item-id="dock:custom:app:app:docs"]'),
+    ).toBeTruthy()
+    // the gap became the item's place: the patch's order ranks the new
+    // launcher between templates and plugins, not appended
+    const patch = prefsPatches.at(-1) as { order?: string[]; customItems?: unknown[] }
+    expect(patch.customItems).toHaveLength(1)
+    expect(patch.order?.indexOf('dock:custom:app:app:docs')).toBe(
+      patch.order!.indexOf('dock:templates') + 1,
+    )
+    expect(patch.order!.indexOf('dock:plugins')).toBe(
+      patch.order!.indexOf('dock:custom:app:app:docs') + 1,
+    )
+    // and the preview closed with the gesture
+    expect(container.querySelector('.dock-slot-preview')).toBeNull()
+  })
 })

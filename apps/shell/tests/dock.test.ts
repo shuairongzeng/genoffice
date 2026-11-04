@@ -1032,3 +1032,150 @@ describe('the parting FLIP (a composition change parts the row)', () => {
     expect(slotOf('custom').classList.contains('dock-slot-entering')).toBe(false)
   })
 })
+
+describe('the drag-over insert preview (the gap that opens before the drop)', () => {
+  // the dock's three fixed groups: nav | launchers | ask — the preview lives
+  // in the launchers group only
+  const groups = (): readonly (readonly DockItem[])[] => [
+    [threeItems()[0]!, threeItems()[1]!],
+    [
+      { id: 'settings', label: 'Settings', icon: icon(), onSelect: vi.fn() },
+      { id: 'templates', label: 'Templates', icon: icon(), onSelect: vi.fn() },
+      { id: 'plugins', label: 'Plugins', icon: icon(), onSelect: vi.fn() },
+    ],
+    [threeItems()[2]!],
+  ]
+
+  /** the launchers' slot DOM indices: after the two nav slots */
+  const spacer = (): HTMLElement | null =>
+    container.querySelector<HTMLElement>('.dock-slot-preview')
+  /** every dock-slot in DOM order, the spacer included (it carries the class) */
+  const slotOrder = (): string[] =>
+    [...container.querySelectorAll<HTMLElement>('.dock-slot')].map(
+      (slot) => slot.dataset.itemId ?? 'PREVIEW',
+    )
+  const onInsertPreview = vi.fn()
+
+  beforeEach(async () => {
+    onInsertPreview.mockClear()
+    await mountDock({ groups: groups(), onInsertPreview })
+    // the launchers' slots sit at DOM indices 2..4 under the stubbed pitch
+    stubSlots([48, 48, 48, 48, 48, 48])
+  })
+
+  it('reports null while no drag is over the pill, and no spacer renders', async () => {
+    expect(onInsertPreview).toHaveBeenCalledWith(null)
+    expect(spacer()).toBeNull()
+  })
+
+  it('a pointer between two centers opens the gap between them', async () => {
+    // centers: settings 220, templates 268, plugins 316
+    await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: 250 })
+    expect(onInsertPreview).toHaveBeenLastCalledWith(1)
+    expect(slotOrder()).toEqual([
+      'recent',
+      'starred',
+      'settings',
+      'PREVIEW',
+      'templates',
+      'plugins',
+      'ask',
+    ])
+  })
+
+  it('the gap follows the pointer: a new x moves it, the report follows', async () => {
+    await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: 250 })
+    await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: 300 })
+    expect(onInsertPreview).toHaveBeenLastCalledWith(2)
+    expect(slotOrder()).toEqual([
+      'recent',
+      'starred',
+      'settings',
+      'templates',
+      'PREVIEW',
+      'plugins',
+      'ask',
+    ])
+  })
+
+  it('before the first center the gap opens at the group head, past the last before the ask separator', async () => {
+    await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: 0 })
+    expect(onInsertPreview).toHaveBeenLastCalledWith(0)
+    expect(slotOrder()).toEqual([
+      'recent',
+      'starred',
+      'PREVIEW',
+      'settings',
+      'templates',
+      'plugins',
+      'ask',
+    ])
+    await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: 5000 })
+    expect(onInsertPreview).toHaveBeenLastCalledWith(3)
+    expect(slotOrder()).toEqual([
+      'recent',
+      'starred',
+      'settings',
+      'templates',
+      'plugins',
+      'PREVIEW',
+      'ask',
+    ])
+    // the boundary holds: no preview ever lands in the nav or the ask group
+    const ids = slotOrder().filter((id) => id !== 'PREVIEW')
+    expect(ids.slice(0, 2)).toEqual(['recent', 'starred'])
+    expect(ids.at(-1)).toBe('ask')
+  })
+
+  it('the preview ends: the spacer unmounts and the report goes null', async () => {
+    await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: 250 })
+    expect(spacer()).toBeTruthy()
+    await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: null })
+    expect(onInsertPreview).toHaveBeenLastCalledWith(null)
+    expect(spacer()).toBeNull()
+  })
+
+  it('the fisheye stands down while the preview is live: no magnification under the carried icon', async () => {
+    await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: 250 })
+    dispatch('pointerenter')
+    dispatch('pointermove', centerX(3))
+    await flushFrames()
+    expect(slotWidths().every((width) => width === '')).toBe(true)
+  })
+
+  it('a held-button move disarms an armed fisheye (the drag crossing onto the pill mid-hover)', async () => {
+    await mountDock({ groups: groups() })
+    stubSlots([48, 48, 48, 48, 48, 48])
+    dispatch('pointerenter')
+    dispatch('pointermove', centerX(3))
+    await flushFrames()
+    expect(slotWidths()[3]).not.toBe('')
+    // the icon's drag arrives: the move carries buttons=1 — the magnified
+    // widths collapse and nothing further magnifies
+    const dock = container.querySelector<HTMLElement>('.dock')!
+    dock.dispatchEvent(
+      new MouseEvent('pointermove', { bubbles: true, clientX: centerX(3), buttons: 1 }),
+    )
+    await flushFrames()
+    expect(slotWidths().every((width) => width === '')).toBe(true)
+    dock.dispatchEvent(
+      new MouseEvent('pointermove', { bubbles: true, clientX: centerX(2), buttons: 1 }),
+    )
+    await flushFrames()
+    expect(slotWidths().every((width) => width === '')).toBe(true)
+  })
+
+  it('a held-button enter never arms the fisheye (the drag arriving over the pill)', async () => {
+    await mountDock({ groups: groups() })
+    stubSlots([48, 48, 48, 48, 48, 48])
+    const dock = container.querySelector<HTMLElement>('.dock')!
+    dock.dispatchEvent(
+      new MouseEvent('pointerenter', { bubbles: true, clientX: centerX(3), buttons: 1 }),
+    )
+    dock.dispatchEvent(
+      new MouseEvent('pointermove', { bubbles: true, clientX: centerX(3), buttons: 1 }),
+    )
+    await flushFrames()
+    expect(slotWidths().every((width) => width === '')).toBe(true)
+  })
+})
