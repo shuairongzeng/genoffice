@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AgentLoop,
   ATTACHMENT_IMAGE_EXTS,
@@ -91,7 +91,7 @@ import type { Lang } from '@genoffice/i18n'
 import { activeProvider } from '@genoffice/ai-provider/browser'
 import type { ChatMessage, ChatMeta, ProjectApi, RunSummary } from '@genoffice/project-store'
 import { useI18n } from './locale'
-import { MascotSvg } from './AiDock'
+import { MascotSvg, BubbleDragContext } from './AiDock'
 import { FileBadge } from './file-badge'
 import type { StringKey } from './strings'
 import { useConfirm } from './ConfirmDialog'
@@ -930,9 +930,9 @@ export function KbAskPanel({
   onEscapeCollapse,
   onCollapse,
   onOpenKbCenter,
+  onBubbleDragStart,
   surfaceRole = 'home',
-}: {
-  /**
+}: {  /**
    * The transcript this mount owns (P0-1): project-store takes the id
    * verbatim for a file-less chat, so two mounts of this panel (Home's copy
    * and the overlay's standalone one) must pass different ids or their
@@ -984,8 +984,19 @@ export function KbAskPanel({
    * without rebuilding the loop. Defaults to Home's.
    */
   surfaceRole?: 'home' | 'overlay' | 'docked'
+  /**
+   * The bubble is draggable by its merged header (Home mode): the host's pet
+   * drag verb — the bubble hangs off the pet, so dragging the header moves
+   * the pet and the bubble follows its anchor. Absent (the overlay mounts):
+   * the header is not a grab zone there.
+   */
+  onBubbleDragStart?: (event: React.PointerEvent<HTMLElement>) => void
 }): React.JSX.Element {
   const { t, lang, dateLocale } = useI18n()
+  /** the bubble drag: the host's prop wins; the dock's context (the pet's own
+   *  gesture, shared) is the same thing when the host didn't pass one */
+  const contextBubbleDrag = useContext(BubbleDragContext)
+  const bubbleDragStart = onBubbleDragStart ?? contextBubbleDrag ?? undefined
   // the in-app replacement for the native confirm on thread delete (and any
   // future ask-side confirmation); rendered at the panel root
   const { confirm: confirmBox, dialog: confirmDialog } = useConfirm(t('ok'))
@@ -2906,7 +2917,18 @@ export function KbAskPanel({
         )?.label
         const title = askHeaderTitle(docPath, threadLabel, t('askThreadNew'))
         return (
-          <div className="kb-ask-header">
+          <div
+            className="kb-ask-header"
+            onPointerDown={(event) => {
+              // the bubble's grab zone: the header's own chrome (never the
+              // buttons inside it — their clicks stay clicks). Dragging it
+              // carries the pet and the bubble follows its anchor.
+              if (!bubbleDragStart || event.button !== 0) return
+              const target = event.target as HTMLElement
+              if (target.closest('button, input, textarea, a, [role=menu]')) return
+              bubbleDragStart(event)
+            }}
+          >
             <button
               type="button"
               className="kb-ask-library-button"

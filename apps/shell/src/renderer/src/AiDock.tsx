@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import type { AiDockPrefs } from '../../shared/home-api'
 import {
@@ -13,6 +13,14 @@ import {
   type AiPetPos,
 } from '../../shared/desktop-geometry'
 import { useI18n } from './locale'
+
+/** the bubble's drag verb for the panel's header (the bubble hangs off the
+ *  pet, so dragging the header IS dragging the pet — the same gesture, the
+ *  same commit). The dock provides it; the panel reads it when its own prop
+ *  is absent. */
+export const BubbleDragContext = createContext<
+  ((event: ReactPointerEvent<HTMLElement>) => void) | null
+>(null)
 
 /**
  * The workbench's AI surface, two layers of one state machine:
@@ -345,7 +353,7 @@ export function AiDock({
   const reservedRightRef = useRef(reservedRight)
   reservedRightRef.current = reservedRight
 
-  const beginPetDrag = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+  const beginPetDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || petDraggingRef.current) return
     petDraggingRef.current = true
     petDragMovedRef.current = false
@@ -543,6 +551,7 @@ export function AiDock({
                   right: bubble.right,
                   ...(bubble.bottom !== undefined ? { bottom: bubble.bottom } : {}),
                   ...(bubble.top !== undefined ? { top: bubble.top } : {}),
+                  maxHeight: bubble.maxHeight,
                   transformOrigin: `${morph.originX}px ${morph.originY}px`,
                   '--morph-sx': morph.scaleX,
                   '--morph-sy': morph.scaleY,
@@ -553,6 +562,7 @@ export function AiDock({
                   right: bubble.right,
                   ...(bubble.bottom !== undefined ? { bottom: bubble.bottom } : {}),
                   ...(bubble.top !== undefined ? { top: bubble.top } : {}),
+                  maxHeight: bubble.maxHeight,
                 } as React.CSSProperties)
           }
         >
@@ -560,7 +570,9 @@ export function AiDock({
               ☰ title ⋯ × row) — the drawer's separate head is gone; the
               collapse verb lives in the panel's ×, threaded back through
               Home as onCollapse */}
-          <div className="ai-drawer-body">{children}</div>
+          <div className="ai-drawer-body">
+            <BubbleDragContext.Provider value={beginPetDrag}>{children}</BubbleDragContext.Provider>
+          </div>
           {open && (
             <div
               className="ai-drawer-resize"

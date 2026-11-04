@@ -125,6 +125,11 @@ body.vib .home {
   --text: #f2f2f5;
   --text-muted: rgb(242 242 245 / 62%);
   --accent-soft: #24354d;
+  /* the theme's light-theme borders (#efefef) read as WHITE LINES on dark
+   * glass — remap them too, or every divider inside glows */
+  --border: rgb(255 255 255 / 10%);
+  --border-subtle: rgb(255 255 255 / 8%);
+  --color-border-default: var(--border);
   color: var(--text);
 }
 .home.desktop-mode[data-wallpaper-tone='dark'] .dock {
@@ -3536,6 +3541,14 @@ html[dir='rtl'] .quick-title-row {
   gap: 8px;
   flex-shrink: 0;
   padding: 10px 8px 10px 10px;
+  /* the header is the bubble's grab zone (buttons inside stay clickable) */
+  cursor: grab;
+}
+.kb-ask-header:active {
+  cursor: grabbing;
+}
+.kb-ask-header button {
+  cursor: default;
 }
 .kb-ask-header-title {
   font-size: 13.5px;

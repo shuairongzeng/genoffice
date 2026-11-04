@@ -181,17 +181,40 @@ export function aiBubbleMaxHeight(viewportHeight: number): number {
  * Answers CSS-ready fixed offsets in chrome px (`right` plus exactly one of
  * `bottom`/`top`).
  */
+/**
+ * The AI panel as a bubble anchored to the pet (Home mode): sized by content
+ * between the min and the max, its BOTTOM edge anchored above the pet so a
+ * growing conversation extends upward without moving the bird; right edges
+ * aligned with the pet. Not enough room above → it opens below the pet.
+ * Answers CSS-ready fixed offsets in chrome px (`right` plus exactly one of
+ * `bottom`/`top`) plus the height cap the anchor leaves room for — the
+ * bubble never reaches past the window's own edges.
+ */
 export function aiBubbleAnchor(
   petPos: AiPetPos,
   viewport: { width: number; height: number },
-): { right: number; top?: number; bottom?: number } {
+): { right: number; top?: number; bottom?: number; maxHeight: number } {
   const gap = 10
   const right = Math.max(8, Math.round(viewport.width - (petPos.x + PET_SIZE.width)))
-  const roomAbove = petPos.y - gap
+  const maxH = aiBubbleMaxHeight(viewport.height)
+  /* the bubble lives in the content area — never reaching the tab strip's
+   * drag zone above it (the strip's own gestures own that band, and a bubble
+   * poking into it answers no pointer) */
+  const topLimit = DESKTOP_HEADER_HEIGHT + 8
+  const roomAbove = petPos.y - gap - topLimit
   if (roomAbove >= AI_BUBBLE_MIN_HEIGHT) {
-    return { right, bottom: Math.round(viewport.height - petPos.y + gap) }
+    return {
+      right,
+      bottom: Math.round(viewport.height - petPos.y + gap),
+      maxHeight: Math.max(AI_BUBBLE_MIN_HEIGHT, Math.min(maxH, roomAbove)),
+    }
   }
-  return { right, top: Math.round(petPos.y + PET_SIZE.height + gap) }
+  const top = Math.round(petPos.y + PET_SIZE.height + gap)
+  return {
+    right,
+    top,
+    maxHeight: Math.max(AI_BUBBLE_MIN_HEIGHT, Math.min(maxH, viewport.height - top - 8)),
+  }
 }
 
 /**
