@@ -149,12 +149,15 @@
 }
 
 /* the transient notice (a refused drop, an alias the OS gate refused to
- * open): a small pill bottom-center over the icons, non-interactive, gone
- * in a few seconds */
+ * open): a small pill over the icons, non-interactive, gone in a few
+ * seconds. bottom clears the dock's pill at its largest (baseSize 64 +
+ * padding/dot ≈ 94px + the 9px window margin — 112px keeps a gap even
+ * there); the dock lives outside the home-body stacking context, so the
+ * notice can never win a z fight with it; it simply never overlaps instead */
 .desktop-notice {
   position: absolute;
   left: 50%;
-  bottom: 18px;
+  bottom: 112px;
   transform: translateX(-50%);
   max-width: min(80%, 520px);
   padding: 8px 14px;
