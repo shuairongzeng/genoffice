@@ -107,10 +107,9 @@ export const PET_SIZE = { width: 68, height: 62 } as const
 export const PET_MARGIN = 16
 
 /**
- * Clamp a pet position into the window (and out of the open drawer's
- * footprint, via `reservedRight`): the pet never hangs off an edge and never
- * hides under the drawer it opens. Pure so the gesture, the geometry and the
- * tests share one truth.
+ * Clamp a pet position into the window: the pet never hangs off an edge.
+ * (It may rest over the open drawer — it floats above it, its own mascot.)
+ * Pure so the gesture, the geometry and the tests share one truth.
  */
 export function clampPetPos(
   pos: AiPetPos,
@@ -164,6 +163,35 @@ export function petOverlayBounds(
     width: Math.round(PET_SIZE.width * scale),
     height: Math.round(PET_SIZE.height * scale),
   }
+}
+
+/** the bubble's smallest height in chrome px (header + a breath of thread + composer) */
+export const AI_BUBBLE_MIN_HEIGHT = 320
+
+/** the bubble's tallest height: most of the window, capped (the rest scrolls) */
+export function aiBubbleMaxHeight(viewportHeight: number): number {
+  return Math.round(Math.min(viewportHeight * 0.72, 760))
+}
+
+/**
+ * The AI panel as a bubble anchored to the pet (Home mode): sized by content
+ * between the min and the max, its BOTTOM edge anchored above the pet so a
+ * growing conversation extends upward without moving the bird; right edges
+ * aligned with the pet. Not enough room above → it opens below the pet.
+ * Answers CSS-ready fixed offsets in chrome px (`right` plus exactly one of
+ * `bottom`/`top`).
+ */
+export function aiBubbleAnchor(
+  petPos: AiPetPos,
+  viewport: { width: number; height: number },
+): { right: number; top?: number; bottom?: number } {
+  const gap = 10
+  const right = Math.max(8, Math.round(viewport.width - (petPos.x + PET_SIZE.width)))
+  const roomAbove = petPos.y - gap
+  if (roomAbove >= AI_BUBBLE_MIN_HEIGHT) {
+    return { right, bottom: Math.round(viewport.height - petPos.y + gap) }
+  }
+  return { right, top: Math.round(petPos.y + PET_SIZE.height + gap) }
 }
 
 /**

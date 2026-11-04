@@ -995,9 +995,8 @@ html.genoffice-popover-open .ai-drawer-head {
    the tab order instead of leaving an offscreen focus target. */
 .ai-drawer-panel {
   position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
+  /* anchored by the inline right/bottom (or right/top when the pet perches
+     too high) from aiBubbleAnchor — the bubble hangs off the pet */
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -1010,9 +1009,16 @@ html.genoffice-popover-open .ai-drawer-head {
   background: color-mix(in srgb, var(--surface) 46%, transparent);
   -webkit-backdrop-filter: blur(28px) saturate(1.25);
   backdrop-filter: blur(28px) saturate(1.25);
-  border-left: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-  --ai-drawer-shadow: -16px 0 36px rgb(0 0 0 / 16%);
+  /* the bubble: content-sized between the shared clamps, the thread inside
+     scrolling past the cap — never the full window's height */
+  height: fit-content;
+  min-height: min(320px, 60vh);
+  max-height: min(72vh, 760px);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 18px;
+  --ai-drawer-shadow: 0 18px 44px rgb(0 0 0 / 22%);
   box-shadow: var(--ai-drawer-shadow);
+  overflow: hidden;
 }
 
 .ai-drawer:not(.open) .ai-drawer-panel {
@@ -3577,6 +3583,12 @@ html[dir='rtl'] .quick-title-row {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* the bubble scrolls inside past its max height, but no scrollbar rail
+   * ever shows (the stick-to-bottom affordances carry the position sense) */
+  scrollbar-width: none;
+}
+.kb-ask-thread::-webkit-scrollbar {
+  display: none;
 }
 
 .kb-ask-thread-inner {

@@ -5,6 +5,7 @@ import {
   AI_DOCK_WIDTH_DEFAULT,
   AI_DOCK_WIDTH_MAX,
   AI_DOCK_WIDTH_MIN,
+  aiBubbleAnchor,
   clampPetPos,
   defaultPetPos,
   normalizeAiDock,
@@ -500,6 +501,11 @@ export function AiDock({
 
   const shownWidth = dragWidth ?? width
 
+  /** the bubble's anchor: the panel sizes to its content and hangs off the
+   *  pet (bottom-anchored above it, so a growing conversation stretches
+   *  upward while the bird stays put — and follows a drag live) */
+  const bubble = aiBubbleAnchor(shownPetPos, viewport)
+
   return (
     <>
       <button
@@ -534,12 +540,20 @@ export function AiDock({
             morph
               ? ({
                   width: shownWidth,
+                  right: bubble.right,
+                  ...(bubble.bottom !== undefined ? { bottom: bubble.bottom } : {}),
+                  ...(bubble.top !== undefined ? { top: bubble.top } : {}),
                   transformOrigin: `${morph.originX}px ${morph.originY}px`,
                   '--morph-sx': morph.scaleX,
                   '--morph-sy': morph.scaleY,
                   '--morph-radius': `${morph.radius}px`,
                 } as React.CSSProperties)
-              : { width: shownWidth }
+              : ({
+                  width: shownWidth,
+                  right: bubble.right,
+                  ...(bubble.bottom !== undefined ? { bottom: bubble.bottom } : {}),
+                  ...(bubble.top !== undefined ? { top: bubble.top } : {}),
+                } as React.CSSProperties)
           }
         >
           <header className="ai-drawer-head">
