@@ -3407,21 +3407,54 @@ html[dir='rtl'] .quick-title-row {
   width: 100%;
 }
 
-.kb-ask-headbar {
+/* ── the panel header: the library's ☰, the title and its corpus count,
+   and the new-thread ＋ — the mockup's head row. The count subline follows
+   the round scope the way the old headbar's did */
+.kb-ask-header {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 14px 2px 10px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 2px;
   border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 12px;
 }
-.kb-ask-headbar b {
+.kb-ask-header-text {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.kb-ask-header-text b {
   font-size: 14px;
   font-weight: 500;
 }
-.kb-ask-headbar span {
+.kb-ask-header-text span {
   font-size: 12px;
   color: var(--text-tertiary);
+}
+.kb-ask-library-button,
+.kb-ask-header-new {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-7, 7px);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.kb-ask-library-button:hover,
+.kb-ask-header-new:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.kb-ask-library-button[aria-expanded='true'] {
+  color: var(--accent);
 }
 
 /* the thread area: a relative wrap carrying the scroller and the
@@ -4043,75 +4076,244 @@ button.kb-ask-card-name:hover {
   text-decoration: underline;
 }
 
-/* The conversation list: a chip per stored thread, newest first, plus the
-   action that starts another one. */
-.kb-ask-threads {
+/* ── the conversation library (the ☰ surface) ──
+ * Slides over the whole panel from the left (the mockup's .22s ease, a
+ * short 18px travel): its own header row (会话 + ＋新对话), the live search
+ * box, the three sections (pinned → doc-bound → other), and the footnote.
+ * The rows carry a glyph (the doc's own file badge, or the plain 💬), the
+ * title with the pin mark, the meta line, and the hover actions: rename
+ * (an inline input, Enter saves), the pin toggle, and delete (the confirm
+ * flow the chips row already used). */
+.kb-ask-library {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
+  flex-direction: column;
+  background: var(--bg-content, var(--surface));
+  animation: kb-ask-library-in 0.22s ease;
+}
+
+@keyframes kb-ask-library-in {
+  from {
+    transform: translateX(-18px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kb-ask-library {
+    animation: none;
+  }
+}
+
+.kb-ask-library-head {
+  padding: 14px 14px 10px;
   border-bottom: 1px solid var(--border);
 }
 
-.kb-ask-thread-chip {
-  display: inline-flex;
+.kb-ask-library-title-row {
+  display: flex;
   align-items: center;
-  max-width: 220px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: transparent;
+  margin-bottom: 10px;
 }
 
-.kb-ask-thread-chip.active {
+.kb-ask-library-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.kb-ask-library-new {
+  margin-left: auto;
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-8, 8px);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.kb-ask-library-new:hover {
+  filter: brightness(1.08);
+}
+
+.kb-ask-library-search {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-9, 9px);
+  padding: 7px 10px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.kb-ask-library-search:focus-visible {
   border-color: var(--accent);
+}
+
+.kb-ask-library-search::placeholder {
+  color: var(--text-muted);
+}
+
+.kb-ask-library-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.kb-ask-library-section-head {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  padding: 10px 8px 5px;
+}
+
+.kb-ask-library-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 8px;
+  border-radius: var(--radius-9, 9px);
+}
+
+.kb-ask-library-row:hover {
   background: var(--hover);
 }
 
-.kb-ask-thread-chip > button:first-child {
+.kb-ask-library-row.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.kb-ask-library-glyph {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-7, 7px);
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.kb-ask-library-row[data-chat] .kb-ask-library-glyph {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.kb-ask-library-open {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   min-width: 0;
+  flex: 1;
   border: 0;
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 12px;
-  padding: 3px 4px 3px 10px;
+  text-align: left;
+  padding: 5px 0;
   cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.kb-ask-thread-del {
+.kb-ask-library-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.kb-ask-library-row-title {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb-ask-library-pin-mark {
+  color: var(--accent);
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.kb-ask-library-row-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.kb-ask-library-actions {
+  display: none;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.kb-ask-library-row:hover .kb-ask-library-actions,
+.kb-ask-library-row.active .kb-ask-library-actions {
+  display: flex;
+}
+
+.kb-ask-library-actions button {
   border: 0;
   background: transparent;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1;
-  padding: 2px 7px 3px 2px;
-  border-radius: var(--radius-6);
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-6, 6px);
+  display: grid;
+  place-items: center;
   cursor: pointer;
 }
 
-.kb-ask-thread-del:hover {
+.kb-ask-library-actions button:hover {
   background: var(--hover);
+  color: var(--text);
+}
+
+.kb-ask-library-actions button.danger:hover {
   color: var(--danger);
 }
 
-.kb-ask-thread-new {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 14px;
-  line-height: 1;
-  padding: 3px 10px 4px;
-  cursor: pointer;
+.kb-ask-library-rename {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
 }
 
-.kb-ask-thread-new:hover {
+.kb-ask-library-rename input {
+  width: 100%;
+  min-width: 0;
   background: var(--hover);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-6, 6px);
   color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 7px;
+  outline: none;
+}
+
+.kb-ask-library-rename-hint {
+  color: var(--success, #34c759);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.kb-ask-library-footnote {
+  padding: 8px 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
 }
 
 /* ── background task panel (between the thread chips and the message flow) ──

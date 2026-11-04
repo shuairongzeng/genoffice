@@ -4721,11 +4721,45 @@ export function registerProjectIpc(): void {
     },
   )
 
-  /** Lists the conversations in a project, newest first. */
-  ipcMain.handle('project:listChats', (_event, args: { projectId: string }) => {
+  /** Lists the conversations in a project, newest first. An optional query
+   * filters live by label or stored text (the library's search box). */
+  ipcMain.handle('project:listChats', (_event, args: { projectId: string; query?: string }) => {
+    if (typeof args.projectId !== 'string' || !args.projectId) {
+      throw new Error('Invalid projectId')
+    }
+    if (args.query !== undefined && typeof args.query !== 'string') {
+      throw new Error('Invalid query')
+    }
     const store = getProjectStore()
-    return store.listChats(args.projectId)
+    return store.listChats(args.projectId, args.query)
   })
+
+  /** Writes one thread's library metadata (rename/pin sidecar; transcripts untouched). */
+  ipcMain.handle(
+    'project:setChatMeta',
+    (
+      _event,
+      args: { projectId: string; chatId: string; title?: string | null; pinned?: boolean },
+    ) => {
+      if (typeof args.projectId !== 'string' || !args.projectId) {
+        throw new Error('Invalid projectId')
+      }
+      if (typeof args.chatId !== 'string' || !args.chatId) {
+        throw new Error('Invalid chatId')
+      }
+      if (args.title !== undefined && args.title !== null && typeof args.title !== 'string') {
+        throw new Error('Invalid title')
+      }
+      if (args.pinned !== undefined && typeof args.pinned !== 'boolean') {
+        throw new Error('Invalid pinned')
+      }
+      const store = getProjectStore()
+      return store.setChatMeta(args.projectId, args.chatId, {
+        ...(args.title === undefined ? {} : { title: args.title }),
+        ...(args.pinned === undefined ? {} : { pinned: args.pinned }),
+      })
+    },
+  )
 
   /** Deletes one conversation. A file-less chat is the home screen's ask panel. */
   ipcMain.handle('project:deleteChat', (_event, args: { projectId: string; chatId: string }) => {

@@ -37,6 +37,7 @@ import { basename, dirname, join } from 'node:path'
 import type {
   ChatMeta,
   ChatMessage,
+  ChatThreadMeta,
   ProjectData,
   ProjectIndex,
   ProjectInfo,
@@ -472,6 +473,31 @@ function readJson<T>(filePath: string): T | null {
   }
 }
 
+/**
+ * The chat-meta sidecar's longest title we accept: the library's row is one
+ * ellipsized line, and a rename is a label, not a document.
+ */
+const CHAT_META_TITLE_MAX = 120
+
+/**
+ * One raw sidecar entry as it might sit in chat-meta.json, before
+ * validation: anything but the honest shape is dropped, the same
+ * fail-closed read every other settings-ish file here takes.
+ */
+function asChatThreadMeta(value: unknown): ChatThreadMeta | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Partial<ChatThreadMeta>
+  if (raw.title !== undefined && typeof raw.title !== 'string') return null
+  if (raw.pinned !== undefined && typeof raw.pinned !== 'boolean') return null
+  const out: ChatThreadMeta = {}
+  if (typeof raw.title === 'string') {
+    const title = raw.title.trim().slice(0, CHAT_META_TITLE_MAX)
+    if (title !== '') out.title = title
+  }
+  if (raw.pinned === true) out.pinned = true
+  return Object.keys(out).length > 0 ? out : null
+}
+
 /** Atomic write: write to .tmp then rename, so a process interruption can't leave half-written JSON */
 function writeJson(filePath: string, data: unknown): void {
   ensureDir(dirname(filePath))
@@ -520,6 +546,30 @@ export class ProjectStore {
   private chatPath(projectId: string, chatId: string): string {
     assertSafeId(chatId, 'chatId')
     return join(this.chatsDir(projectId), `${chatId}.jsonl`)
+  }
+
+  /**
+   * The library sidecar: one file per project, keyed by chatId, holding
+   * what the transcripts deliberately do not (a rename's title override, a
+   * pin) — the conversations' own bytes stay exactly as the writers left
+   * them, and an absent file is simply no metadata.
+   */
+  private chatMetaPath(projectId: string): string {
+    assertSafeId(projectId, 'projectId')
+    return join(this.projectDir(projectId), 'chat-meta.json')
+  }
+
+  /** the sidecar's validated contents: chatId → honest meta entries only */
+  private readChatMetaMap(projectId: string): Record<string, ChatThreadMeta> {
+    const raw = readJson<Record<string, unknown>>(this.chatMetaPath(projectId))
+    if (!raw || typeof raw !== 'object') return {}
+    const out: Record<string, ChatThreadMeta> = {}
+    for (const [chatId, value] of Object.entries(raw)) {
+      if (!chatId || typeof chatId !== 'string') continue
+      const meta = asChatThreadMeta(value)
+      if (meta) out[chatId] = meta
+    }
+    return out
   }
 
   /**
@@ -1049,14 +1099,31 @@ export class ProjectStore {
   }
 
   /**
-   * Lists metadata of all chats in a project.
+   * Lists metadata of all chats in a project: each meta carries the library
+   * sidecar's title/pin and, for a chatId the index maps a document to, the
+   * path of that document (the reverse of resolveChatForFile's
+   * registration — the doc-bound rows' names). A non-empty `query` filters
+   * live: a thread matches when its label (the title override, else the
+   * first question) or any stored turn's text contains it, case-insensitive
+   * — the file is read whole for that, which the chats' own size bound
+   * keeps cheap.
    */
-  listChats(projectId: string): ChatMeta[] {
+  listChats(projectId: string, query?: string): ChatMeta[] {
     const dir = this.chatsDir(projectId)
     if (!existsSync(dir)) return []
+    const needle = typeof query === 'string' ? query.trim().toLowerCase() : ''
     try {
       const files = readdirSync(dir).filter((f) => f.endsWith('.jsonl'))
-      return files.map((f) => {
+      if (files.length === 0) return []
+      const metaMap = this.readChatMetaMap(projectId)
+      // chatId → the document it follows: one reverse pass over the index's
+      // path registry (first key wins for a path-mapped id that re-registered)
+      const docByChat = new Map<string, string>()
+      for (const [path, chatId] of Object.entries(this.readIndex().chatIdByPath ?? {})) {
+        if (!docByChat.has(chatId)) docByChat.set(chatId, path)
+      }
+      const out: ChatMeta[] = []
+      for (const f of files) {
         const chatId = f.replace(/\.jsonl$/, '')
         const fullPath = join(dir, f)
         let updatedAt = nowIso()
@@ -1070,16 +1137,68 @@ export class ProjectStore {
           // use defaults if stat fails
         }
         const firstQuestion = firstQuestionInFile(fullPath)
-        return {
+        const meta = metaMap[chatId]
+        const docPath = docByChat.get(chatId)
+        const entry: ChatMeta = {
           chatId,
           updatedAt,
           approxCount,
           ...(firstQuestion === undefined ? {} : { firstQuestion }),
+          ...(meta?.title === undefined ? {} : { title: meta.title }),
+          ...(meta?.pinned === undefined ? {} : { pinned: meta.pinned }),
+          ...(docPath === undefined ? {} : { docPath }),
         }
-      })
+        if (needle !== '' && !this.chatMatchesQuery(entry, fullPath, needle)) continue
+        out.push(entry)
+      }
+      return out
     } catch {
       return []
     }
+  }
+
+  /** one thread against the live query: its label, or any stored turn's text */
+  private chatMatchesQuery(entry: ChatMeta, filePath: string, needle: string): boolean {
+    const label = entry.title ?? entry.firstQuestion ?? ''
+    if (label.toLowerCase().includes(needle)) return true
+    try {
+      const text = readFileSync(filePath, 'utf8').toLowerCase()
+      return text.includes(needle)
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Writes one thread's library metadata (the sidecar; transcripts
+   * untouched): `title` null or an empty string clears the override (the
+   * label falls back to the first question), a bare string sets it
+   * (validated like the read path), `pinned` flips the pin. Answers the
+   * thread's effective meta afterwards — null when nothing is set.
+   */
+  setChatMeta(
+    projectId: string,
+    chatId: string,
+    patch: { title?: string | null; pinned?: boolean },
+  ): ChatThreadMeta | null {
+    assertSafeId(projectId, 'projectId')
+    assertSafeId(chatId, 'chatId')
+    const map = this.readChatMetaMap(projectId)
+    const prev = map[chatId] ?? {}
+    let title: string | undefined = prev.title
+    if (patch.title !== undefined) {
+      const next =
+        typeof patch.title === 'string' ? patch.title.trim().slice(0, CHAT_META_TITLE_MAX) : ''
+      title = next === '' ? undefined : next
+    }
+    const pinned = patch.pinned !== undefined ? patch.pinned === true : prev.pinned === true
+    const next: ChatThreadMeta = {}
+    if (title !== undefined) next.title = title
+    if (pinned) next.pinned = true
+    if (Object.keys(next).length === 0) delete map[chatId]
+    else map[chatId] = next
+    writeJson(this.chatMetaPath(projectId), map)
+    return Object.keys(next).length > 0 ? next : null
   }
 
   /**
@@ -1106,6 +1225,13 @@ export class ProjectStore {
     if (bound.length > 0) {
       for (const [key] of bound) delete index.chatIdByPath![key]
       this.writeIndex(index)
+    }
+    // the library's metadata for the thread goes with it: a renamed or
+    // pinned id left behind would attach to whatever reuses the id
+    const metaMap = this.readChatMetaMap(projectId)
+    if (metaMap[chatId] !== undefined) {
+      delete metaMap[chatId]
+      writeJson(this.chatMetaPath(projectId), metaMap)
     }
     if (!existsSync(path)) return
     try {

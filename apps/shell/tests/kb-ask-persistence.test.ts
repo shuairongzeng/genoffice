@@ -8,7 +8,8 @@ import {
   boundAskTranscript,
   claimThread,
   firstQuestionOf,
-  listThreads,
+  libraryThreads,
+  type LibraryThread,
   MAX_ASK_ENTRIES,
   panelThreads,
   restoreAskMessages,
@@ -187,24 +188,28 @@ describe('listing the stored threads', () => {
     updatedAt,
     approxCount: 4,
   })
+  /** the plain rows of one library pass (the family's own, newest first) */
+  const plainRows = (metas: ChatMeta[]): LibraryThread[] => {
+    const sections = libraryThreads(metas, 'kb-ask')
+    return [...sections.pinned, ...sections.docs, ...sections.other]
+  }
 
   it('puts the most recent conversation on top', () => {
-    const listed = listThreads(
-      [meta('old', '2026-10-15T09:00:00.000Z'), meta('new', '2026-10-17T09:00:00.000Z')],
-      () => undefined,
-    )
-    expect(listed.map((t) => t.chatId)).toEqual(['new', 'old'])
+    const listed = plainRows([
+      meta('kb-ask-old', '2026-10-15T09:00:00.000Z'),
+      meta('kb-ask-new', '2026-10-17T09:00:00.000Z'),
+    ])
+    expect(listed.map((t) => t.chatId)).toEqual(['kb-ask-new', 'kb-ask-old'])
   })
 
   it('labels a conversation by its own first question', () => {
-    const first: Record<string, string> = {
-      a: 'who is in the photograph',
-      b: 'what did the letter say',
-    }
-    const listed = listThreads(
-      [meta('a', '2026-10-17T09:00:00.000Z'), meta('b', '2026-10-16T09:00:00.000Z')],
-      (chatId) => first[chatId],
-    )
+    const listed = plainRows([
+      {
+        ...meta('kb-ask-a', '2026-10-17T09:00:00.000Z'),
+        firstQuestion: 'who is in the photograph',
+      },
+      { ...meta('kb-ask-b', '2026-10-16T09:00:00.000Z'), firstQuestion: 'what did the letter say' },
+    ])
     expect(listed.map((t) => t.label)).toEqual([
       'who is in the photograph',
       'what did the letter say',
@@ -213,27 +218,31 @@ describe('listing the stored threads', () => {
 
   it('collapses a question that wrapped and truncates a long one', () => {
     expect(
-      listThreads([meta('a', '2026-10-17T09:00:00.000Z')], () => 'a\n\n  b   c')[0]?.label,
+      plainRows([
+        { ...meta('kb-ask-a', '2026-10-17T09:00:00.000Z'), firstQuestion: 'a\n\n  b   c' },
+      ])[0]?.label,
     ).toBe('a b c')
     const long = 'x'.repeat(200)
-    expect(listThreads([meta('a', '2026-10-17T09:00:00.000Z')], () => long)[0]?.label).toHaveLength(
-      60,
-    )
+    expect(
+      plainRows([{ ...meta('kb-ask-a', '2026-10-17T09:00:00.000Z'), firstQuestion: long }])[0]
+        ?.label,
+    ).toHaveLength(60)
   })
 
   it('falls back to the id when a conversation has no question to name it by', () => {
     // An empty thread, or one whose read failed: the id is unique and
     // copyable, which a blank row would not be.
+    expect(plainRows([meta('kb-ask-1731', '2026-10-17T09:00:00.000Z')])[0]?.label).toBe(
+      'kb-ask-1731',
+    )
     expect(
-      listThreads([meta('kb-ask-1731', '2026-10-17T09:00:00.000Z')], () => undefined)[0]?.label,
-    ).toBe('kb-ask-1731')
-    expect(
-      listThreads([meta('kb-ask-1731', '2026-10-17T09:00:00.000Z')], () => '   ')[0]?.label,
+      plainRows([{ ...meta('kb-ask-1731', '2026-10-17T09:00:00.000Z'), firstQuestion: '   ' }])[0]
+        ?.label,
     ).toBe('kb-ask-1731')
   })
 
   it('is empty when nothing was ever asked', () => {
-    expect(listThreads([], () => 'anything')).toEqual([])
+    expect(plainRows([])).toEqual([])
   })
 })
 

@@ -677,7 +677,7 @@ describe("the three-state card and the conversation's session allows", () => {
     // a NEW thread: the main-side set survives the switch — the card does
     // not come back (this is the complaint the move fixed: an allow that
     // died with the conversation)
-    click('.kb-ask-thread-new')
+    click('.kb-ask-header-new')
     await settle()
     await ask('build a third guide')
     expect(runCli).toHaveBeenCalledTimes(3)
@@ -818,7 +818,7 @@ describe("the three-state card and the conversation's session allows", () => {
     expect(host.querySelector('.kb-ask-scroll-latest')).toBeTruthy()
     // the new thread: the reader starts at ITS latest, not where they left
     scrollTo.mockClear()
-    click('.kb-ask-thread-new')
+    click('.kb-ask-header-new')
     await settle()
     expect(scrollTo).toHaveBeenCalled()
     expect(host.querySelector('.kb-ask-scroll-latest')).toBeNull()

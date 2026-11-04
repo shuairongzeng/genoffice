@@ -7,6 +7,7 @@ import type {
   ChatAttachment,
   ChatMessage,
   ChatMeta,
+  ChatThreadMeta,
   ChatScope,
   ProjectSummary,
   RunEvent,
@@ -20,6 +21,7 @@ export type {
   ChatAttachment,
   ChatMessage,
   ChatMeta,
+  ChatThreadMeta,
   ChatScope,
   ProjectSummary,
   RunEvent,
@@ -171,8 +173,26 @@ export interface ProjectApi {
   loadChat(args: LoadChatArgs): Promise<ChatMessage[]>
   /** Renames the JSONL file (called after the file first hits disk); returns the new projectId/chatId */
   rebindChat(args: RebindChatArgs): Promise<ResolveChatResult>
-  /** Every conversation in a project, so a host can list what it kept. */
-  listChats(args: { projectId: string }): Promise<ChatMeta[]>
+  /**
+   * Every conversation in a project, so a host can list what it kept —
+   * each meta carrying the library sidecar's title/pin and the document
+   * path the thread follows. A non-empty `query` filters live: a thread
+   * matches when its title (the override or the first question) or any
+   * stored turn's text contains the query, case-insensitively.
+   */
+  listChats(args: { projectId: string; query?: string }): Promise<ChatMeta[]>
+  /**
+   * Writes one thread's library metadata (the chat-meta.json sidecar — the
+   * transcripts are never touched): a title override (null clears it, the
+   * label falls back to the first question) and/or the pin. Answers the
+   * thread's effective meta.
+   */
+  setChatMeta(args: {
+    projectId: string
+    chatId: string
+    title?: string | null
+    pinned?: boolean
+  }): Promise<ChatThreadMeta | null>
   /** Removes one conversation's transcript. */
   deleteChat(args: { projectId: string; chatId: string }): Promise<void>
 }

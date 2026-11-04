@@ -245,7 +245,9 @@ describe('the round-scope chip', () => {
     expect(host.querySelector('.kb-ask-scope')).toBeTruthy()
     expect(chipText()).toBe('Corpus: 2 selected files')
     // the headbar's count follows the scope, not the index window
-    expect(host.querySelector('.kb-ask-headbar span')?.textContent).toBe('Corpus: 2 selected files')
+    expect(host.querySelector('.kb-ask-header-text span')?.textContent).toBe(
+      'Corpus: 2 selected files',
+    )
     // nothing sent itself: no model request, no search
     expect(started).toHaveLength(0)
     expect(searchQueries).toHaveLength(0)
@@ -287,7 +289,9 @@ describe('the round-scope chip', () => {
     await settle()
     expect(host.querySelector('.kb-ask-scope')).toBeNull()
     // the headbar count is the index window's again
-    expect(host.querySelector('.kb-ask-headbar span')?.textContent).toBe('Knowledge base: 1 files')
+    expect(host.querySelector('.kb-ask-header-text span')?.textContent).toBe(
+      'Knowledge base: 1 files',
+    )
     await ask('anything')
     expect(searchQueries).toHaveLength(1)
     expect(searchQueries[0]).not.toHaveProperty('onlyPaths')
@@ -311,8 +315,10 @@ describe('the round-scope chip', () => {
     render({ text: '', seq: 1, origin: 'palette', scopePaths: SCOPE })
     await settle()
     expect(host.querySelector('.kb-ask-scope')).toBeTruthy()
-    // the stored second thread shows as a chip row
-    const threadButton = host.querySelector('.kb-ask-thread-chip > button')
+    // the stored second thread shows as a library row (the ☰ surface)
+    act(() => host.querySelector<HTMLElement>('.kb-ask-library-button')!.click())
+    await settle()
+    const threadButton = host.querySelector('.kb-ask-library-open')
     expect(threadButton).toBeTruthy()
     act(() => (threadButton as HTMLElement).click())
     await settle()

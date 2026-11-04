@@ -377,6 +377,7 @@ const projectApi: ProjectApi = {
   loadChat: (args) => ipcRenderer.invoke('project:loadChat', args),
   rebindChat: (args) => ipcRenderer.invoke('project:rebindChat', args),
   listChats: (args) => ipcRenderer.invoke('project:listChats', args),
+  setChatMeta: (args) => ipcRenderer.invoke('project:setChatMeta', args),
   deleteChat: (args) => ipcRenderer.invoke('project:deleteChat', args),
 }
 

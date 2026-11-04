@@ -74,6 +74,7 @@ import {
   AiUsageChip,
   addTokenUsage,
   createFileNav,
+  useDismissablePopover,
   DEFAULT_AI_PERMISSION_MODE,
   Markdown,
   normalizeAiPermissionMode,
@@ -90,6 +91,7 @@ import type { Lang } from '@genoffice/i18n'
 import { activeProvider } from '@genoffice/ai-provider/browser'
 import type { ChatMessage, ChatMeta, ProjectApi, RunSummary } from '@genoffice/project-store'
 import { useI18n } from './locale'
+import { FileBadge } from './file-badge'
 import type { StringKey } from './strings'
 import { useConfirm } from './ConfirmDialog'
 import { aiSetupNeeded } from './ai-setup-state'
@@ -319,38 +321,6 @@ interface LiveTask {
 }
 
 /**
- * The panel's conversations, newest first, labelled by their own first question.
- *
- * A stored conversation has no title — the store writes `<chat-id>.jsonl` and
- * nothing else — so the first thing said in it is the only honest label. A
- * blank one falls back to the id, which at least is unique and copyable.
- *
- * The list is sorted here rather than trusting the store to: `listChats`
- * returns directory order, and a reader opening the panel expects the thread
- * they were just in to be on top.
- */
-export interface ListedThread {
-  readonly chatId: string
-  readonly label: string
-  readonly updatedAt: string
-  readonly approxCount: number
-}
-
-export function listThreads(
-  metas: readonly ChatMeta[],
-  firstQuestionOf: (chatId: string) => string | undefined,
-): ListedThread[] {
-  return metas
-    .map((meta) => ({
-      chatId: meta.chatId,
-      label: firstQuestionOf(meta.chatId)?.replace(/\s+/g, ' ').trim().slice(0, 60) || meta.chatId,
-      updatedAt: meta.updatedAt,
-      approxCount: meta.approxCount,
-    }))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-}
-
-/**
  * This panel's threads, and nothing else. Unsaved editor documents write
  * their AI history into the same default project under `unsaved-` ids, and a
  * list that showed those would offer deleting a document's transcript from a
@@ -367,6 +337,105 @@ export function panelThreads(metas: readonly ChatMeta[], chatId: string = CHAT_I
 /** The first question in a stored conversation, which is how it is labelled. */
 export function firstQuestionOf(stored: readonly ChatMessage[]): string | undefined {
   return stored.find((message) => message.role === 'user')?.text
+}
+
+// ── the conversation library (the panel's ☰ surface) ──────────────────
+
+/** the file or folder name of a path, the way a row labels a doc thread */
+const docNameOf = (path: string): string => path.split(/[\\/]/).pop() ?? path
+
+/** one library row: everything the row renders, derived once (pure) */
+export interface LibraryThread {
+  readonly chatId: string
+  /**
+   * The honest label: the rename's title override first, then — for a
+   * doc-bound thread — the document's own name, then the first question,
+   * then the id (unique, copyable, the last resort).
+   */
+  readonly label: string
+  readonly updatedAt: string
+  readonly approxCount: number
+  readonly pinned: boolean
+  /** the document this thread follows (the 跟着文档走 section's rows) */
+  readonly docPath?: string
+}
+
+/**
+ * The library's one list, sectioned and ordered (pure): 📌 the pinned
+ * threads first — a pin outranks everything; 📄 the doc-bound threads next,
+ * named by their files; 🕘 everything else after, newest first (today's
+ * ordering, the ordering every section keeps within itself).
+ *
+ * Which threads belong at all is the family rule the chips already used
+ * (this mount's root and its `-` children — the other mount's family and
+ * the unsaved editors' threads are other surfaces' business) plus every
+ * doc-bound thread the store maps a file to: those are the panel's own
+ * project's document conversations, deletable and renamable from the
+ * document's panel — and from here, now that the library names them as
+ * what they are.
+ */
+export function libraryThreads(
+  metas: readonly ChatMeta[],
+  familyRoot: string,
+): { pinned: LibraryThread[]; docs: LibraryThread[]; other: LibraryThread[] } {
+  const rows: LibraryThread[] = metas
+    .filter(
+      (meta) =>
+        meta.docPath !== undefined ||
+        meta.chatId === familyRoot ||
+        meta.chatId.startsWith(`${familyRoot}-`),
+    )
+    .map((meta) => ({
+      chatId: meta.chatId,
+      label:
+        meta.title ??
+        (meta.docPath !== undefined
+          ? docNameOf(meta.docPath)
+          : meta.firstQuestion?.replace(/\s+/g, ' ').trim().slice(0, 60) || meta.chatId),
+      updatedAt: meta.updatedAt,
+      approxCount: meta.approxCount,
+      pinned: meta.pinned === true,
+      ...(meta.docPath === undefined ? {} : { docPath: meta.docPath }),
+    }))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  return {
+    pinned: rows.filter((row) => row.pinned),
+    docs: rows.filter((row) => !row.pinned && row.docPath !== undefined),
+    other: rows.filter((row) => !row.pinned && row.docPath === undefined),
+  }
+}
+
+/**
+ * A thread's relative time, the mockup's ladder (pure): 刚刚 → N 分钟前 →
+ * N 小时前 → 昨天 → 上周 → a short month-day date through the caller's
+ * locale. `format` is the panel's translator (the tests' stub); an
+ * unparseable or missing timestamp answers ''.
+ */
+export function threadTimeAgo(
+  iso: string,
+  now: Date,
+  format: (key: StringKey, params?: Record<string, string>) => string,
+  dateLocale: string,
+): string {
+  const at = Date.parse(iso)
+  if (!Number.isFinite(at)) return ''
+  const ms = now.getTime() - at
+  if (ms < 0) return format('timeAgoNow')
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 1) return format('timeAgoNow')
+  if (minutes < 60) return format('timeAgoMinutes', { n: String(minutes) })
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return format('timeAgoHours', { n: String(hours) })
+  const days = Math.floor(hours / 24)
+  if (days === 1) return format('timeAgoYesterday')
+  if (days <= 7) return format('timeAgoLastWeek')
+  try {
+    return new Intl.DateTimeFormat(dateLocale, { month: 'short', day: 'numeric' }).format(
+      new Date(at),
+    )
+  } catch {
+    return format('timeAgoLastWeek')
+  }
 }
 
 /**
@@ -844,7 +913,7 @@ export function KbAskPanel({
    */
   surfaceRole?: 'home' | 'overlay' | 'docked'
 }): React.JSX.Element {
-  const { t, lang } = useI18n()
+  const { t, lang, dateLocale } = useI18n()
   // the in-app replacement for the native confirm on thread delete (and any
   // future ask-side confirmation); rendered at the panel root
   const { confirm: confirmBox, dialog: confirmDialog } = useConfirm(t('ok'))
@@ -1254,13 +1323,46 @@ export function KbAskPanel({
   )
   /** where this panel's transcript lives, once project-store has answered */
   const [activeChat, setActiveChat] = useState<string>(chatId)
-  const [threads, setThreads] = useState<ListedThread[]>([])
   /**
-   * The chatId the current claim resolved: the chips' active marker. While
-   * doc-bound this is the document's own id (not the family-root state), so
-   * the thread row the person is actually in shows as the active one.
+   * The library's rows, sectioned and ordered (libraryThreads' pure work):
+   * the ☰ surface renders these; the delete verb's label lookup walks all
+   * three sections. The chips row this used to feed is the library now.
+   */
+  const [threads, setThreads] = useState<{
+    pinned: LibraryThread[]
+    docs: LibraryThread[]
+    other: LibraryThread[]
+  }>({ pinned: [], docs: [], other: [] })
+  /**
+   * The chatId the current claim resolved: the library row's active marker.
+   * While doc-bound this is the document's own id (not the family-root
+   * state), so the thread row the person is actually in shows as the active
+   * one.
    */
   const [claimedChatId, setClaimedChatId] = useState<string | null>(null)
+
+  // ── the conversation library (the ☰ surface, shared by both mounts) ──
+  /** the library slides over the chat area; closed is the chat itself */
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  /** the search box's live text (round-tripped to the store, debounced) */
+  const [libraryQuery, setLibraryQuery] = useState('')
+  /** the query's mirror: event-time refreshes (delete, rename, pin) keep it */
+  const libraryQueryRef = useRef('')
+  libraryQueryRef.current = libraryQuery
+  /** the row being renamed: the input's draft, Enter-commit / Esc-cancel */
+  const [libraryRenaming, setLibraryRenaming] = useState<{ chatId: string; draft: string } | null>(
+    null,
+  )
+  /** the library root element: the outside-click guard's boundary */
+  const libraryRootRef = useRef<HTMLDivElement | null>(null)
+  /**
+   * The project the library lists in (the family claim's resolution —
+   * written by every refresh, read by the rename/pin/delete verbs so they
+   * address the same project the rows came from).
+   */
+  const libraryProjectIdRef = useRef<string>('default')
+  /** the debounce between a keystroke and the filtered round trip */
+  const librarySearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /**
    * The corpus scope the panel's guidance teaches (app-settings `kbScope`):
    * 'indexed' is the default and its empty state is about the index, 'starred'
@@ -1477,27 +1579,29 @@ export function KbAskPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docPath, activeChat, surfaceSettled, mutateMessages])
 
-  const refreshThreads = async (api: ProjectApi): Promise<void> => {
+  const refreshThreads = async (api: ProjectApi, queryArg?: string): Promise<void> => {
     try {
       // the family root this mount lists: the document's own chatId when
       // doc-bound (the doc's hash id plus the -ts threads this panel starts
       // — a prefix-disjoint family, same rule as the mounts' roots), else
-      // the mount's root. Only this family belongs in the list: the default
-      // project also keeps every editor document's AI history — and the
-      // other mount's family (P0-1) — and listing those would offer
-      // deleting them from here.
+      // the mount's root. The family rule decides the plain rows; the
+      // doc-bound rows (the store's path-mapped threads, named by their
+      // files) join them in the library — libraryThreads sections the one
+      // list. The query rides the same call: the store filters by label or
+      // stored text, so the search box is live with one channel.
       const docPath = docIdentityRef.current?.path ?? null
       const ids = docPath
         ? await api.resolveChat({ filePath: docPath })
         : await api.resolveChat({ filePath: null, tempChatId: chatId })
-      const metas = panelThreads(await api.listChats({ projectId: ids.projectId }), ids.chatId)
-      // Labels ride on the listing itself, so a refresh is one call however
-      // many threads are stored.
-      setThreads(
-        listThreads(metas, (chatId) => metas.find((meta) => meta.chatId === chatId)?.firstQuestion),
-      )
+      libraryProjectIdRef.current = ids.projectId
+      const query = queryArg === undefined ? '' : queryArg
+      const metas = await api.listChats({
+        projectId: ids.projectId,
+        ...(query === '' ? {} : { query }),
+      })
+      setThreads(libraryThreads(metas, ids.chatId))
     } catch {
-      setThreads([])
+      setThreads({ pinned: [], docs: [], other: [] })
     }
   }
 
@@ -1537,10 +1641,12 @@ export function KbAskPanel({
   }
 
   const removeThread = async (chatId: string, label: string): Promise<void> => {
-    // A transcript gone is gone; the × on a chip should not be a hair-trigger.
-    const thread = threads.find((entry) => entry.chatId === chatId)
+    // A transcript gone is gone; the 🗑 on a row should not be a hair-trigger.
+    const row = [...threads.pinned, ...threads.docs, ...threads.other].find(
+      (entry) => entry.chatId === chatId,
+    )
     const confirmed = await confirmBox({
-      body: <p>{t('askThreadDeleteConfirm', { label: thread?.label ?? label })}</p>,
+      body: <p>{t('askThreadDeleteConfirm', { label: row?.label ?? label })}</p>,
       confirmLabel: t('delete'),
       cancelLabel: t('cancel'),
       danger: true,
@@ -1551,15 +1657,99 @@ export function KbAskPanel({
     const api = window.projectApi
     if (!api) return
     try {
-      const ids = await api.resolveChat({ filePath: null, tempChatId: chatId })
-      await api.deleteChat({ projectId: ids.projectId, chatId })
+      // the library's own project: the rows came from it, and a doc-bound
+      // family (the doc panel's threads) lives outside the default project
+      // the file-less resolution would answer
+      await api.deleteChat({ projectId: libraryProjectIdRef.current, chatId })
       if (chatId === activeChat) startThread()
-      await refreshThreads(api)
+      await refreshThreads(api, libraryQueryRef.current)
     } catch {
       // A delete that did not happen leaves the list as it was, which is the
       // honest outcome; the reader sees the thread still listed.
     }
   }
+
+  /** the library's own verbs (rename, pin) — both write the sidecar and
+   *  refresh through the same channel, the query riding along */
+  const commitLibraryMeta = async (
+    chatId: string,
+    patch: { title?: string | null; pinned?: boolean },
+  ): Promise<void> => {
+    const api = window.projectApi
+    if (!api?.setChatMeta) return
+    try {
+      await api.setChatMeta({ projectId: libraryProjectIdRef.current, chatId, ...patch })
+      await refreshThreads(api, libraryQueryRef.current)
+    } catch {
+      // a write that did not land leaves the rows as they were: the honest
+      // outcome for a sidecar the next open re-reads anyway
+    }
+  }
+
+  /** Enter in the rename input: the draft becomes the row's label */
+  const commitRename = (chatId: string, draft: string): void => {
+    setLibraryRenaming(null)
+    void commitLibraryMeta(chatId, { title: draft })
+  }
+
+  /** the row's ✎: the input starts from the row's honest label */
+  const beginRename = (thread: LibraryThread): void => {
+    setLibraryRenaming({ chatId: thread.chatId, draft: thread.label })
+  }
+
+  /** the row's 📌: the pin toggles, the row moves sections on refresh */
+  const togglePin = (thread: LibraryThread): void => {
+    void commitLibraryMeta(thread.chatId, { pinned: !thread.pinned })
+  }
+
+  /** the ☰: the freshest list lands with the opening slide */
+  const openLibrary = (): void => {
+    setLibraryRenaming(null)
+    setLibraryOpen(true)
+    const api = window.projectApi
+    if (api) void refreshThreads(api, libraryQueryRef.current)
+  }
+
+  /** every close path: the search text resets so the next open starts whole */
+  const closeLibrary = useCallback((): void => {
+    setLibraryOpen(false)
+    setLibraryRenaming(null)
+    setLibraryQuery('')
+  }, [])
+
+  // the search box: a debounce between the keystroke and the filtered round
+  // trip, the live-search cadence the file search already uses
+  useEffect(() => {
+    if (!libraryOpen) return
+    if (librarySearchTimer.current) clearTimeout(librarySearchTimer.current)
+    librarySearchTimer.current = setTimeout(() => {
+      librarySearchTimer.current = null
+      const api = window.projectApi
+      if (api) void refreshThreads(api, libraryQuery)
+    }, 180)
+    return () => {
+      if (librarySearchTimer.current) {
+        clearTimeout(librarySearchTimer.current)
+        librarySearchTimer.current = null
+      }
+    }
+    // refreshThreads reads live refs by design; the query is the only
+    // reactive input here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [libraryQuery, libraryOpen])
+
+  // Esc closes the library (unless the rename input owns the key), and a
+  // press outside it does the same — the dismissable-popover contract the
+  // dock's menus use
+  useEffect(() => {
+    if (!libraryOpen) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeLibrary()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [libraryOpen, closeLibrary])
+  useDismissablePopover(libraryOpen, closeLibrary, { inside: () => [libraryRootRef.current] })
 
   /** the Stop button on a live task row: the loop's abort path settles it */
   const stopTask = (id: string): void => {
@@ -2593,56 +2783,211 @@ export function KbAskPanel({
         </div>
       )}
       {(() => {
-        // the headbar's count follows the round scope: the selection's size,
+        // the header's count follows the round scope: the selection's size,
         // not the index window's, is the number to trust while it is attached
         const count = shownCorpusCount(scopePaths, corpusCount)
-        return count !== null && count > 0 ? (
-          <div className="kb-ask-headbar">
-            <b>{t('askTitle')}</b>
-            <span>
-              {scopePaths.length > 0
-                ? t('askScopeChip', { n: String(count) })
-                : t('askCorpusCount', { n: String(count) })}
-            </span>
-          </div>
-        ) : null
-      })()}
-      {threads.length > 0 && (
-        <div className="kb-ask-threads" role="tablist" aria-label={t('askThreadsTitle')}>
-          {threads.map((thread) => (
-            <div
-              key={thread.chatId}
-              data-chat={thread.chatId}
-              className={`kb-ask-thread-chip${thread.chatId === (claimedChatId ?? activeChat) ? ' active' : ''}`}
+        return (
+          <div className="kb-ask-header">
+            <button
+              type="button"
+              className="kb-ask-library-button"
+              aria-label={t('askLibraryButton')}
+              title={t('askLibraryButton')}
+              aria-expanded={libraryOpen}
+              onClick={libraryOpen ? closeLibrary : openLibrary}
             >
+              ☰
+            </button>
+            <div className="kb-ask-header-text">
+              <b>{t('askTitle')}</b>
+              {count !== null && count > 0 && (
+                <span>
+                  {scopePaths.length > 0
+                    ? t('askScopeChip', { n: String(count) })
+                    : t('askCorpusCount', { n: String(count) })}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              className="kb-ask-header-new"
+              aria-label={t('askThreadNew')}
+              title={t('askThreadNew')}
+              onClick={startThread}
+            >
+              ＋
+            </button>
+          </div>
+        )
+      })()}
+      {libraryOpen && (
+        <div
+          className="kb-ask-library"
+          ref={libraryRootRef}
+          role="dialog"
+          aria-label={t('askThreadsTitle')}
+        >
+          <div className="kb-ask-library-head">
+            <div className="kb-ask-library-title-row">
+              <div className="kb-ask-library-title">{t('askThreadsTitle')}</div>
               <button
                 type="button"
-                role="tab"
-                aria-selected={thread.chatId === (claimedChatId ?? activeChat)}
-                title={thread.label}
-                onClick={() => openThread(thread.chatId)}
+                className="kb-ask-library-new"
+                onClick={() => {
+                  startThread()
+                  closeLibrary()
+                }}
               >
-                {thread.label}
-              </button>
-              <button
-                type="button"
-                className="kb-ask-thread-del"
-                aria-label={t('askThreadDelete', { label: thread.label })}
-                onClick={() => void removeThread(thread.chatId, thread.label)}
-              >
-                ×
+                ＋ {t('askThreadNew')}
               </button>
             </div>
-          ))}
-          <button
-            type="button"
-            className="kb-ask-thread-new"
-            aria-label={t('askThreadNew')}
-            title={t('askThreadNew')}
-            onClick={startThread}
-          >
-            +
-          </button>
+            <input
+              type="text"
+              className="kb-ask-library-search"
+              placeholder={t('askLibrarySearch')}
+              value={libraryQuery}
+              onChange={(event) => setLibraryQuery(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                // the input's Esc is the search's own: clear it, not the library
+                if (event.key === 'Escape' && libraryQuery !== '') {
+                  event.stopPropagation()
+                  setLibraryQuery('')
+                }
+              }}
+            />
+          </div>
+          <div className="kb-ask-library-list">
+            {(
+              [
+                ['pinned', `📌 ${t('askLibrarySectionPinned')}`],
+                ['docs', `📄 ${t('askLibrarySectionDocs')}`],
+                ['other', `🕘 ${t('askLibrarySectionOther')}`],
+              ] as const
+            ).map(([section, heading]) =>
+              threads[section].length > 0 ? (
+                <div key={section} className="kb-ask-library-section">
+                  <div className="kb-ask-library-section-head">{heading}</div>
+                  {threads[section].map((thread) =>
+                    libraryRenaming?.chatId === thread.chatId ? (
+                      <div key={thread.chatId} className="kb-ask-library-row renaming">
+                        <span className="kb-ask-library-glyph">
+                          {thread.docPath !== undefined ? (
+                            <FileBadge
+                              ext={thread.docPath
+                                .slice(thread.docPath.lastIndexOf('.') + 1)
+                                .toLowerCase()}
+                              size={20}
+                            />
+                          ) : (
+                            '💬'
+                          )}
+                        </span>
+                        <div className="kb-ask-library-rename">
+                          <input
+                            type="text"
+                            autoFocus
+                            value={libraryRenaming.draft}
+                            onChange={(event) =>
+                              setLibraryRenaming({
+                                chatId: thread.chatId,
+                                draft: event.currentTarget.value,
+                              })
+                            }
+                            onKeyDown={(event) => {
+                              // the rename's Esc cancels the edit; the
+                              // library's close must wait its turn, so the
+                              // key stops here
+                              event.stopPropagation()
+                              if (event.key === 'Enter') {
+                                commitRename(thread.chatId, libraryRenaming.draft)
+                              } else if (event.key === 'Escape') {
+                                setLibraryRenaming(null)
+                              }
+                            }}
+                            aria-label={t('askLibraryRename')}
+                          />
+                          <span className="kb-ask-library-rename-hint">
+                            {t('askLibraryRenameHint')}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        key={thread.chatId}
+                        data-chat={thread.chatId}
+                        className={`kb-ask-library-row${thread.chatId === (claimedChatId ?? activeChat) ? ' active' : ''}`}
+                      >
+                        <button
+                          type="button"
+                          className="kb-ask-library-open"
+                          onClick={() => {
+                            openThread(thread.chatId)
+                            closeLibrary()
+                          }}
+                          title={thread.label}
+                        >
+                          <span className="kb-ask-library-glyph">
+                            {thread.docPath !== undefined ? (
+                              <FileBadge
+                                ext={thread.docPath
+                                  .slice(thread.docPath.lastIndexOf('.') + 1)
+                                  .toLowerCase()}
+                                size={20}
+                              />
+                            ) : (
+                              '💬'
+                            )}
+                          </span>
+                          <span className="kb-ask-library-main">
+                            <span className="kb-ask-library-row-title">
+                              {thread.label}
+                              {thread.pinned && (
+                                <span className="kb-ask-library-pin-mark">
+                                  {t('askLibraryPinnedMark')}
+                                </span>
+                              )}
+                            </span>
+                            <span className="kb-ask-library-row-meta">
+                              {t('askLibraryMessages', { n: String(thread.approxCount) })} ·{' '}
+                              {threadTimeAgo(thread.updatedAt, new Date(), t, dateLocale)}
+                            </span>
+                          </span>
+                        </button>
+                        <span className="kb-ask-library-actions">
+                          <button
+                            type="button"
+                            aria-label={t('askLibraryRename')}
+                            title={t('askLibraryRename')}
+                            onClick={() => beginRename(thread)}
+                          >
+                            ✎
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={thread.pinned ? t('askLibraryUnpin') : t('askLibraryPin')}
+                            title={thread.pinned ? t('askLibraryUnpin') : t('askLibraryPin')}
+                            onClick={() => togglePin(thread)}
+                          >
+                            📌
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            aria-label={t('askThreadDelete', { label: thread.label })}
+                            title={t('askThreadDelete', { label: thread.label })}
+                            onClick={() => void removeThread(thread.chatId, thread.label)}
+                          >
+                            🗑
+                          </button>
+                        </span>
+                      </div>
+                    ),
+                  )}
+                </div>
+              ) : null,
+            )}
+          </div>
+          <div className="kb-ask-library-footnote">{t('askLibraryFootnote')}</div>
         </div>
       )}
       {(liveTasks.length > 0 || interruptedRuns.length > 0) && (

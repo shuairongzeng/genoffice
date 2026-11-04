@@ -222,10 +222,16 @@ const switchTab = async (tabs: readonly SurfaceTab[]): Promise<void> => {
   await settle()
 }
 
-const threadChips = (): string[] =>
-  [...host.querySelectorAll('.kb-ask-thread-chip')].map(
+/** the library's rows (the ☰ surface): opened first, then their chat ids */
+const threadChips = async (): Promise<string[]> => {
+  await act(async () => {
+    host.querySelector<HTMLElement>('.kb-ask-library-button')?.click()
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+  })
+  return [...host.querySelectorAll('.kb-ask-library-row[data-chat]')].map(
     (el) => (el as HTMLElement).dataset.chat,
   ) as string[]
+}
 
 describe('the doc-bound thread identity', () => {
   it("a docs tab with a file binds the panel to that document's thread", async () => {
@@ -239,7 +245,7 @@ describe('the doc-bound thread identity', () => {
     const resolves = projectCalls.filter((c) => c.method === 'resolveChat')
     expect(resolves.some((c) => c.args.filePath === '/desk/Q3 Report.docx')).toBe(true)
     // the thread family listed is the document's own chatId, not kb-ask
-    expect(threadChips()).toContain(chatIdForPath('/desk/Q3 Report.docx'))
+    expect(await threadChips()).toContain(chatIdForPath('/desk/Q3 Report.docx'))
   })
 
   it("history reloads: turns already in the document's thread show on open", async () => {
@@ -297,7 +303,7 @@ describe('the doc-bound thread identity', () => {
     surfaceTabs = [DOC_TAB('/desk/a.docx'), { ...DOC_TAB('/desk/b.docx'), active: false }]
     render()
     await settle()
-    expect(threadChips()).toEqual([a])
+    expect(await threadChips()).toEqual([a])
   })
 })
 

@@ -94,6 +94,33 @@ export interface ChatMeta {
   approxCount: number
   /** The first thing asked in the thread, read from the file's head */
   firstQuestion?: string
+  /**
+   * The sidecar's title override (the library's rename verb): the honest
+   * label when present, ahead of firstQuestion. The transcripts stay
+   * untouched — this lives in chat-meta.json beside them.
+   */
+  title?: string
+  /** The sidecar's pin (the library's 置顶): the thread leads the list */
+  pinned?: boolean
+  /**
+   * The document this thread follows, when chatIdByPath maps a file to it
+   * (the reverse lookup of resolveChatForFile's registration): the library
+   * shows the document's name and an app-kind glyph for such threads.
+   */
+  docPath?: string
+}
+
+/**
+ * One thread's library-side metadata, the chat-meta.json sidecar's value.
+ * The transcripts own the conversation; this owns what the library layer
+ * adds — a display title that outranks the first question, and a pin that
+ * outranks recency.
+ */
+export interface ChatThreadMeta {
+  /** the rename verb's title override; absent = label by firstQuestion */
+  title?: string
+  /** the pin verb's mark; absent = unlisted in the pinned section */
+  pinned?: boolean
 }
 
 // ────────────────────────────────────────────────────────────
