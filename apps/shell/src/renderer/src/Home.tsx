@@ -2645,6 +2645,8 @@ export function Home() {
           pendingQuery={pendingAskQuery}
           onPendingQueryConsumed={() => setPendingAskQuery(null)}
           focusSignal={focusComposerSeq}
+          onCollapse={() => applyDockPrefs({ collapsed: true })}
+          onOpenKbCenter={showKbCenter}
         />
       </AiDock>
       {confirmDialog}

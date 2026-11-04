@@ -304,6 +304,14 @@ export function AskPanelEntry(): React.JSX.Element | null {
     // nor a pet floating in a drawer-shaped hole
     return null
   }
+  /** the panel's × and the Esc ladder's last rung: the same collapse write
+   *  the pet's click makes (the optimistic flip, the store round trip) */
+  const collapseOverlayDrawer = (): void => {
+    const api = window.aiOffice as Partial<HomeApi>
+    if (typeof api.setAiDock === 'function') {
+      void api.setAiDock({ collapsed: true }).catch(() => undefined)
+    }
+  }
   const toggle = (): void => {
     // mid-morph toggles are ignored (the same stutter rule Home's pet keeps)
     if (morphBusyRef.current) return
@@ -379,12 +387,8 @@ export function AskPanelEntry(): React.JSX.Element | null {
           pendingQuery={dock.collapsed ? null : pendingQuery}
           onPendingQueryConsumed={() => setPendingQuery(null)}
           focusSignal={focusSeq}
-          onEscapeCollapse={() => {
-            const api = window.aiOffice as Partial<HomeApi>
-            if (typeof api.setAiDock === 'function') {
-              void api.setAiDock({ collapsed: true }).catch(() => undefined)
-            }
-          }}
+          onEscapeCollapse={() => collapseOverlayDrawer()}
+          onCollapse={collapseOverlayDrawer}
         />
       </div>
       <OverlayPet collapsed={dock.collapsed} gulp={petGulp} onToggle={toggle} />

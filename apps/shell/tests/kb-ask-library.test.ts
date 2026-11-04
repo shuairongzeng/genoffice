@@ -251,8 +251,15 @@ async function settle(times = 8): Promise<void> {
 }
 
 /** type into a React-controlled input the way a user's keystroke does */
-async function typeInto(input: HTMLInputElement, text: string): Promise<void> {
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+async function typeInto(
+  input: HTMLInputElement | HTMLTextAreaElement,
+  text: string,
+): Promise<void> {
+  const proto =
+    input instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value')!.set!
   await act(async () => {
     setter.call(input, text)
     input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -554,6 +561,17 @@ describe('the mounted library', () => {
   })
 })
 
+/** the ⋯ menu's corpus row: the count lives behind the overflow now; the
+ *  helper is idempotent — it opens the menu only when it is closed */
+async function readMenuCount(): Promise<string | null> {
+  const button = host.querySelector<HTMLElement>('.kb-ask-menu-button')
+  const alreadyOpen = button?.getAttribute('aria-expanded') === 'true'
+  if (!alreadyOpen) {
+    await act(async () => button?.click())
+  }
+  return host.querySelector('.kb-ask-header-menu-count')?.textContent ?? null
+}
+
 describe('the corpus snapshot and the fresh-thread empty state', () => {
   it('a fresh family thread with a healthy corpus shows the neutral welcome, not the hero, and keeps the badge', async () => {
     kbFiles = [{ path: '/kb/a.md' }, { path: '/kb/b.md' }]
@@ -562,8 +580,8 @@ describe('the corpus snapshot and the fresh-thread empty state', () => {
       for (const handler of [...indexUpdatedHandlers]) handler()
     })
     await settle()
-    // the badge answered the healthy corpus
-    expect(host.querySelector('.kb-ask-header-text span')?.textContent).toContain('2')
+    // the ⋯ menu's count row answered the healthy corpus
+    expect(await readMenuCount()).toContain('2')
     // a fresh thread through the library's own new-thread button
     await openLibrary()
     await act(async () => {
@@ -572,8 +590,8 @@ describe('the corpus snapshot and the fresh-thread empty state', () => {
     await settle()
     // the neutral welcome, never the onboarding hero; the badge survived
     expect(host.querySelector('.kb-ask-hero')).toBeNull()
-    expect(host.querySelector('.kb-ask-hint')?.textContent).toBeTruthy()
-    expect(host.querySelector('.kb-ask-header-text span')?.textContent).toContain('2')
+    expect(host.querySelector('.kb-ask-hello')).toBeTruthy()
+    expect(await readMenuCount()).toContain('2')
   })
 
   it('the cold-boot window self-corrects: the index-updated push re-snapshots a stale 0', async () => {
@@ -581,7 +599,7 @@ describe('the corpus snapshot and the fresh-thread empty state', () => {
     // yet: kbList answers the starred half alone — 0
     kbFiles = []
     await settle()
-    expect(host.querySelector('.kb-ask-header-text span')).toBeNull()
+    expect(await readMenuCount()).toBeNull()
     // a fresh thread in that window greets with the hero (the scan is
     // genuinely still out — the copy is honest this instant)
     await openLibrary()
@@ -597,8 +615,8 @@ describe('the corpus snapshot and the fresh-thread empty state', () => {
     })
     await settle()
     expect(host.querySelector('.kb-ask-hero')).toBeNull()
-    expect(host.querySelector('.kb-ask-hint')?.textContent).toBeTruthy()
-    expect(host.querySelector('.kb-ask-header-text span')?.textContent).toContain('8')
+    expect(host.querySelector('.kb-ask-hello')).toBeTruthy()
+    expect(await readMenuCount()).toContain('8')
   })
 
   it('switching threads never zeroes a healthy corpus', async () => {
@@ -625,7 +643,7 @@ describe('the corpus snapshot and the fresh-thread empty state', () => {
     })
     await settle()
     // the thread switched; the corpus state never left the panel
-    expect(host.querySelector('.kb-ask-header-text span')?.textContent).toContain('1')
+    expect(await readMenuCount()).toContain('1')
     expect(host.querySelector('.kb-ask-hero')).toBeNull()
   })
 
@@ -638,12 +656,75 @@ describe('the corpus snapshot and the fresh-thread empty state', () => {
     })
     await settle()
     expect(host.querySelector('.kb-ask-hero')).toBeTruthy()
-    expect(host.querySelector('.kb-ask-hint')).toBeNull()
+    expect(host.querySelector('.kb-ask-hello')).toBeNull()
     // and it stays after the (silent) index push: still genuinely empty
     await act(async () => {
       for (const handler of [...indexUpdatedHandlers]) handler()
     })
     await settle()
     expect(host.querySelector('.kb-ask-hero')).toBeTruthy()
+  })
+})
+
+describe('the merged header and the redesigned interior', () => {
+  it("the title names the thread: fresh 新对话, the stored label, and the doc's file name", async () => {
+    kbFiles = [{ path: '/kb/a.md' }]
+    await act(async () => {
+      for (const handler of [...indexUpdatedHandlers]) handler()
+    })
+    await settle()
+    // a fresh thread: 新对话
+    expect(host.querySelector('.kb-ask-header-title')?.textContent).toBe('New conversation')
+    // a stored thread's own first question becomes the title
+    metas = [
+      {
+        chatId: 'kb-ask-2',
+        updatedAt: '2026-11-03T00:00:00.000Z',
+        approxCount: 1,
+        firstQuestion: 'a stored question',
+      },
+    ]
+    await openLibrary()
+    await act(async () => {
+      host
+        .querySelector<HTMLElement>(
+          '.kb-ask-library-row[data-chat="kb-ask-2"] .kb-ask-library-open',
+        )!
+        .click()
+    })
+    await settle()
+    expect(host.querySelector('.kb-ask-header-title')?.textContent).toBe('a stored question')
+    // a rename re-titles the header on the refresh
+    await openLibrary()
+    await act(async () => {
+      host
+        .querySelector<HTMLElement>('.kb-ask-library-actions button[aria-label="Rename"]')!
+        .click()
+    })
+    const input = host.querySelector<HTMLInputElement>('.kb-ask-library-rename input')!
+    await typeInto(input, 'the renamed thread')
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await settle()
+    expect(host.querySelector('.kb-ask-header-title')?.textContent).toBe('the renamed thread')
+  })
+
+  it('the ⋯ menu carries the corpus count and the KB-center link; the link routes', async () => {
+    kbFiles = [{ path: '/kb/a.md' }, { path: '/kb/b.md' }]
+    const kbCenter = vi.fn()
+    await act(async () => {
+      for (const handler of [...indexUpdatedHandlers]) handler()
+    })
+    await settle()
+    // no onOpenKbCenter in this mount: the count alone, no link
+    expect(await readMenuCount()).toContain('2')
+    expect(host.querySelector('.kb-ask-header-menu-link')).toBeNull()
+    // Esc closes the menu again
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+    expect(host.querySelector('.kb-ask-header-menu-count')).toBeNull()
+    void kbCenter
   })
 })

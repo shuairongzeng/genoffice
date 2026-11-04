@@ -91,6 +91,7 @@ import type { Lang } from '@genoffice/i18n'
 import { activeProvider } from '@genoffice/ai-provider/browser'
 import type { ChatMessage, ChatMeta, ProjectApi, RunSummary } from '@genoffice/project-store'
 import { useI18n } from './locale'
+import { MascotSvg } from './AiDock'
 import { FileBadge } from './file-badge'
 import type { StringKey } from './strings'
 import { useConfirm } from './ConfirmDialog'
@@ -340,6 +341,34 @@ export function firstQuestionOf(stored: readonly ChatMessage[]): string | undefi
 }
 
 // ── the conversation library (the panel's ☰ surface) ──────────────────
+
+/** the fresh family thread's suggestion chips: the same shape the doc-bound
+ * cards play (label + parked prompt), the corpus's own first moves */
+const FAMILY_SUGGESTIONS: ReadonlyArray<{
+  readonly key: string
+  readonly labelKey: StringKey
+  readonly promptKey: StringKey
+}> = [
+  { key: 'summarize', labelKey: 'askChipSummarize', promptKey: 'askChipSummarizePrompt' },
+  { key: 'draft', labelKey: 'askChipDraft', promptKey: 'askChipDraftPrompt' },
+  { key: 'browse', labelKey: 'askChipBrowse', promptKey: 'askChipBrowsePrompt' },
+]
+
+/**
+ * The merged header's title (pure): the doc's file name when the panel is
+ * doc-bound, the current thread's honest label otherwise (the library row's
+ * — the rename's title, the doc name, the first question), and 新对话 for a
+ * thread too fresh to have either. Whatever it is, one ellipsized line.
+ */
+export function askHeaderTitle(
+  docPath: string | null | undefined,
+  threadLabel: string | null | undefined,
+  freshLabel: string,
+): string {
+  if (docPath) return docPath.split(/[\\/]/).pop() ?? docPath
+  if (threadLabel && threadLabel.trim() !== '') return threadLabel
+  return freshLabel
+}
 
 /** the file or folder name of a path, the way a row labels a doc thread */
 const docNameOf = (path: string): string => path.split(/[\\/]/).pop() ?? path
@@ -630,6 +659,7 @@ const AskMessageRow = memo(function AskMessageRow({
   onOpenPath,
   onRetry,
   onSaveAnswer,
+  onCopyAnswer,
 }: {
   m: AskMessage
   index: number
@@ -649,8 +679,29 @@ const AskMessageRow = memo(function AskMessageRow({
   onOpenPath: (path: string) => void
   onRetry: (instruction: string) => void
   onSaveAnswer: (index: number, format: CreateDocumentFormat) => void
+  onCopyAnswer: (text: string) => Promise<boolean>
 }): React.JSX.Element {
   const { t } = useI18n()
+  /** the copy verb's brief 已复制 feedback (the honest answer to a click) */
+  const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+    },
+    [],
+  )
+  const copyAnswer = (): void => {
+    void onCopyAnswer(m.text).then((ok) => {
+      if (!ok) return
+      setCopied(true)
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => {
+        copyTimerRef.current = null
+        setCopied(false)
+      }, 1500)
+    })
+  }
   // one stable navs array for the row's lifetime: Markdown memoizes on it
   const navs = useMemo(() => [fileNav], [fileNav])
   // streaming off: the answer is held until it completes — the typing
@@ -775,6 +826,9 @@ const AskMessageRow = memo(function AskMessageRow({
         </div>
       )}
       {m.role === 'assistant' && m.text && !m.streaming && !m.isError && (
+        // the hover toolbar: gone at rest, revealed by the answer's hover
+        // and by focus within it (the keyboard's way in — the buttons stay
+        // tab-reachable, the reveal is the pointer's luxury)
         <div className="kb-ask-actions">
           {m.saved && typeof m.saved === 'object' && 'path' in m.saved ? (
             <button
@@ -805,12 +859,15 @@ const AskMessageRow = memo(function AskMessageRow({
                 <IconFilePlus />
                 {t('askSaveDocx')}
               </button>
-              {m.saved && typeof m.saved === 'object' && 'error' in m.saved && (
-                <span className="kb-ask-action-error">
-                  {t('askSaveFailed', { error: m.saved.error })}
-                </span>
-              )}
             </>
+          )}
+          <button type="button" className="kb-ask-action kb-ask-action-copy" onClick={copyAnswer}>
+            {copied ? t('askCopied') : t('askCopy')}
+          </button>
+          {m.saved && typeof m.saved === 'object' && 'error' in m.saved && (
+            <span className="kb-ask-action-error">
+              {t('askSaveFailed', { error: m.saved.error })}
+            </span>
           )}
         </div>
       )}
@@ -871,6 +928,8 @@ export function KbAskPanel({
   onPendingQueryConsumed,
   focusSignal,
   onEscapeCollapse,
+  onCollapse,
+  onOpenKbCenter,
   surfaceRole = 'home',
 }: {
   /**
@@ -901,6 +960,19 @@ export function KbAskPanel({
    * in Home's mount, where AiDock owns the Esc key itself.
    */
   onEscapeCollapse?: () => void
+  /**
+   * The merged header's × (the collapse verb): the host's own retract —
+   * Home passes its drawer collapse, the overlay's mount the same
+   * `home:ai-dock-set` write its pet and Esc use. Absent (a future host
+   * without a retract): the header renders no ×.
+   */
+  onCollapse?: () => void
+  /**
+   * The ⋯ menu's knowledge-base center link (Home's surface). Absent (the
+   * overlay's mount, which cannot summon Home's center directly): the menu
+   * shows the corpus count alone.
+   */
+  onOpenKbCenter?: () => void
   /**
    * Which mount's copy this panel is (the surface context's visibility line
    * differs): 'home' — the docked drawer beside the Home desktop — or
@@ -1344,6 +1416,20 @@ export function KbAskPanel({
   // ── the conversation library (the ☰ surface, shared by both mounts) ──
   /** the library slides over the chat area; closed is the chat itself */
   const [libraryOpen, setLibraryOpen] = useState(false)
+  /** the ⋯ overflow menu (the corpus count + the KB-center link) */
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
+  const headerMenuRef = useRef<HTMLDivElement | null>(null)
+  useDismissablePopover(headerMenuOpen, () => setHeaderMenuOpen(false), {
+    inside: () => [headerMenuRef.current],
+  })
+  useEffect(() => {
+    if (!headerMenuOpen) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setHeaderMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [headerMenuOpen])
   /** the search box's live text (round-tripped to the store, debounced) */
   const [libraryQuery, setLibraryQuery] = useState('')
   /** the query's mirror: event-time refreshes (delete, rename, pin) keep it */
@@ -2715,6 +2801,18 @@ export function KbAskPanel({
   // file name, the answer's markdown the body, same write path as the tool.
   // useCallback + ref reads: the memoized rows receive this as a prop, so its
   // identity must not change per render.
+  /** the hover toolbar's copy verb: the raw markdown text onto the clipboard
+   *  — true when it landed, false when the clipboard refused (a jsdom, an
+   *  http origin): the button's feedback only answers a real copy */
+  const copyAnswer = useCallback(async (text: string): Promise<boolean> => {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
   const saveAnswer = useCallback(
     async (index: number, format: CreateDocumentFormat): Promise<void> => {
       const answer = messagesRef.current[index]
@@ -2795,9 +2893,18 @@ export function KbAskPanel({
         </div>
       )}
       {(() => {
-        // the header's count follows the round scope: the selection's size,
-        // not the index window's, is the number to trust while it is attached
+        // the merged header: ☰ (the library) + the current thread's title +
+        // ⋯ (the overflow: the corpus count + the KB-center link) + × (the
+        // collapse). The drawer's own head is gone — this one row is the
+        // bubble's whole chrome; the new-thread ＋ lives in the library's own
+        // header, where the whole thread list already lives, so the verb and
+        // its context stay together.
         const count = shownCorpusCount(scopePaths, corpusCount)
+        const activeId = claimedChatId ?? activeChat
+        const threadLabel = [...threads.pinned, ...threads.docs, ...threads.other].find(
+          (row) => row.chatId === activeId,
+        )?.label
+        const title = askHeaderTitle(docPath, threadLabel, t('askThreadNew'))
         return (
           <div className="kb-ask-header">
             <button
@@ -2810,25 +2917,64 @@ export function KbAskPanel({
             >
               ☰
             </button>
-            <div className="kb-ask-header-text">
-              <b>{t('askTitle')}</b>
-              {count !== null && count > 0 && (
-                <span>
-                  {scopePaths.length > 0
-                    ? t('askScopeChip', { n: String(count) })
-                    : t('askCorpusCount', { n: String(count) })}
-                </span>
+            <div className="kb-ask-header-title" title={title}>
+              {title}
+            </div>
+            <div className="kb-ask-header-menu" ref={headerMenuRef}>
+              <button
+                type="button"
+                className="kb-ask-menu-button"
+                aria-label={t('askHeaderMenu')}
+                title={t('askHeaderMenu')}
+                aria-expanded={headerMenuOpen}
+                onClick={() => setHeaderMenuOpen((was) => !was)}
+              >
+                ⋯
+              </button>
+              {headerMenuOpen && (
+                <div className="kb-ask-header-menu-pop" role="menu">
+                  {count !== null && count > 0 && (
+                    <span className="kb-ask-header-menu-count" role="menuitem">
+                      {scopePaths.length > 0
+                        ? t('askScopeChip', { n: String(count) })
+                        : t('askCorpusCount', { n: String(count) })}
+                    </span>
+                  )}
+                  {onOpenKbCenter && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="kb-ask-header-menu-link"
+                      onClick={() => {
+                        setHeaderMenuOpen(false)
+                        onOpenKbCenter()
+                      }}
+                    >
+                      {t('askMenuKbCenter')}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
-            <button
-              type="button"
-              className="kb-ask-header-new"
-              aria-label={t('askThreadNew')}
-              title={t('askThreadNew')}
-              onClick={startThread}
-            >
-              ＋
-            </button>
+            {onCollapse && (
+              <button
+                type="button"
+                className="kb-ask-collapse-button"
+                aria-label={t('dockCollapse')}
+                title={t('dockCollapse')}
+                onClick={onCollapse}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path
+                    d="M6.2 3.4 10.8 8l-4.6 4.6"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            )}
           </div>
         )
       })()}
@@ -3158,13 +3304,33 @@ export function KbAskPanel({
               </div>
             )}
             {messages.length === 0 && docIdentity === null && corpusCount !== 0 && (
-              // a fresh family thread's neutral empty state: the short
-              // welcome line, whatever the corpus's health — unknown counts
-              // as not-empty (the snapshot may simply not have landed), and
-              // the composer's hint sits under it as always
-              <p className="kb-ask-hint">
-                {t(scopeKey('askIntro', 'askIntroFolders', 'askIntroIndexed'))}
-              </p>
+              // a fresh family thread's empty state: the mascot's hello and
+              // the suggestion chips — the same park-in-the-composer
+              // contract the doc-bound cards play, with the corpus's own
+              // first moves instead of a document's. Unknown counts as
+              // not-empty (the snapshot may simply not have landed); the
+              // never-indexed onboarding above keeps the genuinely-empty
+              // corpus for itself
+              <div className="kb-ask-hello">
+                <div className="kb-ask-hello-bird" aria-hidden="true">
+                  <MascotSvg />
+                </div>
+                <h3>{t('askHelloTitle')}</h3>
+                <p>{t('askHelloTagline')}</p>
+                <div className="kb-ask-suggestions" role="group" aria-label={t('askHelloTitle')}>
+                  {FAMILY_SUGGESTIONS.map((suggestion) => (
+                    <button
+                      key={suggestion.key}
+                      type="button"
+                      className="kb-ask-suggestion"
+                      data-key={suggestion.key}
+                      onClick={() => setDraft(t(suggestion.promptKey))}
+                    >
+                      {t(suggestion.labelKey)}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
             {messages.map((m, i) => (
               <AskMessageRow
@@ -3189,6 +3355,7 @@ export function KbAskPanel({
                 onOpenPath={openPath}
                 onRetry={retryAsk}
                 onSaveAnswer={saveAnswer}
+                onCopyAnswer={copyAnswer}
               />
             ))}
           </div>

@@ -827,8 +827,7 @@ html.dock-view body {
 /* while a Home popover is open the chrome bands must deliver presses (drag
    regions swallow them), so outside-press dismissal can see presses on the
    blank track and the drawer head */
-html.genoffice-popover-open .work-tabs,
-html.genoffice-popover-open .ai-drawer-head {
+html.genoffice-popover-open .work-tabs {
   -webkit-app-region: no-drag;
 }
 
@@ -1110,59 +1109,36 @@ html.genoffice-popover-open .ai-drawer-head {
   }
 }
 
-.ai-drawer-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-shrink: 0;
-  height: 36px;
-  padding: 0 6px 0 16px;
-  border-bottom: 1px solid var(--border-subtle);
-  /* the drawer's header is a tool-window-style drag band (the collapse
-     control stays interactive) — the right column's share of the window drag
-     surface */
-  -webkit-app-region: drag;
-}
-
-/* Windows/Linux draw the caption buttons (titleBarOverlay) over the window's
-   top-right corner, which is the drawer head's right end: the WCO env vars
-   give the band's width (0 where the overlay is absent — see
-   title-bar-overlay.ts), so the collapse control stays clear of it */
-body.overlay-title-bar .ai-drawer-head {
-  padding-right: calc(6px + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
-}
-
-.ai-drawer-title {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--text-tertiary);
-}
-
-.ai-drawer-collapse {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: 7px;
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-
-.ai-drawer-collapse:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
 .ai-drawer-body {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* the drawer's separate head is gone — the bubble's whole chrome is the
+ * panel's own merged header (kb-ask-header below): its ☰ | title | ⋯ | ×
+ * row carries the collapse verb, the library and the overflow menu. The
+ * header keeps the tool-window drag band the old head was (the buttons
+ * stay no-drag), so the right column's share of the window drag surface
+ * survives the merge. */
+.ai-drawer-body .kb-ask-header {
+  -webkit-app-region: drag;
+}
+.ai-drawer-body .kb-ask-header button {
+  -webkit-app-region: no-drag;
+}
+/* Windows/Linux draw the caption buttons (titleBarOverlay) over the window's
+   top-right corner, which is the merged header's right end: the WCO env
+   vars give the band's width (0 where the overlay is absent — see
+   title-bar-overlay.ts), so the × stays clear of it */
+body.overlay-title-bar .ai-drawer-body .kb-ask-header {
+  padding-right: calc(6px + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+}
+
+/* the popover-open dismissal rule below keeps pointing at the drag bands */
+html.genoffice-popover-open .ai-drawer-body .kb-ask-header {
+  -webkit-app-region: no-drag;
 }
 
 /* the panel's own 860px cap was for the full-content layout; in the drawer
@@ -1237,15 +1213,8 @@ body.ai-drawer-resizing {
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
-  --mascot-shadow: drop-shadow(0 4px 10px rgb(0 0 0 / 24%));
-  --mascot-body: var(--accent);
-  --mascot-belly: #ffffff;
-  --mascot-wing: color-mix(in srgb, var(--accent) 74%, #062033);
-  --mascot-eyeball: #ffffff;
-  --mascot-pupil: #1f2a37;
-  --mascot-glint: #ffffff;
-  --mascot-beak: #f59e0b;
-  --mascot-blush: color-mix(in srgb, var(--danger) 42%, transparent);
+  /* the bird's palette lives on .ai-mascot-svg itself (any host renders the
+     same bird); the pet's rule keeps only its own behavior */
 }
 
 body.ai-pet-dragging {
@@ -1373,6 +1342,17 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
   display: block;
   filter: var(--mascot-shadow);
   transition: transform 0.16s;
+  /* the bird's palette lives on the SVG itself — any host (the pet button,
+   * the empty-state hello) renders the same bird */
+  --mascot-shadow: drop-shadow(0 4px 10px rgb(0 0 0 / 24%));
+  --mascot-body: var(--accent);
+  --mascot-belly: #ffffff;
+  --mascot-wing: color-mix(in srgb, var(--accent) 74%, #062033);
+  --mascot-eyeball: #ffffff;
+  --mascot-pupil: #1f2a37;
+  --mascot-glint: #ffffff;
+  --mascot-beak: #f59e0b;
+  --mascot-blush: color-mix(in srgb, var(--danger) 42%, transparent);
 }
 
 .ai-pet:hover .ai-mascot-svg {
@@ -3518,34 +3498,31 @@ html[dir='rtl'] .quick-title-row {
   width: 100%;
 }
 
-/* ── the panel header: the library's ☰, the title and its corpus count,
-   and the new-thread ＋ — the mockup's head row. The count subline follows
-   the round scope the way the old headbar's did */
+/* ── the merged header: ☰ (the library) + the current thread's title + ⋯
+   (the overflow menu: the corpus count + the KB-center link) + × (the
+   collapse). One slim row — the bubble's whole chrome (the drawer's own
+   head is gone). The new-thread ＋ lives in the library's own header, where
+   the whole thread list lives, so the verb and its context stay together. */
 .kb-ask-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 2px;
-  border-bottom: 1px solid var(--border-subtle);
-  margin-bottom: 12px;
+  flex-shrink: 0;
+  padding: 10px 8px 10px 10px;
 }
-.kb-ask-header-text {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
+.kb-ask-header-title {
+  font-size: 13.5px;
+  font-weight: 600;
   min-width: 0;
   flex: 1;
-}
-.kb-ask-header-text b {
-  font-size: 14px;
-  font-weight: 500;
-}
-.kb-ask-header-text span {
-  font-size: 12px;
-  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
 }
 .kb-ask-library-button,
-.kb-ask-header-new {
+.kb-ask-menu-button,
+.kb-ask-collapse-button {
   border: 0;
   background: transparent;
   color: var(--text-muted);
@@ -3558,13 +3535,58 @@ html[dir='rtl'] .quick-title-row {
   place-items: center;
   cursor: pointer;
   flex-shrink: 0;
+  padding: 0;
 }
 .kb-ask-library-button:hover,
-.kb-ask-header-new:hover {
+.kb-ask-menu-button:hover,
+.kb-ask-collapse-button:hover {
   background: var(--hover);
   color: var(--text);
 }
-.kb-ask-library-button[aria-expanded='true'] {
+.kb-ask-library-button[aria-expanded='true'],
+.kb-ask-menu-button[aria-expanded='true'] {
+  color: var(--accent);
+}
+
+/* the ⋯ overflow menu: the corpus count (info) + the KB-center link */
+.kb-ask-header-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+.kb-ask-header-menu-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-radius: var(--radius-8, 8px);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 22%);
+}
+.kb-ask-header-menu-count {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  padding: 5px 8px;
+  user-select: none;
+}
+.kb-ask-header-menu-link {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--text);
+  padding: 5px 8px;
+  border-radius: var(--radius-6, 6px);
+  cursor: pointer;
+}
+.kb-ask-header-menu-link:hover {
+  background: var(--hover);
   color: var(--accent);
 }
 
@@ -3732,6 +3754,38 @@ html[dir='rtl'] .quick-title-row {
 }
 
 /* has corpus, nothing asked yet: one quiet centered line */
+/* the fresh family thread's empty state: the mascot's hello and the chips */
+.kb-ask-hello {
+  margin: auto 0;
+  text-align: center;
+  padding: 12px 8px;
+}
+.kb-ask-hello-bird {
+  display: inline-flex;
+  padding: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.kb-ask-hello h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 10px 0 4px;
+}
+.kb-ask-hello p {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 14px;
+}
+
+/* the suggestion chips: the doc-bound cards and the family's hello row both
+ * wear the mockup's pill look now (the parked-prompt contract unchanged) */
+.kb-ask-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
 .kb-ask-hint {
   margin: auto 0;
   text-align: center;
@@ -3972,28 +4026,35 @@ html[dir='rtl'] .quick-title-row {
 }
 
 .kb-ask-msg {
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.55;
-  max-width: 92%;
+  max-width: 94%;
   white-space: normal;
+  /* a bit more air between turns: the rhythm reads as a conversation */
+  margin: 7px 0;
 }
 .kb-ask-user {
   align-self: flex-end;
   background: var(--accent-soft);
-  border-radius: 12px 12px 4px 12px;
+  border-radius: 14px 14px 5px 14px;
   padding: 8px 12px;
 }
 .kb-ask-assistant {
   align-self: flex-start;
+  /* the answer is frameless prose: the air is the frame */
+  line-height: 1.75;
+  color: var(--text);
 }
 .kb-ask-error {
   color: var(--danger);
 }
 .kb-ask-tools {
+  /* the side rail: one column of slim left-bordered lines, not chips */
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 7px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  margin: 0 0 4px 2px;
 }
 /* the document sub-agent's live status line (a document_agent call in flight):
    the label names whose work it is, the verb rolls with the sub-agent */
@@ -4044,25 +4105,75 @@ html[dir='rtl'] .quick-title-row {
   color: var(--color-text-secondary);
   white-space: pre-wrap;
 }
-/* the composer spacing is kb-ask-specific; everything else about the composer
- * box comes from @genoffice/ui/ai-panel.css (AiComposer renders .ai-input-box) */
+/* the composer: the same glass the bubble is (the drawer's own surface), so
+ * no box of its own — the solid dark panel and heavy border from
+ * @genoffice/ui/ai-panel.css are overridden away here, a hairline top
+ * divider takes their place, and focus answers with a soft accent ring on
+ * the region rather than a border flip */
 .kb-ask .ai-input-box {
-  margin-top: 8px;
+  margin: 8px 10px 10px;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transition: box-shadow 0.16s ease;
+}
+.kb-ask .ai-input-box:focus-within {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.kb-ask .ai-input-box textarea {
+  font-size: 13.5px;
+  background: transparent;
+  color: var(--text);
+}
+.kb-ask .ai-input-box textarea::placeholder {
+  color: var(--text-muted);
+}
+/* the round accent send (and the stop it becomes): the mockup's ↑ coin */
+.kb-ask .ai-send-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+}
+.kb-ask .ai-send-btn:disabled {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+.kb-ask .ai-stop-btn {
+  background: var(--danger);
+}
+/* the footer's controls: the quiet mini-chips (model, permission, skills) */
+.kb-ask .ai-model-chip {
+  height: 22px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 0;
+  background: transparent;
+}
+.kb-ask .ai-model-chip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.kb-ask .ai-input-footer {
+  gap: 4px;
+  padding: 4px 2px 4px 4px;
 }
 .kb-ask-tool-note {
+  /* the mockup's .tool-rail: a 2px accent rail, small text, no chip chrome */
   display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  color: var(--text-secondary);
-  padding: 3px 9px;
-  border-radius: 99px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--border-subtle);
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 1px 0 1px 8px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
 }
 .kb-ask-tool-note svg {
   color: var(--text-tertiary);
   flex-shrink: 0;
+  align-self: center;
 }
 .kb-ask-tool-detail {
   color: var(--text);
@@ -4131,11 +4242,20 @@ button.kb-ask-card-name:hover {
   margin-left: 0;
 }
 .kb-ask-actions {
+  /* the hover toolbar: gone at rest (opacity, never display — the buttons
+   * stay tab-reachable), revealed by the answer's hover and by focus within
+   * the message — the keyboard's way in */
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 2px;
+  margin: 2px 0 6px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.kb-ask-msg:hover .kb-ask-actions,
+.kb-ask-actions:focus-within {
+  opacity: 1;
 }
 .kb-ask-action {
   appearance: none;
@@ -4143,12 +4263,12 @@ button.kb-ask-card-name:hover {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11.5px;
-  color: var(--text-secondary);
-  padding: 3px 9px;
-  border-radius: 99px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 7px;
+  border-radius: var(--radius-6, 6px);
+  border: 0;
+  background: transparent;
   cursor: pointer;
 }
 .kb-ask-action:hover:not(:disabled) {
@@ -4610,26 +4730,6 @@ button.kb-ask-card-name:hover {
   font-size: 12.5px;
   opacity: 0.75;
   font-style: italic;
-}
-
-.kb-ask-suggestions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.kb-ask-suggestion {
-  display: block;
-  padding: 10px 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-8);
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  transition: all var(--transition-fast);
 }
 
 .kb-ask-suggestion:hover,

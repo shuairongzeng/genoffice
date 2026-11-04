@@ -556,26 +556,10 @@ export function AiDock({
                 } as React.CSSProperties)
           }
         >
-          <header className="ai-drawer-head">
-            <span className="ai-drawer-title">{t('navAsk')}</span>
-            <button
-              type="button"
-              className="ai-drawer-collapse"
-              aria-label={t('dockCollapse')}
-              title={t('dockCollapse')}
-              onClick={requestCollapse}
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path
-                  d="M6.2 3.4 10.8 8l-4.6 4.6"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          </header>
+          {/* the bubble's whole chrome is the panel's own merged header (its
+              ☰ title ⋯ × row) — the drawer's separate head is gone; the
+              collapse verb lives in the panel's ×, threaded back through
+              Home as onCollapse */}
           <div className="ai-drawer-body">{children}</div>
           {open && (
             <div

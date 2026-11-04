@@ -677,7 +677,8 @@ describe("the three-state card and the conversation's session allows", () => {
     // a NEW thread: the main-side set survives the switch — the card does
     // not come back (this is the complaint the move fixed: an allow that
     // died with the conversation)
-    click('.kb-ask-header-new')
+    click('.kb-ask-library-button')
+    click('.kb-ask-library-new')
     await settle()
     await ask('build a third guide')
     expect(runCli).toHaveBeenCalledTimes(3)
@@ -818,7 +819,8 @@ describe("the three-state card and the conversation's session allows", () => {
     expect(host.querySelector('.kb-ask-scroll-latest')).toBeTruthy()
     // the new thread: the reader starts at ITS latest, not where they left
     scrollTo.mockClear()
-    click('.kb-ask-header-new')
+    click('.kb-ask-library-button')
+    click('.kb-ask-library-new')
     await settle()
     expect(scrollTo).toHaveBeenCalled()
     expect(host.querySelector('.kb-ask-scroll-latest')).toBeNull()
@@ -1173,5 +1175,61 @@ describe("the browser page actions' renderer-gate marker (the one-ask contract)"
       selector: '#go',
       confirmed: true,
     })
+  })
+})
+
+describe("the answer row's hover toolbar (the redesign)", () => {
+  it('reveals on hover and focus-within, and the copy verb answers the clipboard', async () => {
+    render()
+    await settle()
+    // the base stub answers 'done' with no text; a text-bearing answer is
+    // what carries the toolbar, so stream one chunk then done
+    ;(window as unknown as { aiOffice: { aiStream: unknown } }).aiOffice.aiStream = (
+      request: StartedRequest,
+    ) => {
+      started.push(request)
+      queueMicrotask(() => {
+        chunkListener?.({
+          requestId: request.requestId,
+          type: 'delta',
+          text: 'an answer worth saving',
+        })
+        chunkListener?.({ requestId: request.requestId, type: 'done' })
+      })
+    }
+    await ask('a question with an answer')
+    const row = [...host.querySelectorAll('.kb-ask-msg')].at(-1) as HTMLElement
+    expect(row).toBeTruthy()
+    const actions = row.querySelector<HTMLElement>('.kb-ask-actions')
+    expect(actions).toBeTruthy()
+    // the toolbar carries the two save verbs and the copy, quiet at rest
+    const buttons = [...actions.querySelectorAll('button')].map((b) => b.textContent)
+    expect(buttons).toContain('Save as Markdown')
+    expect(buttons).toContain('Save as Word')
+    expect(buttons).toContain('Copy')
+    // focus-within reveals: focusing the copy button shows the toolbar (the
+    // keyboard's way in; the CSS :focus-within carries the reveal)
+    const copy = [...actions.querySelectorAll<HTMLButtonElement>('.kb-ask-action-copy')].at(-1)!
+    act(() => copy.focus())
+    expect(actions.matches(':focus-within')).toBe(true)
+    // the copy answers the clipboard and reports back: 已复制 for a beat —
+    // fake timers from here so the feedback's own timer is theirs to clear
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await act(async () => {
+        copy.click()
+        for (let i = 0; i < 8; i++) await Promise.resolve()
+      })
+      expect(writeText).toHaveBeenCalled()
+      expect(copy.textContent).toBe('Copied')
+      await act(async () => {
+        vi.advanceTimersByTime(1600)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(copy.textContent).toBe('Copy')
   })
 })

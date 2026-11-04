@@ -231,7 +231,7 @@ describe('the AI drawer', () => {
   })
 
   it('closes to the pet and opens back, persisting each state', async () => {
-    await click(container.querySelector('.ai-drawer-collapse'))
+    await click(container.querySelector('.kb-ask-collapse-button'))
     expect(drawer().className).not.toContain('open')
     expect(setAiDock).toHaveBeenCalledWith({ collapsed: true })
     // the panel itself stays mounted — hidden, not unmounted
@@ -524,7 +524,7 @@ describe('the floating pet', () => {
     })
     expect(setAiDock).toHaveBeenCalledWith({ petPos: { x: 956, y: 706 } })
     // closed drawer: same corner, same clamp
-    await click(container.querySelector('.ai-drawer-collapse'))
+    await click(container.querySelector('.kb-ask-collapse-button'))
     setAiDock.mockClear()
     await act(async () => {
       pet().dispatchEvent(
@@ -569,7 +569,7 @@ describe('the AI drawer without the prefs channels', () => {
     delete api.getAiDock
     delete api.setAiDock
     await mountHome(api)
-    await click(container.querySelector('.ai-drawer-collapse'))
+    await click(container.querySelector('.kb-ask-collapse-button'))
     expect(drawer().className).not.toContain('open')
     expect(setAiDock).not.toHaveBeenCalled()
     expect(normalizeAiDockPrefs(JSON.parse(localStorage.getItem('home.aiDock') ?? 'null'))).toEqual(

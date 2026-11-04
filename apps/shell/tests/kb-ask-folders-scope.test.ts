@@ -235,7 +235,12 @@ describe('KbAskPanel folders scope', () => {
       ]
     render()
     await settle()
-    expect(host.textContent).toContain('Questions search only your chosen folders')
+    // the fresh-thread hello answers the folders corpus: the mascot's
+    // greeting with the corpus's count behind the ⋯ menu
+    expect(host.querySelector('.kb-ask-hello')).toBeTruthy()
+    await act(async () => {
+      host.querySelector<HTMLElement>('.kb-ask-menu-button')?.click()
+    })
     expect(host.textContent).toContain('Knowledge base: 1 files')
   })
 })

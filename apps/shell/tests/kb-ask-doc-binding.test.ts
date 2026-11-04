@@ -498,11 +498,19 @@ describe('the first-open suggestions', () => {
     expect(keys[1]).toBe('expand')
   })
 
-  it('no doc, no cards: the panel family keeps its own empty state', async () => {
+  it("no doc, no cards: the family keeps its own hello chips, not the doc engine's", async () => {
     surfaceTabs = [HOME_TAB]
     render()
     await settle()
-    expect(host.querySelector('.kb-ask-suggestion')).toBeNull()
+    // the family empty state is the mascot hello + its own three chips; the
+    // doc engine's cards (data-key of its own picking) never render
+    expect(host.querySelector('.kb-ask-hello')).toBeTruthy()
+    expect(host.querySelectorAll('.kb-ask-suggestion')).toHaveLength(3)
+    expect([...host.querySelectorAll('.kb-ask-suggestion')].map((b) => b.dataset.key)).toEqual([
+      'summarize',
+      'draft',
+      'browse',
+    ])
   })
 })
 

@@ -238,16 +238,25 @@ const click = (selector: string) => {
 
 const chipText = () => host.querySelector('.kb-ask-scope-label')?.textContent ?? ''
 
+/** the ⋯ menu's corpus row: the count lives behind the overflow now; the
+ *  helper is idempotent — it opens the menu only when it is closed */
+async function readMenuCount(): Promise<string | null> {
+  const button = host.querySelector<HTMLElement>('.kb-ask-menu-button')
+  const alreadyOpen = button?.getAttribute('aria-expanded') === 'true'
+  if (!alreadyOpen) {
+    await act(async () => button?.click())
+  }
+  return host.querySelector('.kb-ask-header-menu-count')?.textContent ?? null
+}
+
 describe('the round-scope chip', () => {
   it('a blank scoped handoff opens the panel with the chip attached and asks nothing', async () => {
     render({ text: '', seq: 1, origin: 'palette', scopePaths: SCOPE })
     await settle()
     expect(host.querySelector('.kb-ask-scope')).toBeTruthy()
     expect(chipText()).toBe('Corpus: 2 selected files')
-    // the headbar's count follows the scope, not the index window
-    expect(host.querySelector('.kb-ask-header-text span')?.textContent).toBe(
-      'Corpus: 2 selected files',
-    )
+    // the ⋯ menu's count row follows the scope, not the index window
+    expect(await readMenuCount()).toBe('Corpus: 2 selected files')
     // nothing sent itself: no model request, no search
     expect(started).toHaveLength(0)
     expect(searchQueries).toHaveLength(0)
@@ -288,10 +297,8 @@ describe('the round-scope chip', () => {
     click('.kb-ask-scope-clear')
     await settle()
     expect(host.querySelector('.kb-ask-scope')).toBeNull()
-    // the headbar count is the index window's again
-    expect(host.querySelector('.kb-ask-header-text span')?.textContent).toBe(
-      'Knowledge base: 1 files',
-    )
+    // the menu's count row is the index window's again
+    expect(await readMenuCount()).toBe('Knowledge base: 1 files')
     await ask('anything')
     expect(searchQueries).toHaveLength(1)
     expect(searchQueries[0]).not.toHaveProperty('onlyPaths')
