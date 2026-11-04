@@ -2216,13 +2216,15 @@ export function DesktopView({
         <ul className="desktop-icons" role="listbox" aria-label={s.desktopAria}>
           {resolved.map(({ icon, pos }, index) => {
             const dragging = drag !== null && drag.id === icon.id
-            const style = dragging
-              ? { left: drag.x, top: drag.y, zIndex: 40 }
-              : { left: pos.x, top: pos.y }
+            // the source cell stays put (dimmed) while the carried copy lives
+            // in the body portal below — the desktop's home-body stacking
+            // context (z 2) would otherwise pin the carried icon under the
+            // dock (43) no matter what z-index it wears
+            const style = { left: pos.x, top: pos.y }
             return (
               <li
                 key={icon.id}
-                className={`desktop-icon${dragging ? ' dragging' : ''}${selectedIds.has(icon.id) ? ' selected' : ''}`}
+                className={`desktop-icon${dragging ? ' drag-source' : ''}${selectedIds.has(icon.id) ? ' selected' : ''}`}
                 style={{ ...style, animationDelay: `${Math.min(index, 24) * 60}ms` }}
                 role="presentation"
               >
@@ -2269,6 +2271,31 @@ export function DesktopView({
             }}
           />
         )}
+        {/* the carried icon's avatar: portaled to the body so it escapes the
+         * home-body stacking context (z 2) — inside it, no z-index can lift the
+         * avatar above the dock (43) it must fly over. drag.x/y are
+         * surface-relative; the avatar positions in viewport px */}
+        {drag !== null &&
+          (() => {
+            const icon = iconsRef.current.find((candidate) => candidate.id === drag.id)
+            if (!icon) return null
+            const rect = surfaceRef.current?.getBoundingClientRect()
+            const x = (rect?.left ?? 0) + drag.x
+            const y = (rect?.top ?? 0) + drag.y
+            return createPortal(
+              <div
+                className="desktop-icon desktop-icon-avatar"
+                role="presentation"
+                style={{ left: x, top: y }}
+              >
+                <div className="desktop-icon-item">
+                  {renderTile(icon)}
+                  <span className="desktop-icon-label">{icon.title}</span>
+                </div>
+              </div>,
+              document.body,
+            )
+          })()}
         {notice !== null && (
           <div className="desktop-notice" role="status">
             {notice}

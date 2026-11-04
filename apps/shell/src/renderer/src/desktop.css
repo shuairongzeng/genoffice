@@ -445,8 +445,35 @@
   animation: desktop-icon-in 0.3s cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
 
-.desktop-icon.dragging {
+/* the drag source cell: stays put, dimmed, never intercepts — the carried
+ * copy is the body-portaled avatar below (the home-body stacking context at
+ * z 2 would pin any in-tree copy under the dock) */
+.desktop-icon.drag-source {
   pointer-events: none;
+}
+
+.desktop-icon.drag-source .desktop-icon-item {
+  opacity: 0.35;
+}
+
+/* the carried copy: body-level, above the dock (43), menus (44), pet (45)
+ * and login hint (46) — what's in the hand is topmost while carried */
+.desktop-icon-avatar {
+  position: fixed;
+  z-index: 47;
+  pointer-events: none;
+  animation: none;
+}
+
+.desktop-icon-avatar .desktop-tile {
+  transform: scale(1.06);
+  box-shadow:
+    inset 0 1px 0 var(--desktop-tile-highlight),
+    var(--desktop-icon-shadow-hover);
+}
+
+.desktop-icon-avatar .desktop-icon-item {
+  opacity: 0.92;
 }
 
 .desktop-icon-item {
@@ -563,20 +590,9 @@
     var(--desktop-icon-shadow-hover);
 }
 
-.desktop-icon.dragging .desktop-tile {
-  transform: scale(1.06);
-  box-shadow:
-    inset 0 1px 0 var(--desktop-tile-highlight),
-    var(--desktop-icon-shadow-hover);
-}
+/* (the carried look lives on the body-portaled .desktop-icon-avatar above —
+ *  the old in-tree .dragging rules could never rise over the dock) */
 
-.desktop-icon.dragging .desktop-icon-item {
-  opacity: 0.92;
-}
-
-/* the desktop's label ink and scrim: the theme pair by default, overridable
- * by the 文字颜色 row's two custom properties (DesktopView sets them inline
- * on .desktop-content only while a custom color is chosen) */
 .desktop-icon-label {
   max-width: calc(92px * var(--desktop-icon-scale));
   overflow: hidden;
