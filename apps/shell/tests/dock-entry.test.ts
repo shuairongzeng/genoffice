@@ -336,8 +336,10 @@ describe('Part A: the dock stays reachable over an open drawer (the stylesheet c
   const css = readFileSync(resolve(__dirname, '../src/renderer/src/home.css'), 'utf8')
 
   function blockOf(selector: string): string {
+    // anchored at a line start: a compound selector's tail (the dark-tone
+    // override's `… .dock {`) must not be mistaken for the base rule
     const block = new RegExp(
-      `${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{[^}]*?\\}`,
+      `(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{[^}]*?\\}`,
     ).exec(css)?.[0]
     expect(block, `${selector} has a rule block`).toBeTruthy()
     return block ?? ''

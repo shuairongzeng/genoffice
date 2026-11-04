@@ -106,6 +106,32 @@ body.vib .home {
   height: 100vh;
 }
 
+/* the glass surfaces' wallpaper-tone override: the desktop's own material
+ * language. Over a dark wallpaper the bubble, the dock pill and the todo
+ * card all wear the same dark glass regardless of the app theme (a
+ * light-glass panel over a dark aurora washes out, and its body text with
+ * it). The tone overrides the TEXT TOKENS on the surfaces themselves, so
+ * everything inside — answers, placeholders, counts, rails — inherits the
+ * readable ink with no per-element patching. DesktopView samples the
+ * wallpaper and stamps data-wallpaper-tone. */
+.home.desktop-mode[data-wallpaper-tone='dark'] {
+  --glass-bg: 16 20 23;
+  --glass-border: rgb(255 255 255 / 10%);
+}
+.home.desktop-mode[data-wallpaper-tone='dark'] .ai-drawer-panel,
+.home.desktop-mode[data-wallpaper-tone='dark'] .desktop-todo {
+  background: color-mix(in srgb, rgb(var(--glass-bg)) 62%, transparent);
+  border-color: var(--glass-border);
+  --text: #f2f2f5;
+  --text-muted: rgb(242 242 245 / 62%);
+  --accent-soft: #24354d;
+  color: var(--text);
+}
+.home.desktop-mode[data-wallpaper-tone='dark'] .dock {
+  background: color-mix(in srgb, rgb(var(--glass-bg)) 38%, transparent);
+  border-color: var(--glass-border);
+}
+
 /* macOS traffic lights (titleBarStyle: hiddenInset) sit over the tab strip's
    left end now that the retired sidebar no longer owns that corner — keep
    the first tab clear of them, the way the logo band below them used to */
@@ -1002,10 +1028,11 @@ html.genoffice-popover-open .work-tabs {
   pointer-events: auto;
   /* the width is the shared clamp's (desktop-geometry.ts), set inline; the
      drawer overlays the content, so nothing reserves this width in layout.
-     Over the desktop the panel is the same frosted glass the dock wears —
-     the wallpaper's aurora bleeds through and the drawer's edge stops
-     reading as a wall between "the panel" and "the desktop" */
-  background: color-mix(in srgb, var(--surface) 46%, transparent);
+     Over the desktop the panel is frosted glass — the wallpaper's aurora
+     bleeds through — but it carries PARAGRAPHS, so its surface share is
+     heavier than the dock's icon pill: enough surface that body text keeps
+     its contrast over any wallpaper, still translucent */
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
   -webkit-backdrop-filter: blur(28px) saturate(1.25);
   backdrop-filter: blur(28px) saturate(1.25);
   /* the bubble: content-sized between the shared clamps, the thread inside
@@ -4732,9 +4759,29 @@ button.kb-ask-card-name:hover {
   font-style: italic;
 }
 
+/* the suggestion chips: glass pills on the bubble's own material — never the
+ * browser's default gray button (a bare <button> in the bubble reads as a
+ * patch someone taped on) */
+.kb-ask-suggestion {
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  line-height: 1.2;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+
 .kb-ask-suggestion:hover,
 .kb-ask-suggestion:focus-visible {
   border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
   outline: none;
 }
 

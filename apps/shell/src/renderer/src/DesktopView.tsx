@@ -2083,6 +2083,21 @@ export function DesktopView({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [dialogOpen, wpCenterOpen, propsTarget, desktopPropsOpen])
 
+  // the glass surfaces' tone follows the WALLPAPER, not the app theme: the
+  // desktop reads as one material, so over a dark wallpaper the bubble/dock/
+  // todo card go dark-glass even when the app's chrome is in light mode
+  // (a light-glass panel over a dark aurora reads as a washed-out slab and
+  // its body text washes out with it). Published on the .home ancestor so
+  // the fixed-position bubble/dock (siblings of the surface) share it.
+  useEffect(() => {
+    const home = surfaceRef.current?.closest('.home')
+    if (!home) return
+    home.setAttribute('data-wallpaper-tone', darkWallpaper ? 'dark' : 'light')
+    return () => {
+      home.removeAttribute('data-wallpaper-tone')
+    }
+  }, [darkWallpaper])
+
   // ── render ──
 
   /** the label color's two custom properties; a custom color always wins, a
