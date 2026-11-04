@@ -16,6 +16,24 @@ import type { FileSearchPage } from '../src/shared/home-api'
 let root: Root
 let container: HTMLDivElement
 let searchFiles: ReturnType<typeof vi.fn>
+/** when true, the harness mounts without onIndexUpdated (the old preload) */
+let dropIndexChannel = false
+
+/** remount Home against the current channel face (the old-preload seam) */
+async function remount(): Promise<void> {
+  await act(async () => root.unmount())
+  container.remove()
+  container = document.createElement('div')
+  document.body.append(container)
+  root = createRoot(container)
+  await act(async () =>
+    root.render(createElement(LocaleProvider, { initial: 'en', children: createElement(Home) })),
+  )
+  await act(async () => {
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+  })
+}
+
 let indexHandlers: (() => void)[]
 
 const page = (q: string): FileSearchPage => ({
@@ -42,18 +60,9 @@ const quietPage = (q: string): FileSearchPage => ({
   index: { indexed: 13, pending: 0, scanning: false },
 })
 
-beforeEach(async () => {
-  HTMLElement.prototype.scrollTo = vi.fn()
-  localStorage.clear()
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(() => {
-      throw new Error('No network in search event tests')
-    }),
-  )
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
-  searchFiles = vi.fn(async ({ q }: { q: string }) => page(q))
+/** the aiOffice face the harness mounts against; rebuilt per mount so the
+ *  old-preload flag actually removes the push channel */
+function buildFace(): void {
   indexHandlers = []
   window.aiOffice = {
     folderRoots: async () => [],
@@ -74,13 +83,33 @@ beforeEach(async () => {
     listFolder: async (dir: string) => ({ dir, mtimeMs: 0, folders: [], files: [] }),
     searchFiles,
     rerankSearch: async () => null,
-    onIndexUpdated: (handler: () => void) => {
-      indexHandlers.push(handler)
-      return () => {
-        indexHandlers = indexHandlers.filter((h) => h !== handler)
-      }
-    },
+    ...(dropIndexChannel
+      ? {}
+      : {
+          onIndexUpdated: (handler: () => void) => {
+            indexHandlers.push(handler)
+            return () => {
+              indexHandlers = indexHandlers.filter((h) => h !== handler)
+            }
+          },
+        }),
   } as unknown as Window['aiOffice']
+}
+
+beforeEach(async () => {
+  HTMLElement.prototype.scrollTo = vi.fn()
+  localStorage.clear()
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => {
+      throw new Error('No network in search event tests')
+    }),
+  )
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+  searchFiles = vi.fn(async ({ q }: { q: string }) => page(q))
+  dropIndexChannel = false
+  buildFace()
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -133,8 +162,10 @@ describe('search refresh on index-updated', () => {
     })
     expect(searchFiles).toHaveBeenCalledTimes(1)
     expect(searchFiles.mock.calls[0]![0]).toMatchObject({ q: 'report' })
-    // …and the effect subscribed to the main process's push
-    expect(indexHandlers).toHaveLength(1)
+    // …and the effect subscribed to the main process's push (the ask panel
+    // subscribes to the same channel for its corpus snapshot — the cold-boot
+    // fix — so the capture holds more than the search's own)
+    expect(indexHandlers.length).toBeGreaterThanOrEqual(1)
 
     // a busy index used to trigger a 1.5 s re-poll; two ticks past that with
     // no push must not re-query
@@ -143,9 +174,10 @@ describe('search refresh on index-updated', () => {
     })
     expect(searchFiles).toHaveBeenCalledTimes(1)
 
-    // the push itself re-queries immediately
+    // the push itself re-queries immediately (fire every capture: the
+    // panel's handler re-snapshots its corpus, the search's re-queries)
     await act(async () => {
-      indexHandlers[0]!()
+      for (const handler of [...indexHandlers]) handler()
     })
     expect(searchFiles).toHaveBeenCalledTimes(2)
     expect(searchFiles.mock.calls[1]![0]).toMatchObject({ q: 'report' })
@@ -164,18 +196,21 @@ describe('search refresh on index-updated', () => {
     await act(async () => {
       vi.advanceTimersByTime(150)
     })
-    expect(indexHandlers).toHaveLength(1)
+    const atQuery = indexHandlers.length
+    expect(atQuery).toBeGreaterThanOrEqual(1)
 
     await typeQuery('')
     await act(async () => {
       vi.advanceTimersByTime(150)
     })
-    expect(indexHandlers).toHaveLength(0)
+    // the search's own subscription left with the query; the panel's stays
+    // (it is the panel's corpus snapshot, not the search's)
+    expect(indexHandlers.length).toBeLessThan(atQuery)
     // the cleared query never re-subscribes on a later timer tick
     await act(async () => {
       vi.advanceTimersByTime(3200)
     })
-    expect(indexHandlers).toHaveLength(0)
+    expect(indexHandlers.length).toBeLessThan(atQuery)
     expect(searchFiles).toHaveBeenCalledTimes(1)
   })
 
@@ -199,10 +234,10 @@ describe('search refresh on index-updated', () => {
     // query — bumping the sequence would discard the in-flight reply and
     // freeze the results mid-build
     await act(async () => {
-      indexHandlers[0]!()
+      for (const handler of [...indexHandlers]) handler()
     })
     await act(async () => {
-      indexHandlers[0]!()
+      for (const handler of [...indexHandlers]) handler()
     })
     expect(searchFiles).toHaveBeenCalledTimes(1)
 
@@ -225,8 +260,12 @@ describe('search refresh on index-updated', () => {
 
   it('an old preload without the push channel keeps the busy-index re-poll', async () => {
     // one launch after an app update can pair a new renderer with the old
-    // preload: no onIndexUpdated exists, so the slow poll must stay
-    delete (window.aiOffice as Record<string, unknown>).onIndexUpdated
+    // preload: no onIndexUpdated exists, so the slow poll must stay — and
+    // NOTHING subscribes, the ask panel's corpus snapshot included (it
+    // falls back to its mount snapshot + sends, same contract)
+    dropIndexChannel = true
+    buildFace()
+    await remount()
     await clickNav('Recent')
 
     await typeQuery('report')

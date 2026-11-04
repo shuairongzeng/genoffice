@@ -129,6 +129,10 @@ let host: HTMLDivElement
 let root: Root
 let calls: Array<{ method: string; args: unknown }>
 let metas: ChatMeta[]
+/** the kbList answers, mutable so a test can warm the index up mid-flight */
+let kbFiles: Array<{ path: string }>
+/** the index-updated handlers the panel subscribed (tests fire the push) */
+const indexUpdatedHandlers: Array<() => void> = []
 
 function recordingProjectApi(): ProjectApi {
   calls = []
@@ -190,12 +194,21 @@ function recordingProjectApi(): ProjectApi {
 
 beforeEach(() => {
   if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {}
+  kbFiles = []
+  indexUpdatedHandlers.length = 0
   ;(window as unknown as { aiOffice: unknown }).aiOffice = {
-    kbList: async () => [],
+    kbList: async () => kbFiles,
     aiGetSettings: async () => null,
     aiGskStatus: async () => ({ loggedIn: true }),
     onAiSettingsChanged: () => () => {},
     skillsList: async () => [],
+    onIndexUpdated: (handler: () => void) => {
+      indexUpdatedHandlers.push(handler)
+      return () => {
+        const index = indexUpdatedHandlers.indexOf(handler)
+        if (index >= 0) indexUpdatedHandlers.splice(index, 1)
+      }
+    },
   }
   recordingProjectApi()
   ;(window as unknown as { projectApi: unknown }).projectApi = (
@@ -538,5 +551,99 @@ describe('the mounted library', () => {
       { projectId: 'default', chatId: 'kb-ask-2' },
     ])
     expect(rows()).toEqual([])
+  })
+})
+
+describe('the corpus snapshot and the fresh-thread empty state', () => {
+  it('a fresh family thread with a healthy corpus shows the neutral welcome, not the hero, and keeps the badge', async () => {
+    kbFiles = [{ path: '/kb/a.md' }, { path: '/kb/b.md' }]
+    // the store answered after the mount: the index push lands the snapshot
+    await act(async () => {
+      for (const handler of [...indexUpdatedHandlers]) handler()
+    })
+    await settle()
+    // the badge answered the healthy corpus
+    expect(host.querySelector('.kb-ask-header-text span')?.textContent).toContain('2')
+    // a fresh thread through the library's own new-thread button
+    await openLibrary()
+    await act(async () => {
+      host.querySelector<HTMLElement>('.kb-ask-library-new')!.click()
+    })
+    await settle()
+    // the neutral welcome, never the onboarding hero; the badge survived
+    expect(host.querySelector('.kb-ask-hero')).toBeNull()
+    expect(host.querySelector('.kb-ask-hint')?.textContent).toBeTruthy()
+    expect(host.querySelector('.kb-ask-header-text span')?.textContent).toContain('2')
+  })
+
+  it('the cold-boot window self-corrects: the index-updated push re-snapshots a stale 0', async () => {
+    // the mount snapshot lands in the window where the store does not exist
+    // yet: kbList answers the starred half alone — 0
+    kbFiles = []
+    await settle()
+    expect(host.querySelector('.kb-ask-header-text span')).toBeNull()
+    // a fresh thread in that window greets with the hero (the scan is
+    // genuinely still out — the copy is honest this instant)
+    await openLibrary()
+    await act(async () => {
+      host.querySelector<HTMLElement>('.kb-ask-library-new')!.click()
+    })
+    await settle()
+    expect(host.querySelector('.kb-ask-hero')).toBeTruthy()
+    // the first scan lands: main pushes index-updated, the panel re-snapshots
+    kbFiles = Array.from({ length: 8 }, (_, i) => ({ path: `/kb/f${i}.md` }))
+    await act(async () => {
+      for (const handler of [...indexUpdatedHandlers]) handler()
+    })
+    await settle()
+    expect(host.querySelector('.kb-ask-hero')).toBeNull()
+    expect(host.querySelector('.kb-ask-hint')?.textContent).toBeTruthy()
+    expect(host.querySelector('.kb-ask-header-text span')?.textContent).toContain('8')
+  })
+
+  it('switching threads never zeroes a healthy corpus', async () => {
+    kbFiles = [{ path: '/kb/a.md' }]
+    metas = [
+      {
+        chatId: 'kb-ask-2',
+        updatedAt: '2026-11-03T00:00:00.000Z',
+        approxCount: 1,
+        firstQuestion: 'stored',
+      },
+    ]
+    await act(async () => {
+      for (const handler of [...indexUpdatedHandlers]) handler()
+    })
+    await settle()
+    await openLibrary()
+    await act(async () => {
+      host
+        .querySelector<HTMLElement>(
+          '.kb-ask-library-row[data-chat="kb-ask-2"] .kb-ask-library-open',
+        )!
+        .click()
+    })
+    await settle()
+    // the thread switched; the corpus state never left the panel
+    expect(host.querySelector('.kb-ask-header-text span')?.textContent).toContain('1')
+    expect(host.querySelector('.kb-ask-hero')).toBeNull()
+  })
+
+  it('the empty-KB hero still shows when the corpus is genuinely empty', async () => {
+    kbFiles = []
+    await settle()
+    await openLibrary()
+    await act(async () => {
+      host.querySelector<HTMLElement>('.kb-ask-library-new')!.click()
+    })
+    await settle()
+    expect(host.querySelector('.kb-ask-hero')).toBeTruthy()
+    expect(host.querySelector('.kb-ask-hint')).toBeNull()
+    // and it stays after the (silent) index push: still genuinely empty
+    await act(async () => {
+      for (const handler of [...indexUpdatedHandlers]) handler()
+    })
+    await settle()
+    expect(host.querySelector('.kb-ask-hero')).toBeTruthy()
   })
 })

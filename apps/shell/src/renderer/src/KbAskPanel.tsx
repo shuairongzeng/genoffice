@@ -1868,6 +1868,17 @@ export function KbAskPanel({
   useEffect(() => {
     // one corpus snapshot per mount; sends and scope changes refresh it again
     refreshCorpus()
+    // ...and the snapshot follows the index from there: the mount's can land
+    // in the cold-boot window where the store does not exist yet and kbList
+    // answers the starred half alone — 0 — while the first scan is still
+    // seconds out; without a re-pull that stale 0 would hide the count badge
+    // and greet a fresh thread with the empty-KB hero on a healthy corpus.
+    // The main process pushes index-updated the moment a scan diff or an
+    // extraction lands (coalesced), so each push re-snapshots — the same
+    // push Home's search follows. Optional-chained: component tests stub a
+    // partial aiOffice, and a preload without the channel keeps the mount
+    // snapshot alone (sends and scope changes still refresh it).
+    const offIndexUpdated = window.aiOffice.onIndexUpdated?.(() => refreshCorpus())
     // the desktop loop's first manifest snapshot; tab changes re-pull so the
     // read tools follow what is actually open (sends refresh it again too)
     refreshAppManifest()
@@ -2217,6 +2228,7 @@ export function KbAskPanel({
     })
     return () => {
       offTabsChanged?.()
+      offIndexUpdated?.()
       offAgentProgress?.()
       streamFlush.dispose()
       loopRef.current?.cancel()
@@ -3095,6 +3107,9 @@ export function KbAskPanel({
               </div>
             )}
             {messages.length === 0 && docIdentity === null && corpusCount === 0 && (
+              // the never-indexed onboarding: only for a corpus the store
+              // itself says is empty — a fresh thread on a healthy corpus
+              // takes the neutral welcome below instead
               <div className="kb-ask-hero">
                 <div className="kb-ask-hero-icon" aria-hidden="true">
                   <IconBookOpen />
@@ -3142,14 +3157,15 @@ export function KbAskPanel({
                 </button>
               </div>
             )}
-            {messages.length === 0 &&
-              docIdentity === null &&
-              corpusCount !== null &&
-              corpusCount > 0 && (
-                <p className="kb-ask-hint">
-                  {t(scopeKey('askIntro', 'askIntroFolders', 'askIntroIndexed'))}
-                </p>
-              )}
+            {messages.length === 0 && docIdentity === null && corpusCount !== 0 && (
+              // a fresh family thread's neutral empty state: the short
+              // welcome line, whatever the corpus's health — unknown counts
+              // as not-empty (the snapshot may simply not have landed), and
+              // the composer's hint sits under it as always
+              <p className="kb-ask-hint">
+                {t(scopeKey('askIntro', 'askIntroFolders', 'askIntroIndexed'))}
+              </p>
+            )}
             {messages.map((m, i) => (
               <AskMessageRow
                 key={i}
