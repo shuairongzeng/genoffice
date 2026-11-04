@@ -959,20 +959,19 @@ html.genoffice-popover-open .ai-drawer-head {
   pointer-events: none;
 }
 
-/* the scrim: click-to-retract over whatever the drawer covers; transparent
-   and inert while closed */
+/* the scrim: click-to-retract over whatever the drawer covers — it NEVER
+ * dims (the desktop must not black out when the panel opens; the panel and
+ * the desktop read as one surface). It exists purely to catch the outside
+ * click, so it stays fully transparent */
 .ai-drawer-mask {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: var(--color-bg-overlay);
-  opacity: 0;
-  transition: opacity 0.2s ease;
+  background: transparent;
 }
 
 .ai-drawer.open .ai-drawer-mask {
   pointer-events: auto;
-  opacity: 1;
 }
 
 /* while a document tab is active its native WebContentsView paints above
@@ -1004,9 +1003,14 @@ html.genoffice-popover-open .ai-drawer-head {
   min-width: 0;
   pointer-events: auto;
   /* the width is the shared clamp's (desktop-geometry.ts), set inline; the
-     drawer overlays the content, so nothing reserves this width in layout */
-  background: var(--surface);
-  border-left: 1px solid var(--border);
+     drawer overlays the content, so nothing reserves this width in layout.
+     Over the desktop the panel is the same frosted glass the dock wears —
+     the wallpaper's aurora bleeds through and the drawer's edge stops
+     reading as a wall between "the panel" and "the desktop" */
+  background: color-mix(in srgb, var(--surface) 46%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(1.25);
+  backdrop-filter: blur(28px) saturate(1.25);
+  border-left: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   --ai-drawer-shadow: -16px 0 36px rgb(0 0 0 / 16%);
   box-shadow: var(--ai-drawer-shadow);
 }
