@@ -165,7 +165,7 @@ function otherWebContents(): {
 
 function state(over: Partial<AiDrawerOverlayState> = {}): AiDrawerOverlayState {
   return {
-    dock: { width: AI_DOCK_WIDTH_DEFAULT, collapsed: false, petPos: null },
+    dock: { width: AI_DOCK_WIDTH_DEFAULT, collapsed: false, petPos: null, panelPos: null },
     scale: 1,
     docActive: true,
     suppressed: false,
@@ -285,7 +285,7 @@ describe('mounting', () => {
     const overlay = createAiDrawerOverlay(win as never)
     overlay.sync(state({ dock: { width: 480, collapsed: false, petPos: null } }))
     const view = overlayView(win)
-    expect(view.bounds.at(-1)).toEqual({ x: 320, y: 0, width: 480, height: 600 })
+    expect(view.bounds.at(-1)).toEqual({ x: 320, y: 48, width: 480, height: 504 })
     overlay.markPanelReadyFor(view.webContents as never)
     expect(view.visibles.at(-1)).toBe(true)
     expect(win.contentView.addChildView).toHaveBeenCalledTimes(1)
@@ -296,7 +296,7 @@ describe('geometry', () => {
   it('scales the footprint with the interface scale', () => {
     const overlay = createAiDrawerOverlay(win as never)
     overlay.sync(state({ dock: { width: 360, collapsed: false, petPos: null }, scale: 1.5 }))
-    expect(overlayView(win).bounds.at(-1)).toEqual({ x: 260, y: 0, width: 540, height: 600 })
+    expect(overlayView(win).bounds.at(-1)).toEqual({ x: 260, y: 48, width: 540, height: 504 })
   })
 
   it('scales the pet-only footprint with the interface scale', () => {
@@ -312,7 +312,7 @@ describe('geometry', () => {
     const overlay = createAiDrawerOverlay(win as never)
     // the max rail at 150%: 560 CSS px → 840 window px in an 800 px window
     overlay.sync(state({ dock: { width: 560, collapsed: false, petPos: null }, scale: 1.5 }))
-    expect(overlayView(win).bounds.at(-1)).toEqual({ x: 0, y: 0, width: 800, height: 600 })
+    expect(overlayView(win).bounds.at(-1)).toEqual({ x: 0, y: 48, width: 800, height: 504 })
   })
 
   it('re-fits the bounds on a later sync (a resize, a stage report)', () => {
@@ -320,7 +320,7 @@ describe('geometry', () => {
     overlay.sync(state())
     const view = overlayView(win)
     overlay.sync(state({ window: { width: 1000, height: 700 } }))
-    expect(view.bounds.at(-1)).toEqual({ x: 600, y: 0, width: 400, height: 700 })
+    expect(view.bounds.at(-1)).toEqual({ x: 600, y: 48, width: 400, height: 604 })
   })
 
   it('keeps the last bounds when the window reports a degenerate rect', () => {
@@ -390,7 +390,7 @@ describe('geometry', () => {
     // the slot went stale (the tab hid, the scale changed) or the active tab
     // is not a docs tab: the right edge is the geometry, exactly as before
     overlay.sync(state())
-    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 0, width: 400, height: 600 })
+    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 48, width: 400, height: 504 })
   })
 
   it('the pet drag ends back at the slot it started from', () => {
@@ -484,7 +484,7 @@ describe('state transitions (resize, never destroy)', () => {
     expect(view.webContents.closeCount).toBe(0)
     overlay.sync(state({ dock: { width: 480, collapsed: false, petPos: null } }))
     expect(win.contentView.addChildView).toHaveBeenLastCalledWith(view)
-    expect(view.bounds.at(-1)).toEqual({ x: 320, y: 0, width: 480, height: 600 })
+    expect(view.bounds.at(-1)).toEqual({ x: 320, y: 48, width: 480, height: 504 })
     expect(view.visibles.at(-1)).toBe(true)
   })
 
@@ -528,7 +528,7 @@ describe('state transitions (resize, never destroy)', () => {
         window: { width: 0, height: 0 },
       }),
     )
-    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 0, width: 400, height: 600 })
+    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 48, width: 400, height: 504 })
     expect(focusActiveView).not.toHaveBeenCalled()
     // the next good sync completes the transition, focus hand-back included
     overlay.sync(state({ dock: { width: 480, collapsed: true, petPos: null } }))
@@ -608,7 +608,7 @@ describe('the dock prefs read', () => {
     const dock: AiDockPrefs = { width: 2000, collapsed: false, petPos: null }
     overlay.sync(state({ dock }))
     // 2000 clamps to AI_DOCK_WIDTH_MAX (560) like the renderer's own drag
-    expect(overlayView(win).bounds.at(-1)).toEqual({ x: 240, y: 0, width: 560, height: 600 })
+    expect(overlayView(win).bounds.at(-1)).toEqual({ x: 240, y: 48, width: 560, height: 504 })
   })
 })
 
@@ -862,7 +862,7 @@ describe('the pet drag surface (home:ai-pet-drag → applyPetDragReport)', () =>
     overlay.sync(state({ dock: { width: 400, collapsed: false, petPos: null } }))
     const view = overlayView(win)
     overlay.applyPetDragReport(view.webContents as never, { end: true })
-    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 0, width: 400, height: 600 })
+    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 48, width: 400, height: 504 })
   })
 
   it('a sync mid-gesture re-fits the surface too (the prefs write landing)', () => {
@@ -893,7 +893,7 @@ describe('the pet drag surface (home:ai-pet-drag → applyPetDragReport)', () =>
     overlay.sync(state())
     const view = overlayView(win)
     overlay.applyPetDragReport(view.webContents as never, { start: true })
-    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 0, width: 400, height: 600 })
+    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 48, width: 400, height: 504 })
   })
 
   it('a crashed renderer collapses a window-wide drag surface with it', () => {
@@ -907,6 +907,80 @@ describe('the pet drag surface (home:ai-pet-drag → applyPetDragReport)', () =>
     expect(view.bounds.at(-1)).toEqual({ x: 0, y: 0, width: 800, height: 600 })
     view.webContents.onHandlers.get('render-process-gone')!({}, { reason: 'crashed' })
     expect(view.bounds.at(-1)).toEqual({ x: 100, y: 100, width: 68, height: 62 })
+  })
+})
+
+describe('the panel drag surface (home:ask-panel-drag → applyPanelDragReport)', () => {
+  it('hosts the floating expanded panel gesture on a window-wide surface, re-fit on end', () => {
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    overlay.sync(state())
+    const view = overlayView(win)
+    overlay.markPanelReadyFor(view.webContents as never)
+    // the floating card at its default right-edge perch
+    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 48, width: 400, height: 504 })
+    overlay.applyPanelDragReport(view.webContents as never, { start: true })
+    // the same window-wide static surface as the pet drag's: exact client
+    // coordinates for every input model, and the release always arrives
+    expect(view.bounds.at(-1)).toEqual({ x: 0, y: 0, width: 800, height: 600 })
+    // the release's prefs write parked the card: the end report re-fits it
+    overlay.sync(
+      state({ dock: { width: 400, collapsed: false, petPos: null, panelPos: { x: 40, y: 60 } } }),
+    )
+    overlay.applyPanelDragReport(view.webContents as never, { end: true })
+    expect(view.bounds.at(-1)).toEqual({ x: 40, y: 60, width: 400, height: 504 })
+  })
+
+  it('ignores a start report while the panel is docked into the host slot', () => {
+    // a slotted panel is the host app's own layout — it does not move
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    const slot = { x: 300, y: 44, width: 420, height: 512 }
+    overlay.sync(state({ slot }))
+    const view = overlayView(win)
+    overlay.markPanelReadyFor(view.webContents as never)
+    overlay.applyPanelDragReport(view.webContents as never, { start: true })
+    expect(view.bounds.at(-1)).toEqual(slot)
+  })
+
+  it('ignores a start report while collapsed (the pet-only state has its own drag)', () => {
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    overlay.sync(
+      state({ dock: { width: 400, collapsed: true, petPos: { x: 100, y: 100 }, panelPos: null } }),
+    )
+    const view = overlayView(win)
+    overlay.applyPanelDragReport(view.webContents as never, { start: true })
+    expect(view.bounds.at(-1)).toEqual({ x: 100, y: 100, width: 68, height: 62 })
+  })
+
+  it('ignores a report from a webContents that is not the overlay view', () => {
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    overlay.sync(state())
+    const view = overlayView(win)
+    overlay.applyPanelDragReport(otherWebContents() as never, { start: true })
+    // not grown — identity, not the arrival, vouches the sender
+    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 48, width: 400, height: 504 })
+  })
+
+  it('parks the card where the drag left it, clamped into the window', () => {
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    // past the right and bottom edges: the clamp pulls it back inside
+    overlay.sync(
+      state({
+        dock: { width: 400, collapsed: false, petPos: null, panelPos: { x: 9999, y: 9999 } },
+      }),
+    )
+    expect(overlayView(win).bounds.at(-1)).toEqual({ x: 400, y: 96, width: 400, height: 504 })
+  })
+
+  it('scales the parked spot with the interface scale', () => {
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    overlay.sync(
+      state({
+        dock: { width: 360, collapsed: false, petPos: null, panelPos: { x: 40, y: 60 } },
+        scale: 1.5,
+      }),
+    )
+    // 360 css → 540 window px wide; the spot multiplies like the pet's
+    expect(overlayView(win).bounds.at(-1)).toEqual({ x: 60, y: 90, width: 540, height: 504 })
   })
 })
 

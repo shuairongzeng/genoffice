@@ -465,6 +465,15 @@ export class TabManager {
   }
 
   /**
+   * A panel-drag surface report arrived over `home:ask-panel-drag`: the
+   * overlay identity-checks the sender and honors `start` only in the
+   * floating expanded state (a slotted panel is the app's own layout).
+   */
+  applyDrawerOverlayPanelDrag(wc: WebContents, report: AiPetDragReport): void {
+    this.drawerOverlay?.applyPanelDragReport(wc, report)
+  }
+
+  /**
    * The overlay view's live webContents, or undefined while it is not
    * mounted. The IPC gates that must accept the drawer's panel copy (the
    * browser skill's sender gate among them) read it.

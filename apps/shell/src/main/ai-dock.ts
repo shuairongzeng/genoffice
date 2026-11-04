@@ -15,8 +15,8 @@ export function readAiDock(settingsPath: string): AiDockPrefs {
 
 const WATCH_DEBOUNCE_MS = 100
 
-/** two pet positions are the same perch: both null, or the same whole px */
-function samePetPos(a: AiDockPrefs['petPos'], b: AiDockPrefs['petPos']): boolean {
+/** two stored positions are the same spot: both null, or the same whole px */
+function samePos(a: AiDockPrefs['petPos'], b: AiDockPrefs['petPos']): boolean {
   if (a === b) return true
   return !!a && !!b && a.x === b.x && a.y === b.y
 }
@@ -55,14 +55,15 @@ export function watchAiDock(
       timer = null
       // the value comparison is the gate: unrelated settings writes must not
       // fire a re-layout, and a watch event racing the read is harmless —
-      // the next event re-reads. All three fields count: a pet-only move
+      // the next event re-reads. All four fields count: a pet-only move
       // still owes every prefs copy the broadcast, and layout is idempotent
       // when the pet reserves no space anywhere.
       const next = readAiDock(settingsPath)
       if (
         next.width === last.width &&
         next.collapsed === last.collapsed &&
-        samePetPos(next.petPos, last.petPos)
+        samePos(next.petPos, last.petPos) &&
+        samePos(next.panelPos, last.panelPos)
       )
         return
       last = next

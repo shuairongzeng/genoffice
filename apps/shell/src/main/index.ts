@@ -6318,7 +6318,12 @@ ipcMain.handle('docs:open-global-ai', async (event) => {
   writeAppSetting(
     settingsPath,
     AI_DOCK_KEY,
-    normalizeAiDock({ width: current.width, collapsed: false, petPos: current.petPos }),
+    normalizeAiDock({
+      width: current.width,
+      collapsed: false,
+      petPos: current.petPos,
+      panelPos: current.panelPos,
+    }),
   )
   return true
 })
@@ -6414,6 +6419,11 @@ registerHomeWorkbenchIpc({
   // shrinks it back — the position persists through the ordinary aiDock write
   applyDrawerOverlayPetDrag: (sender, report) => {
     tabManager?.applyDrawerOverlayPetDrag(sender, report)
+  },
+  // the floating overlay panel's header-drag surface: honored only while the
+  // panel is expanded AND floating (no host slot) — the overlay checks both
+  applyDrawerOverlayPanelDrag: (sender, report) => {
+    tabManager?.applyDrawerOverlayPanelDrag(sender, report)
   },
   // the doc-mode dock overlay's state machine: the overlay checks the sender
   // and the strip/dock shape; the identity gate means a foreign renderer's

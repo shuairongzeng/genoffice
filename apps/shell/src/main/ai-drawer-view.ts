@@ -3,7 +3,11 @@ import { shell, WebContentsView } from 'electron'
 import type { BrowserWindow, Rectangle, WebContents } from 'electron'
 
 import { rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
-import { drawerOverlayBounds, type AiDockPrefs } from '../shared/desktop-geometry'
+import {
+  drawerOverlayBounds,
+  floatingPanelBounds,
+  type AiDockPrefs,
+} from '../shared/desktop-geometry'
 import type { AiPetDragReport } from '../shared/home-api'
 import { applyUiScaleTo } from './ui-scale'
 
@@ -159,6 +163,15 @@ export interface AiDrawerOverlay {
    * like the ready ping; `start` is honored only in the pet-only state.
    */
   applyPetDragReport(sender: WebContents, report: AiPetDragReport): void
+  /**
+   * The floating panel's header-drag surface reports (`home:ask-panel-drag`):
+   * the pet drag's contract for the EXPANDED state — `start` grows the view
+   * window-wide for the gesture, `end` re-fits the synced footprint. Honored
+   * only while the panel is expanded AND floating (no host slot: a slotted
+   * panel is the app's own layout and does not move). Identity-checked like
+   * the ready ping.
+   */
+  applyPanelDragReport(sender: WebContents, report: AiPetDragReport): void
   /**
    * The overlay view's live webContents, or undefined while it is not
    * mounted (or already gone). The sender gates that must accept the panel
@@ -405,11 +418,19 @@ export function createAiDrawerOverlay(
     live.setBounds(expandedBounds({ width, height }, lastLayout))
   }
 
-  /** the expanded footprint: the app's reported slot when it has one, else the window's right edge */
+  /** the expanded footprint: the app's reported slot when it has one, else the
+   *  floating card — the right edge by default, the header drag's parked
+   *  spot once the person has moved it (dock.panelPos). The collapsed shape
+   *  still answers through drawerOverlayBounds (the pet's footprint):
+   *  refitAfterGesture calls this for a pet drag's end too */
   const expandedBounds = (
     window: { width: number; height: number },
     layout: { scale: number; dock: AiDockPrefs; slot?: Rectangle },
-  ): Rectangle => layout.slot ?? drawerOverlayBounds(window, layout)
+  ): Rectangle =>
+    layout.slot ??
+    (layout.dock.collapsed
+      ? drawerOverlayBounds(window, layout)
+      : floatingPanelBounds(window, layout))
 
   /** tell the panel copy which chrome it wears (docked into the app's slot vs floating) */
   const pushEmbedded = (next: boolean): void => {
@@ -549,6 +570,26 @@ export function createAiDrawerOverlay(
         // every input model — real or synthetic — because the surface never
         // moves. The release's prefs write (or the end report below) is what
         // shrinks it back.
+        live.setBounds({ x: 0, y: 0, width, height })
+      }
+      if (report.end) refitAfterGesture()
+    },
+    applyPanelDragReport(sender: WebContents, report: AiPetDragReport): void {
+      // identity, not the arrival, vouches the sender — same gate as the pet
+      // drag's reports (the channel is open to any renderer on the preload)
+      const live = view
+      if (!live || live.webContents.isDestroyed() || sender !== live.webContents) return
+      if (shellWindow.isDestroyed()) return
+      if (report.start) {
+        // only the FLOATING expanded panel may grow a drag surface: a slotted
+        // panel is the app's own layout (it does not move), and the pet-only
+        // state's drag surface is the pet drag's own
+        if (!shown || petMode || embedded) return
+        const { width, height } = shellWindow.getContentBounds()
+        // a minimized or mid-restored window reports a degenerate rect: the
+        // report is dropped, and the renderer's own gate keeps its gesture
+        // waiting for the surface that never came
+        if (width <= 0 || height <= 0) return
         live.setBounds({ x: 0, y: 0, width, height })
       }
       if (report.end) refitAfterGesture()

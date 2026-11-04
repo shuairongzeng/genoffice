@@ -455,6 +455,7 @@ describe('registerHomeWorkbenchIpc', () => {
       width: 400,
       collapsed: false,
       petPos: null,
+      panelPos: null,
     })
   })
 
@@ -478,6 +479,7 @@ describe('registerHomeWorkbenchIpc', () => {
       width: 400,
       collapsed: false,
       petPos: null,
+      panelPos: null,
     })
     expect(seen).toEqual([detachedWc, shellWc])
     isShellSender = () => true
@@ -486,27 +488,28 @@ describe('registerHomeWorkbenchIpc', () => {
   it('merges, clamps and persists a drawer patch, answering the effective prefs', async () => {
     registerWorkbench()
     const effective = await invoke('home:ai-dock-set', { width: 9999, collapsed: true })
-    expect(effective).toEqual({ width: 560, collapsed: true, petPos: null })
+    expect(effective).toEqual({ width: 560, collapsed: true, petPos: null, panelPos: null })
     expect(readAiDock(join(dir, 'app-settings.json'))).toEqual({
       width: 560,
       collapsed: true,
       petPos: null,
+      panelPos: null,
     })
   })
 
   it('adopts a pet-position patch — null included — and keeps it through other patches', async () => {
     registerWorkbench()
-    const moved = await invoke('home:ai-dock-set', { petPos: { x: 120, y: 80 } })
-    expect(moved).toEqual({ width: 400, collapsed: false, petPos: { x: 120, y: 80 } })
+    const moved = await invoke('home:ai-dock-set', { petPos: { x: 120, y: 80 }, panelPos: null })
+    expect(moved).toEqual({ width: 400, collapsed: false, petPos: { x: 120, y: 80 }, panelPos: null })
     // a later patch without petPos keeps the parked pet
     const untouched = await invoke('home:ai-dock-set', { collapsed: true })
-    expect(untouched).toEqual({ width: 400, collapsed: true, petPos: { x: 120, y: 80 } })
+    expect(untouched).toEqual({ width: 400, collapsed: true, petPos: { x: 120, y: 80 }, panelPos: null })
     // an explicit null returns it to the default corner
-    const home = await invoke('home:ai-dock-set', { petPos: null })
-    expect(home).toEqual({ width: 400, collapsed: true, petPos: null })
+    const home = await invoke('home:ai-dock-set', { petPos: null, panelPos: null })
+    expect(home).toEqual({ width: 400, collapsed: true, petPos: null, panelPos: null })
     // a malformed pet position falls back to the corner, keeping the rest
     const bad = await invoke('home:ai-dock-set', { petPos: { x: 'left', y: 2 } })
-    expect(bad).toEqual({ width: 400, collapsed: true, petPos: null })
+    expect(bad).toEqual({ width: 400, collapsed: true, petPos: null, panelPos: null })
   })
 
   it('ignores malformed patch fields, keeping the current values', async () => {
@@ -516,6 +519,7 @@ describe('registerHomeWorkbenchIpc', () => {
       width: 400,
       collapsed: false,
       petPos: null,
+      panelPos: null,
     })
   })
 
@@ -972,6 +976,7 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
       width: 400,
       collapsed: false,
       petPos: null,
+      panelPos: null,
     })
   })
 

@@ -1355,6 +1355,33 @@ body.ai-pet-dragging {
   border-right: 1px solid var(--border);
 }
 
+/* the floating shape (expanded, no host slot): the view is exactly the
+   card's bounds (floatingPanelBounds), so the entry wears the card chrome —
+   the rounded corners read through to the document behind (html keeps the
+   ask-panel-floating transparency), and the header is its grab zone */
+.ask-panel-entry:not(.ask-panel-embedded):not(.ask-panel-pet-only) {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 18px 44px rgb(0 0 0 / 22%);
+}
+html.ask-panel-floating,
+html.ask-panel-floating body {
+  background: transparent;
+}
+
+/* the docked panel's header is not a grab zone — the slot owns the spot */
+.ask-panel-entry.ask-panel-embedded .kb-ask-header {
+  cursor: default;
+}
+
+/* mid-panel-drag the view is the window-wide gesture surface: only the
+   dragged card paints, the rest of the view stays transparent */
+html.ask-panel-drag-surface,
+html.ask-panel-drag-surface body {
+  background: transparent;
+}
+
 /* ── the pet ⇄ panel morph, the overlay view's approximation ──
  * The native overlay's bounds do not animate (main cuts the view pet-sized
  * or drawer-sized on the write), so this view plays the same transformation

@@ -35,15 +35,21 @@ describe('readAiDock', () => {
       width: AI_DOCK_WIDTH_DEFAULT,
       collapsed: false,
       petPos: null,
+      panelPos: null,
     })
   })
 
   it('reads the stored state back, clamped', () => {
     const path = settingsPath()
     writeAppSetting(path, AI_DOCK_KEY, { width: 480, collapsed: true, petPos: { x: 12, y: 34 } })
-    expect(readAiDock(path)).toEqual({ width: 480, collapsed: true, petPos: { x: 12, y: 34 } })
+    expect(readAiDock(path)).toEqual({
+      width: 480,
+      collapsed: true,
+      petPos: { x: 12, y: 34 },
+      panelPos: null,
+    })
     writeAppSettings(path, { [AI_DOCK_KEY]: { width: 9999, collapsed: false } })
-    expect(readAiDock(path)).toEqual({ width: 560, collapsed: false, petPos: null })
+    expect(readAiDock(path)).toEqual({ width: 560, collapsed: false, petPos: null, panelPos: null })
   })
 
   it('rounds a stored pet position to whole pixels', () => {
@@ -69,6 +75,7 @@ describe('readAiDock', () => {
       width: AI_DOCK_WIDTH_DEFAULT,
       collapsed: false,
       petPos: null,
+      panelPos: null,
     })
   })
 })
@@ -98,7 +105,9 @@ describe('watchAiDock', () => {
       await armed()
       writeAppSetting(path, AI_DOCK_KEY, { width: 480, collapsed: true, petPos: { x: 5, y: 6 } })
       await settle(() =>
-        expect(seen).toEqual([{ width: 480, collapsed: true, petPos: { x: 5, y: 6 } }]),
+        expect(seen).toEqual([
+          { width: 480, collapsed: true, petPos: { x: 5, y: 6 }, panelPos: null },
+        ]),
       )
     } finally {
       stop()
@@ -145,7 +154,9 @@ describe('watchAiDock', () => {
       await armed()
       writeAppSetting(path, AI_DOCK_KEY, { width: 480, collapsed: false, petPos: { x: 9, y: 6 } })
       await settle(() =>
-        expect(seen).toEqual([{ width: 480, collapsed: false, petPos: { x: 9, y: 6 } }]),
+        expect(seen).toEqual([
+          { width: 480, collapsed: false, petPos: { x: 9, y: 6 }, panelPos: null },
+        ]),
       )
     } finally {
       stop()
@@ -160,7 +171,9 @@ describe('watchAiDock', () => {
     try {
       await armed()
       writeAppSetting(path, AI_DOCK_KEY, { width: 480, collapsed: false, petPos: null })
-      await settle(() => expect(seen).toEqual([{ width: 480, collapsed: false, petPos: null }]))
+      await settle(() =>
+        expect(seen).toEqual([{ width: 480, collapsed: false, petPos: null, panelPos: null }]),
+      )
     } finally {
       stop()
     }
@@ -194,7 +207,7 @@ describe('watchAiDock', () => {
     await armed()
     writeAppSetting(path, AI_DOCK_KEY, { width: 200, collapsed: false })
     await new Promise((resolve) => setTimeout(resolve, 400))
-    expect(seen).toEqual([{ width: 480, collapsed: true, petPos: null }])
+    expect(seen).toEqual([{ width: 480, collapsed: true, petPos: null, panelPos: null }])
   })
 
   it('survives a missing settings file (default read, watch armed)', async () => {
@@ -205,7 +218,9 @@ describe('watchAiDock', () => {
       await armed()
       writeAppSetting(path, 'theme', 'dark') // the directory gains its first file
       writeAppSetting(path, AI_DOCK_KEY, { width: 500, collapsed: true })
-      await settle(() => expect(seen).toEqual([{ width: 500, collapsed: true, petPos: null }]))
+      await settle(() =>
+        expect(seen).toEqual([{ width: 500, collapsed: true, petPos: null, panelPos: null }]),
+      )
     } finally {
       stop()
     }

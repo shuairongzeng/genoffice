@@ -244,6 +244,8 @@ export interface HomeWorkbenchIpcDeps {
    * the view changes. Injected like the ready ping, for the same reason.
    */
   applyDrawerOverlayPetDrag: (sender: WebContents, report: AiPetDragReport) => void
+  /** the floating overlay panel's header-drag surface reports (same contract, expanded state) */
+  applyDrawerOverlayPanelDrag: (sender: WebContents, report: AiPetDragReport) => void
   /**
    * Route the doc-mode dock overlay's hot-edge report to the overlay: the
    * sender identity check and the strip/dock state machine both live there,
@@ -537,14 +539,20 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
   ipcMain.handle(HOME_CHANNELS.aiDockSet, (_event, patch: unknown) => {
     const path = deps.appSettingsPath()
     const current = readAiDock(path)
-    const p = (patch ?? {}) as Partial<{ width: unknown; collapsed: unknown; petPos: unknown }>
+    const p = (patch ?? {}) as Partial<{
+      width: unknown
+      collapsed: unknown
+      petPos: unknown
+      panelPos: unknown
+    }>
     const next = normalizeAiDock({
       width: typeof p.width === 'number' && Number.isFinite(p.width) ? p.width : current.width,
       collapsed: typeof p.collapsed === 'boolean' ? p.collapsed : current.collapsed,
       // the field's presence adopts the patch — a petPos of null is "back to
       // the corner", not "keep the stored one"; the normalizer discards a
-      // malformed value either way
+      // malformed value either way. panelPos follows the same contract.
       petPos: Object.hasOwn(p, 'petPos') ? p.petPos : current.petPos,
+      panelPos: Object.hasOwn(p, 'panelPos') ? p.panelPos : current.panelPos,
     })
     writeAppSetting(path, AI_DOCK_KEY, next)
     return next
@@ -571,6 +579,12 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
   ipcMain.on(HOME_CHANNELS.aiPetDrag, (event, raw: unknown) => {
     const report = asPetDragReport(raw)
     if (report) deps.applyDrawerOverlayPetDrag(event.sender, report)
+  })
+  ipcMain.on(HOME_CHANNELS.askPanelDrag, (event, raw: unknown) => {
+    // the same {start,end} shape as the pet drag's reports — only the state
+    // gate differs (the expanded floating panel, not the pet-only view)
+    const report = asPetDragReport(raw)
+    if (report) deps.applyDrawerOverlayPanelDrag(event.sender, report)
   })
   ipcMain.on(HOME_CHANNELS.dockHotEdge, (event, raw: unknown) => {
     const report = asDockHotEdgeReport(raw)

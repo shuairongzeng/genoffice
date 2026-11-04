@@ -803,6 +803,11 @@ const homeApi: HomeApi = {
   aiPetDrag(report) {
     ipcRenderer.send(HOME_CHANNELS.aiPetDrag, report)
   },
+  // the floating overlay panel's header-drag surface: fire-and-forget like
+  // the pet drag's, same window-wide contract for the gesture's duration
+  aiPanelDrag(report) {
+    ipcRenderer.send(HOME_CHANNELS.askPanelDrag, report)
+  },
   // the doc-mode dock overlay's hot-edge reports: fire-and-forget like the
   // pet drag's, because the overlay's state machine only consumes the flags
   dockHotEdge(report) {

@@ -577,6 +577,7 @@ describe('the AI drawer without the prefs channels', () => {
         width: AI_DOCK_WIDTH_DEFAULT,
         collapsed: true,
         petPos: null,
+        panelPos: null,
       },
     )
     await unmountHome()

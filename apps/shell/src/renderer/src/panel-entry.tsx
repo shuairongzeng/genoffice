@@ -271,6 +271,140 @@ export function AskPanelEntry(): React.JSX.Element | null {
     const api = window.aiOffice as Partial<HomeApi> | undefined
     return api?.onAskPanelEmbedded?.((next) => setEmbedded(next))
   }, [])
+  /* the floating card state (expanded, no host slot): the view is exactly the
+   * card's bounds, so the corners read through — html/body stay transparent
+   * behind the entry's own surface */
+  useEffect(() => {
+    document.documentElement.classList.toggle(
+      'ask-panel-floating',
+      dock.known && !dock.collapsed && !embedded,
+    )
+    return () => document.documentElement.classList.remove('ask-panel-floating')
+  }, [dock.known, dock.collapsed, embedded])
+
+  /* ── the floating panel's header drag ──
+   * The pet drag's contract for the expanded card: a card-sized view cannot
+   * capture the pointer past its own edge, so past the slop main grows the
+   * view window-wide (`home:ask-panel-drag`'s start — honored only while
+   * floating: a slotted panel is the app's own layout), the entry re-parks
+   * itself under the pointer with the pet drag's absolute formula (exact for
+   * real and synthetic input alike, because the surface never moves), and
+   * the release persists the spot through the ordinary aiDock write
+   * (panelPos) whose watcher re-fits the view around it. The end report
+   * shrinks the surface even when the position never changed (the watcher
+   * dedups identical writes). */
+  const [panelDragBox, setPanelDragBox] = useState<{
+    x: number
+    y: number
+    width: number
+    height: number
+  } | null>(null)
+  const panelDraggingRef = useRef(false)
+  const beginPanelDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>): void => {
+      // the drag belongs to the floating expanded state: the slotted panel is
+      // the app's own layout, and the collapsed state's drag is the pet's own
+      if (dock.collapsed || embedded || event.button !== 0 || panelDraggingRef.current) return
+      const api = window.aiOffice as Partial<HomeApi> | undefined
+      const surface = api?.aiPanelDrag
+      const setDock = api?.setAiDock
+      // a stale preload without the channel keeps the header inert
+      if (typeof surface !== 'function' || typeof setDock !== 'function') return
+      panelDraggingRef.current = true
+      const scale = chromeScale()
+      // the grab point: client px at the press, inside the card-sized view —
+      // which is the card's own footprint, so this is the pointer's offset
+      // from the card's top-left in window px
+      const grab = { x: event.clientX, y: event.clientY }
+      const startX = event.clientX
+      const startY = event.clientY
+      /** the card-sized viewport at the press: the window-wide surface's
+       *  arrival is the viewport outgrowing it (or its resize event) */
+      const cardFrame = { width: window.innerWidth, height: window.innerHeight }
+      /** the card's size in chrome px — panelPos's own space */
+      const cardChrome = { width: cardFrame.width / scale, height: cardFrame.height / scale }
+      /** the clamped spot the gesture last placed (committed on release) */
+      let pos: AiPetPos | null = null
+      /** whether the window-wide surface has landed */
+      let surfaced = false
+      const isCardSized = (): boolean =>
+        window.innerWidth <= cardFrame.width + 2 && window.innerHeight <= cardFrame.height + 2
+      const onSurface = (): void => {
+        surfaced = true
+      }
+      const onSettle = (): void => {
+        // the view shrank back around the card: its own bounds are the spot
+        // again, and the entry returns to filling the view — one resize later
+        // than the re-fit itself, so the panel never jumps at the hand-off
+        if (!isCardSized() || pos === null) return
+        window.removeEventListener('resize', onSettle)
+        setPanelDragBox(null)
+      }
+      const finish = (commit: boolean): void => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        window.removeEventListener('pointercancel', onCancel)
+        window.removeEventListener('blur', onCancel)
+        window.removeEventListener('resize', onSurface)
+        document.body.classList.remove('ai-pet-dragging')
+        document.documentElement.classList.remove('ask-panel-drag-surface')
+        panelDraggingRef.current = false
+        if (!commit) {
+          // a cancel abandons the gesture: the surface shrinks back with no
+          // prefs write, and the entry re-docks to the unchanged view
+          setPanelDragBox(null)
+          surface({ end: true })
+          return
+        }
+        if (pos === null) return
+        surface({ end: true })
+        void setDock({ panelPos: pos }).catch(() => undefined)
+        window.addEventListener('resize', onSettle)
+      }
+      const onMove = (ev: PointerEvent): void => {
+        if (pos === null) {
+          // the slop is measured in the card-sized view's own frame — the
+          // surface is only requested once a drag is actually happening
+          if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < PET_CLICK_SLOP) return
+          document.body.classList.add('ai-pet-dragging')
+          // the window-wide surface must paint nothing but the card
+          document.documentElement.classList.add('ask-panel-drag-surface')
+          surface({ start: true })
+        }
+        if (!surfaced && isCardSized()) {
+          // the expansion has not landed yet: this move still carries the
+          // card-sized view's frame, and using it would offset the card by
+          // the view's own origin — the absolute formula re-derives
+          // everything once the surface is real, so waiting loses nothing
+          return
+        }
+        surfaced = true
+        pos = clampPetPos(
+          { x: (ev.clientX - grab.x) / scale, y: (ev.clientY - grab.y) / scale },
+          {
+            width: window.innerWidth / chromeScale(),
+            height: window.innerHeight / chromeScale(),
+          },
+          cardChrome,
+        )
+        setPanelDragBox({
+          x: Math.round(pos.x * scale),
+          y: Math.round(pos.y * scale),
+          width: cardFrame.width,
+          height: cardFrame.height,
+        })
+      }
+      const onUp = (): void => finish(true)
+      const onCancel = (): void => finish(false)
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+      window.addEventListener('pointercancel', onCancel)
+      window.addEventListener('blur', onCancel)
+      // the expansion's arrival IS a resize of this view
+      window.addEventListener('resize', onSurface)
+    },
+    [dock.collapsed, embedded],
+  )
   useEffect(() => {
     // optional-chained whole: this view exists to explain a missing aiOffice
     // face, so the subscriptions must tolerate one too
@@ -338,7 +472,22 @@ export function AskPanelEntry(): React.JSX.Element | null {
     <div
       className={`ask-panel-entry${dock.collapsed ? ' ask-panel-pet-only' : ''}${
         embedded && !dock.collapsed ? ' ask-panel-embedded' : ''
-      }`}
+      }${panelDragBox ? ' ask-panel-dragging' : ''}`}
+      /* mid-drag the view is window-wide (the gesture's surface): the entry
+         re-parks itself under the pointer as a free box — its left/top are
+         the VIEW's frame (window px, the root is the unzoomed one), its
+         width/height the card's box at the press */
+      style={
+        panelDragBox
+          ? {
+              inset: 'auto',
+              left: panelDragBox.x,
+              top: panelDragBox.y,
+              width: panelDragBox.width,
+              height: panelDragBox.height,
+            }
+          : undefined
+      }
     >
       {/* the panel stays mounted through the flips — closing only hides it,
           the same contract Home's drawer keeps (a streaming answer keeps
@@ -389,6 +538,10 @@ export function AskPanelEntry(): React.JSX.Element | null {
           focusSignal={focusSeq}
           onEscapeCollapse={() => collapseOverlayDrawer()}
           onCollapse={collapseOverlayDrawer}
+          /* the header is the floating card's grab zone (Home's bubble shares
+             the verb): absent while docked into a host app's slot — that
+             panel is the app's own layout and does not move */
+          onBubbleDragStart={dock.collapsed || embedded ? undefined : beginPanelDrag}
         />
       </div>
       <OverlayPet collapsed={dock.collapsed} gulp={petGulp} onToggle={toggle} />

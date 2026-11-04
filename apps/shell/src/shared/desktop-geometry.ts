@@ -63,6 +63,14 @@ export interface AiDockPrefs {
    * Null anchors the default bottom-right perch.
    */
   petPos: AiPetPos | null
+  /**
+   * The floating overlay panel's top-left corner in the same `zoom`ed chrome
+   * space as petPos: the doc-mode panel's parked spot when NO host app
+   * reserves a slot for it (a slotted panel is the app's own layout — it does
+   * not move). The header drag parks it; null anchors the default right-edge
+   * card.
+   */
+  panelPos: AiPetPos | null
 }
 
 /** Fallback drawer constants — must stay in sync with the renderer's AiDock.tsx */
@@ -245,6 +253,41 @@ export function drawerOverlayBounds(
   }
 }
 
+/** the floating panel card's margin from the window's top and bottom edges, window px */
+export const AI_PANEL_FLOAT_MARGIN = 48
+
+/**
+ * The floating overlay panel's bounds in window (content-area) pixels — the
+ * doc-mode panel's shape when NO host app reserved a slot for it (the slotted
+ * one is the app's own layout): a card the drawer's width, inset from the
+ * window's top and bottom by the float margin. dock.panelPos (chrome px, so
+ * × scale here) parks it wherever the header drag left it, clamped into the
+ * window the way the pet is — a shrunken window never strands it off-screen.
+ * Null panelPos anchors the default: right edge, top margin.
+ */
+export function floatingPanelBounds(
+  window: { width: number; height: number },
+  layout: DesktopContentLayout,
+): Rect {
+  const scale = layout.scale ?? 1
+  const winW = Math.max(0, Math.round(window.width))
+  const winH = Math.max(0, Math.round(window.height))
+  const width = Math.min(aiDockWidth(layout.dock, scale), winW)
+  const height = Math.max(Math.min(300, winH), winH - AI_PANEL_FLOAT_MARGIN * 2)
+  // the card's size in chrome px — panelPos's own space, so the clamp lands
+  // in the same coordinates the drag commits
+  const chrome = { width: window.width / scale, height: window.height / scale }
+  const card = { width: width / scale, height: height / scale }
+  const fallback = { x: Math.max(0, chrome.width - card.width), y: AI_PANEL_FLOAT_MARGIN / scale }
+  const pos = clampPetPos(layout.dock.panelPos ?? fallback, chrome, card)
+  return {
+    x: Math.round(pos.x * scale),
+    y: Math.round(pos.y * scale),
+    width,
+    height,
+  }
+}
+
 /** a stored pet position: both coordinates finite numbers, rounded to whole px */
 function normalizePetPos(value: unknown): AiPetPos | null {
   if (typeof value !== 'object' || value === null) return null
@@ -257,7 +300,12 @@ function normalizePetPos(value: unknown): AiPetPos | null {
 
 /** the stored `aiDock` value with defaults filled in and out-of-range numbers clamped */
 export function normalizeAiDock(value: unknown): AiDockPrefs {
-  const raw = (value ?? {}) as Partial<{ width: unknown; collapsed: unknown; petPos: unknown }>
+  const raw = (value ?? {}) as Partial<{
+    width: unknown
+    collapsed: unknown
+    petPos: unknown
+    panelPos: unknown
+  }>
   const width =
     typeof raw.width === 'number' && Number.isFinite(raw.width)
       ? Math.round(raw.width)
@@ -266,6 +314,7 @@ export function normalizeAiDock(value: unknown): AiDockPrefs {
     width: Math.min(AI_DOCK_WIDTH_MAX, Math.max(AI_DOCK_WIDTH_MIN, width)),
     collapsed: raw.collapsed === true,
     petPos: normalizePetPos(raw.petPos),
+    panelPos: normalizePetPos(raw.panelPos),
   }
 }
 

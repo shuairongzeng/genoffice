@@ -820,6 +820,15 @@ export interface HomeApi {
    */
   aiPetDrag?(report: AiPetDragReport): void
   /**
+   * The floating overlay panel's header-drag surface reports
+   * (`home:ask-panel-drag`): the same window-wide-surface contract as the
+   * pet drag's (aiPetDrag), but for the EXPANDED panel while no host app
+   * reserves a slot for it — main honors it only in that floating state.
+   * The dragged position never rides this channel either: the release
+   * persists it through the ordinary `home:ai-dock-set` write (panelPos).
+   */
+  aiPanelDrag?(report: AiPetDragReport): void
+  /**
    * Report the doc-mode dock overlay's hot-edge transitions
    * (`home:dock-hot-edge`): `enter` from the strip summons the dock (and
    * cancels a pending hide), `leave` from the revealed dock arms the grace
@@ -1556,6 +1565,10 @@ export const HOME_CHANNELS = {
    *  whatever the input device), `end` re-fits the synced footprint; the
    *  position persists through the ordinary aiDock write */
   aiPetDrag: 'home:ai-pet-drag',
+  /** renderer → main: the floating overlay panel's header-drag surface
+   *  requests (start: grow the view window-wide for the gesture; end: re-fit
+   *  the parked card) — the pet drag's contract for the expanded panel */
+  askPanelDrag: 'home:ask-panel-drag',
   /** renderer → main: the doc-mode dock overlay's hot-edge transitions —
    *  `enter` from the strip summons the dock (or cancels a pending hide),
    *  `leave` from the revealed dock arms the grace timer */

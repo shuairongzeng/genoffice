@@ -99,19 +99,19 @@ describe('documentContentBounds', () => {
 
 describe('aiDockWidth', () => {
   it('is zero while the drawer is closed, whatever the stored width', () => {
-    expect(aiDockWidth({ width: 480, collapsed: true, petPos: null })).toBe(0)
+    expect(aiDockWidth({ width: 480, collapsed: true, petPos: null, panelPos: null })).toBe(0)
     expect(aiDockWidth({ width: 480, collapsed: true, petPos: null }, 1.5)).toBe(0)
   })
 
   it('scales the stored CSS width and rounds to whole pixels', () => {
-    expect(aiDockWidth({ width: 400, collapsed: false, petPos: null })).toBe(400)
+    expect(aiDockWidth({ width: 400, collapsed: false, petPos: null, panelPos: null })).toBe(400)
     expect(aiDockWidth({ width: 400, collapsed: false, petPos: null }, 1.5)).toBe(600)
-    expect(aiDockWidth({ width: 400.6, collapsed: false, petPos: null })).toBe(401)
+    expect(aiDockWidth({ width: 400.6, collapsed: false, petPos: null, panelPos: null })).toBe(401)
   })
 
   it('clamps the stored width into [min, max] before scaling, like the renderer drag does', () => {
-    expect(aiDockWidth({ width: 100, collapsed: false, petPos: null })).toBe(AI_DOCK_WIDTH_MIN)
-    expect(aiDockWidth({ width: 2000, collapsed: false, petPos: null })).toBe(AI_DOCK_WIDTH_MAX)
+    expect(aiDockWidth({ width: 100, collapsed: false, petPos: null, panelPos: null })).toBe(AI_DOCK_WIDTH_MIN)
+    expect(aiDockWidth({ width: 2000, collapsed: false, petPos: null, panelPos: null })).toBe(AI_DOCK_WIDTH_MAX)
     // the clamp is on the CSS width: a 400 px drawer at 150% legitimately spans 600
     expect(aiDockWidth({ width: 2000, collapsed: false, petPos: null }, 1.5)).toBe(
       AI_DOCK_WIDTH_MAX * 1.5,
@@ -235,7 +235,7 @@ describe('petOverlayBounds', () => {
 
 describe('normalizeAiDock', () => {
   it('falls back to the open-drawer default for anything unreadable', () => {
-    const fallback = { width: AI_DOCK_WIDTH_DEFAULT, collapsed: false, petPos: null }
+    const fallback = { width: AI_DOCK_WIDTH_DEFAULT, collapsed: false, petPos: null, panelPos: null }
     expect(normalizeAiDock(undefined)).toEqual(fallback)
     expect(normalizeAiDock(null)).toEqual(fallback)
     expect(normalizeAiDock('400')).toEqual(fallback)
@@ -249,6 +249,7 @@ describe('normalizeAiDock', () => {
       width: 480,
       collapsed: false,
       petPos: null,
+      panelPos: null,
     })
     expect(normalizeAiDock({ width: 480.4, collapsed: false }).width).toBe(480)
     expect(normalizeAiDock({ width: 9999, collapsed: false }).width).toBe(AI_DOCK_WIDTH_MAX)
@@ -260,6 +261,7 @@ describe('normalizeAiDock', () => {
       width: 480,
       collapsed: true,
       petPos: null,
+      panelPos: null,
     })
     expect(normalizeAiDock({ width: 480, collapsed: 1 }).collapsed).toBe(false)
     expect(normalizeAiDock({ width: 480, collapsed: 'yes' }).collapsed).toBe(false)
@@ -267,7 +269,7 @@ describe('normalizeAiDock', () => {
 
   it('keeps a finite pet position, rounded; anything else is the default corner', () => {
     expect(normalizeAiDock({ petPos: { x: 120, y: 80.6 } }).petPos).toEqual({ x: 120, y: 81 })
-    expect(normalizeAiDock({ petPos: null }).petPos).toBeNull()
+    expect(normalizeAiDock({ petPos: null, panelPos: null }).petPos).toBeNull()
     expect(normalizeAiDock({}).petPos).toBeNull()
     expect(normalizeAiDock({ petPos: { x: 12, y: 'top' } }).petPos).toBeNull()
     expect(normalizeAiDock({ petPos: { x: Number.NaN, y: 4 } }).petPos).toBeNull()
