@@ -8,7 +8,6 @@ import {
   clampPetPos,
   defaultPetPos,
   normalizeAiDock,
-  PET_MARGIN,
   PET_SIZE,
   type AiPetPos,
 } from '../../shared/desktop-geometry'
@@ -177,8 +176,11 @@ export function AiDock({
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  /** the width the open drawer reserves on the pet's right (only while it shows) */
-  const reservedRight = open && !docActive ? Math.max(width, dragWidth ?? 0) + PET_MARGIN : 0
+  /** the pet needs no drawer clearance: at z 45 it floats ABOVE the open
+   *  drawer (40), visible and clickable on top of it — clamping it out read
+   *  as "the pet can't be dragged onto the panel" (it can; it's the drawer's
+   *  own mascot) */
+  const reservedRight = 0
 
   /**
    * One resize gesture: window-level listeners for the whole drag (the handle

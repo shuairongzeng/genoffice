@@ -144,9 +144,10 @@ const drawer = (): HTMLElement => container.querySelector<HTMLElement>('.ai-draw
 const drawerPanel = (): HTMLElement => container.querySelector<HTMLElement>('.ai-drawer-panel')!
 const pet = (): HTMLButtonElement => container.querySelector<HTMLButtonElement>('.ai-pet')!
 
-/** the pet's default perch in the test viewport (1024×768), nudged left of
- *  the open default drawer (400 + 16): the pet never hides under the drawer */
-const OPEN_DRAWER_PET_X = 1024 - 68 - AI_DOCK_WIDTH_DEFAULT - 16
+/** the pet's default perch in the test viewport (1024×768): the bottom-right
+ *  corner (the drawer's leading edge no longer moves it — the pet floats
+ *  above the open drawer, its own mascot) */
+const DEFAULT_PET_X = 1024 - 68 - 16
 
 beforeEach(() => {
   HTMLElement.prototype.scrollTo = vi.fn()
@@ -187,9 +188,10 @@ describe('the AI drawer', () => {
     expect(drawer().className).toContain('open')
     expect(container.querySelector('.kb-ask')).not.toBeNull()
     expect(drawerPanel().style.width).toBe(`${AI_DOCK_WIDTH_DEFAULT}px`)
-    // the pet floats (fixed, out of the layout) and stays out of the drawer
+    // the pet floats (fixed, out of the layout) and perches at the window's
+    // bottom-right corner — over the open drawer, which it outranks
     expect(pet()).not.toBeNull()
-    expect(pet().style.left).toBe(`${OPEN_DRAWER_PET_X}px`)
+    expect(pet().style.left).toBe(`${DEFAULT_PET_X}px`)
     expect(pet().style.top).toBe('690px')
   })
 
@@ -392,7 +394,7 @@ describe('the floating pet', () => {
         new MouseEvent('pointerdown', {
           bubbles: true,
           button: 0,
-          clientX: OPEN_DRAWER_PET_X,
+          clientX: DEFAULT_PET_X,
           clientY: 690,
         }),
       )
@@ -422,7 +424,8 @@ describe('the floating pet', () => {
       getAiDock.mockImplementation(async () => ({
         width: AI_DOCK_WIDTH_DEFAULT,
         collapsed: false,
-        // clear of the open drawer's reserved right rail (maxX 335 chrome)
+        // parked clear of the drawer's leading edge is not required anymore —
+        // just a free spot on the desktop
         petPos: { x: 120, y: 160 },
       }))
       await unmountHome()
@@ -479,7 +482,7 @@ describe('the floating pet', () => {
         new MouseEvent('pointerdown', {
           bubbles: true,
           button: 0,
-          clientX: OPEN_DRAWER_PET_X,
+          clientX: DEFAULT_PET_X,
           clientY: 690,
         }),
       )
@@ -502,22 +505,24 @@ describe('the floating pet', () => {
     expect(setAiDock).toHaveBeenCalledWith({ collapsed: true })
   })
 
-  it('clamps a drag inside the window, and out of the open drawer', async () => {
-    // while the drawer is open the pet may not cross its leading edge
+  it('clamps a drag inside the window — the open drawer is no exception', async () => {
+    // the pet floats ABOVE the open drawer (z 45 over 40), so the clamp's
+    // window edge is the only rail: open or closed, a drag past the corner
+    // lands on the corner
     await act(async () => {
       pet().dispatchEvent(
         new MouseEvent('pointerdown', {
           bubbles: true,
           button: 0,
-          clientX: OPEN_DRAWER_PET_X,
+          clientX: DEFAULT_PET_X,
           clientY: 690,
         }),
       )
       window.dispatchEvent(new MouseEvent('pointermove', { clientX: 2000, clientY: 2000 }))
       window.dispatchEvent(new MouseEvent('pointerup'))
     })
-    expect(setAiDock).toHaveBeenCalledWith({ petPos: { x: OPEN_DRAWER_PET_X, y: 706 } })
-    // close the drawer: the whole window is the pet's again, clamped inside
+    expect(setAiDock).toHaveBeenCalledWith({ petPos: { x: 956, y: 706 } })
+    // closed drawer: same corner, same clamp
     await click(container.querySelector('.ai-drawer-collapse'))
     setAiDock.mockClear()
     await act(async () => {
@@ -525,7 +530,7 @@ describe('the floating pet', () => {
         new MouseEvent('pointerdown', {
           bubbles: true,
           button: 0,
-          clientX: OPEN_DRAWER_PET_X,
+          clientX: DEFAULT_PET_X,
           clientY: 706,
         }),
       )
@@ -542,7 +547,7 @@ describe('the floating pet', () => {
         new MouseEvent('pointerdown', {
           bubbles: true,
           button: 0,
-          clientX: OPEN_DRAWER_PET_X,
+          clientX: DEFAULT_PET_X,
           clientY: 690,
         }),
       )
@@ -553,7 +558,7 @@ describe('the floating pet', () => {
     })
     expect(setAiDock).not.toHaveBeenCalled()
     // back at the perch the drag started from
-    expect(pet().style.left).toBe(`${OPEN_DRAWER_PET_X}px`)
+    expect(pet().style.left).toBe(`${DEFAULT_PET_X}px`)
   })
 })
 
@@ -589,7 +594,7 @@ describe('the AI drawer without the prefs channels', () => {
         new MouseEvent('pointerdown', {
           bubbles: true,
           button: 0,
-          clientX: OPEN_DRAWER_PET_X,
+          clientX: DEFAULT_PET_X,
           clientY: 690,
         }),
       )
