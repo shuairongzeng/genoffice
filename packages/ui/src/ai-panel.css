@@ -815,6 +815,10 @@
   gap: 8px;
   min-width: 0;
   padding: 4px 8px 8px 10px;
+  /* the footer's own width is the chips' cue: a narrow panel folds the model
+     and permission chips to their icons (the @container rule in
+     ai-model-picker.css) instead of squeezing the text into ellipses */
+  container-type: inline-size;
 }
 
 .ai-input-hint {

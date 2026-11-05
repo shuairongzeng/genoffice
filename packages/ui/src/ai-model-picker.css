@@ -169,3 +169,53 @@
 .ai-perm-picker .ai-model-pop {
   width: 300px;
 }
+
+/* ── narrow panels: the chips fold to their icons ──
+ * The composer footer (ai-panel.css's .ai-input-footer) is the size
+ * container; below this width the model and permission chips drop their text
+ * and caret, and the icon alone keeps the one-click switch. The popover's
+ * rows use different classes (.ai-model-item-text), so an open menu keeps
+ * its words. */
+@container (max-width: 300px) {
+  .ai-model-chip-text,
+  .ai-model-chip-caret {
+    display: none;
+  }
+
+  .ai-model-chip {
+    padding: 0 6px;
+  }
+
+  .ai-model-picker {
+    min-width: 0;
+  }
+}
+
+/* ── the elevated-trust warning: 完全自动 drops every confirmation ── */
+
+/* the chip wears the danger ink the whole time the auto posture is on — the
+ * trust level must read at a glance, not just in the menu. The
+ * picker-scoped selectors outrank the shell footer's muted-chip override
+ * (home.css's .kb-ask .ai-model-chip). */
+.ai-model-picker .ai-model-chip.ai-perm-auto,
+.ai-model-picker .ai-model-chip.ai-perm-auto .ai-perm-shield,
+.ai-model-picker .ai-model-chip.ai-perm-auto .ai-model-chip-caret {
+  color: var(--color-error);
+}
+
+.ai-model-picker .ai-model-chip.ai-perm-auto:hover,
+.ai-model-picker .ai-model-chip.ai-perm-auto.open {
+  background: color-mix(in srgb, var(--color-error) 12%, transparent);
+  color: var(--color-error);
+}
+
+/* and the menu row that picks it is marked the same way — choosing the
+ * no-confirmations posture should never read as routine */
+.ai-perm-picker .ai-model-item.ai-perm-option-auto .ai-model-item-text {
+  color: var(--color-error);
+  font-weight: 600;
+}
+
+.ai-perm-picker .ai-model-item.ai-perm-option-auto.selected {
+  background: color-mix(in srgb, var(--color-error) 14%, transparent);
+}

@@ -105,7 +105,10 @@ export function AiPermissionModePicker({
       <button
         ref={chipRef}
         type="button"
-        className={`ai-model-chip${open ? ' open' : ''}`}
+        // auto drops every confirmation — the chip wears the danger ink the
+        // whole time that posture is on, so the elevated trust is always
+        // visible at a glance
+        className={`ai-model-chip${open ? ' open' : ''}${mode === 'auto' ? ' ai-perm-auto' : ''}`}
         onClick={toggle}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -156,7 +159,9 @@ export function AiPermissionModePicker({
                   type="button"
                   role="option"
                   aria-selected={selected}
-                  className={`ai-model-item${selected ? ' selected' : ''}`}
+                  // the auto row is marked in the danger ink too: picking the
+                  // no-confirmations posture should never read as routine
+                  className={`ai-model-item${selected ? ' selected' : ''}${value === 'auto' ? ' ai-perm-option-auto' : ''}`}
                   onClick={() => pick(value)}
                 >
                   <span className="ai-model-item-text">{strings.names[value]}</span>
