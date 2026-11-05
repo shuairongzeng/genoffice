@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { Lang } from '@genoffice/i18n'
 import type { AiSettings } from '@genoffice/ai-provider/browser'
 import {
@@ -144,14 +145,19 @@ export function AiModelPicker({
           />
         </svg>
       </button>
-      {open && (
-        <div
-          ref={popRef}
-          className="ai-model-pop"
-          role="listbox"
-          aria-label={strings.title}
-          style={popStyle}
-        >
+      {open &&
+        // portal the popover to the body: the AI bubble's backdrop-filter
+        // (frosted glass) is a containing block for fixed descendants, so an
+        // inline popover would be positioned against the small panel and
+        // clipped offscreen — the popover must position against the VIEWPORT
+        createPortal(
+          <div
+            ref={popRef}
+            className="ai-model-pop"
+            role="listbox"
+            aria-label={strings.title}
+            style={popStyle}
+          >
           <div className="ai-model-pop-list">
             {groups.map((g) => (
               <div key={g.endpoint ? `${g.id}:${g.endpoint}` : g.id} className="ai-model-group">
@@ -208,8 +214,9 @@ export function AiModelPicker({
               <span className="ai-model-item-text">{strings.manage}</span>
             </button>
           )}
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

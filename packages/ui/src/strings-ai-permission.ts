@@ -7,11 +7,14 @@ export interface AiPermissionModeStrings {
   title: string
   names: Readonly<Record<AiPermissionMode, string>>
   hints: Readonly<Record<AiPermissionMode, string>>
+  /** the red badge on the fully-automatic row: the elevated-trust warning */
+  danger: string
 }
 
 export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> = {
   zh: {
     title: '权限模式',
+    danger: '高风险',
     names: { auto: '完全自动', smart: '必要时询问', paranoid: '始终询问' },
     hints: {
       auto: '所有工具直接执行，无需确认；删除只进系统回收站，可恢复',
@@ -21,6 +24,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   en: {
     title: 'Permission mode',
+    danger: 'High risk',
     names: { auto: 'Fully automatic', smart: 'Ask when needed', paranoid: 'Always ask' },
     hints: {
       auto: 'Every tool runs without asking; deletions only go to the OS trash',
@@ -30,6 +34,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   ja: {
     title: '権限モード',
+    danger: '高リスク',
     names: { auto: '完全自動', smart: '必要時に確認', paranoid: '常に確認' },
     hints: {
       auto: 'すべてのツールが確認なしで実行。削除は OS のごみ箱へ移動し復元できます',
@@ -39,6 +44,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   ko: {
     title: '권한 모드',
+    danger: '고위험',
     names: { auto: '완전 자동', smart: '필요 시 확인', paranoid: '항상 확인' },
     hints: {
       auto: '모든 도구가 확인 없이 실행됩니다. 삭제는 OS 휴지통으로 이동하며 복구할 수 있습니다',
@@ -48,6 +54,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   fr: {
     title: 'Mode de permission',
+    danger: 'Risque élevé',
     names: { auto: 'Tout automatique', smart: 'Demander si besoin', paranoid: 'Toujours demander' },
     hints: {
       auto: 'Chaque outil s’exécute sans demander ; les suppressions vont à la corbeille de l’OS',
@@ -58,6 +65,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   de: {
     title: 'Berechtigungsmodus',
+    danger: 'Hohes Risiko',
     names: { auto: 'Vollautomatisch', smart: 'Bei Bedarf fragen', paranoid: 'Immer fragen' },
     hints: {
       auto: 'Jedes Werkzeug läuft ohne Nachfrage; Löschungen gehen nur in den OS-Papierkorb',
@@ -67,6 +75,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   es: {
     title: 'Modo de permisos',
+    danger: 'Alto riesgo',
     names: {
       auto: 'Todo automático',
       smart: 'Preguntar si hace falta',
@@ -80,6 +89,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   th: {
     title: 'โหมดสิทธิ์',
+    danger: 'ความเสี่ยงสูง',
     names: { auto: 'อัตโนมัติเต็มรูปแบบ', smart: 'ถามเมื่อจำเป็น', paranoid: 'ถามทุกครั้ง' },
     hints: {
       auto: 'ทุกเครื่องมือทำงานโดยไม่ถาม การลบจะไปที่ถังขยะของระบบและกู้คืนได้',
@@ -89,6 +99,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   id: {
     title: 'Mode izin',
+    danger: 'Risiko tinggi',
     names: { auto: 'Sepenuhnya otomatis', smart: 'Tanya bila perlu', paranoid: 'Selalu tanya' },
     hints: {
       auto: 'Setiap alat berjalan tanpa bertanya; penghapusan hanya masuk ke tong sampah OS',
@@ -99,6 +110,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   ru: {
     title: 'Режим разрешений',
+    danger: 'Высокий риск',
     names: {
       auto: 'Полностью автоматически',
       smart: 'Спрашивать при необходимости',
@@ -113,6 +125,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   ar: {
     title: 'وضع الأذونات',
+    danger: 'خطر مرتفع',
     names: { auto: 'آلي بالكامل', smart: 'السؤال عند الحاجة', paranoid: 'السؤال دائمًا' },
     hints: {
       auto: 'تعمل كل أداة دون سؤال؛ الحذف يذهب إلى سلة المهملات فقط ويمكن استرجاعه',
@@ -122,6 +135,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   pt: {
     title: 'Modo de permissão',
+    danger: 'Alto risco',
     names: {
       auto: 'Tudo automático',
       smart: 'Perguntar se precisar',
@@ -135,6 +149,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   it: {
     title: 'Modalità permessi',
+    danger: 'Rischio elevato',
     names: { auto: 'Tutto automatico', smart: 'Chiedi se serve', paranoid: 'Chiedi sempre' },
     hints: {
       auto: 'Ogni strumento viene eseguito senza chiedere; le eliminazioni vanno nel cestino del sistema',
@@ -144,6 +159,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   pl: {
     title: 'Tryb uprawnień',
+    danger: 'Wysokie ryzyko',
     names: { auto: 'W pełni automatycznie', smart: 'Pytaj, gdy trzeba', paranoid: 'Pytaj zawsze' },
     hints: {
       auto: 'Każde narzędzie działa bez pytania; usunięcia trafiają tylko do kosza systemu',
@@ -153,6 +169,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   cs: {
     title: 'Režim oprávnění',
+    danger: 'Vysoké riziko',
     names: {
       auto: 'Plně automaticky',
       smart: 'Ptát se, když je potřeba',
@@ -166,6 +183,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   nl: {
     title: 'Toestemmingsmodus',
+    danger: 'Hoog risico',
     names: {
       auto: 'Volledig automatisch',
       smart: 'Vragen indien nodig',
@@ -179,6 +197,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   ms: {
     title: 'Mod kebenaran',
+    danger: 'Risiko tinggi',
     names: { auto: 'Sepenuhnya automatik', smart: 'Tanya bila perlu', paranoid: 'Sentiasa tanya' },
     hints: {
       auto: 'Setiap alat berjalan tanpa bertanya; pemadaman hanya ke tong kitar semula OS',
@@ -189,6 +208,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   he: {
     title: 'מצב הרשאות',
+    danger: 'סיכון גבוה',
     names: { auto: 'אוטומטי לחלוטין', smart: 'לשאול בעת הצורך', paranoid: 'לשאול תמיד' },
     hints: {
       auto: 'כל כלי פועל בלי שאלה; מחיקות הולכות רק לסל המיחזור של מערכת ההפעלה',
@@ -198,6 +218,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   hi: {
     title: 'अनुमति मोड',
+    danger: 'उच्च जोखिम',
     names: { auto: 'पूर्णतः स्वचालित', smart: 'ज़रूरत पर पूछें', paranoid: 'हमेशा पूछें' },
     hints: {
       auto: 'हर टूल बिना पूछे चलता है; मिटाई गई फ़ाइलें केवल OS रीसायकल बिन में जाती हैं',
@@ -207,6 +228,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   'zh-TW': {
     title: '權限模式',
+    danger: '高風險',
     names: { auto: '完全自動', smart: '必要時詢問', paranoid: '始終詢問' },
     hints: {
       auto: '所有工具直接執行，無需確認；刪除只進系統垃圾桶，可復原',
@@ -216,6 +238,7 @@ export const AI_PERMISSION_MODE_STRINGS: Record<Lang, AiPermissionModeStrings> =
   },
   vi: {
     title: 'Chế độ quyền',
+    danger: 'Rủi ro cao',
     names: { auto: 'Tự động hoàn toàn', smart: 'Hỏi khi cần', paranoid: 'Luôn hỏi' },
     hints: {
       auto: 'Mọi công cụ chạy không cần hỏi; xóa chỉ đưa vào thùng rác của hệ điều hành',

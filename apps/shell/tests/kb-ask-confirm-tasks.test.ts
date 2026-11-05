@@ -1088,9 +1088,11 @@ describe('the permission mode (auto / smart / paranoid)', () => {
     toolCallStream('run_genoffice', { args: ['guide', 'docs'] })
     render()
     await settle()
-    // pick through the popover the way the person does
+    // pick through the popover the way the person does — the popover portals
+    // to document.body (it escapes the bubble's containing block), so the
+    // menu is queried there, not in the panel's own subtree
     act(() => host.querySelector<HTMLButtonElement>('.ai-perm-picker .ai-model-chip')!.click())
-    const items = [...host.querySelectorAll('.ai-perm-picker .ai-model-item')]
+    const items = [...document.body.querySelectorAll('.ai-model-pop .ai-model-item')]
     expect(items.map((i) => i.querySelector('.ai-model-item-text')?.textContent)).toEqual([
       'Fully automatic',
       'Ask when needed',

@@ -193,19 +193,27 @@
 
 /* ── the elevated-trust warning: 完全自动 drops every confirmation ── */
 
-/* the chip wears the danger ink the whole time the auto posture is on — the
- * trust level must read at a glance, not just in the menu. The
+/* the chip wears the danger ink AND a red outline with a soft red wash the
+ * whole time the auto posture is on — the highest trust level must read as
+ * the highest danger level at a glance, not just as a tint. The
  * picker-scoped selectors outrank the shell footer's muted-chip override
  * (home.css's .kb-ask .ai-model-chip). */
 .ai-model-picker .ai-model-chip.ai-perm-auto,
 .ai-model-picker .ai-model-chip.ai-perm-auto .ai-perm-shield,
+.ai-model-picker .ai-model-chip.ai-perm-auto .ai-perm-danger,
 .ai-model-picker .ai-model-chip.ai-perm-auto .ai-model-chip-caret {
   color: var(--color-error);
 }
 
+.ai-model-picker .ai-model-chip.ai-perm-auto {
+  border: 1px solid color-mix(in srgb, var(--color-error) 55%, transparent);
+  background: color-mix(in srgb, var(--color-error) 10%, transparent);
+}
+
 .ai-model-picker .ai-model-chip.ai-perm-auto:hover,
 .ai-model-picker .ai-model-chip.ai-perm-auto.open {
-  background: color-mix(in srgb, var(--color-error) 12%, transparent);
+  background: color-mix(in srgb, var(--color-error) 18%, transparent);
+  border-color: var(--color-error);
   color: var(--color-error);
 }
 
@@ -218,4 +226,16 @@
 
 .ai-perm-picker .ai-model-item.ai-perm-option-auto.selected {
   background: color-mix(in srgb, var(--color-error) 14%, transparent);
+}
+
+/* the red badge on the auto row: the explicit elevated-trust label */
+.ai-perm-danger-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--radius-30);
+  background: var(--color-error);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.6;
 }

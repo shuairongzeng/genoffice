@@ -76,7 +76,9 @@ describe('AiPermissionModePicker', () => {
       for (let i = 0; i < 4; i++) await Promise.resolve()
     })
     act(() => host.querySelector<HTMLButtonElement>('.ai-model-chip')!.click())
-    const items = [...host.querySelectorAll('.ai-model-item')]
+    // the popover portals to document.body (it must escape the bubble's
+    // backdrop-filter containing block), so the menu is queried there
+    const items = [...document.body.querySelectorAll('.ai-model-item')]
     expect(items.map((i) => i.querySelector('.ai-model-item-text')?.textContent)).toEqual([
       'Fully automatic',
       'Ask when needed',
@@ -92,7 +94,7 @@ describe('AiPermissionModePicker', () => {
       for (let i = 0; i < 4; i++) await Promise.resolve()
     })
     expect(setMode).toHaveBeenCalledWith('paranoid')
-    expect(host.querySelector('.ai-model-pop')).toBeNull()
+    expect(document.body.querySelector('.ai-model-pop')).toBeNull()
     expect(chipText()).toBe('Always ask')
   })
 

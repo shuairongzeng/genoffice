@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { Lang } from '@genoffice/i18n'
 import {
   AI_PERMISSION_MODES,
@@ -115,21 +116,36 @@ export function AiPermissionModePicker({
         data-tip={`${strings.title}: ${chipText} — ${strings.hints[mode]}`}
         aria-label={`${strings.title}: ${chipText}`}
       >
-        <svg
-          className="ai-perm-shield"
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M12 2 20 5.5V11c0 5.2-3.4 8.9-8 11-4.6-2.1-8-5.8-8-11V5.5L12 2z" />
-          {mode === 'auto' && <path d="M8.5 11.5 11 14l4.5-5" />}
-        </svg>
+        {mode === 'auto' ? (
+          // the fully-automatic posture: a filled warning triangle with an
+          // exclamation, not the routine shield — the highest trust level
+          // must read as the highest danger level at a glance
+          <svg
+            className="ai-perm-danger"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden
+          >
+            <path d="M12 2 23 21H1L12 2zm-1 7v5h2V9h-2zm0 7v2.5h2V16h-2z" />
+          </svg>
+        ) : (
+          <svg
+            className="ai-perm-shield"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M12 2 20 5.5V11c0 5.2-3.4 8.9-8 11-4.6-2.1-8-5.8-8-11V5.5L12 2z" />
+          </svg>
+        )}
         <span className="ai-model-chip-text">{chipText}</span>
         <svg className="ai-model-chip-caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden>
           <path
@@ -142,14 +158,19 @@ export function AiPermissionModePicker({
           />
         </svg>
       </button>
-      {open && (
-        <div
-          ref={popRef}
-          className="ai-model-pop"
-          role="listbox"
-          aria-label={strings.title}
-          style={popStyle}
-        >
+      {open &&
+        // portal the popover to the body: the AI bubble's backdrop-filter
+        // (frosted glass) is a containing block for fixed descendants, so an
+        // inline popover would be clipped offscreen — it must position
+        // against the VIEWPORT
+        createPortal(
+          <div
+            ref={popRef}
+            className="ai-model-pop"
+            role="listbox"
+            aria-label={strings.title}
+            style={popStyle}
+          >
           <div className="ai-model-pop-list">
             {AI_PERMISSION_MODES.map((value) => {
               const selected = value === mode
@@ -165,6 +186,9 @@ export function AiPermissionModePicker({
                   onClick={() => pick(value)}
                 >
                   <span className="ai-model-item-text">{strings.names[value]}</span>
+                  {value === 'auto' && (
+                    <span className="ai-perm-danger-badge">{strings.danger}</span>
+                  )}
                   {selected && (
                     <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
                       <path
@@ -182,8 +206,9 @@ export function AiPermissionModePicker({
               )
             })}
           </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
