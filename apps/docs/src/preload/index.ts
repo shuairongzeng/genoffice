@@ -163,6 +163,17 @@ const api: DesktopApi = {
       return false
     }
   },
+  // the shared permission posture (one store for every panel): read, persist,
+  // and follow the broadcast — the same mode the Home drawer sees
+  getAiPermissions: () => ipcRenderer.invoke('home:ai-permissions-get'),
+  setAiPermissions: (mode: 'auto' | 'smart' | 'paranoid') =>
+    ipcRenderer.invoke('home:ai-permissions-set', mode),
+  onAiPermissionsChanged: (handler: (mode: 'auto' | 'smart' | 'paranoid') => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, mode: 'auto' | 'smart' | 'paranoid') =>
+      handler(mode)
+    ipcRenderer.on('home:ai-permissions-changed', listener)
+    return () => ipcRenderer.removeListener('home:ai-permissions-changed', listener)
+  },
   openGlobalAi: async (question?: string) => {
     try {
       const opened = (await ipcRenderer.invoke('docs:open-global-ai')) === true

@@ -835,6 +835,40 @@ contextBridge.exposeInMainWorld('sheetsSelection', {
   report: (text: string) => ipcRenderer.send('app:selection-changed', text),
 })
 
+// shell hosting (docs parity): summon the global drawer when hosted, and the
+// shared permission posture (one store for every panel)
+contextBridge.exposeInMainWorld('sheetsHost', {
+  isHostedInShell: async () => {
+    try {
+      return (await ipcRenderer.invoke('app:is-hosted-in-shell')) === true
+    } catch {
+      return false
+    }
+  },
+  openGlobalAi: async (question?: string) => {
+    try {
+      const opened = (await ipcRenderer.invoke('docs:open-global-ai')) === true
+      if (opened && typeof question === 'string' && question.trim()) {
+        await ipcRenderer.invoke('home:ask-forward', {
+          text: question,
+          seq: Date.now(),
+          origin: 'deep-link',
+        })
+      }
+    } catch {
+      // standalone dev: no handler, the app's own panel opens instead
+    }
+  },
+  getAiPermissions: () => ipcRenderer.invoke('home:ai-permissions-get'),
+  setAiPermissions: (mode: 'auto' | 'smart' | 'paranoid') =>
+    ipcRenderer.invoke('home:ai-permissions-set', mode),
+  onAiPermissionsChanged: (handler: (mode: 'auto' | 'smart' | 'paranoid') => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, mode: 'auto' | 'smart' | 'paranoid') => handler(mode)
+    ipcRenderer.on('home:ai-permissions-changed', listener)
+    return () => ipcRenderer.removeListener('home:ai-permissions-changed', listener)
+  },
+})
+
 const projectApi: ProjectApi = {
   resolveChat: (args) => ipcRenderer.invoke('project:resolveChat', args),
   appendChat: (args) => ipcRenderer.invoke('project:appendChat', args),

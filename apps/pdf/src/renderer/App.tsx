@@ -482,6 +482,29 @@ export default function App() {
   const setAiOpen = useCallback((open: boolean) => setAiCollapsed(!open), [])
   // the sidebar switch is a soft hide; it closes the panel when it turns off
   const aiSidebarEnabled = useAiSidebarEnabled(setAiOpen)
+  // shell hosting (sheets parity): when the shell hosts this app, the global
+  // drawer IS the AI face — this app's own panel must not render a second one.
+  const [aiHostedInShell, setAiHostedInShell] = useState(false)
+  useEffect(() => {
+    let alive = true
+    typeof window.pdfHost?.isHostedInShell === 'function' &&
+      window.pdfHost.isHostedInShell().then((hosted) => {
+        if (alive) setAiHostedInShell(hosted)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
+  // the copilot toggle: hosted, the global drawer is the panel; standalone,
+  // this app's own panel (with the permission picker) opens
+  const toggleAi = (): void => {
+    if (aiHostedInShell) {
+      void window.pdfHost.openGlobalAi()
+      return
+    }
+    setAiCollapsed((v) => !v)
+  }
   useEffect(() => {
     rememberAiPanelOpen('genoffice-pdf-show-ai', !aiCollapsed)
   }, [aiCollapsed])
@@ -6988,6 +7011,12 @@ export default function App() {
 
   /** Ribbon AI buttons: expand the dock and auto-run the prompt in the assistant */
   const runAiPreset = (text: string): void => {
+    // hosted: the prompt goes to the global drawer (parked for Enter);
+    // standalone: this app's own panel opens and runs it
+    if (aiHostedInShell) {
+      void window.pdfHost.openGlobalAi(text)
+      return
+    }
     setAiCollapsed(false)
     setAiPreset({ text, nonce: Date.now() })
   }
@@ -7407,7 +7436,7 @@ export default function App() {
                   <button
                     className={`rb-big ai-entry${aiCollapsed ? '' : ' active'}`}
                     data-tip={t('aiOpenAssistant')}
-                    onClick={() => setAiCollapsed((v) => !v)}
+                    onClick={toggleAi}
                   >
                     <span className="rb-big-icon">
                       <GensparkMark size={26} />
@@ -8230,11 +8259,14 @@ export default function App() {
               className="ai-rail"
               data-tip={t('aiOpenAssistant')}
               aria-label={t('aiOpenAssistant')}
-              onClick={() => setAiCollapsed(false)}
+              onClick={toggleAi}
             >
               <GensparkMark size={22} />
             </button>
           )}
+          {/* hosted: the global drawer is the only AI face — this app's own
+              panel must not render a second one (no two AI panels at once) */}
+          {!aiHostedInShell && (
           <AiPanel
             api={aiApi}
             filePath={filePath}
@@ -8243,6 +8275,7 @@ export default function App() {
             onRunDone={() => void autoSaveAfterAiRun()}
             onClearSelection={() => setAiSelection(null)}
           />
+          )}
         </div>
         <div className="app-content">
           {digitalSignatures.length > 0 && (

@@ -3,9 +3,11 @@ import {
   aiPanelWidthAtPointer,
   AiPanelSideButton,
   AiModelPicker,
+  AiPermissionModePicker,
   AI_CONFIRM_LABELS,
   AiConfirmCard,
   type AiModelPickerBridge,
+  type AiPermissionModePickerBridge,
   AiSkillChips,
   AiSkillsMenu,
   useAiPanelPrefs,
@@ -177,6 +179,14 @@ const MODEL_BRIDGE: AiModelPickerBridge = {
   onSettingsChanged: (handler) => window.markdownApi.onAiSettingsChanged(handler),
   gskLoggedIn: () => window.markdownApi.aiGskStatus().then((s) => !!s?.loggedIn),
   openModelSettings: () => window.markdownApi.openAiModelSettings().catch(() => {}),
+}
+
+/** the shared permission posture (one store for every panel): read, persist,
+ *  and follow the broadcast — the same mode the Home drawer sees. */
+const PERMISSION_BRIDGE: AiPermissionModePickerBridge = {
+  getMode: () => window.markdownHost.getAiPermissions(),
+  setMode: (mode) => window.markdownHost.setAiPermissions(mode).then(() => undefined),
+  onModeChanged: (handler) => window.markdownHost.onAiPermissionsChanged(handler),
 }
 
 export function AiPanel({
@@ -1416,6 +1426,7 @@ export function AiPanel({
           footerStart={
             <>
               <AiModelPicker bridge={MODEL_BRIDGE} lang={lang} />
+              <AiPermissionModePicker bridge={PERMISSION_BRIDGE} lang={lang} />
               {sessionUsage && <AiUsageChip usage={sessionUsage} session lang={lang} />}
               <AiSkillsMenu
                 lang={lang}

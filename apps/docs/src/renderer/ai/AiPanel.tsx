@@ -4,8 +4,10 @@ import {
   aiPanelWidthAtPointer,
   AiPanelSideButton,
   AiModelPicker,
+  AiPermissionModePicker,
   AI_CONFIRM_LABELS,
   type AiModelPickerBridge,
+  type AiPermissionModePickerBridge,
   AiConfirmCard,
   AiSkillChips,
   AiSkillsMenu,
@@ -381,6 +383,14 @@ const MODEL_BRIDGE: AiModelPickerBridge = {
   onSettingsChanged: (handler) => window.desktop.onAiSettingsChanged(handler),
   gskLoggedIn: () => window.desktop.aiGskStatus().then((s) => !!s?.loggedIn),
   openModelSettings: () => window.desktop.openAiModelSettings().catch(() => {}),
+}
+
+/** the shared permission posture (one store for every panel): read, persist,
+ *  and follow the broadcast — the same mode the Home drawer sees. */
+const PERMISSION_BRIDGE: AiPermissionModePickerBridge = {
+  getMode: () => window.desktop.getAiPermissions(),
+  setMode: (mode) => window.desktop.setAiPermissions(mode).then(() => undefined),
+  onModeChanged: (handler) => window.desktop.onAiPermissionsChanged(handler),
 }
 
 export function AiPanel({
@@ -2042,6 +2052,7 @@ export function AiPanel({
           footerStart={
             <>
               <AiModelPicker bridge={MODEL_BRIDGE} lang={lang} />
+              <AiPermissionModePicker bridge={PERMISSION_BRIDGE} lang={lang} />
               {sessionUsage && <AiUsageChip usage={sessionUsage} session lang={lang} />}
               <AiSkillsMenu
                 lang={lang}

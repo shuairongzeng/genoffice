@@ -482,6 +482,11 @@ export interface DesktopApi {
    *  prompt section (main's selection-store.ts): report on selection change,
    *  empty string to clear */
   reportSelection(text: string): void
+  /** the shared permission posture (one store for every panel): read, persist,
+   *  and follow the broadcast — the same mode the Home drawer sees */
+  getAiPermissions(): Promise<'auto' | 'smart' | 'paranoid'>
+  setAiPermissions(mode: 'auto' | 'smart' | 'paranoid'): Promise<unknown>
+  onAiPermissionsChanged(handler: (mode: 'auto' | 'smart' | 'paranoid') => void): () => void
   /** OS regional-settings locale (BCP 47); Word derives the new-document paper size from it */
   getSystemLocale(): Promise<string>
   /** language switched from the shell home page */

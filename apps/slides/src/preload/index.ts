@@ -492,6 +492,41 @@ contextBridge.exposeInMainWorld('slidesSelection', {
   report: (text: string) => ipcRenderer.send('app:selection-changed', text),
 })
 
+// shell hosting (sheets parity): summon the global drawer when hosted, and the
+// shared permission posture (one store for every panel)
+contextBridge.exposeInMainWorld('slidesHost', {
+  isHostedInShell: async () => {
+    try {
+      return (await ipcRenderer.invoke('app:is-hosted-in-shell')) === true
+    } catch {
+      return false
+    }
+  },
+  openGlobalAi: async (question?: string) => {
+    try {
+      const opened = (await ipcRenderer.invoke('docs:open-global-ai')) === true
+      if (opened && typeof question === 'string' && question.trim()) {
+        await ipcRenderer.invoke('home:ask-forward', {
+          text: question,
+          seq: Date.now(),
+          origin: 'deep-link',
+        })
+      }
+    } catch {
+      // standalone dev: no handler, the app's own panel opens instead
+    }
+  },
+  getAiPermissions: () => ipcRenderer.invoke('home:ai-permissions-get'),
+  setAiPermissions: (mode: 'auto' | 'smart' | 'paranoid') =>
+    ipcRenderer.invoke('home:ai-permissions-set', mode),
+  onAiPermissionsChanged: (handler: (mode: 'auto' | 'smart' | 'paranoid') => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, mode: 'auto' | 'smart' | 'paranoid') =>
+      handler(mode)
+    ipcRenderer.on('home:ai-permissions-changed', listener)
+    return () => ipcRenderer.removeListener('home:ai-permissions-changed', listener)
+  },
+})
+
 // Chat attachment bridge: method names/signatures match the window.desktop attachment subset in docs, so the renderer's files-skill is copied over wholesale
 const filesApi: DesktopFilesApi = {
   pickAttachments: () => ipcRenderer.invoke('slides:files-pick'),

@@ -168,6 +168,29 @@ export default function App() {
   const [aiOpen, setAiOpen] = useState(() => aiPanelInitiallyOpen('mdapp.showAi'))
   // the sidebar switch is a soft hide; it closes the panel when it turns off
   const aiSidebarEnabled = useAiSidebarEnabled(setAiOpen)
+  // shell hosting (sheets parity): when the shell hosts this app, the global
+  // drawer IS the AI face — this app's own panel must not render a second one.
+  const [aiHostedInShell, setAiHostedInShell] = useState(false)
+  useEffect(() => {
+    let alive = true
+    typeof window.markdownHost?.isHostedInShell === 'function' &&
+      window.markdownHost.isHostedInShell().then((hosted) => {
+        if (alive) setAiHostedInShell(hosted)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
+  // the copilot toggle: hosted, the global drawer is the panel; standalone,
+  // this app's own panel (with the permission picker) opens
+  const toggleAi = (): void => {
+    if (aiHostedInShell) {
+      void window.markdownHost.openGlobalAi()
+      return
+    }
+    setAiOpen((v) => !v)
+  }
   const [aiPreset, setAiPreset] = useState<AiPreset | null>(null)
   const [editQueue, setEditQueue] = useState<EditQueueItem[]>([])
   const editQueueRef = useRef(editQueue)
@@ -1212,9 +1235,15 @@ export default function App() {
     current.view.focus()
   }, [])
   const askSendNow = useCallback((text: string): void => {
+    // hosted: the preset goes to the global drawer (parked for Enter);
+    // standalone: this app's own panel opens and runs it
+    if (aiHostedInShell) {
+      void window.markdownHost.openGlobalAi(text)
+      return
+    }
     setAiOpen(true)
     setAiPreset((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
-  }, [])
+  }, [aiHostedInShell])
 
   const aiDeps: MarkdownAiDeps = {
     getEditor: () => editorRef.current,
@@ -1315,7 +1344,7 @@ export default function App() {
         sourceMode={sourceMode}
         sourceHistory={sourceMode ? sourceHistory : undefined}
         aiOpen={aiOpen}
-        onToggleAi={() => setAiOpen((v) => !v)}
+        onToggleAi={toggleAi}
         onAiPreset={(text) => {
           setAiOpen(true)
           setAiPreset((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
@@ -1338,13 +1367,14 @@ export default function App() {
               className="ai-rail"
               data-tip={t('aiOpenAssistant')}
               aria-label={t('aiOpenAssistant')}
-              onClick={() => setAiOpen(true)}
+              onClick={toggleAi}
             >
               <GensparkMark size={22} />
             </button>
           )}
-          {/* mounted only after the file is loaded so chat history resolves against the real path */}
-          {status === 'ready' && (
+          {/* mounted only after the file is loaded so chat history resolves against the real path;
+              hosted: the global drawer is the only AI face — no second panel */}
+          {status === 'ready' && !aiHostedInShell && (
             <AiPanel
               deps={aiDeps}
               filePath={filePath}

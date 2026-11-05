@@ -570,6 +570,30 @@ export function ExcelShell({
   )
   // the sidebar switch is a soft hide; it closes the panel when it turns off
   const aiSidebarEnabled = useAiSidebarEnabled(setIsCopilotOpen)
+  // shell hosting (docs parity): when the shell hosts this app, the global
+  // drawer IS the AI face — this app's own panel must not render a second one.
+  // Detect once; the AI entry points route through it (see toggleCopilot)
+  const [aiHostedInShell, setAiHostedInShell] = useState(false)
+  useEffect(() => {
+    let alive = true
+    typeof window.sheetsHost?.isHostedInShell === 'function' &&
+      window.sheetsHost.isHostedInShell().then((hosted) => {
+        if (alive) setAiHostedInShell(hosted)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
+  // the copilot toggle: hosted, the global drawer is the panel; standalone,
+  // this app's own panel (with the permission picker) opens
+  const toggleCopilot = (): void => {
+    if (aiHostedInShell) {
+      void window.sheetsHost.openGlobalAi()
+      return
+    }
+    setIsCopilotOpen((open) => !open)
+  }
   useEffect(() => {
     rememberAiPanelOpen('ai-sheets-show-ai', isCopilotOpen)
   }, [isCopilotOpen])
@@ -705,8 +729,11 @@ export function ExcelShell({
       else if (!protection.protected) setProtectSheetMode('protect')
       else if (protection.hasPassword) setProtectSheetMode('unprotect')
       else onCommand('sheet-unprotect')
-    } else if (command === 'ai-open-panel') setIsCopilotOpen(true)
-    else if (command === 'ai-toggle-panel') setIsCopilotOpen((v) => !v)
+    } else if (command === 'ai-open-panel' || command === 'ai-toggle-panel') {
+      if (aiHostedInShell) void window.sheetsHost.openGlobalAi()
+      else if (command === 'ai-open-panel') setIsCopilotOpen(true)
+      else setIsCopilotOpen((v) => !v)
+    }
     else if (command === 'chart-element-title') setChartTextTarget('title')
     else if (command === 'chart-element-axis-cat') setChartTextTarget('axis-category')
     else if (command === 'chart-element-axis-val') setChartTextTarget('axis-value')
@@ -958,16 +985,24 @@ export function ExcelShell({
           onIsSelectionInPivot={onIsSelectionInPivot}
           onCommand={dispatchCommand}
           onAiRun={(nextPrompt) => {
-            setIsCopilotOpen(true)
-            onSend(nextPrompt)
+            // hosted: the prompt goes to the global drawer (parked for Enter);
+            // standalone: this app's own panel opens and runs it
+            if (aiHostedInShell) void window.sheetsHost.openGlobalAi(nextPrompt)
+            else {
+              setIsCopilotOpen(true)
+              onSend(nextPrompt)
+            }
           }}
           aiOpen={isCopilotOpen}
-          onAiToggle={() => setIsCopilotOpen((open) => !open)}
+          onAiToggle={toggleCopilot}
         />
       </header>
 
       {/* AI panel docks on the left, full height under the ribbon (unified with docs) */}
       <div className="sheet-body">
+        {/* hosted: the global drawer is the only AI face — this app's own
+            panel must not render a second one (no two AI panels at once) */}
+        {!aiHostedInShell && (
         <AiChatPanel
           isOpen={isCopilotOpen}
           hideRail={!aiSidebarEnabled}
@@ -1004,9 +1039,13 @@ export function ExcelShell({
           scopeLocked={aiScopeLocked}
           onScopeDismiss={onAiScopeDismiss}
           onCitation={onAiCitation}
-          onExpand={() => setIsCopilotOpen(true)}
+          onExpand={() => {
+            if (aiHostedInShell) void window.sheetsHost.openGlobalAi()
+            else setIsCopilotOpen(true)
+          }}
           onCollapse={() => setIsCopilotOpen(false)}
         />
+        )}
         <div className="sheet-main">
           <section className="workbook-area">
             <div id="univer-container" className="spreadsheet" />

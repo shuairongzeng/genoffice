@@ -486,6 +486,20 @@ export function App() {
   // this deck, and closing it returns to hidden. The dock stays mounted; the
   // hook closes it when the switch itself goes off.
   const aiSidebarEnabled = useAiSidebarEnabled(setShowAi)
+  // shell hosting (sheets parity): when the shell hosts this app, the global
+  // drawer IS the AI face — this app's own panel must not render a second one.
+  const [aiHostedInShell, setAiHostedInShell] = useState(false)
+  useEffect(() => {
+    let alive = true
+    typeof window.slidesHost?.isHostedInShell === 'function' &&
+      window.slidesHost.isHostedInShell().then((hosted) => {
+        if (alive) setAiHostedInShell(hosted)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
   const [showFormat, setShowFormat] = useState(false)
   const [showBgFormat, setShowBgFormat] = useState(false)
   const [aiSettings, setAiSettings] = useState<AiSettings | null>(null)
@@ -1293,11 +1307,17 @@ export function App() {
   }, [slides.length])
 
   const toggleAi = useCallback(() => {
+    // hosted: the global drawer is the panel; standalone: this app's own panel
+    // (with the permission picker) opens
+    if (aiHostedInShell) {
+      void window.slidesHost.openGlobalAi()
+      return
+    }
     setShowAi((v) => {
       rememberAiPanelOpen('ai-slides-show-ai', !v)
       return !v
     })
-  }, [])
+  }, [aiHostedInShell])
 
   const pushAiPreset = useCallback(
     (
@@ -1308,6 +1328,12 @@ export function App() {
       slideShot?: boolean,
       scope?: AiScopeQuoteData,
     ) => {
+      // hosted: the preset goes to the global drawer (parked for Enter);
+      // standalone: this app's own panel opens and runs it
+      if (aiHostedInShell) {
+        void window.slidesHost.openGlobalAi(text)
+        return
+      }
       setShowAi(() => {
         rememberAiPanelOpen('ai-slides-show-ai', true)
         return true
@@ -1322,7 +1348,7 @@ export function App() {
         ...(scope ? { scope } : {}),
       })
     },
-    [],
+    [aiHostedInShell],
   )
 
   // ── AI element edit queue ──────────────────────────────────────────────
@@ -3607,7 +3633,7 @@ export function App() {
             }`}
           >
             {/* always mounted once settings load: collapse must not drop state or in-flight runs */}
-            {aiSettings ? (
+            {aiSettings && !aiHostedInShell ? (
               <AiPanel
                 key={aiPanelKey}
                 slides={slides}

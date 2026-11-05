@@ -6,7 +6,9 @@ import {
   aiPanelWidthAtPointer,
   AiPanelSideButton,
   AiModelPicker,
+  AiPermissionModePicker,
   type AiModelPickerBridge,
+  type AiPermissionModePickerBridge,
   useAiPanelPrefs,
 } from '@genoffice/ui'
 import { boundChatHistory, MAX_CHAT_ENTRIES } from '@genoffice/ui/chat-retention'
@@ -137,6 +139,14 @@ const MODEL_BRIDGE: AiModelPickerBridge = {
   onSettingsChanged: (handler) => window.pdfApi.onAiSettingsChanged(handler),
   gskLoggedIn: () => window.pdfApi.gskStatus().then((s) => !!s?.loggedIn),
   openModelSettings: () => window.pdfApi.openAiModelSettings().catch(() => {}),
+}
+
+/** the shared permission posture (one store for every panel): read, persist,
+ *  and follow the broadcast — the same mode the Home drawer sees. */
+const PERMISSION_BRIDGE: AiPermissionModePickerBridge = {
+  getMode: () => window.pdfHost.getAiPermissions(),
+  setMode: (mode) => window.pdfHost.setAiPermissions(mode).then(() => undefined),
+  onModeChanged: (handler) => window.pdfHost.onAiPermissionsChanged(handler),
 }
 
 export function AiPanel({
@@ -1247,6 +1257,7 @@ export function AiPanel({
           footerStart={
             <>
               <AiModelPicker bridge={MODEL_BRIDGE} lang={lang} />
+              <AiPermissionModePicker bridge={PERMISSION_BRIDGE} lang={lang} />
               {sessionUsage && <AiUsageChip usage={sessionUsage} session lang={lang} />}
               <AiSkillsMenu
                 lang={lang}

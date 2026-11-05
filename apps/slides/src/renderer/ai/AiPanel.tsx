@@ -4,7 +4,9 @@ import {
   aiPanelWidthAtPointer,
   AiPanelSideButton,
   AiModelPicker,
+  AiPermissionModePicker,
   type AiModelPickerBridge,
+  type AiPermissionModePickerBridge,
   AiSkillChips,
   AiSkillsMenu,
 } from '@genoffice/ui'
@@ -400,6 +402,14 @@ const MODEL_BRIDGE: AiModelPickerBridge = {
   onSettingsChanged: (handler) => window.slidesApi.onAiSettingsChanged(handler),
   gskLoggedIn: () => window.slidesApi.aiGskStatus().then((s) => !!s?.loggedIn),
   openModelSettings: () => window.slidesApi.openAiModelSettings().catch(() => {}),
+}
+
+/** the shared permission posture (one store for every panel): read, persist,
+ *  and follow the broadcast — the same mode the Home drawer sees. */
+const PERMISSION_BRIDGE: AiPermissionModePickerBridge = {
+  getMode: () => window.slidesHost.getAiPermissions(),
+  setMode: (mode) => window.slidesHost.setAiPermissions(mode).then(() => undefined),
+  onModeChanged: (handler) => window.slidesHost.onAiPermissionsChanged(handler),
 }
 
 /** The panel's own product word per UI language — what a skill's `${APP}`
@@ -2815,6 +2825,7 @@ export function AiPanel({
             />
             <div className="ai-input-footer">
               <AiModelPicker bridge={MODEL_BRIDGE} lang={lang} />
+              <AiPermissionModePicker bridge={PERMISSION_BRIDGE} lang={lang} />
               {sessionUsage && <AiUsageChip usage={sessionUsage} session lang={lang} />}
               <AiSkillsMenu
                 lang={lang}
