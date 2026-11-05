@@ -295,7 +295,7 @@ describe('the ready handshake (the buffered deliveries flush on it)', () => {
 })
 
 describe('the two shapes (the drawer and the pet-only view)', () => {
-  it('expanded: the panel and the pet at the drawer foot, an opaque root', async () => {
+  it('expanded: the panel alone (the pet is hidden), an opaque root', async () => {
     await mountEntry(panelApi(overlayChannels()))
     const root = container!.querySelector<HTMLElement>('.ask-panel-entry')!
     expect(root.classList.contains('ask-panel-pet-only')).toBe(false)
@@ -303,9 +303,9 @@ describe('the two shapes (the drawer and the pet-only view)', () => {
     expect(container!.querySelector('.ask-panel-panel')!.hasAttribute('hidden')).toBe(false)
     // html and body keep their backgrounds: the view's surface paints opaque
     expect(document.documentElement.classList.contains('ask-panel-pet-only')).toBe(false)
+    // the panel IS the bird while expanded: no second pet perches at the foot
     const pet = container!.querySelector<HTMLButtonElement>('.ai-pet')!
-    expect(pet.style.right).toBe('16px')
-    expect(pet.style.bottom).toBe('16px')
+    expect(pet.classList.contains('pet-hidden')).toBe(true)
   })
 
   it('collapsed: the pet alone at the view origin, the panel hidden but mounted', async () => {
@@ -317,6 +317,8 @@ describe('the two shapes (the drawer and the pet-only view)', () => {
     expect(root.classList.contains('ask-panel-pet-only')).toBe(true)
     expect(document.documentElement.classList.contains('ask-panel-pet-only')).toBe(true)
     const pet = container!.querySelector<HTMLButtonElement>('.ai-pet')!
+    // the bird is back, perching at the view's own origin
+    expect(pet.classList.contains('pet-hidden')).toBe(false)
     // main sized the view around the bird: the pet perches at its own origin
     expect(pet.style.left).toBe('0px')
     expect(pet.style.top).toBe('0px')

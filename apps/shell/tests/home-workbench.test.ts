@@ -770,6 +770,16 @@ describe('the pet ⇄ panel morph (the wired component)', () => {
     stubRect(drawerPanel(), PANEL_RECT)
   }
 
+  it('expanded, the pet is hidden (the panel IS the bird); collapsing brings it back', async () => {
+    await mountHome(baseApi())
+    // the drawer opens on mount (the prefs default is expanded): no second
+    // bird may perch anywhere while the panel is up
+    expect(pet().classList.contains('pet-hidden')).toBe(true)
+    // the collapse verb is the header's × — the bird returns as it lands
+    await click(container.querySelector('.kb-ask-collapse-button'))
+    expect(pet().classList.contains('pet-hidden')).toBe(false)
+  })
+
   it('opening grows the panel out of the pet: the class, the origin, the from-scales', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {

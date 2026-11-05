@@ -755,11 +755,11 @@ function OverlayPet({
   return (
     <button
       type="button"
-      className={`ai-pet${gulp ? ' gulp' : ''}`}
+      className={`ai-pet${!collapsed ? ' pet-hidden' : ''}${gulp ? ' gulp' : ''}`}
       /* collapsed: the view IS the pet's bounds (main sized it around the
          bird), so the pet perches at its own origin — unless a drag is live,
          when it follows the pointer across the window-wide surface; expanded:
-         the foot of the drawer, clear of the composer's send controls */
+         pet-hidden (the panel IS the bird), no perch to style */
       style={
         collapsed
           ? { left: dragPos?.x ?? 0, top: dragPos?.y ?? 0 }

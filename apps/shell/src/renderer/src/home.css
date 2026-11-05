@@ -1202,12 +1202,10 @@ html.genoffice-popover-open .work-tabs {
 /* the drawer's separate head is gone — the bubble's whole chrome is the
  * panel's own merged header (kb-ask-header below): its ☰ | title | ⋯ | ×
  * row carries the collapse verb, the library and the overflow menu. The
- * header keeps the tool-window drag band the old head was (the buttons
- * stay no-drag), so the right column's share of the window drag surface
- * survives the merge. */
-.ai-drawer-body .kb-ask-header {
-  -webkit-app-region: drag;
-}
+ * header is the bubble's own grab zone (the pet drag, AiDock.tsx) — NOT a
+ * -webkit-app-region: drag band: that would hand the press to the OS's
+ * window-drag instead, moving the whole program window when the person
+ * only meant to move the panel. */
 .ai-drawer-body .kb-ask-header button {
   -webkit-app-region: no-drag;
 }
@@ -1220,9 +1218,6 @@ body.overlay-title-bar .ai-drawer-body .kb-ask-header {
 }
 
 /* the popover-open dismissal rule below keeps pointing at the drag bands */
-html.genoffice-popover-open .ai-drawer-body .kb-ask-header {
-  -webkit-app-region: no-drag;
-}
 
 /* the panel's own 860px cap was for the full-content layout; in the drawer
    it fills whatever width the person dragged */
@@ -1280,8 +1275,9 @@ body.ai-drawer-resizing {
  * definition lines. */
 .ai-pet {
   position: fixed;
-  /* above the drawer's scrim (clickable to retract while open); below the
-     star-prompt card (60), the settings modal (70) and the dialogs (100) */
+  /* above the drawer's scrim; below the star-prompt card (60), the settings
+     modal (70) and the dialogs (100). While the drawer is open it wears
+     pet-hidden (below) — no second bird */
   z-index: 45;
   display: flex;
   align-items: center;
@@ -1298,6 +1294,16 @@ body.ai-drawer-resizing {
   user-select: none;
   /* the bird's palette lives on .ai-mascot-svg itself (any host renders the
      same bird); the pet's rule keeps only its own behavior */
+}
+
+/* expanded, the panel IS the pet: no second bird perches at the window's
+   corner (Home) or at the panel's foot (the overlay) — the collapse verb is
+   the header's ×, and the bird returns as the close morph lands. Hidden with
+   visibility so it cannot eat a click either. */
+.ai-pet.pet-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 body.ai-pet-dragging {
@@ -1417,13 +1423,8 @@ html.ask-panel-pet-only body {
 .ask-panel-entry .kb-ask {
   flex: 1;
   min-height: 0;
-  /* the pet's strip: while expanded the floating pet perches at the foot's
-     right corner, so the composer's send controls stay clear of it. 62
-     (PET_SIZE.height) + 16 (PET_MARGIN) — must move with the shared pet
-     geometry in desktop-geometry.ts. Home's drawer never hosts the pet
-     inside itself (it clamps the pet outside its footprint), so this
-     arrangement is the overlay's own. */
-  padding-bottom: 78px;
+  /* no foot strip: the expanded pet is hidden (the panel IS the bird), so
+     the composer needs no clearance for a perch anymore */
 }
 
 /* the pet's two perches: expanded, the drawer's foot (pointer — a click

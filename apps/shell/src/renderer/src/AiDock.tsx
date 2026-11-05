@@ -266,9 +266,9 @@ export function AiDock({
   }, [])
 
   /** the pet needs no drawer clearance: at z 45 it floats ABOVE the open
-   *  drawer (40), visible and clickable on top of it — clamping it out read
-   *  as "the pet can't be dragged onto the panel" (it can; it's the drawer's
-   *  own mascot) */
+   *  drawer (40), and while the drawer is open it is hidden (pet-hidden) —
+   *  the panel is the bird then; dragging the panel's header carries this
+   *  (invisible) position, so the bubble keeps its anchor */
   const reservedRight = 0
 
   /**
@@ -530,7 +530,7 @@ export function AiDock({
       <button
         type="button"
         ref={petRef}
-        className={`ai-pet${morphPhase === 'open' ? ' absorb' : ''}${petGulp ? ' gulp' : ''}`}
+        className={`ai-pet${open ? ' pet-hidden' : ''}${morphPhase === 'open' ? ' absorb' : ''}${petGulp ? ' gulp' : ''}`}
         style={{ left: shownPetPos.x, top: shownPetPos.y }}
         aria-label={t(collapsed ? 'dockExpand' : 'dockCollapse')}
         title={t(collapsed ? 'dockExpand' : 'dockCollapse')}
