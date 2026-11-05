@@ -166,7 +166,7 @@ export function AiPermissionModePicker({
         createPortal(
           <div
             ref={popRef}
-            className="ai-model-pop"
+            className="ai-model-pop ai-perm-pop"
             role="listbox"
             aria-label={strings.title}
             style={popStyle}

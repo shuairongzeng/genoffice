@@ -152,21 +152,41 @@
   color: var(--text-dim);
 }
 
-.ai-perm-picker .ai-model-item {
-  flex-wrap: wrap;
-  align-content: flex-start;
+/* ── the permission-mode picker's rows: name on the first line, hint below ──
+ * The old flex rows collapsed the mode's NAME to zero width (flex-basis 0
+ * with a 100%-width hint on the same track), so the menu read as a wall of
+ * hint text with no titles. Block layout instead: the name is a bold inline
+ * on the first line, the hint a smaller dim block under it, the checkmark
+ * pinned at the row's right edge, the danger badge inline after the name. */
+.ai-perm-pop .ai-model-item {
+  display: block;
+  position: relative;
+  padding: 7px 26px 7px 10px;
 }
 
-.ai-perm-picker .ai-model-item-hint {
-  flex: 1 0 100%;
+.ai-perm-pop .ai-model-item-text {
+  display: inline;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.ai-perm-pop .ai-model-item-hint {
+  display: block;
+  margin-top: 3px;
   color: var(--text-dim);
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.45;
+}
+
+.ai-perm-pop .ai-model-item > svg {
+  position: absolute;
+  right: 8px;
+  top: 9px;
 }
 
 /* the mode rows carry two lines each (name + hint), so the popover is a
  * little wider than the model list to keep the hints readable */
-.ai-perm-picker .ai-model-pop {
+.ai-perm-pop {
   width: 300px;
 }
 
@@ -219,18 +239,20 @@
 
 /* and the menu row that picks it is marked the same way — choosing the
  * no-confirmations posture should never read as routine */
-.ai-perm-picker .ai-model-item.ai-perm-option-auto .ai-model-item-text {
+.ai-perm-pop .ai-model-item.ai-perm-option-auto .ai-model-item-text {
   color: var(--color-error);
   font-weight: 600;
 }
 
-.ai-perm-picker .ai-model-item.ai-perm-option-auto.selected {
+.ai-perm-pop .ai-model-item.ai-perm-option-auto.selected {
   background: color-mix(in srgb, var(--color-error) 14%, transparent);
 }
 
-/* the red badge on the auto row: the explicit elevated-trust label */
+/* the red badge on the auto row: the explicit elevated-trust label, inline
+ * after the mode's name */
 .ai-perm-danger-badge {
-  flex-shrink: 0;
+  display: inline-block;
+  margin-left: 6px;
   padding: 1px 6px;
   border-radius: var(--radius-30);
   background: var(--color-error);
@@ -238,4 +260,5 @@
   font-size: 10px;
   font-weight: 600;
   line-height: 1.6;
+  vertical-align: middle;
 }
