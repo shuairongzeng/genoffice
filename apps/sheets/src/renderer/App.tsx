@@ -54,6 +54,7 @@ import {
 import { applyChangePlan, planFromOps, type OpExecutorContext } from './op-executor'
 import { installSheetsMcpBridge, type McpSheetHandlers } from './mcp-bridge'
 import { renameChartRefsForSheet } from './workbook-ops'
+import { formatSelectionRanges } from './selection-ranges'
 import {
   proposeOperations as proposeOperationsImpl,
   runDeterministicPlan as runDeterministicPlanImpl,
@@ -716,34 +717,15 @@ export function App({
   }, [pendingEdits])
 
   // the sheet's selection → the AI panel's "current surface" prompt section
-  // (main's selection-store.ts): poll the active range, report on change,
-  // empty to clear. A1 notation + a short value preview, capped
+  // (main's selection-store.ts): report the A1 RANGES (all of them, multi-
+  // select included) — the model knows which cells to read or edit, no value
+  // dump needed. Poll on change, empty to clear.
   useEffect(() => {
     let last = ''
     const report = () => {
-      const range = univerRef.current?.univerAPI.getActiveWorkbook()?.getActiveRange()
-      if (!range) {
-        if (last !== '') {
-          last = ''
-          window.sheetsSelection?.report?.('')
-        }
-        return
-      }
-      const a1 = range.getA1Notation?.() ?? ''
-      let preview = ''
-      try {
-        const values = range.getValues?.() ?? []
-        preview = values
-          .flat()
-          .slice(0, 12)
-          .map((v) => (v == null ? '' : String(v)))
-          .filter(Boolean)
-          .join(' ')
-          .slice(0, 300)
-      } catch {
-        preview = ''
-      }
-      const text = preview ? `${a1}: ${preview}` : a1
+      const sheet = univerRef.current?.univerAPI.getActiveWorkbook()?.getActiveSheet()
+      const ranges = sheet?.getSelection()?.getActiveRangeList() ?? []
+      const text = formatSelectionRanges(ranges)
       if (text !== last) {
         last = text
         window.sheetsSelection?.report?.(text.slice(0, 2000))
