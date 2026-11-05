@@ -1128,6 +1128,12 @@ export function Home() {
     const api = window.aiOffice as Partial<HomeApi>
     return api.onForwardedAskQuery?.((query) => setPendingAskQuery(query))
   }, [])
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    // a mirror mount's question: consumed like a palette submit by the single
+    // executor (this mount's loop), never routed back into the mirror itself
+    return api.onAskRunQuestion?.((query) => setPendingAskQuery(query))
+  }, [])
   const openTemplates = useCallback(() => setTemplatesOpen(true), [])
   const openSettings = useCallback((target: SettingsTarget) => setSettingsRequest(target), [])
   const openFolderView = useCallback((root: FolderRoot) => selectFolder(root.path), [selectFolder])

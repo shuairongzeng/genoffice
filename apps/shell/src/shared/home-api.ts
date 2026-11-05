@@ -593,6 +593,28 @@ export interface AiPetDragReport {
   end?: boolean
 }
 
+/** one of the Home loop's run events, relayed to every mirror mount (pub/sub) */
+export interface AskRunEvent {
+  type:
+    | 'text'
+    | 'reasoning'
+    | 'tool-start'
+    | 'tool-executed'
+    | 'done'
+    | 'usage'
+    | 'error'
+    | 'user-message'
+    | 'snapshot'
+  payload: unknown
+}
+
+/** a mirror mount's initial state: the shared message list plus any
+ *  in-flight run's live state at publish time */
+export interface AskRunSnapshot {
+  messages: unknown[]
+  liveRun?: { text: string; reasoning?: string; busy: boolean } | null
+}
+
 /**
  * The doc-mode dock's hot-edge reports (`home:dock-hot-edge`): the dock
  * overlay is one native view that is either the 3px strip along the window's
@@ -828,6 +850,35 @@ export interface HomeApi {
    * persists it through the ordinary `home:ai-dock-set` write (panelPos).
    */
   aiPanelDrag?(report: AiPetDragReport): void
+  /**
+   * Publish one of the Home loop's run events (or a message-list snapshot)
+   * over `home:ask-run-event`: main relays it to every OTHER renderer, so a
+   * mirror mount sees the same run live. Only Home's loop publishes; the
+   * mirror mounts subscribe.
+   */
+  askRunEvent?(event: AskRunEvent): void
+  /**
+   * Subscribe to the loop's run events (`home:ask-run-event`). Returns
+   * unsubscribe; a mirror mount's event source.
+   */
+  onAskRunEvent?(handler: (event: AskRunEvent) => void): () => void
+  /**
+   * A mirror mount's snapshot request (`home:ask-run-snapshot`): the latest
+   * cached snapshot (messages + live run state), null when Home has not
+   * published one yet.
+   */
+  askRunSnapshot?(): Promise<AskRunSnapshot | null>
+  /**
+   * A mirror mount's question (`home:ask-run-question`): main routes it to
+   * Home's shell renderer ONLY — Home's loop is the single executor, so the
+   * mirror never runs its own. The seq consumes each handoff once.
+   */
+  askRunQuestion?(query: PendingAskQuery): Promise<void>
+  /**
+   * Home's shell renderer: a mirror mount's question arrived
+   * (`home:ask-run-question`) — consumed like a palette submit (askWith).
+   */
+  onAskRunQuestion?(handler: (query: PendingAskQuery) => void): () => void
   /**
    * Report the doc-mode dock overlay's hot-edge transitions
    * (`home:dock-hot-edge`): `enter` from the strip summons the dock (and
@@ -1546,6 +1597,17 @@ export const HOME_CHANNELS = {
    *  overlay's standalone mount consumes the forwarded ones, Home consumes the
    *  ones main bounced back (the overlay was not the live host after all) */
   askForwarded: 'home:ask-forwarded',
+  /** renderer → main → every OTHER renderer: the Home loop's run events
+   *  (text/reasoning/tool/usage/error/done) and message-list snapshots — the
+   *  pub/sub backbone: Home's loop publishes, every panel mount subscribes */
+  askRunEvent: 'home:ask-run-event',
+  /** overlay → main: a mirror mount's snapshot request — main answers with the
+   *  latest cached snapshot (messages + live run state), no Home round trip */
+  askRunSnapshot: 'home:ask-run-snapshot',
+  /** overlay → main → Home's shell renderer ONLY: a mirror mount's question,
+   *  executed by Home's loop (the single executor) — never routed back into
+   *  the mirror itself */
+  askRunQuestion: 'home:ask-run-question',
   /** renderer → main: forward a browser annotation's "ask AI about this" push
    *  to the overlay's panel copy (the shell renderer already received the
    *  original browser:ask-about) */

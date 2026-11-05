@@ -45,6 +45,7 @@ const openAiModelSettings = vi.fn(async () => undefined)
 const setAiDock = vi.fn(async () => undefined)
 let forwardedAskHandler: ((query: PendingAskQuery) => void) | null = null
 let dockChangedHandler: ((prefs: AiDockPrefs) => void) | null = null
+const askRunQuestionMock = vi.fn(async (_query: PendingAskQuery): Promise<void> => undefined)
 
 /** the aiOffice face the standalone panel needs at mount (the ask paths only) */
 function panelApi(extra: Record<string, unknown> = {}): Record<string, unknown> {
@@ -95,6 +96,9 @@ function overlayChannels(
         dockChangedHandler = null
       }
     },
+    // the pub/sub contract's forward path: the mirror mount forwards its
+    // questions to Home (the single executor), never into a local thread
+    askRunQuestion: askRunQuestionMock,
   }
 }
 
@@ -805,7 +809,7 @@ describe('the forwarded ask handoffs (P0-2: the overlay consumes them)', () => {
     expect(document.activeElement).toBe(container!.querySelector('.kb-ask textarea'))
   })
 
-  it('submits a palette handoff into the overlay thread', async () => {
+  it('a palette handoff forwards to Home for execution (the mirror never runs its own loop)', async () => {
     await mountEntry(panelApi(overlayChannels()))
     await act(async () =>
       forwardedAskHandler!({ text: 'typed in the palette', seq: 2, origin: 'palette' }),
@@ -813,9 +817,11 @@ describe('the forwarded ask handoffs (P0-2: the overlay consumes them)', () => {
     await act(async () => {
       for (let i = 0; i < 6; i++) await Promise.resolve()
     })
-    // the corpus mock is empty, so the submission resolves to the panel's
-    // guidance answer — the question itself is the overlay thread's first turn
-    expect(askedMessages()).toEqual(['typed in the palette'])
+    // the pub/sub contract: the question goes to Home (home:ask-run-question)
+    // — not into a local thread. The turn lands back through the run events.
+    expect(askRunQuestionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'typed in the palette', origin: 'palette' }),
+    )
     expect(composerDraft()).toBe('')
   })
 

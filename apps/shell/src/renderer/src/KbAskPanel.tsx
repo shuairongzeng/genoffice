@@ -44,6 +44,9 @@ import {
   type AgentImage,
   type AgentTaskStatus,
   type AgentRunHandle,
+  type AgentToolCall,
+  type AgentTokenUsage,
+  type ToolExecution,
   type AttachmentInfo,
   type BrowserActionResult,
   type BrowserAnnotationShot,
@@ -101,6 +104,7 @@ import type {
   AiLineageEntry,
   BrowserAskAboutPayload,
   KbScopedSearchResult,
+  HomeApi,
 } from '../../shared/home-api'
 import { AskAttachments } from './AskAttachments'
 import { planPendingAskQuery, type PendingAskQuery } from './ask-intent'
@@ -159,11 +163,11 @@ import { useStickToBottom } from './use-stick-to-bottom'
 
 /**
  * The home copy's transcript id — the default every mount falls back to.
- * Stable across launches by design. The overlay's standalone mount passes its
- * own (see panel-entry.tsx): the two ids' prefix families must stay disjoint,
- * or each panel's thread list would offer deleting the other's transcripts.
+ * Stable across launches by design. The overlay's standalone mount passes the
+ * SAME id in mirror mode: Home's loop is the single executor and writer, and
+ * every mount reads this one transcript (pub/sub, home:ask-run-event).
  */
-const CHAT_ID = 'kb-ask'
+export const CHAT_ID = 'kb-ask'
 
 /**
  * The browser skill's IPC bridge with a stale-preload guard: a bridge that
@@ -932,6 +936,7 @@ export function KbAskPanel({
   onOpenKbCenter,
   onBubbleDragStart,
   surfaceRole = 'home',
+  mirror = false,
 }: {  /**
    * The transcript this mount owns (P0-1): project-store takes the id
    * verbatim for a file-less chat, so two mounts of this panel (Home's copy
@@ -991,6 +996,14 @@ export function KbAskPanel({
    * the header is not a grab zone there.
    */
   onBubbleDragStart?: (event: React.PointerEvent<HTMLElement>) => void
+  /**
+   * Mirror mode (pub/sub): this mount does NOT create an AgentLoop or persist
+   * messages. Home's loop is the single executor and writer; this mount reads
+   * the same transcript, subscribes to the loop's run events
+   * (home:ask-run-event), and forwards its questions to Home
+   * (home:ask-run-question). A closed mount never receives an event.
+   */
+  mirror?: boolean
 }): React.JSX.Element {
   const { t, lang, dateLocale } = useI18n()
   /** the bubble drag: the host's prop wins; the dock's context (the pet's own
@@ -1404,6 +1417,153 @@ export function KbAskPanel({
     },
     [streamFlush],
   )
+
+  /** publish the current state to every mirror mount (the snapshot a
+   *  mid-run mount pulls instead of starting blank) */
+  function publishSnapshot(): void {
+    if (mirror) return
+    const last = messagesRef.current[messagesRef.current.length - 1]
+    const liveRun =
+      busy && last?.role === 'assistant' && last.streaming
+        ? { text: last.text, reasoning: runReasoningRef.current, busy: true }
+        : null
+    window.aiOffice.askRunEvent?.({
+      type: 'snapshot',
+      payload: { messages: messagesRef.current, liveRun },
+    })
+  }
+
+    /* ── the run-event handlers, shared by this mount's own loop AND by the
+     * mirror mounts' relay (pub/sub): Home's loop publishes each event over
+     * home:ask-run-event, a mirror mount applies the relayed event through
+     * the SAME handlers, so both mounts render one identical run. */
+    const runEventHandlers = {
+      onText: (text: string) => patchLast({ text }),
+      onReasoning: (text: string) => {
+        runReasoningRef.current += text
+        patchLast({ reasoning: runReasoningRef.current })
+      },
+      onToolExecuted: ({ call, execution }: { call: AgentToolCall; execution: ToolExecution }) => {
+        // a successful create_document names the file it saved: the lineage
+        // record's path half (the settled artifact parse's own regex)
+        if (call.name === CREATE_DOCUMENT_TOOL && !execution.isError) {
+          const path = /^\s*path: (.+)$/m.exec(execution.output)?.[1]?.trim()
+          if (path) {
+            pendingLineageRef.current = {
+              path,
+              task: runInstructionRef.current,
+            }
+          }
+        }
+        patchLast(
+          (last) => ({
+            artifacts: settleArtifact(last.artifacts, call, execution),
+            // the sub-agent's live line ends with the call that carried it
+            ...(call.name === DOCUMENT_AGENT_TOOL ? { subAgent: undefined } : {}),
+          }),
+          { sync: true },
+        )
+      },
+      onToolStart: (call: AgentToolCall) => {
+        // a delegated task begins its rolling status line immediately — sync
+        if (call.name === DOCUMENT_AGENT_TOOL) {
+          patchLast((last) => ({ ...last, subAgent: { kind: 'other' } }), { sync: true })
+        }
+        patchLast((last) => ({
+          artifacts: (() => {
+            const started = artifactFromCall(call, cliContextRef.current?.outDir)
+            return started ? [...last.artifacts, started] : last.artifacts
+          })(),
+          toolNotes: appendToolNote(last.toolNotes, {
+            kind: toolNoteKind(call),
+            label: t(TOOL_NOTE_LABEL[toolNoteKind(call)]),
+            detail: toolNoteDetail(
+              call,
+              (index) => corpusRef.current[index]?.name,
+              (index) => availableAttachments()[index]?.name,
+            ),
+            count: 1,
+          }),
+        }))
+      },
+      onDone: () => finishLast(),
+      onUsage: (usage: AgentTokenUsage) => {
+        runUsageRef.current = addTokenUsage(runUsageRef.current, usage)
+        setSessionUsage((prev) => addTokenUsage(prev, usage))
+        patchLast({ usage: runUsageRef.current }, { sync: true })
+      },
+      onError: (error: string) =>
+        patchLast(
+          (last) => ({
+            text: last.text || error,
+            streaming: false,
+            isError: !last.text,
+          }),
+          { sync: true },
+        ),
+    }
+    /** apply one relayed run event through the same handlers the loop uses */
+    const applyRunEvent = (type: string, payload: unknown): void => {
+      switch (type) {
+        case 'text':
+          runEventHandlers.onText(payload as string)
+          break
+        case 'reasoning':
+          runEventHandlers.onReasoning(payload as string)
+          break
+        case 'tool-start':
+          runEventHandlers.onToolStart(payload as AgentToolCall)
+          break
+        case 'tool-executed':
+          runEventHandlers.onToolExecuted(payload as { call: AgentToolCall; execution: ToolExecution })
+          break
+        case 'done':
+          runEventHandlers.onDone()
+          break
+        case 'usage':
+          runEventHandlers.onUsage(payload as AgentTokenUsage)
+          break
+        case 'error':
+          runEventHandlers.onError(payload as string)
+          break
+        default:
+          break
+      }
+    }
+    /** one relayed user-message event: append it like a local send would */
+    const appendUserMessage = (entry: { role: 'user'; text: string }): void => {
+      mutateMessages((prev) => [...prev, { role: 'user', text: entry.text, toolNotes: [], artifacts: [] }])
+    }
+    // the mirror mount's subscriptions: the snapshot + every later run event
+    useEffect(() => {
+      if (!mirror) return
+      const api = window.aiOffice as Partial<HomeApi>
+      let mounted = true
+      void api.askRunSnapshot?.().then((snap) => {
+        if (!mounted || !snap) return
+        mutateMessages(() => snap.messages as AskMessage[])
+        setBusy(snap.liveRun?.busy ?? false)
+      })
+      const off = api.onAskRunEvent?.((evt) => {
+        if (evt.type === 'snapshot') {
+          const snap = evt.payload as { messages: AskMessage[]; liveRun?: { busy?: boolean } | null }
+          mutateMessages(() => snap.messages)
+          setBusy(snap.liveRun?.busy ?? false)
+          return
+        }
+        if (evt.type === 'user-message') {
+          appendUserMessage(evt.payload as { role: 'user'; text: string })
+          return
+        }
+        applyRunEvent(evt.type, evt.payload)
+      })
+      return () => {
+        mounted = false
+        off?.()
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- the mirror's subscription is a mount-time contract
+    }, [mirror])
+
   /** where this panel's transcript lives, once project-store has answered */
   const [activeChat, setActiveChat] = useState<string>(chatId)
   /**
@@ -1600,12 +1760,23 @@ export function KbAskPanel({
   }, [])
 
   const persist = (entry: { role: 'user' | 'assistant'; text: string }): void => {
+    // mirror mode: no store writes (Home is the single writer) — but the
+    // event still goes out so every other mount sees the new turn
+    if (mirror) {
+      if (entry.role === 'user') {
+        window.aiOffice.askRunEvent?.({ type: 'user-message', payload: entry })
+      }
+      publishSnapshot()
+      return
+    }
     const ids = chatIdsRef.current
     if (!ids) {
       pendingRef.current.push(entry)
       return
     }
     void window.projectApi?.appendChat({ ...ids, ...entry }).catch(() => undefined)
+    // a new turn is also the snapshot every mirror mount aligns to
+    if (entry.role === 'user') publishSnapshot()
   }
 
   useEffect(() => {
@@ -1664,6 +1835,9 @@ export function KbAskPanel({
         // ask that follows it is provably in the thread the identity says
         claimedDocPathRef.current = docPath
         for (const entry of pendingRef.current.splice(0)) persist(entry)
+        // the first snapshot the mirror mounts align to: the restored
+        // transcript plus whatever is streaming now
+        if (!mirror) publishSnapshot()
       })
       .catch(() => undefined)
     void refreshThreads(api)
@@ -2151,7 +2325,8 @@ export function KbAskPanel({
         void refreshSurfaceTabs()
       },
     })
-    loopRef.current = new AgentLoop({
+
+    if (!mirror) loopRef.current = new AgentLoop({
       transport: createIpcTransport<AiSettings>({
         onStream: (listener) => window.aiOffice.onAiStream(listener),
         start: (request) => window.aiOffice.aiStream(request),
@@ -2246,73 +2421,34 @@ export function KbAskPanel({
         shellSkill,
       ]),
       events: {
-        onText: (text) => patchLast({ text }),
+        onText: (text) => {
+          runEventHandlers.onText(text)
+          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'text', payload: text })
+        },
         onReasoning: (text) => {
-          runReasoningRef.current += text
-          patchLast({ reasoning: runReasoningRef.current })
+          runEventHandlers.onReasoning(text)
+          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'reasoning', payload: text })
         },
         onToolExecuted: ({ call, execution }) => {
-          // a successful create_document names the file it saved: the lineage
-          // record's path half (the settled artifact parse's own regex — the
-          // tool prints "  path: <abs>" under "saved <name>")
-          if (call.name === CREATE_DOCUMENT_TOOL && !execution.isError) {
-            const path = /^\s*path: (.+)$/m.exec(execution.output)?.[1]?.trim()
-            if (path) {
-              pendingLineageRef.current = {
-                path,
-                task: runInstructionRef.current,
-              }
-            }
-          }
-          patchLast(
-            (last) => ({
-              artifacts: settleArtifact(last.artifacts, call, execution),
-              // the sub-agent's live line ends with the call that carried it
-              ...(call.name === DOCUMENT_AGENT_TOOL ? { subAgent: undefined } : {}),
-            }),
-            {
-              sync: true,
-            },
-          )
+          runEventHandlers.onToolExecuted({ call, execution })
+          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'tool-executed', payload: { call, execution } })
         },
         onToolStart: (call) => {
-          // a delegated task begins its rolling status line immediately — sync,
-          // like the tool-executed patches: the line must not wait a frame
-          if (call.name === DOCUMENT_AGENT_TOOL) {
-            patchLast((last) => ({ ...last, subAgent: { kind: 'other' } }), { sync: true })
-          }
-          patchLast((last) => ({
-            artifacts: (() => {
-              const started = artifactFromCall(call, cliContextRef.current?.outDir)
-              return started ? [...last.artifacts, started] : last.artifacts
-            })(),
-            toolNotes: appendToolNote(last.toolNotes, {
-              kind: toolNoteKind(call),
-              label: t(TOOL_NOTE_LABEL[toolNoteKind(call)]),
-              detail: toolNoteDetail(
-                call,
-                (index) => corpusRef.current[index]?.name,
-                (index) => availableAttachments()[index]?.name,
-              ),
-              count: 1,
-            }),
-          }))
+          runEventHandlers.onToolStart(call)
+          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'tool-start', payload: call })
         },
-        onDone: () => finishLast(),
+        onDone: () => {
+          runEventHandlers.onDone()
+          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'done', payload: null })
+        },
         onUsage: (usage) => {
-          runUsageRef.current = addTokenUsage(runUsageRef.current, usage)
-          setSessionUsage((prev) => addTokenUsage(prev, usage))
-          patchLast({ usage: runUsageRef.current }, { sync: true })
+          runEventHandlers.onUsage(usage)
+          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'usage', payload: usage })
         },
-        onError: (error) =>
-          patchLast(
-            (last) => ({
-              text: last.text || error,
-              streaming: false,
-              isError: !last.text,
-            }),
-            { sync: true },
-          ),
+        onError: (error) => {
+          runEventHandlers.onError(error)
+          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'error', payload: error })
+        },
       },
     })
     // The document sub-agent's live status: while a document_agent call runs,
@@ -2384,6 +2520,8 @@ export function KbAskPanel({
     // onDone land in the same tick, and busy turns false in the same breath
     patchLast({ streaming: false }, { sync: true })
     setBusy(false)
+    // the finished turn is also the snapshot the mirrors settle to
+    if (!mirror) publishSnapshot()
   }
 
   const ask = (): Promise<void> => {
@@ -2607,7 +2745,7 @@ export function KbAskPanel({
     // Enter before busy re-renders would otherwise queue a second run whose
     // streaming bubble the first run's patches would land on
     if (!instruction || busy || loopRef.current?.busy) return
-    setBusy(true)
+    if (!mirror) setBusy(true)
     refreshSettings()
     // the lineage record's task half: the person's raw question this run answers
     runInstructionRef.current = instruction
@@ -2635,6 +2773,17 @@ export function KbAskPanel({
         ? (seededDocPathsRef.current.add(claimedDocPath), lineageContextLine(docLineageRef.current))
         : null
     const question = lineageSeed ? `${lineageSeed}\n${instruction}` : instruction
+    if (mirror) {
+      // the single executor is Home's loop: forward the question there — the
+      // mirror never runs its own. The turn lands back through the pub/sub
+      // events (user-message + the run's stream).
+      void window.aiOffice.askRunQuestion?.({
+        text: question,
+        seq: ++askSeqRef.current,
+        origin: 'palette',
+      })
+      return
+    }
     if (files.length > 0) {
       const seen = new Set(sentAttachmentsRef.current.map((a) => a.path))
       sentAttachmentsRef.current = [

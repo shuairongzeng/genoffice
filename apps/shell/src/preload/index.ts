@@ -14,6 +14,7 @@ import { normalizeAiPermissionMode } from '@genoffice/ui/ai-permission-mode'
 import type {
   AccountLoginEvent,
   AiLineageEntry,
+  AskRunEvent,
   KbRecallHit,
   KbSourcesReport,
   DockNavIntent,
@@ -807,6 +808,27 @@ const homeApi: HomeApi = {
   // the pet drag's, same window-wide contract for the gesture's duration
   aiPanelDrag(report) {
     ipcRenderer.send(HOME_CHANNELS.askPanelDrag, report)
+  },
+  // the loop's pub/sub backbone: Home's loop publishes run events, the
+  // mirror mounts subscribe — a closed mount never receives one
+  askRunEvent(event) {
+    ipcRenderer.send(HOME_CHANNELS.askRunEvent, event)
+  },
+  onAskRunEvent(handler) {
+    const listener = (_event: IpcRendererEvent, payload: AskRunEvent) => handler(payload)
+    ipcRenderer.on(HOME_CHANNELS.askRunEvent, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.askRunEvent, listener)
+  },
+  async askRunSnapshot() {
+    return ipcRenderer.invoke(HOME_CHANNELS.askRunSnapshot)
+  },
+  async askRunQuestion(query) {
+    await ipcRenderer.invoke(HOME_CHANNELS.askRunQuestion, query)
+  },
+  onAskRunQuestion(handler) {
+    const listener = (_event: IpcRendererEvent, query: PendingAskQuery) => handler(query)
+    ipcRenderer.on(HOME_CHANNELS.askRunQuestion, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.askRunQuestion, listener)
   },
   // the doc-mode dock overlay's hot-edge reports: fire-and-forget like the
   // pet drag's, because the overlay's state machine only consumes the flags

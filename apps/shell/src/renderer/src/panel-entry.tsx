@@ -17,7 +17,7 @@ import {
   type AiPetPos,
 } from './AiDock'
 import { useI18n } from './locale'
-import { KbAskPanel } from './KbAskPanel'
+import { KbAskPanel, CHAT_ID } from './KbAskPanel'
 
 /**
  * The ask panel's standalone mount: the shell renderer loaded with
@@ -93,16 +93,6 @@ import { KbAskPanel } from './KbAskPanel'
 export function isAskPanelView(search: string = location.search): boolean {
   return new URLSearchParams(search).get('view') === 'ask-panel'
 }
-
-/**
- * This mount's transcript id (P0-1). Deliberately not `kb-ask-overlay`, the
- * obvious name: the thread list filters by prefix family (panelThreads), and
- * that id would sit inside Home's `kb-ask-…` family — Home's panel would
- * list the overlay's threads and offer deleting them from a surface that has
- * nothing to do with them. `kb-overlay-ask` is disjoint from `kb-ask` in
- * both directions.
- */
-const OVERLAY_CHAT_ID = 'kb-overlay-ask'
 
 /** the aiOffice methods the panel calls while mounting, asking and collapsing */
 const REQUIRED_API = [
@@ -511,13 +501,14 @@ export function AskPanelEntry(): React.JSX.Element | null {
         }
       >
         <KbAskPanel
-          chatId={OVERLAY_CHAT_ID}
-          /* the surface context's visibility line: while the drawer floats it
-             sits over the active document/browser tab — the person is looking
-             at THAT, not the Home desktop — and while the view fits the docs
-             app's reserved slot it reads as the app's own docked panel. The
-             prop is live (the panel mirrors it into the ref its prompt getter
-             reads), so the embedded flip re-words the section mid-session */
+          chatId={CHAT_ID}
+          /* the pub/sub contract: this mount does NOT run its own AgentLoop or
+             persist messages. Home's loop is the single executor and writer;
+             this mount reads the same transcript and mirrors the run events
+             (home:ask-run-event), forwarding questions to Home
+             (home:ask-run-question). A closed mount never receives an event —
+             switching surfaces no longer drops the conversation. */
+          mirror
           surfaceRole={embedded && !dock.collapsed ? 'docked' : 'overlay'}
           onOpenPath={(path) => void window.aiOffice.openPath(path)}
           /* this view has no list to switch: both CTAs raise the Home tab, where

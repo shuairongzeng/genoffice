@@ -6381,6 +6381,7 @@ registerHomeWorkbenchIpc({
     // person sees — bounce it back
     sendToShellRenderer(HOME_CHANNELS.askForwarded, query)
   },
+  sendToShellRenderer,
   // MED-3's sender gate: the shell renderer and every hosted app-tab
   // renderer (strip + detached) whose bridge can summon the drawer
   // (openGlobalAi forwards through this channel); the live enumerations are

@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, webContents } from 'electron'
 import type { Rectangle, WebContents } from 'electron'
 
 import { HOME_CHANNELS } from '../shared/home-api'
@@ -215,6 +215,12 @@ export interface HomeWorkbenchIpcDeps {
    * the routing needs the live window/tab state only index.ts holds.
    */
   forwardAskQuery: (query: PendingAskQuery) => void
+  /**
+   * Deliver a mirror mount's question to Home's shell renderer ONLY (the
+   * single executor's surface): injected because the shell window lives in
+   * index.ts.
+   */
+  sendToShellRenderer: (channel: string, payload?: unknown) => void
   /**
    * The ask-forward sender gate (MED-3): true (now or later) for the
    * webContents the handoff may legitimately come from — the shell window's
@@ -585,6 +591,26 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
     // gate differs (the expanded floating panel, not the pet-only view)
     const report = asPetDragReport(raw)
     if (report) deps.applyDrawerOverlayPanelDrag(event.sender, report)
+  })
+
+  /* ── the loop's pub/sub backbone: Home's loop publishes run events, every
+   * OTHER renderer subscribes (a closed mount never receives one). The
+   * latest snapshot is cached here so a mid-run mirror mount can pull the
+   * current state instead of starting blank. */
+  let latestRunSnapshot: unknown = null
+  ipcMain.on(HOME_CHANNELS.askRunEvent, (event, payload) => {
+    const evt = payload as { type?: string; payload?: unknown } | undefined
+    if (evt?.type === 'snapshot') latestRunSnapshot = evt.payload
+    for (const wc of webContents.getAllWebContents()) {
+      if (wc === event.sender || wc.isDestroyed()) continue
+      wc.send(HOME_CHANNELS.askRunEvent, payload)
+    }
+  })
+  ipcMain.handle(HOME_CHANNELS.askRunSnapshot, () => latestRunSnapshot)
+  // a mirror mount's question: Home's loop is the single executor, so this
+  // goes to the shell renderer ONLY — never back into the mirror itself
+  ipcMain.handle(HOME_CHANNELS.askRunQuestion, (_event, query) => {
+    deps.sendToShellRenderer(HOME_CHANNELS.askRunQuestion, query)
   })
   ipcMain.on(HOME_CHANNELS.dockHotEdge, (event, raw: unknown) => {
     const report = asDockHotEdgeReport(raw)
