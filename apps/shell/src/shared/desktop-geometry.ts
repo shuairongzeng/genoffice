@@ -201,9 +201,16 @@ export function aiBubbleMaxHeight(viewportHeight: number): number {
 export function aiBubbleAnchor(
   petPos: AiPetPos,
   viewport: { width: number; height: number },
+  /** the bubble's own width: known, it also clamps the bubble INTO the
+   *  window horizontally — a pet parked at the far left must not hang the
+   *  panel past the window's left edge */
+  panelWidth = 0,
 ): { right: number; top?: number; bottom?: number; maxHeight: number } {
   const gap = 10
-  const right = Math.max(8, Math.round(viewport.width - (petPos.x + PET_SIZE.width)))
+  let right = Math.max(8, Math.round(viewport.width - (petPos.x + PET_SIZE.width)))
+  if (panelWidth > 0) {
+    right = Math.min(right, Math.max(8, Math.round(viewport.width - panelWidth - 8)))
+  }
   const maxH = aiBubbleMaxHeight(viewport.height)
   /* the bubble lives in the content area — never reaching the tab strip's
    * drag zone above it (the strip's own gestures own that band, and a bubble

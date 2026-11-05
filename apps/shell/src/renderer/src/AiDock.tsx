@@ -152,9 +152,10 @@ export interface DrawerMorph {
  * footprint over the panel's box, so the keyframes' `from` state paints the
  * panel exactly as the pet's size and shape. The panel's own x is passed in
  * as its OPEN-position left (the closed panel is translated offscreen, so
- * the caller computes `window.innerWidth - rect.width`, which is true in
- * both states). Rects with no box (jsdom, a not-yet-laid-out tree) answer
- * null: no honest morph, the caller falls back to the plain flip.
+ * the caller derives it from the bubble's anchor math — the bubble hangs off
+ * the pet, not off the window's right edge). Rects with no box (jsdom, a
+ * not-yet-laid-out tree) answer null: no honest morph, the caller falls back
+ * to the plain flip.
  */
 export function drawerMorphFromPet(
   pet: { x: number; y: number; width: number; height: number },
@@ -425,12 +426,20 @@ export function AiDock({
     const petRect = petRef.current?.getBoundingClientRect()
     const panelRect = panelRef.current?.getBoundingClientRect()
     const scale = chromeScale()
+    // the panel's open-position left: the bubble hangs its RIGHT edge off the
+    // pet (aiBubbleAnchor), NOT off the window's right edge — the live rect's
+    // x is unreadable on the close flip (the closed panel is translateX(100%)
+    // offscreen), and the old window-edge assumption flew the close morph
+    // across the desktop once the pet had been dragged away from the corner
+    const vw = viewportRef.current
+    const anchor = aiBubbleAnchor(shownPetPosRef.current, vw, dragWidth ?? width)
+    const openLeft = (vw.width - anchor.right - (dragWidth ?? width)) * scale
     const plan =
       petRect && panelRect
         ? drawerMorphFromPet(
             { x: petRect.left, y: petRect.top, width: petRect.width, height: petRect.height },
             {
-              x: window.innerWidth - panelRect.width,
+              x: openLeft,
               y: panelRect.top,
               width: panelRect.width,
               height: panelRect.height,
@@ -511,8 +520,10 @@ export function AiDock({
 
   /** the bubble's anchor: the panel sizes to its content and hangs off the
    *  pet (bottom-anchored above it, so a growing conversation stretches
-   *  upward while the bird stays put — and follows a drag live) */
-  const bubble = aiBubbleAnchor(shownPetPos, viewport)
+   *  upward while the bird stays put — and follows a drag live), clamped
+   *  into the window horizontally so a far-left pet never parks the panel
+   *  offscreen */
+  const bubble = aiBubbleAnchor(shownPetPos, viewport, shownWidth)
 
   return (
     <>

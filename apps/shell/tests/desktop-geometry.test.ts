@@ -7,6 +7,7 @@ import {
   DESKTOP_HEADER_HEIGHT,
   PET_MARGIN,
   PET_SIZE,
+  aiBubbleAnchor,
   aiDockWidth,
   desktopHeaderHeight,
   documentContentBounds,
@@ -230,6 +231,30 @@ describe('petOverlayBounds', () => {
     })
     expect(petOverlayBounds({ width: 800, height: 600 }, {}, { x: -50, y: -50 }).x).toBe(0)
     expect(petOverlayBounds({ width: 800, height: 600 }, {}, { x: -50, y: -50 }).y).toBe(0)
+  })
+})
+
+describe('aiBubbleAnchor', () => {
+  it('right-aligns the bubble to the pet by default', () => {
+    // the pet at x 940 in a 1024-wide window: the bubble's right edge hangs
+    // 16px off the window's right (the pet's right edge), never less than 8
+    const anchor = aiBubbleAnchor({ x: 940, y: 690 }, { width: 1024, height: 768 })
+    expect(anchor.right).toBe(16)
+  })
+
+  it('clamps the bubble into the window when the pet perches far left', () => {
+    // right-aligned to a pet at x 120 would hang a 400-wide panel past the
+    // left edge (right offset 836 → left −212): with the panel's width known
+    // the anchor clamps the offset so the panel's left lands on the 8px edge
+    const anchor = aiBubbleAnchor({ x: 120, y: 300 }, { width: 1024, height: 768 }, 400)
+    expect(anchor.right).toBe(1024 - 400 - 8)
+    // the clamped left edge: onscreen, above the pet
+    expect(1024 - anchor.right - 400).toBe(8)
+  })
+
+  it('leaves the offset untouched while the panel fits where the pet puts it', () => {
+    const anchor = aiBubbleAnchor({ x: 940, y: 690 }, { width: 1024, height: 768 }, 400)
+    expect(anchor.right).toBe(16)
   })
 })
 

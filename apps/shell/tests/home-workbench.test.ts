@@ -758,9 +758,11 @@ describe('the pet ⇄ panel morph (the wired component)', () => {
       }),
     })
   }
-  /** the pet's default perch and the panel's open box in the test viewport */
+  /** the pet's default perch and the panel's open box in the test viewport
+   *  (the panel's x is a leftover from the right-edge era — the morph derives
+   *  the open left from the anchor now; only the box's y/width/height are read) */
   const PET_RECT = { x: 940, y: 690, width: 68, height: 62 }
-  const PANEL_RECT = { x: 1024 - 400, y: 0, width: 400, height: 768 }
+  const PANEL_RECT = { x: 608, y: 0, width: 400, height: 768 }
 
   /** the rect stubs the morph reads (jsdom answers zero boxes otherwise) */
   const stubMorphRects = (): void => {
@@ -780,10 +782,14 @@ describe('the pet ⇄ panel morph (the wired component)', () => {
       stubMorphRects()
       await click(pet())
       // the open morph: the phase class rides the drawer, the plan rides the
-      // panel's inline style, and the pet is mid-absorb
+      // panel's inline style, and the pet is mid-absorb. The origin's x is
+      // the pet's center measured from the panel's ANCHORED left — the bubble
+      // hangs its right edge off the pet (right offset 16 at the default
+      // perch), so the open left is 1024 - 16 - 400 = 608, not the window's
+      // right edge (624)
       expect(drawer().className).toContain('morph-open')
       const style = drawerPanel().style
-      expect(style.transformOrigin).toBe(`${974 - 624}px 721px`)
+      expect(style.transformOrigin).toBe(`${974 - 608}px 721px`)
       expect(style.getPropertyValue('--morph-sx')).toBeCloseTo(68 / 400, 5)
       expect(style.getPropertyValue('--morph-sy')).toBeCloseTo(62 / 768, 5)
       expect(pet().className).toContain('absorb')
@@ -863,11 +869,13 @@ describe('the pet ⇄ panel morph (the wired component)', () => {
         petPos: { x: 120, y: 80 },
       }))
       await mountHome(baseApi())
-      // the bird dragged near the top-left: the growth must come from THERE
+      // the bird dragged near the top-left: the growth must come from THERE —
+      // and the bubble clamps into the window (a far-left pet would hang the
+      // panel offscreen otherwise), so the open left is the 8px edge clamp
       stubRect(pet(), { x: 120, y: 80, width: 68, height: 62 })
       stubRect(drawerPanel(), PANEL_RECT)
       await click(pet())
-      expect(drawerPanel().style.transformOrigin).toBe(`${154 - 624}px 111px`)
+      expect(drawerPanel().style.transformOrigin).toBe(`${154 - 8}px 111px`)
     } finally {
       vi.useRealTimers()
     }
