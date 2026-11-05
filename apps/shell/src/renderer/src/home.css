@@ -1124,6 +1124,11 @@ html.genoffice-popover-open .work-tabs {
 .ai-drawer.morph-close .ai-drawer-panel {
   visibility: visible;
   transition: none;
+  /* the closed class's offscreen translateX(100%) must NOT apply while the
+   * close morph plays: it made the panel jump a full width to the right at
+   * the flip (the flash the user sees) before the animation interpolated it
+   * back. The close morph starts from the OPEN position. */
+  transform: translateX(0);
 }
 
 .ai-drawer.morph-open .ai-drawer-panel {
