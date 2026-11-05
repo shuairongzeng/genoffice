@@ -670,6 +670,26 @@ export function TextEditOverlay({
     return () => window.removeEventListener(ZOOM_PREVIEW_EVENT, onPreview)
   }, [])
 
+  // the editor's text selection → the AI panel's "current surface" prompt
+  // section (main's selection-store.ts): debounced, capped, empty to clear
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const report = () => {
+      const text = (window.getSelection()?.toString() ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000)
+      window.slidesSelection?.report?.(text)
+    }
+    const bump = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(report, 300)
+    }
+    document.addEventListener('selectionchange', bump)
+    report()
+    return () => {
+      document.removeEventListener('selectionchange', bump)
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
+
   const box = node.box
   // A shape with no text body yet: preview the body setText is about to create so the
   // content does not jump between typing and commit. Every fresh body gets the standard

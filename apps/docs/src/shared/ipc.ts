@@ -478,6 +478,10 @@ export interface PrinterInfo {
 export interface DesktopApi {
   /** current UI language (persisted by the shell in app-settings.json) */
   getLanguage(): Promise<'zh' | 'en' | 'ja' | 'ko' | 'fr' | 'de' | 'es' | 'th' | 'id' | 'ru' | 'ar'>
+  /** the editor's current text selection → the AI panel's "current surface"
+   *  prompt section (main's selection-store.ts): report on selection change,
+   *  empty string to clear */
+  reportSelection(text: string): void
   /** OS regional-settings locale (BCP 47); Word derives the new-document paper size from it */
   getSystemLocale(): Promise<string>
   /** language switched from the shell home page */

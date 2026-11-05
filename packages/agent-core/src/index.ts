@@ -82,6 +82,7 @@ export type {
   BrowserTabSnapshot,
 } from './browser-skill'
 export {
+  APP_SELECTION_CHANGED,
   MAX_SHELL_CONTENT_CHARS,
   MAX_SHELL_NAME_CHARS,
   MAX_SHELL_PATH_CHARS,

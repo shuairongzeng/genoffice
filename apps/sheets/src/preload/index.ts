@@ -829,6 +829,11 @@ function parseAttachmentAddResult(input: unknown): AttachmentAddResult {
 }
 
 contextBridge.exposeInMainWorld('desktopApi', desktopApi)
+// the sheet's selection → the AI panel's "current surface" prompt section
+// (main's selection-store.ts): report on selection change, empty to clear
+contextBridge.exposeInMainWorld('sheetsSelection', {
+  report: (text: string) => ipcRenderer.send('app:selection-changed', text),
+})
 
 const projectApi: ProjectApi = {
   resolveChat: (args) => ipcRenderer.invoke('project:resolveChat', args),

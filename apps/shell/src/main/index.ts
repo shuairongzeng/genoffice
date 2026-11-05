@@ -267,6 +267,7 @@ import { registerAppSkillIpc } from './mcp/app-skill-proxy'
 import { registerBrowserSkillIpc } from './browser-agent'
 import { installDocumentAgentBridge } from './document-agent'
 import { collectSurfaceTabs, urlOfWith, type SurfaceContextDeps } from './surface-context'
+import { registerSelectionStore, selectionForWebContents } from './selection-store'
 import { kbOpenPathAllows, normalizeKbScope, normalizeKbScopeFolders } from './knowledge-base'
 import type { BrowserPageActionConfirm } from './browser-agent'
 import { convertPdfFileToDocxLocalWithPrompt, PdfLoadError } from './pdf2docx-local'
@@ -6260,6 +6261,10 @@ const surfaceTabsSource = (): SurfaceContextDeps => ({
     (tabId) => tabManager?.webContentsForTab(tabId) ?? detachedWebContentsFor(tabId),
     (chrome) => browserModule.browserTabUrlOf(chrome),
   ),
+  selectionOf: (tabId) => {
+    const wc = tabManager?.webContentsForTab(tabId) ?? detachedWebContentsFor(tabId)
+    return wc && !wc.isDestroyed() ? selectionForWebContents(wc.id) : undefined
+  },
 })
 // the surface context (`home:surface-tabs`): both panel mounts pull this
 // before every send to feed the agent loop's "current surface" prompt
@@ -6339,8 +6344,9 @@ let cachedDockOpen: DockOpenState = DOCK_OPEN_NONE
 // every composition consumer (the overlay rect's item count) reads one
 // cached number instead of re-parsing app-settings.json per layout pass
 let cachedDockCustomCount = 0
+registerSelectionStore()
 registerHomeWorkbenchIpc({
-  appSettingsPath: APP_SETTINGS_PATH,
+  appSettingsPath: () => APP_SETTINGS_PATH(),
   getTabManager: () => tabManager,
   // the app-session tool-allow set (the confirm card's 始终允许（本会话）):
   // one main-side set both panel mounts consult, surviving thread switches

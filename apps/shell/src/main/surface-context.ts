@@ -38,6 +38,9 @@ export interface SurfaceContextDeps {
    * tab shows it in its strip row), never a guess.
    */
   urlOf(tabId: string): string
+  /** the editor's current text selection behind one tab (undefined when the
+   *  tab has none) — read from the selection store (selection-store.ts) */
+  selectionOf?(tabId: string): string | undefined
 }
 
 /**
@@ -69,6 +72,7 @@ export async function collectSurfaceTabs(deps: SurfaceContextDeps): Promise<Surf
         ? { filePath: tab.filePath }
         : {}),
       ...(tab.detached === true ? { detached: true } : {}),
+      ...(deps.selectionOf?.(tab.id) ? { selection: deps.selectionOf(tab.id) } : {}),
     })
   }
   if (out.some((t) => t.active && t.detached)) {

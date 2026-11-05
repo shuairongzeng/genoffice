@@ -236,6 +236,10 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener('home:ai-dock-changed', listener)
   },
   reportAiSlotRect: (rect) => ipcRenderer.send('docs:ai-slot-rect', rect),
+  // the editor's current text selection → the AI panel's "current surface"
+  // prompt section (main's selection-store.ts): report on every selection
+  // change, empty string to clear
+  reportSelection: (text: string) => ipcRenderer.send('app:selection-changed', text),
   onAiSlotRectRequest: (handler) => {
     const listener = () => handler()
     ipcRenderer.on('docs:ai-slot-rect-request', listener)

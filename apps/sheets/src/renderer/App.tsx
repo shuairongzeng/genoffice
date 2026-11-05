@@ -714,6 +714,45 @@ export function App({
       pendingEditsForClose(pendingEdits, editingCellRef.current),
     )
   }, [pendingEdits])
+
+  // the sheet's selection → the AI panel's "current surface" prompt section
+  // (main's selection-store.ts): poll the active range, report on change,
+  // empty to clear. A1 notation + a short value preview, capped
+  useEffect(() => {
+    let last = ''
+    const report = () => {
+      const range = univerRef.current?.univerAPI.getActiveWorkbook()?.getActiveRange()
+      if (!range) {
+        if (last !== '') {
+          last = ''
+          window.sheetsSelection?.report?.('')
+        }
+        return
+      }
+      const a1 = range.getA1Notation?.() ?? ''
+      let preview = ''
+      try {
+        const values = range.getValues?.() ?? []
+        preview = values
+          .flat()
+          .slice(0, 12)
+          .map((v) => (v == null ? '' : String(v)))
+          .filter(Boolean)
+          .join(' ')
+          .slice(0, 300)
+      } catch {
+        preview = ''
+      }
+      const text = preview ? `${a1}: ${preview}` : a1
+      if (text !== last) {
+        last = text
+        window.sheetsSelection?.report?.(text.slice(0, 2000))
+      }
+    }
+    const timer = setInterval(report, 500)
+    report()
+    return () => clearInterval(timer)
+  }, [])
   const [autoSave, setAutoSave] = useAutoSavePref('ai-sheets-auto-save', window.desktopApi)
   // Ref mirror for callbacks captured when an AI run starts
   const autoSaveRef = useRef(autoSave)

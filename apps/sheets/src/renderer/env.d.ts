@@ -10,6 +10,8 @@ declare global {
   interface Window {
     readonly desktopApi: DesktopApi
     readonly projectApi: ProjectApi
+    /** the sheet's selection reporter (main's selection-store.ts) */
+    readonly sheetsSelection: { report: (text: string) => void }
   }
 }
 

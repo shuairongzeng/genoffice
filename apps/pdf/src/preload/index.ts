@@ -145,6 +145,12 @@ const projectApi = {
     ipcRenderer.invoke('project:rebindChat', args),
 }
 
+// the viewer's text selection → the AI panel's "current surface" prompt
+// section (main's selection-store.ts): report on selection change, empty to clear
+contextBridge.exposeInMainWorld('pdfSelection', {
+  report: (text: string) => ipcRenderer.send('app:selection-changed', text),
+})
+
 contextBridge.exposeInMainWorld('pdfApi', api)
 contextBridge.exposeInMainWorld('projectApi', projectApi)
 

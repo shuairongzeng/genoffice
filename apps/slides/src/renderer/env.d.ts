@@ -6,6 +6,8 @@ declare global {
   interface Window {
     slidesApi: SlidesApi
     projectApi: ProjectApi
+    /** the editor's text selection reporter (main's selection-store.ts) */
+    slidesSelection: { report: (text: string) => void }
   }
 }
 

@@ -27,6 +27,7 @@ import {
   useAiSidebarEnabled,
 } from '@genoffice/ui'
 import { wordRangeAtCaret } from './editor/comments'
+import { redactTextBetween } from './ai/redact-view'
 import { setFieldInstr, toggleAllFieldCodes, type FieldRange } from './editor/field-codes'
 import { linkTarget } from './editor/link-actions'
 import { FieldDialog } from './components/FieldDialog'
@@ -2741,6 +2742,33 @@ export function App() {
   useEffect(() => {
     editorRef.current = editor
     zoteroControllerRef.current = null
+  }, [editor])
+
+  // the editor's text selection → the AI panel's "current surface" prompt
+  // section (main's selection-store.ts): debounced, capped, empty to clear
+  useEffect(() => {
+    if (!editor) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const report = () => {
+      const { from, to, empty } = editor.state.selection
+      const text = empty
+        ? ''
+        : redactTextBetween(editor.getJSON() as Parameters<typeof redactTextBetween>[0], from, to, '\n')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 2000)
+      window.desktop.reportSelection?.(text)
+    }
+    const bump = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(report, 300)
+    }
+    editor.on('selectionUpdate', bump)
+    report()
+    return () => {
+      editor.off('selectionUpdate', bump)
+      if (timer) clearTimeout(timer)
+    }
   }, [editor])
 
   useEffect(

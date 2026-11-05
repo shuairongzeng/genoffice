@@ -199,6 +199,26 @@ export default function App() {
       window.removeEventListener('blur', end)
     }
   }, [dragging])
+
+  // the editor's text selection → the AI panel's "current surface" prompt
+  // section (main's selection-store.ts): debounced, capped, empty to clear
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const report = () => {
+      const text = (window.getSelection()?.toString() ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000)
+      window.htmlSelection?.report?.(text)
+    }
+    const bump = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(report, 300)
+    }
+    document.addEventListener('selectionchange', bump)
+    report()
+    return () => {
+      document.removeEventListener('selectionchange', bump)
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
   const [pictureDialog, setPictureDialog] = useState<{
     kind: 'crop' | 'cutout'
     sid: number

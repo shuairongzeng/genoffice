@@ -88,7 +88,14 @@ export interface SurfaceTab {
   filePath?: string
   /** the tab lives in its own OS window (a detached editor) */
   detached?: boolean
+  /** the editor's current text selection (non-empty only while the user has
+   *  one — a doc/pdf/slides/markdown selection the model should see; the
+   *  surface section reads it as the active tab's scoped context) */
+  selection?: string
 }
+
+/** every app's selection-report channel: renderer → main, one per tab. */
+export const APP_SELECTION_CHANGED = 'app:selection-changed'
 
 /** which mount's panel copy this skill serves — the visibility line differs */
 export type SurfaceViewer = 'home' | 'overlay' | 'docked'
@@ -206,6 +213,13 @@ export function formatSurfaceSection(
   const listed = listedTabs(tabs)
   for (const tab of listed) lines.push(tabLine(tab, tab !== active))
   if (tabs.length > listed.length) lines.push(`… and ${tabs.length - listed.length} more`)
+  // the editor's current selection is first-class context: when the person has
+  // text selected in the active tab, the model must see it — the selection
+  // names the passage any rewrite/translate/summarize request targets. Capped
+  // so a long selection cannot crowd out the rest of the prompt
+  if (active?.selection) {
+    lines.push(`Selection: "${active.selection}"`)
+  }
   // the decisive routing line: while a Word document is the active tab, tasks
   // about it belong to the app's own agent — the section names where the
   // person's attention is, so it also names where the work goes. Only docs

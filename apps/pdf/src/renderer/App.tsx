@@ -424,6 +424,26 @@ export default function App() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  // the viewer's text selection → the AI panel's "current surface" prompt
+  // section (main's selection-store.ts): debounced, capped, empty to clear
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const report = () => {
+      const text = (window.getSelection()?.toString() ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000)
+      window.pdfSelection?.report?.(text)
+    }
+    const bump = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(report, 300)
+    }
+    document.addEventListener('selectionchange', bump)
+    report()
+    return () => {
+      document.removeEventListener('selectionchange', bump)
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
   /** Drag to resize: width follows the pointer (rAF-throttled); persisted on release */
   const startSidebarResize = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()

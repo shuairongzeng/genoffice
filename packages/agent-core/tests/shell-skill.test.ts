@@ -236,6 +236,20 @@ describe('the shell skill surface', () => {
     ).not.toContain('tasks about its content go through')
   })
 
+  it('includes the active tab selection in the surface section; omits it when empty', () => {
+    const docActive: SurfaceTab[] = [
+      { id: 'home', kind: 'home', title: 'Home', active: false },
+      { id: 'doc1', kind: 'docs', title: 'Report', active: true, filePath: '/docs/report.docx', selection: 'the passage the person selected' },
+    ]
+    expect(formatSurfaceSection(docActive, 'home')).toContain('Selection: "the passage the person selected"')
+    // no selection on the active tab: no Selection line at all
+    const noSelection: SurfaceTab[] = [
+      { id: 'home', kind: 'home', title: 'Home', active: false },
+      { id: 'doc1', kind: 'docs', title: 'Report', active: true, filePath: '/docs/report.docx' },
+    ]
+    expect(formatSurfaceSection(noSelection, 'home')).not.toContain('Selection:')
+  })
+
   it("renders the overlay mount's visibility line", () => {
     const { skill } = skillWith(TABS, { viewer: 'overlay' })
     expect(skill.systemPrompt).toContain('The AI panel floats over the workspace')

@@ -143,6 +143,11 @@ const projectApi: Pick<ProjectApi, 'resolveChat' | 'appendChat' | 'loadChat' | '
 }
 
 contextBridge.exposeInMainWorld('htmlApi', api)
+// the editor's text selection → the AI panel's "current surface" prompt
+// section (main's selection-store.ts): report on selection change, empty to clear
+contextBridge.exposeInMainWorld('htmlSelection', {
+  report: (text: string) => ipcRenderer.send('app:selection-changed', text),
+})
 contextBridge.exposeInMainWorld('projectApi', projectApi)
 
 // open documents dragged from the OS onto this tab as a new shell tab

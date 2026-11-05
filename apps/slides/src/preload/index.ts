@@ -486,6 +486,11 @@ const api: SlidesApi = {
 }
 
 contextBridge.exposeInMainWorld('slidesApi', api)
+// the editor's text selection → the AI panel's "current surface" prompt
+// section (main's selection-store.ts): report on selection change, empty to clear
+contextBridge.exposeInMainWorld('slidesSelection', {
+  report: (text: string) => ipcRenderer.send('app:selection-changed', text),
+})
 
 // Chat attachment bridge: method names/signatures match the window.desktop attachment subset in docs, so the renderer's files-skill is copied over wholesale
 const filesApi: DesktopFilesApi = {
