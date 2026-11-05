@@ -4,6 +4,7 @@ import { BrowserWindow, nativeTheme, screen } from 'electron'
 import type { Rectangle } from 'electron'
 import { TabManager } from './tab-manager'
 import { installShellCloseGuard } from './window-close-guard'
+import { watchShellRendererCrash } from './shell-renderer-crash'
 import {
   installShellWindowBoundsPersistence,
   readShellWindowState,
@@ -491,6 +492,10 @@ function wireEditorHooks(win: BrowserWindow, manager: TabManager, deps: ShellWin
   // the same save/don't-save/cancel prompt; any cancel aborts the close. An
   // all-clean close is left untouched, so ⌘Q keeps quitting the app.
   installShellCloseGuard(win, manager)
+
+  // the shell renderer's own death: reload it instead of leaving a frozen
+  // painting that eats clicks (see shell-renderer-crash.ts)
+  watchShellRendererCrash(win)
 
   win.on('closed', () => deps.onShellWindowClosed(win, manager))
 
