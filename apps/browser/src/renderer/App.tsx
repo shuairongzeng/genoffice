@@ -18,7 +18,12 @@ export default function App(): ReactElement {
   /** the address bar's in-progress text; null while it mirrors the page URL */
   const [editing, setEditing] = useState<string | null>(null)
   const [faviconBroken, setFaviconBroken] = useState(false)
+  /** the docked AI panel's strip width (window px): the toolbar pads itself
+   *  clear of it; 0 while the panel floats collapsed or away */
+  const [drawerInset, setDrawerInset] = useState(0)
   const contentRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => window.browserApi.onDrawerInset(setDrawerInset), [])
 
   useEffect(() => {
     let alive = true
@@ -82,7 +87,13 @@ export default function App(): ReactElement {
 
   return (
     <div className="browser-chrome">
-      <div className="browser-toolbar" role="toolbar">
+      {/* paddingRight keeps the annotate verb clear of the docked AI panel:
+          the page view narrows main-side, this row shortens to match */}
+      <div
+        className="browser-toolbar"
+        role="toolbar"
+        style={drawerInset > 0 ? { paddingRight: drawerInset + 10 } : undefined}
+      >
         <button
           type="button"
           className="browser-nav"

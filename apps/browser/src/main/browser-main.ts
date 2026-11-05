@@ -200,6 +200,8 @@ interface BrowserTab {
   fullscreenRestore: Rectangle | null
   /** the annotation picker is on for this tab */
   annotateMode: boolean
+  /** the drawer inset last pushed to this tab's chrome (dedupes the push) */
+  lastInsetPushed: number
 }
 
 /** open tabs by their chrome view's webContents id (the IPC sender's id) */
@@ -309,16 +311,24 @@ function asContentRect(rect: unknown): Rectangle | null {
  */
 function layoutPage(tab: BrowserTab): void {
   if (tab.fullscreenRestore !== null) return
+  // the hook's absence (no shell wiring, a stale shell) answers 0: today's
+  // full-width geometry, never a crash
+  const inset = hooks?.drawerInsetRight?.(tab.pageHost) ?? 0
+  // tell the chrome the strip's width so its toolbar pads itself clear of the
+  // docked panel — deduped, and pushed before the empty-tab early return so
+  // the chrome's address bar centers in the space left of the panel too
+  if (tab.lastInsetPushed !== inset && !tab.shell.webContents.isDestroyed()) {
+    tab.lastInsetPushed = inset
+    tab.shell.webContents.send(BROWSER_CHANNELS.drawerInset, inset)
+  }
   if (tab.pageHost === null || !tab.hasContent || tab.contentRect === null) {
     tab.page.setVisible(false)
     return
   }
   const base = tab.shell.getBounds()
   const rect = tab.contentRect
-  // the hook's absence (no shell wiring, a stale shell) answers 0: today's
-  // full-width geometry, never a crash; the clamp keeps a drawer wider than
-  // the content area from pushing the page to negative width
-  const inset = hooks?.drawerInsetRight?.(tab.pageHost) ?? 0
+  // the clamp keeps a drawer wider than the content area from pushing the
+  // page to negative width
   tab.page.setBounds({
     x: base.x + rect.x,
     y: base.y + rect.y,
@@ -582,6 +592,7 @@ export function createBrowserView(): WebContentsView {
     hasContent: false,
     fullscreenRestore: null,
     annotateMode: false,
+    lastInsetPushed: -1,
   }
   tab.page.setVisible(false)
   tabs.set(shellWc.id, tab)

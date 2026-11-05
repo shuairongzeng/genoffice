@@ -1823,16 +1823,33 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
     expect(docsView.webContents.send).toHaveBeenCalledWith('docs:ai-slot-rect-request')
   })
 
-  it('a non-docs active tab never carries a slot (the window edge is its geometry)', () => {
+  it('a browser tab carries the synthesized right strip; other non-docs tabs never a slot', () => {
     const { m, spy } = managerWithOverlay()
     const docs = m.openDocsTab()
     const docsView = createDocsView.mock.results.at(-1)!.value as FakeView
     m.reportAiSlotRect(docsView.webContents as never, { x: 500, y: 0, width: 300, height: 540 })
     expect(lastState(spy).slot).toBeDefined()
-    // a browser tab goes active: even a fresh docs report is not its geometry
+    // a browser tab goes active: even a fresh docs report is not its
+    // geometry — its own strip is (the page layout narrows by exactly this
+    // width through browserDrawerInset, and the drawer fills it)
     m.openBrowserTab()
+    expect(lastState(spy).slot).toEqual({ x: 400, y: 44, width: 400, height: 556 })
+    // a pdf tab: no slot at all, the floating card is the shape
+    m.openPdfTab('/tmp/scan.pdf')
     expect(lastState(spy).slot).toBeUndefined()
     void docs
+  })
+
+  it('the browser strip tracks the drawer width and follows the collapsed state', () => {
+    const wide = (): AiDockPrefs => ({
+      width: 480,
+      collapsed: false,
+      petPos: null,
+      panelPos: null,
+    })
+    const { m, spy } = managerWithOverlay(wide)
+    m.openBrowserTab()
+    expect(lastState(spy).slot).toEqual({ x: 320, y: 44, width: 480, height: 556 })
   })
 
   it("a BACKGROUND docs tab's report is dropped: it cannot re-arm its hidden rect", () => {

@@ -18,6 +18,11 @@ const api: BrowserApi = {
     return () => ipcRenderer.removeListener(BROWSER_CHANNELS.stateChanged, listener)
   },
   reportContentRect: (rect) => ipcRenderer.send(BROWSER_CHANNELS.contentRect, rect),
+  onDrawerInset: (handler) => {
+    const listener = (_e: IpcRendererEvent, inset: number) => handler(inset)
+    ipcRenderer.on(BROWSER_CHANNELS.drawerInset, listener)
+    return () => ipcRenderer.removeListener(BROWSER_CHANNELS.drawerInset, listener)
+  },
   getLanguage: () => ipcRenderer.invoke(BROWSER_CHANNELS.getLanguage),
   onLanguageChanged: (handler) => {
     const listener = (_e: IpcRendererEvent, lang: Lang) => handler(lang)

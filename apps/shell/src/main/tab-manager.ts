@@ -14,6 +14,7 @@ import type { AiPetDragReport } from '../shared/home-api'
 import type { DockHotEdgeReport } from '../shared/home-api'
 import {
   aiDockWidth,
+  desktopHeaderHeight,
   documentContentBounds,
   normalizeAiDock,
   type AiDockPrefs,
@@ -434,6 +435,30 @@ export class TabManager {
   }
 
   /**
+   * The active browser tab's AI slot: the right strip the page layout already
+   * narrows for (browserDrawerInset — the page reflows, the drawer fills the
+   * freed strip, Chrome's side-panel idiom). Measured off the WINDOW, not the
+   * tab's view bounds: the view's own width is the boot-time approximation
+   * until the renderer's stage report lands (full-width — the drawer
+   * overlays, never docks), so a view-relative strip could double-subtract
+   * the drawer. Synthesized per sync, so nothing goes stale; a zero inset
+   * (the overlay not live) answers no slot, and the floating card is the
+   * shape then.
+   */
+  private browserAiSlotRect(): Rectangle | null {
+    const inset = this.browserDrawerInset()
+    if (inset <= 0) return null
+    const { width, height } = this.shellWindow.getContentBounds()
+    const top = desktopHeaderHeight(this.uiScale())
+    return {
+      x: Math.max(0, width - inset),
+      y: top,
+      width: Math.min(inset, width),
+      height: Math.max(0, height - top),
+    }
+  }
+
+  /**
    * Deliver one message to the overlay view's panel copy (P0-2 — the
    * ask-intent forward). The overlay buffers it until the panel copy
    * signaled itself ready, so a forward that beats the view's own mounting
@@ -509,6 +534,13 @@ export class TabManager {
             // right edge is the geometry then, exactly as before the slot
             slot: this.aiSlot.slotFor(active.view?.webContents, this.uiScale()) ?? undefined,
           }
+        : {}),
+      // the browser's slot needs no renderer report: the page layout already
+      // narrows by exactly this strip (browserDrawerInset — the page reflows,
+      // the drawer fills it, Chrome's side-panel idiom), so the strip's rect
+      // is synthesized per sync and can never go stale
+      ...(active?.kind === 'browser' && this.aiDock().collapsed === false
+        ? { slot: this.browserAiSlotRect() ?? undefined }
         : {}),
     })
   }

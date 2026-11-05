@@ -46,6 +46,10 @@ export interface BrowserApi {
   onState(handler: (state: BrowserPageState) => void): () => void
   /** report the content area's rect (view-local px) so the page view can overlay it */
   reportContentRect(rect: { x: number; y: number; width: number; height: number }): void
+  /** main → chrome: the AI drawer's current right inset (window px) while it
+   *  docks over this window — the toolbar pads itself clear of the panel;
+   *  0 means nothing to clear */
+  onDrawerInset(handler: (inset: number) => void): () => void
   getLanguage(): Promise<Lang>
   onLanguageChanged(handler: (lang: Lang) => void): () => void
   getTheme(): Promise<BrowserUiTheme>
@@ -61,6 +65,8 @@ export const BROWSER_CHANNELS = {
   getState: 'browser:get-state',
   stateChanged: 'browser:state-changed',
   contentRect: 'browser:content-rect',
+  /** main → chrome: the AI drawer's right inset in window px (0 = docked away) */
+  drawerInset: 'browser:drawer-inset',
   // ── annotations ──────────────────────────────────────────────────────────
   // The chrome owns the toggle (annotateMode rides the state fold); the page
   // view's preload owns the overlay (it runs in the page's isolated world and
