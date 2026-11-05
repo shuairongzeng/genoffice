@@ -73,6 +73,10 @@ export interface AiDockPrefs {
   panelPos: AiPetPos | null
 }
 
+/** the pet ⇄ panel morph timings (the CSS keyframes and the timers mirror these) */
+export const DRAWER_MORPH_OPEN_MS = 250
+export const DRAWER_MORPH_CLOSE_MS = 220
+
 /** Fallback drawer constants — must stay in sync with the renderer's AiDock.tsx */
 export const AI_DOCK_WIDTH_DEFAULT = 400
 export const AI_DOCK_WIDTH_MIN = 320

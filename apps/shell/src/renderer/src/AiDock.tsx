@@ -8,6 +8,8 @@ import {
   aiBubbleAnchor,
   clampPetPos,
   defaultPetPos,
+  DRAWER_MORPH_CLOSE_MS,
+  DRAWER_MORPH_OPEN_MS,
   normalizeAiDock,
   PET_SIZE,
   type AiPetPos,
@@ -189,8 +191,7 @@ export function aiMotionReduced(): boolean {
 }
 
 /** the morph timings (CSS mirrors these; the timers clear the classes) */
-export const DRAWER_MORPH_OPEN_MS = 250
-export const DRAWER_MORPH_CLOSE_MS = 220
+export { DRAWER_MORPH_OPEN_MS, DRAWER_MORPH_CLOSE_MS } from '../../shared/desktop-geometry'
 export const PET_GULP_MS = 300
 
 /**

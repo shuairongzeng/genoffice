@@ -467,25 +467,73 @@ describe('z-order', () => {
 
 describe('state transitions (resize, never destroy)', () => {
   it('shrinks to the pet when the drawer closes over the document, keeping the view', () => {
-    const overlay = createAiDrawerOverlay(win as never)
-    overlay.sync(state())
-    const view = overlayView(win)
-    overlay.markPanelReadyFor(view.webContents as never)
-    overlay.sync(state({ dock: { width: 480, collapsed: true, petPos: null } }))
-    // pet-only, never destroyed: the panel's session outlives the collapse
-    expect(view.visibles.at(-1)).toBe(true)
-    expect(view.bounds.at(-1)).toEqual({
-      x: 800 - 68 - 16,
-      y: 600 - 62 - 16,
-      width: 68,
-      height: 62,
-    })
-    expect(win.contentView.removeChildView).not.toHaveBeenCalled()
-    expect(view.webContents.closeCount).toBe(0)
-    overlay.sync(state({ dock: { width: 480, collapsed: false, petPos: null } }))
-    expect(win.contentView.addChildView).toHaveBeenLastCalledWith(view)
-    expect(view.bounds.at(-1)).toEqual({ x: 320, y: 48, width: 480, height: 504 })
-    expect(view.visibles.at(-1)).toBe(true)
+    vi.useFakeTimers()
+    try {
+      const overlay = createAiDrawerOverlay(win as never)
+      overlay.sync(state())
+      const view = overlayView(win)
+      overlay.markPanelReadyFor(view.webContents as never)
+      overlay.sync(state({ dock: { width: 480, collapsed: true, petPos: null } }))
+      // the close morph glides: no instant teleport to the perch (that was
+      // the flash-to-the-right bug) — the bounds interpolate over 220ms
+      expect(view.bounds.at(-1)).not.toEqual({
+        x: 800 - 68 - 16,
+        y: 600 - 62 - 16,
+        width: 68,
+        height: 62,
+      })
+      vi.advanceTimersByTime(250)
+      // pet-only, never destroyed: the panel's session outlives the collapse
+      expect(view.visibles.at(-1)).toBe(true)
+      expect(view.bounds.at(-1)).toEqual({
+        x: 800 - 68 - 16,
+        y: 600 - 62 - 16,
+        width: 68,
+        height: 62,
+      })
+      expect(win.contentView.removeChildView).not.toHaveBeenCalled()
+      expect(view.webContents.closeCount).toBe(0)
+      overlay.sync(state({ dock: { width: 480, collapsed: false, petPos: null } }))
+      expect(win.contentView.addChildView).toHaveBeenLastCalledWith(view)
+      expect(view.bounds.at(-1)).toEqual({ x: 320, y: 48, width: 480, height: 504 })
+      expect(view.visibles.at(-1)).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('the close glide interpolates the position toward the perch, easing out', () => {
+    vi.useFakeTimers()
+    try {
+      const overlay = createAiDrawerOverlay(win as never)
+      // the expanded floating card parked far LEFT (panelPos), the pet at its
+      // default bottom-right perch: the collapse must TRAVEL, not teleport
+      overlay.sync(
+        state({
+          dock: { width: 400, collapsed: false, petPos: null, panelPos: { x: 40, y: 60 } },
+        }),
+      )
+      const view = overlayView(win)
+      overlay.markPanelReadyFor(view.webContents as never)
+      overlay.sync(state({ dock: { width: 400, collapsed: true, petPos: null, panelPos: null } }))
+      // mid-glide: the view is somewhere between the card and the perch —
+      // x grows toward the right, never jumps there in one frame
+      vi.advanceTimersByTime(110)
+      const mid = view.bounds.at(-1)!
+      expect(mid.x).toBeGreaterThan(40)
+      expect(mid.x).toBeLessThan(800 - 68 - 16)
+      expect(mid.y).toBeGreaterThan(60)
+      expect(mid.y).toBeLessThan(600 - 62 - 16)
+      vi.advanceTimersByTime(150)
+      expect(view.bounds.at(-1)).toEqual({
+        x: 800 - 68 - 16,
+        y: 600 - 62 - 16,
+        width: 68,
+        height: 62,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('hides while Home is the active tab, keeping the view', () => {
@@ -516,7 +564,9 @@ describe('state transitions (resize, never destroy)', () => {
     // skipping the bounds would eat the collapse's focus hand-back on the
     // next good sync (it would see the transition as already made). The
     // guard must apply the whole state or none of it
-    const focusActiveView = vi.fn()
+    vi.useFakeTimers()
+    try {
+      const focusActiveView = vi.fn()
     const overlay = createAiDrawerOverlay(win as never, { focusActiveView })
     overlay.sync(state())
     const view = overlayView(win)
@@ -530,8 +580,10 @@ describe('state transitions (resize, never destroy)', () => {
     )
     expect(view.bounds.at(-1)).toEqual({ x: 400, y: 48, width: 400, height: 504 })
     expect(focusActiveView).not.toHaveBeenCalled()
-    // the next good sync completes the transition, focus hand-back included
+    // the next good sync completes the transition, focus hand-back included —
+    // and the close glide finishes before the pet-sized bounds land
     overlay.sync(state({ dock: { width: 480, collapsed: true, petPos: null } }))
+    vi.advanceTimersByTime(250)
     expect(view.bounds.at(-1)).toEqual({
       x: 800 - 68 - 16,
       y: 600 - 62 - 16,
@@ -539,6 +591,9 @@ describe('state transitions (resize, never destroy)', () => {
       height: 62,
     })
     expect(focusActiveView).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

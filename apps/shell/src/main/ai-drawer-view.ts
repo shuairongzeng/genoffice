@@ -6,6 +6,7 @@ import { rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
 import {
   drawerOverlayBounds,
   floatingPanelBounds,
+  DRAWER_MORPH_CLOSE_MS,
   type AiDockPrefs,
 } from '../shared/desktop-geometry'
 import type { AiPetDragReport } from '../shared/home-api'
@@ -418,6 +419,48 @@ export function createAiDrawerOverlay(
     live.setBounds(expandedBounds({ width, height }, lastLayout))
   }
 
+  /* ── the close morph's glide: the view TRAVELS to the pet ──
+   * An instant setBounds on the collapse teleported the panel to the pet's
+   * perch (the right-edge corner by default) before the entry's scale morph
+   * had even started — the user saw the panel jump to the right and flash.
+   * The glide interpolates x/y over the same 220ms the entry's scale morph
+   * runs, so the panel visibly shrinks INTO the bird wherever it perches.
+   * The size cuts only at the end: the content never reflows mid-flight. */
+  let morphTween: ReturnType<typeof setInterval> | null = null
+  let petGlideTarget: { x: number; y: number } | null = null
+  const cancelMorphTween = (): void => {
+    if (morphTween !== null) clearInterval(morphTween)
+    morphTween = null
+    petGlideTarget = null
+  }
+  const glideToPet = (live: WebContentsView, target: Rectangle): void => {
+    cancelMorphTween()
+    petGlideTarget = { x: target.x, y: target.y }
+    const from = live.getBounds()
+    const startedAt = Date.now()
+    morphTween = setInterval(() => {
+      if (live.webContents.isDestroyed() || shellWindow.isDestroyed()) {
+        cancelMorphTween()
+        return
+      }
+      const t = Math.min(1, (Date.now() - startedAt) / DRAWER_MORPH_CLOSE_MS)
+      // ease-out: the panel settles onto the bird, no bounce
+      const ease = 1 - (1 - t) * (1 - t)
+      live.setBounds({
+        x: Math.round(from.x + (target.x - from.x) * ease),
+        y: Math.round(from.y + (target.y - from.y) * ease),
+        width: from.width,
+        height: from.height,
+      })
+      if (t >= 1) {
+        cancelMorphTween()
+        live.setBounds(target)
+      }
+    }, 16)
+    // the tween never keeps the process alive
+    morphTween.unref?.()
+  }
+
   /** the expanded footprint: the app's reported slot when it has one, else the
    *  floating card — the right edge by default, the header drag's parked
    *  spot once the person has moved it (dock.panelPos). The collapsed shape
@@ -447,6 +490,7 @@ export function createAiDrawerOverlay(
   // overlay's renderer dies like every tab's. Only the reference must go, or
   // a late sync would act on a dead view.
   shellWindow.once('closed', () => {
+    cancelMorphTween()
     view = null
     panelReady = false
     pendingPanelMessages.length = 0
@@ -469,6 +513,8 @@ export function createAiDrawerOverlay(
         // hidden, never destroyed: the active tab and a presentation decide
         // visibility, and the panel's thread outlives both flipping back.
         // The hide is an applied change, so the mode state lands here too.
+        // A mid-glide hide ends the tween: the surface is gone either way
+        cancelMorphTween()
         shown = false
         petMode = nextPetMode
         lastLayout = { scale: state.scale, dock: state.dock, slot: state.slot }
@@ -502,11 +548,26 @@ export function createAiDrawerOverlay(
       // covered. The pet-only shape ignores the slot the same way
       // drawerOverlayBounds ignores the drawer footprint (it collapses to
       // petOverlayBounds on its own).
-      live.setBounds(
-        nextPetMode
-          ? drawerOverlayBounds(state.window, lastLayout)
-          : expandedBounds(state.window, lastLayout),
-      )
+      const target = nextPetMode
+        ? drawerOverlayBounds(state.window, lastLayout)
+        : expandedBounds(state.window, lastLayout)
+      if (nextPetMode && !wasPetMode && wasShown) {
+        // the close morph (expanded → pet, a live transition): the entry
+        // scales the panel down over the same 220ms while the view glides to
+        // the pet's perch — an instant cut here teleported the panel to the
+        // right edge mid-animation. A collapsed BOOT (wasShown false) is not
+        // a transition: the pet-sized bounds apply directly, no glide
+        glideToPet(live, target)
+      } else if (nextPetMode && morphTween && petGlideTarget) {
+        // a sync mid-glide: re-aim only when the perch moved (a petPos
+        // write), otherwise let the glide finish on its own
+        if (petGlideTarget.x !== target.x || petGlideTarget.y !== target.y) {
+          glideToPet(live, target)
+        }
+      } else {
+        cancelMorphTween()
+        live.setBounds(target)
+      }
       pushEmbedded(!nextPetMode && state.slot !== undefined)
       // the entry opts into `zoom: var(--ui-scale)` like the app frame, so
       // the drawer's content reads at the same size whichever layer hosts it
@@ -601,6 +662,7 @@ export function createAiDrawerOverlay(
     destroy(): void {
       const live = view
       view = null
+      cancelMorphTween()
       panelReady = false
       pendingPanelMessages.length = 0
       if (!live) return
