@@ -830,6 +830,11 @@ const homeApi: HomeApi = {
     ipcRenderer.on(HOME_CHANNELS.askRunQuestion, listener)
     return () => ipcRenderer.removeListener(HOME_CHANNELS.askRunQuestion, listener)
   },
+  onSelectionChanged(handler) {
+    const listener = (_event: IpcRendererEvent, text: string) => handler(text)
+    ipcRenderer.on(HOME_CHANNELS.selectionChanged, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.selectionChanged, listener)
+  },
   // the doc-mode dock overlay's hot-edge reports: fire-and-forget like the
   // pet drag's, because the overlay's state machine only consumes the flags
   dockHotEdge(report) {

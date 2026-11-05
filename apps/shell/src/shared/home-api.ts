@@ -880,6 +880,11 @@ export interface HomeApi {
    */
   onAskRunQuestion?(handler: (query: PendingAskQuery) => void): () => void
   /**
+   * The active tab's selection changed (`home:selection-changed`): the
+   * composer's selection chip rides it live. Returns unsubscribe.
+   */
+  onSelectionChanged?(handler: (text: string) => void): () => void
+  /**
    * Report the doc-mode dock overlay's hot-edge transitions
    * (`home:dock-hot-edge`): `enter` from the strip summons the dock (and
    * cancels a pending hide), `leave` from the revealed dock arms the grace
@@ -1608,6 +1613,9 @@ export const HOME_CHANNELS = {
    *  executed by Home's loop (the single executor) — never routed back into
    *  the mirror itself */
   askRunQuestion: 'home:ask-run-question',
+  /** main → renderer: the active tab's selection changed (selection-store) —
+   *  the composer chip rides it live, not just the prompt section */
+  selectionChanged: 'home:selection-changed',
   /** renderer → main: forward a browser annotation's "ask AI about this" push
    *  to the overlay's panel copy (the shell renderer already received the
    *  original browser:ask-about) */

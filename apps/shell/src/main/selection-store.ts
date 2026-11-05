@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, webContents } from 'electron'
 import { APP_SELECTION_CHANGED } from '@genoffice/agent-core'
 
 /**
@@ -25,9 +25,15 @@ export function registerSelectionStore(): void {
     const trimmed = text.trim()
     if (trimmed === '') {
       selections.delete(event.sender.id)
-      return
+    } else {
+      selections.set(event.sender.id, trimmed.slice(0, MAX_SELECTION_CHARS))
     }
-    selections.set(event.sender.id, trimmed.slice(0, MAX_SELECTION_CHARS))
+    // the composer's selection chip rides it live (pub/sub): every OTHER
+    // renderer hears the new selection, the reporting one already knows it
+    for (const wc of webContents.getAllWebContents()) {
+      if (wc === event.sender || wc.isDestroyed()) continue
+      wc.send('home:selection-changed', trimmed)
+    }
 
   // a crashed or reloaded renderer's selection must not linger
   event.sender.once('destroyed', () => selections.delete(event.sender.id))

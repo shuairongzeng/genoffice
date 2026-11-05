@@ -1659,6 +1659,15 @@ export function KbAskPanel({
     setScopeNotIndexed(null)
   }
 
+  /* ── the selection chip above the composer: the active tab's current text
+   *  selection, live from main (home:selection-changed). The same selection
+   *  the prompt section sees — the person sees what the model will read. */
+  const [editorSelection, setEditorSelection] = useState('')
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    return api.onSelectionChanged?.((text) => setEditorSelection(text))
+  }, [])
+
   /**
    * The scope-keyed copy: every guidance/hero surface names the corpus the
    * scope actually means, in the scope's own words.
@@ -3633,6 +3642,23 @@ export function KbAskPanel({
                   aria-label={t('askScopeClear')}
                   title={t('askScopeClear')}
                   onClick={clearScope}
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            {editorSelection && (
+              <div className="kb-selection-chip" role="status">
+                <span className="kb-selection-chip-dot" aria-hidden />
+                <span className="kb-selection-chip-text">
+                  {editorSelection.length > 120 ? `${editorSelection.slice(0, 120)}…` : editorSelection}
+                </span>
+                <button
+                  type="button"
+                  className="kb-selection-chip-clear"
+                  aria-label={t('askScopeClear')}
+                  title={t('askScopeClear')}
+                  onClick={() => setEditorSelection('')}
                 >
                   ×
                 </button>
