@@ -1003,7 +1003,14 @@ export function ExcelShell({
       </header>
 
       {/* AI panel docks on the left, full height under the ribbon (unified with docs) */}
-      <div className="sheet-body">
+      <div
+        className="sheet-body"
+        style={
+          aiHostedInShell
+            ? { gridTemplateColumns: `${hostedSlot.width}px minmax(0, 1fr)` }
+            : undefined
+        }
+      >
         {/* hosted: the global drawer's reserved slot — the overlay docks into
             it at left (the panel fills the slot, no blank gap between the
             grid and the panel) */}
