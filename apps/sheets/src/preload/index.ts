@@ -66,6 +66,16 @@ import { installDropOpenBridge } from '@genoffice/electron-utils/drop-open'
 const desktopApi: DesktopApi = {
   getLanguage: () => ipcRenderer.invoke('app:get-language'),
   openSourcePath: (path: string) => ipcRenderer.invoke('home:open-path', path),
+  getAiDockState: () => ipcRenderer.invoke('home:ai-dock-get'),
+  onAiDockChanged(handler) {
+    const listener = (_event: Electron.IpcRendererEvent, state: {
+      width: number
+      collapsed: boolean
+      petPos: { x: number; y: number } | null
+    }) => handler(state)
+    ipcRenderer.on('home:ai-dock-changed', listener)
+    return () => ipcRenderer.removeListener('home:ai-dock-changed', listener)
+  },
   onLanguageChanged(handler) {
     const listener = (
       _event: Electron.IpcRendererEvent,
@@ -833,6 +843,18 @@ contextBridge.exposeInMainWorld('desktopApi', desktopApi)
 // (main's selection-store.ts): report on selection change, empty to clear
 contextBridge.exposeInMainWorld('sheetsSelection', {
   report: (text: string) => ipcRenderer.send('app:selection-changed', text),
+})
+
+// the hosted AI slot's rect (main's tab-manager fits the global drawer into it):
+// report on mount/resize/flip, and answer the re-measure request
+contextBridge.exposeInMainWorld('sheetsSlotRect', {
+  report: (rect: { x: number; y: number; width: number; height: number }) =>
+    ipcRenderer.send('docs:ai-slot-rect', rect),
+  onRequest: (handler: () => void) => {
+    const listener = () => handler()
+    ipcRenderer.on('docs:ai-slot-rect-request', listener)
+    return () => ipcRenderer.removeListener('docs:ai-slot-rect-request', listener)
+  },
 })
 
 // shell hosting (docs parity): summon the global drawer when hosted, and the

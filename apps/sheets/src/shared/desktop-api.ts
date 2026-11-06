@@ -3027,6 +3027,17 @@ export interface McpCommandResult {
 }
 
 export interface DesktopApi {
+  /** the AI drawer's persisted state (width, collapsed, petPos) — the hosted
+   *  AI slot's width follows it; pushed on every change */
+  getAiDockState(): Promise<{
+    width: number
+    collapsed: boolean
+    petPos: { x: number; y: number } | null
+  }>
+  /** the drawer's state changed (a drag, a collapse, a new width) */
+  onAiDockChanged(
+    handler: (state: { width: number; collapsed: boolean; petPos: { x: number; y: number } | null }) => void,
+  ): () => void
   /** open any shell-routed document path (an AI answer's filenav citation) */
   openSourcePath(path: string): Promise<void>
   /** current UI language (persisted by the shell in app-settings.json) */

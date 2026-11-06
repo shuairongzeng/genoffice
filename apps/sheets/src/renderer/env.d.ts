@@ -12,6 +12,11 @@ declare global {
     readonly projectApi: ProjectApi
     /** the sheet's selection reporter (main's selection-store.ts) */
     readonly sheetsSelection: { report: (text: string) => void }
+    /** the hosted AI slot's rect reporter + re-measure request subscription */
+    readonly sheetsSlotRect: {
+      report(rect: { x: number; y: number; width: number; height: number }): void
+      onRequest(handler: () => void): () => void
+    }
     /** shell hosting + the shared permission posture (main's home-ipc) */
     readonly sheetsHost: {
       isHostedInShell(): Promise<boolean>

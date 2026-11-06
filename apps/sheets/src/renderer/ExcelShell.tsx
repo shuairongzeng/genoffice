@@ -76,6 +76,7 @@ import type { ChartSeriesVisualState } from '@genoffice/xlsx-gateway/domain/char
 import type { ChangePlan } from '@genoffice/xlsx-gateway/domain/workbook.types'
 import type { AttachmentMeta } from '../shared/desktop-api'
 import { AiChatPanel, type AiChatMessage } from './ai/AiChatPanel'
+import { useHostedAiSlot } from './hosted-ai-slot'
 import { AiSelectionAsk } from './ai/AiSelectionAsk'
 import type { SelectionAskAnchor } from './ai/selection-ask'
 import {
@@ -594,6 +595,9 @@ export function ExcelShell({
     }
     setIsCopilotOpen((open) => !open)
   }
+  // the hosted AI slot: the global drawer's reserved space in this app (the
+  // overlay docks into it at left — no blank slot between the grid and the panel)
+  const hostedSlot = useHostedAiSlot(aiHostedInShell)
   useEffect(() => {
     rememberAiPanelOpen('ai-sheets-show-ai', isCopilotOpen)
   }, [isCopilotOpen])
@@ -1000,6 +1004,16 @@ export function ExcelShell({
 
       {/* AI panel docks on the left, full height under the ribbon (unified with docs) */}
       <div className="sheet-body">
+        {/* hosted: the global drawer's reserved slot — the overlay docks into
+            it at left (the panel fills the slot, no blank gap between the
+            grid and the panel) */}
+        {aiHostedInShell && (
+          <div
+            ref={hostedSlot.slotRef}
+            className="ai-dock ai-dock-hosted"
+            style={{ width: hostedSlot.width, flexShrink: 0 }}
+          />
+        )}
         {/* hosted: the global drawer is the only AI face — this app's own
             panel must not render a second one (no two AI panels at once) */}
         {!aiHostedInShell && (

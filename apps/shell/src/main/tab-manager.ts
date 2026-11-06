@@ -528,7 +528,7 @@ export class TabManager {
       docActive: active !== undefined && active.kind !== 'home',
       suppressed: this.drawerOverlaySuppressed(),
       window: { width, height },
-      ...(active?.kind === 'docs' && this.aiDock().collapsed === false
+      ...((active?.kind === 'docs' || active?.kind === 'sheets') && this.aiDock().collapsed === false
         ? {
             // undefined (the key dropped) when no fresh report: the window's
             // right edge is the geometry then, exactly as before the slot
@@ -546,21 +546,21 @@ export class TabManager {
   }
 
   /**
-   * The docs app's AI-slot report arrived over `docs:ai-slot-rect` from this
+   * A hosted AI-slot report arrived over `docs:ai-slot-rect` from this
    * webContents: the rect is view-local (the renderer's viewport), so the
    * tab's view bounds — the geometry this manager itself set — convert it
-   * into window px. Only the ACTIVE docs tab's report counts: a background
-   * tab's layout is not the surface the drawer docks into (and a detached
-   * editor, its view no longer a tab here, is dropped by the find itself —
-   * the overlay exists only while a shell tab is active). A fresh report
-   * always wins (the renderer's layout is the authority on where its slot
-   * sits), and the drawer refits immediately.
+   * into window px. Only the ACTIVE hosted app's report counts (docs or
+   * sheets): a background tab's layout is not the surface the drawer docks
+   * into (and a detached editor, its view no longer a tab here, is dropped by
+   * the find itself — the overlay exists only while a shell tab is active). A
+   * fresh report always wins (the renderer's layout is the authority on where
+   * its slot sits), and the drawer refits immediately.
    */
   reportAiSlotRect(wc: WebContents, rect: SlotRectReport): void {
     if (this.shellWindow.isDestroyed() || wc.isDestroyed()) return
     const tab = this.tabs.find((t) => t.view && t.view.webContents.id === wc.id)
     if (!tab?.view) return
-    if (tab.id !== this.activeId || tab.kind !== 'docs') return
+    if (tab.id !== this.activeId || (tab.kind !== 'docs' && tab.kind !== 'sheets')) return
     this.aiSlot.report(wc.id, tab.view.getBounds(), rect, this.uiScale())
     this.syncDrawerOverlay()
   }
