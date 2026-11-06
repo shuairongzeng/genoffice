@@ -7122,9 +7122,11 @@ app.whenReady().then(async () => {
     tabManager?.drawerOverlayWebContents()?.send(HOME_CHANNELS.aiDockChanged, dock)
     // the docs tabs' renderers hear the same broadcast: hosted, each reserves
     // (or releases) its own AI slot from it — the drawer then docks into the
-    // slot instead of floating over the window's right edge
+    // slot instead of floating over the window's right edge. Sheets too: the
+    // hosted slot must collapse when the drawer collapses, or it would keep
+    // an empty reservation behind
     for (const tab of tabManager?.list() ?? []) {
-      if (tab.kind !== 'docs') continue
+      if (tab.kind !== 'docs' && tab.kind !== 'sheets') continue
       const wc = tabManager?.webContentsForTab(tab.id)
       if (wc && !wc.isDestroyed()) wc.send(HOME_CHANNELS.aiDockChanged, dock)
     }

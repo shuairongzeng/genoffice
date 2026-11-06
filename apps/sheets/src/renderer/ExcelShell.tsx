@@ -598,6 +598,9 @@ export function ExcelShell({
   // the hosted AI slot: the global drawer's reserved space in this app (the
   // overlay docks into it at left — no blank slot between the grid and the panel)
   const hostedSlot = useHostedAiSlot(aiHostedInShell)
+  /** hosted and the drawer open: the slot reserves the drawer's width; collapsed
+   *  (pet-only), the slot collapses to zero and the grid takes the whole row */
+  const hostedDockOpen = aiHostedInShell && hostedSlot.dock !== null && !hostedSlot.dock.collapsed
   useEffect(() => {
     rememberAiPanelOpen('ai-sheets-show-ai', isCopilotOpen)
   }, [isCopilotOpen])
@@ -1007,14 +1010,18 @@ export function ExcelShell({
         className="sheet-body"
         style={
           aiHostedInShell
-            ? { gridTemplateColumns: `${hostedSlot.width}px minmax(0, 1fr)` }
+            ? { gridTemplateColumns: hostedDockOpen ? `${hostedSlot.width}px minmax(0, 1fr)` : 'minmax(0, 1fr)' }
             : undefined
         }
       >
         {/* hosted: the global drawer's reserved slot — the overlay docks into
             it at left (the panel fills the slot, no blank gap between the
             grid and the panel) */}
-        {aiHostedInShell && (
+        {/* hosted: the global drawer's reserved slot — the overlay docks into
+            it at left (the panel fills the slot, no blank gap between the
+            grid and the panel). Collapsed: no slot at all — the grid takes
+            the whole row (no empty reservation left behind) */}
+        {hostedDockOpen && (
           <div
             ref={hostedSlot.slotRef}
             className="ai-dock ai-dock-hosted"
