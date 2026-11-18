@@ -422,7 +422,7 @@ export async function revealWorkbookText(
       : 'not-found'
   }
   const sheetId = deps.sheetIdOf(first.sheetName)
-  let cell: { row: number; column: number } | null = null
+  let cell: { row: number; column: number } | null
   try {
     cell = parseAddress(first.address)
   } catch {
