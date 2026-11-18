@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ERROR_VALUE_RE,
   findWorkbookCells,
+  revealWorkbookText,
   selectWorkbookRange,
+  type TextRevealOutcome,
+  type WorkbookTextRevealDeps,
 } from '../src/renderer/ai/workbook-search'
 import { ensureLazyRangeLoaded, readSheetRangeMapped } from '../src/renderer/univer-sync'
 import type { FindCellsOptions } from '../src/renderer/ai/tools'
@@ -579,3 +582,99 @@ const DATA_SHEET = {
   getSheetName: () => 'Data',
   getRange: (address: string) => ({ getValue: () => (address === 'A3' ? '#DIV/0!' : null) }),
 }
+
+describe('revealWorkbookText (the search deep link reveal)', () => {
+  // composition tests: the halves are fakes, so each seam's contract is pinned
+  // directly — the find decides existence, the select decides retry, and the
+  // address/sheet lookups decide where (or whether) the jump lands
+  const deps = (over: Partial<WorkbookTextRevealDeps> = {}): WorkbookTextRevealDeps => ({
+    find: vi.fn(async (o: FindCellsOptions) => {
+      void o
+      return {
+        matches: [{ sheetName: 'Data', address: 'A1', value: 'grand TOTAL', formula: undefined }],
+        truncated: false,
+        incompleteSheets: [],
+      }
+    }),
+    sheetIdOf: vi.fn(() => 'sh1'),
+    selectFirstCell: vi.fn(async () => true),
+    ...over,
+  })
+
+  it('finds, then lands the selection on the first match', async () => {
+    const d = deps()
+    const outcome: TextRevealOutcome = await revealWorkbookText(d, 'grand total')
+    expect(outcome).toBe('revealed')
+    expect(d.find).toHaveBeenCalledWith({
+      query: 'grand total',
+      regex: false,
+      lookIn: 'values',
+      errorsOnly: false,
+      maxResults: 1,
+    })
+    // the sheet lookup keys on the match's sheetName — the live adapter answers
+    // by name, so passing anything else silently loses every reveal
+    expect(d.sheetIdOf).toHaveBeenCalledWith('Data')
+    expect(d.selectFirstCell).toHaveBeenCalledWith('sh1', {
+      startRow: 0,
+      startColumn: 0,
+      endRow: 0,
+      endColumn: 0,
+    })
+  })
+
+  it('a find miss is terminal not-found — no jump is attempted', async () => {
+    const d = deps({
+      find: vi.fn(async () => ({ matches: [], truncated: false, incompleteSheets: [] })),
+    })
+    expect(await revealWorkbookText(d, 'needle')).toBe('not-found')
+    expect(d.selectFirstCell).not.toHaveBeenCalled()
+  })
+
+  it('an inconclusive find (indexing incomplete / read error) is not-ready, not a conclusion', async () => {
+    // the lazy sidecar can answer "nothing yet, this sheet is still indexing" —
+    // reporting that as target_not_found would abandon a recoverable reveal
+    const indexing = deps({
+      find: vi.fn(async () => ({
+        matches: [],
+        truncated: false,
+        incompleteSheets: ['Data'],
+      })),
+    })
+    expect(await revealWorkbookText(indexing, 'grand total')).toBe('not-ready')
+    expect(indexing.selectFirstCell).not.toHaveBeenCalled()
+
+    const errored = deps({
+      find: vi.fn(async () => ({
+        matches: [],
+        truncated: false,
+        incompleteSheets: [],
+        error: 'sidecar unavailable',
+      })),
+    })
+    expect(await revealWorkbookText(errored, 'grand total')).toBe('not-ready')
+    expect(errored.selectFirstCell).not.toHaveBeenCalled()
+  })
+
+  it('a select failure after a hit is not-ready — the shell retries the boot window', async () => {
+    const d = deps({ selectFirstCell: vi.fn(async () => false) })
+    expect(await revealWorkbookText(d, 'grand total')).toBe('not-ready')
+    expect(d.selectFirstCell).toHaveBeenCalledOnce()
+  })
+
+  it('a sheet the live workbook no longer has, or an unparseable address, is not-found', async () => {
+    const ghost = deps({ sheetIdOf: vi.fn(() => undefined) })
+    expect(await revealWorkbookText(ghost, 'grand total')).toBe('not-found')
+    expect(ghost.selectFirstCell).not.toHaveBeenCalled()
+
+    // a match address the A1 parser rejects cannot be selected — never jump somewhere wrong
+    const odd = deps()
+    ;(odd.find as ReturnType<typeof vi.fn>).mockResolvedValue({
+      matches: [{ sheetName: 'Data', address: 'not-an-address', value: 'x', formula: undefined }],
+      truncated: false,
+      incompleteSheets: [],
+    })
+    expect(await revealWorkbookText(odd, 'grand total')).toBe('not-found')
+    expect(odd.selectFirstCell).not.toHaveBeenCalled()
+  })
+})

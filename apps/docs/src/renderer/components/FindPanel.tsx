@@ -42,11 +42,14 @@ interface Range {
 export function findMatches(
   editor: Editor,
   query: string,
-  opts: Pick<FindOptions, 'matchCase' | 'wholeWord'>,
+  opts: Pick<FindOptions, 'matchCase' | 'wholeWord' | 'matchWidth'>,
 ): Range[] {
-  const compiled = compileFind(query, { ...opts, mode: 'literal', matchWidth: true })
+  // matchWidth defaults to the Find panel's own default (false = fold widths),
+  // so a caller mirroring the panel needs only override what it differs on
+  const full = { matchWidth: false, ...opts }
+  const compiled = compileFind(query, { ...full, mode: 'literal' })
   if (!compiled.ok) return []
-  return findInDoc(editor.state.doc, compiled.query, { ...opts, matchWidth: true })
+  return findInDoc(editor.state.doc, compiled.query, full)
 }
 
 export type FindTab = 'find' | 'replace' | 'goto'

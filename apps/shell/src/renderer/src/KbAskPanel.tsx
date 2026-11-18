@@ -742,7 +742,8 @@ const AskMessageRow = memo(function AskMessageRow({
   /** always-allow the tool for the APP session (the main-side set both mounts share); the card shows the button only when the request offers it */
   onAllowSession: () => void
   onDeny: () => void
-  onOpenPath: (path: string) => void
+  /** a cite link's text fragment (the matched sentence) rides along — hosts may ignore it */
+  onOpenPath: (path: string, text?: string) => void
   onRetry: (instruction: string) => void
   onSaveAnswer: (index: number, format: CreateDocumentFormat) => void
   onCopyAnswer: (text: string) => Promise<boolean>
@@ -1008,7 +1009,7 @@ export function KbAskPanel({
    * AgentLoops cross-read one transcript. Defaults to the home thread.
    */
   chatId?: string
-  onOpenPath: (path: string) => void
+  onOpenPath: (path: string, text?: string) => void
   onGoToRecents: () => void
   /** Settings › AI Model, the model chip's last row */
   onOpenModelSettings: () => void
@@ -3003,7 +3004,10 @@ export function KbAskPanel({
   // change), so anything that varies per render reaches them through refs.
   const onOpenPathRef = useRef(onOpenPath)
   onOpenPathRef.current = onOpenPath
-  const openPath = useCallback((path: string) => onOpenPathRef.current(path), [])
+  const openPath = useCallback(
+    (path: string, text?: string) => onOpenPathRef.current(path, text),
+    [],
+  )
   const askWithRef = useRef(askWith)
   askWithRef.current = askWith
   /** a failed artifact's retry re-enters askWith with the rebuilt instruction */

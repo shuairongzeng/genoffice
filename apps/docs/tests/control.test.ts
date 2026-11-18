@@ -1,7 +1,15 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Editor } from '@tiptap/core'
 import { editorExtensions } from '../src/renderer/editor/extensions'
 import { handleDocsControl } from '../src/renderer/control'
+
+// module state stands in for the phased-open pipeline: default not pending,
+// flipped per-case below to pin the reveal's wait-for-settle guard
+vi.mock('../src/renderer/phased-content', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/renderer/phased-content')>()
+  return { ...actual, isPhasedContentPending: vi.fn(() => false) }
+})
+import { isPhasedContentPending } from '../src/renderer/phased-content'
 
 const editors = new Set<Editor>()
 afterEach(() => {
@@ -39,6 +47,63 @@ describe('docs control hook', () => {
       status: 'error',
       error: { reason: 'out_of_range', detail: { valid_range: '0-2' } },
     })
+  })
+
+  it('a text target (the search deep link) selects and reports the first match', () => {
+    // issue #56: a search hit's cite opens the document where it matched
+    const editor = createEditor(['The quarterly numbers.', 'Nothing here.', 'Draft notes.'])
+    const reply = handleDocsControl(
+      { cmd: 'goto', target: { kind: 'text', text: 'quarterly' } },
+      editor,
+      true,
+    )
+    expect(reply.status).toBe('ok')
+    if (reply.status !== 'ok') return
+    const { from, to } = editor.state.selection
+    expect(editor.state.doc.textBetween(from, to)).toBe('quarterly')
+    expect(reply.result).toMatchObject({ from, to })
+    // a phased open's tail is still appending: the reveal waits for the
+    // document to settle, it must not jump at a half-loaded body
+    vi.mocked(isPhasedContentPending).mockReturnValueOnce(true)
+    expect(
+      handleDocsControl({ cmd: 'goto', target: { kind: 'text', text: 'quarterly' } }, editor, true),
+    ).toEqual({ status: 'not_ready' })
+    // case-insensitive like the find panel the text comes from — the match
+    // lands on the actual casing, the query's casing is only the needle
+    const folded = handleDocsControl(
+      { cmd: 'goto', target: { kind: 'text', text: 'DRAFT' } },
+      editor,
+      true,
+    )
+    expect(folded.status).toBe('ok')
+    if (folded.status !== 'ok') return
+    const sel = editor.state.selection
+    expect(editor.state.doc.textBetween(sel.from, sel.to)).toBe('Draft')
+    // width-folding like the find panel's default: a full-width needle lands
+    // on half-width document text, the same surface Ctrl+F offers
+    const wide = handleDocsControl(
+      { cmd: 'goto', target: { kind: 'text', text: 'ＱＵＡＲＴＥＲＬＹ' } },
+      editor,
+      true,
+    )
+    expect(wide.status).toBe('ok')
+    if (wide.status !== 'ok') return
+    const wsel = editor.state.selection
+    expect(editor.state.doc.textBetween(wsel.from, wsel.to)).toBe('quarterly')
+  })
+
+  it('a text target that does not occur is target_not_found, an empty one invalid', () => {
+    const editor = createEditor(['Alpha.'])
+    expect(
+      handleDocsControl({ cmd: 'goto', target: { kind: 'text', text: 'needle' } }, editor, true),
+    ).toMatchObject({ status: 'error', error: { reason: 'target_not_found' } })
+    expect(
+      handleDocsControl({ cmd: 'goto', target: { kind: 'text', text: '  ' } }, editor, true),
+    ).toMatchObject({ status: 'error', error: { reason: 'invalid_argument' } })
+    // no document yet: not_ready, the same as every other goto
+    expect(
+      handleDocsControl({ cmd: 'goto', target: { kind: 'text', text: 'needle' } }, editor, false),
+    ).toEqual({ status: 'not_ready' })
   })
 
   it('reports the selected block range and text', () => {

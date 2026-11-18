@@ -377,3 +377,65 @@ export async function selectWorkbookRange(
     }
   }
 }
+
+/** the outcome of a text reveal: landed, genuinely absent, or not answerable yet */
+export type TextRevealOutcome = 'revealed' | 'not-found' | 'not-ready'
+
+/** the injected halves of {@link revealWorkbookText} — the composition's seams */
+export interface WorkbookTextRevealDeps {
+  /** workbook-wide find (values, case-insensitive) — the existence authority */
+  find(options: FindCellsOptions): Promise<FindCellsOutcome>
+  /** a match's sheet name → the live workbook's sheet id */
+  sheetIdOf(sheetName: string): string | undefined
+  /** activate + load + scroll the one cell — the jump, which can fail transiently */
+  selectFirstCell(sheetId: string, bounds: RangeBounds): Promise<boolean>
+}
+
+/**
+ * The search deep link's reveal (issue #56), extracted so the composition is
+ * testable: find the text workbook-wide, then land on the first match. The
+ * find decides existence — a conclusive miss is terminal (`not-found`, the
+ * shell stops asking), but an *inconclusive* one is not: an empty result
+ * carrying `incompleteSheets` (the lazy sidecar still indexing, a range-read
+ * failure) or an `error` means "not answerable yet", not "absent" — that is
+ * `not-ready`, exactly like a SELECT that fails inside Univer's boot window
+ * (render controllers still registering, the QuantityCheckError the
+ * post-open restore path defends against too): the ask loop retries both.
+ */
+export async function revealWorkbookText(
+  deps: WorkbookTextRevealDeps,
+  text: string,
+): Promise<TextRevealOutcome> {
+  const outcome = await deps.find({
+    query: text,
+    regex: false,
+    lookIn: 'values',
+    errorsOnly: false,
+    maxResults: 1,
+  })
+  const first = outcome.matches[0]
+  if (!first) {
+    // an inconclusive find (sheets still indexing / a read error) must not
+    // read as "the text does not occur" — retry instead of concluding
+    return outcome.incompleteSheets.length > 0 || outcome.error !== undefined
+      ? 'not-ready'
+      : 'not-found'
+  }
+  const sheetId = deps.sheetIdOf(first.sheetName)
+  let cell: { row: number; column: number } | null = null
+  try {
+    cell = parseAddress(first.address)
+  } catch {
+    // a match address the A1 parser rejects cannot be selected; treat as
+    // not found rather than jumping somewhere wrong
+    cell = null
+  }
+  if (!sheetId || !cell) return 'not-found'
+  const selected = await deps.selectFirstCell(sheetId, {
+    startRow: cell.row,
+    startColumn: cell.column,
+    endRow: cell.row,
+    endColumn: cell.column,
+  })
+  return selected ? 'revealed' : 'not-ready'
+}

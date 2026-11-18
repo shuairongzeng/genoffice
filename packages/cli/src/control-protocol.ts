@@ -19,12 +19,17 @@ export interface ControlEndpoint {
   token: string
 }
 
-/** Where to put the caret / selection in an open document; one kind per file type. */
+/**
+ * Where to put the caret / selection in an open document; one structural kind
+ * per file type, plus the universal text target — the first find match —
+ * which any editor with a find can answer (the search deep link, issue #56).
+ */
 export type ControlTarget =
   | { kind: 'slide'; slide: number; el?: string }
   | { kind: 'block'; block: number }
   | { kind: 'range'; sheet?: string; range: string }
   | { kind: 'page'; page: number }
+  | { kind: 'text'; text: string }
 
 /**
  * The desktop domain: the Home surface's own state (wallpaper, icon layout,
