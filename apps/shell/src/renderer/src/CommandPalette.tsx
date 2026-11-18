@@ -45,6 +45,12 @@ const noopSettings = (_target: SettingsTarget): void => {}
  * and help rows route through `onOpenSettings` / the openHelp bridge for the
  * same reason. Picking a plugin toggles it on or off — noted in the module
  * docs.
+ *
+ * The palette also mounts in a file scope (Home's Ctrl/Cmd+P, VS Code
+ * quick-open semantics — issue #56 P0 #3's chord treaty): the providers
+ * marked `fileQuickOpen` (recents, open tabs, the file index, the ask
+ * fallback) answer and the command-shaped sources stand down, so Ctrl/Cmd+P
+ * lists documents while Ctrl/Cmd+K lists everything.
  */
 export function CommandPalette({
   lang,
@@ -52,6 +58,7 @@ export function CommandPalette({
   onAskAi = noopAskAi,
   onOpenSettings = noopSettings,
   providers,
+  scope,
 }: {
   readonly lang: Lang
   readonly onClose: () => void
@@ -61,6 +68,10 @@ export function CommandPalette({
   readonly onOpenSettings?: (target: SettingsTarget) => void
   /** test seam: a custom registry; production uses the default providers */
   readonly providers?: readonly PaletteProvider[]
+  /** 'files': the quick-open shape — only the providers marked fileQuickOpen
+   *  answer (also applies to a custom registry); the full registry is the
+   *  no-scope mount */
+  readonly scope?: 'files'
 }) {
   const strings = COMMAND_PALETTE_STRINGS[lang]
   const [query, setQuery] = useState('')
@@ -103,7 +114,13 @@ export function CommandPalette({
     }
   }, [])
 
-  const providerList = useMemo(() => providers ?? defaultPaletteProviders(), [providers])
+  const providerList = useMemo(
+    () =>
+      (providers ?? defaultPaletteProviders()).filter((p) =>
+        scope ? p.fileQuickOpen === true : true,
+      ),
+    [providers, scope],
+  )
   const [rows, setRows] = useState<PaletteRow[]>([])
   /** bumped when a provider improves an already-answered query (the files
    *  source reorders once the decision model's judgement lands) */
@@ -274,7 +291,7 @@ export function CommandPalette({
             ref={inputRef}
             className="cmd-input"
             value={query}
-            placeholder={strings.placeholder}
+            placeholder={scope === 'files' ? strings.placeholderFiles : strings.placeholder}
             aria-label={strings.inputLabel}
             role="combobox"
             aria-expanded="true"

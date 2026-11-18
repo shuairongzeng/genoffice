@@ -98,6 +98,12 @@ export interface PaletteProvider {
   readonly subscribe?: (listener: () => void) => () => void
   /** optional: release background work (pending timers) when the palette closes */
   readonly dispose?: () => void
+  /** optional: participates in the palette's file scope — Home's Ctrl/Cmd+P
+   *  quick-open (VS Code semantics, issue #56 P0 #3). The document sources
+   *  (recent files, open tabs, the file index) and the ask fallback carry it;
+   *  the command-shaped sources stay Ctrl/Cmd+K-only, so one chord lists
+   *  documents and the other lists everything */
+  readonly fileQuickOpen?: boolean
 }
 
 // ── the default registry ──
@@ -149,6 +155,7 @@ function createRecentsProvider(): PaletteProvider {
   return {
     id: 'recent',
     priority: PRIORITY.recent,
+    fileQuickOpen: true,
     getRows(query, ctx) {
       const rows = (ctx.recents ?? []).map((entry) =>
         plainRow(
@@ -343,6 +350,7 @@ export function createTabsProvider(): PaletteProvider {
   return {
     id: 'tabs',
     priority: PRIORITY.tabs,
+    fileQuickOpen: true,
     async getRows(query) {
       const tabs = await listTabs()
       const rows = tabs
@@ -750,6 +758,7 @@ export function createFilesProvider(options?: {
   return {
     id: 'files',
     priority: PRIORITY.files,
+    fileQuickOpen: true,
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -855,6 +864,7 @@ export function createAskAiProvider(): PaletteProvider {
   return {
     id: 'ask',
     priority: PRIORITY.ask,
+    fileQuickOpen: true,
     getRows(query, ctx) {
       const q = query.trim()
       if (!q) return []
