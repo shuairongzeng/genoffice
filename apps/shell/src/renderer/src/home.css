@@ -4360,6 +4360,103 @@ html[dir='rtl'] .quick-title-row {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.kb-ask-activities {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.kb-ask-activity {
+  min-width: 0;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-8, 8px);
+  background: var(--color-bg-page);
+}
+.kb-ask-activity > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 9px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+  color: var(--text-muted);
+  user-select: none;
+}
+.kb-ask-activity > summary::-webkit-details-marker {
+  display: none;
+}
+.kb-ask-activity > summary > svg {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+.kb-ask-activity-label {
+  flex-shrink: 0;
+  color: var(--text);
+}
+.kb-ask-activity-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-ask-activity-status {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 6px;
+}
+.kb-ask-activity-running > summary {
+  border-left: 2px solid var(--accent);
+}
+.kb-ask-activity-running .kb-ask-activity-status {
+  color: var(--accent);
+}
+.kb-ask-activity-done .kb-ask-activity-status {
+  color: var(--accent);
+}
+.kb-ask-activity-error,
+.kb-ask-activity-denied,
+.kb-ask-activity-cancelled {
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+}
+.kb-ask-activity-error .kb-ask-activity-status,
+.kb-ask-activity-denied .kb-ask-activity-status,
+.kb-ask-activity-cancelled .kb-ask-activity-status {
+  color: var(--danger);
+}
+.kb-ask-activity-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 9px 9px;
+}
+.kb-ask-activity-name {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.kb-ask-activity-body section > h4 {
+  margin: 0 0 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+.kb-ask-activity-body pre {
+  max-height: 240px;
+  margin: 0;
+  padding: 7px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .kb-ask-tool-count {
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;

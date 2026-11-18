@@ -1,6 +1,13 @@
 import type { Dict } from './zh'
 
 export const nl: Dict = {
+  askToolStatusRunning: 'Running',
+  askToolStatusDone: 'Done',
+  askToolStatusError: 'Failed',
+  askToolStatusDenied: 'Denied',
+  askToolStatusCancelled: 'Cancelled',
+  askToolInput: 'Input',
+  askToolOutput: 'Output',
   ok: 'OK',
   navRecent: 'Recent',
   navStarred: 'Favorieten',

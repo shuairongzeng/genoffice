@@ -740,8 +740,8 @@ describe("the three-state card and the conversation's session allows", () => {
     expect(host.querySelector('.kb-ask-subagent')).toBeNull()
     const toolMessage = started[1]!.messages.find((m) => m.role === 'tool')
     expect(toolMessage?.results?.[0]?.output).toContain('inserted the section')
-    // the transcript chip records that the assistant ran
-    expect(host.querySelector('.kb-ask-tool-note')?.textContent).toContain(
+    // the activity card records that the assistant ran
+    expect(host.querySelector('.kb-ask-activity')?.textContent).toContain(
       'Ran the document assistant',
     )
   })

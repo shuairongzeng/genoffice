@@ -1,6 +1,13 @@
 import type { Dict } from './zh'
 
 export const zhTW: Dict = {
+  askToolStatusRunning: 'Running',
+  askToolStatusDone: 'Done',
+  askToolStatusError: 'Failed',
+  askToolStatusDenied: 'Denied',
+  askToolStatusCancelled: 'Cancelled',
+  askToolInput: 'Input',
+  askToolOutput: 'Output',
   ok: '確定',
   navRecent: '最近',
   navStarred: '收藏',

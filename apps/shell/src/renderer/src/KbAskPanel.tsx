@@ -117,7 +117,14 @@ import {
   normalizeBrowserAskAbout,
 } from './ask-browser'
 import { artifactFromCall, retryInstruction, settleArtifact, type Artifact } from './ask-artifacts'
-import { appendToolNote, toolNoteDetail, toolNoteKind, type ToolNote } from './ask-tool-notes'
+import { finishAskToolActivity, startAskToolActivity, type AskToolActivity } from './ask-activity'
+import {
+  appendToolNote,
+  toolNoteDetail,
+  toolNoteKind,
+  type ToolNote,
+  type ToolNoteKind,
+} from './ask-tool-notes'
 import { RunRecorder, runsBridgeOf } from './ask-runs'
 import { RafFlushQueue } from './ask-stream'
 import { useStickToBottom } from './use-stick-to-bottom'
@@ -296,10 +303,65 @@ function KbThinkingBlock({ text, live, label }: { text: string; live: boolean; l
   )
 }
 
+function KbToolKindIcon({ kind }: { kind: ToolNoteKind }): React.JSX.Element {
+  if (kind === 'search') return <IconSearch />
+  if (kind === 'create' || kind === 'cli') return <IconFilePlus />
+  if (kind === 'edit') return <IconEdit />
+  if (kind === 'delete') return <IconTrash />
+  return <IconFileText />
+}
+
+const TOOL_ACTIVITY_STATUS_LABEL: Record<AskToolActivity['status'], StringKey> = {
+  running: 'askToolStatusRunning',
+  done: 'askToolStatusDone',
+  error: 'askToolStatusError',
+  denied: 'askToolStatusDenied',
+  cancelled: 'askToolStatusCancelled',
+}
+
+function KbToolActivityCard({
+  activity,
+  label,
+  detail,
+}: {
+  activity: AskToolActivity
+  label: string
+  detail?: string
+}): React.JSX.Element {
+  const { t } = useI18n()
+  return (
+    <details className={`kb-ask-activity kb-ask-activity-${activity.status}`}>
+      <summary>
+        <KbToolKindIcon kind={toolNoteKind(activity.call)} />
+        <span className="kb-ask-activity-label">{label}</span>
+        {detail && <span className="kb-ask-activity-detail">{detail}</span>}
+        <span className="kb-ask-activity-status">
+          {t(TOOL_ACTIVITY_STATUS_LABEL[activity.status])}
+        </span>
+      </summary>
+      <div className="kb-ask-activity-body">
+        <code className="kb-ask-activity-name">{activity.name}</code>
+        <section>
+          <h4>{t('askToolInput')}</h4>
+          <pre>{activity.inputPreview}</pre>
+        </section>
+        {activity.outputPreview !== undefined && (
+          <section>
+            <h4>{t('askToolOutput')}</h4>
+            <pre>{activity.outputPreview}</pre>
+          </section>
+        )}
+      </div>
+    </details>
+  )
+}
+
 interface AskMessage {
   role: 'user' | 'assistant'
   text: string
   toolNotes: ToolNote[]
+  /** individual tool calls and their outcomes (live/mirror state; not persisted) */
+  activities?: AskToolActivity[]
   /** the files this answer set out to build, with their progress (task card) */
   artifacts: Artifact[]
   streaming?: boolean
@@ -727,21 +789,22 @@ const AskMessageRow = memo(function AskMessageRow({
           onDeny={onDeny}
         />
       )}
-      {m.role === 'assistant' && showToolCalls && m.toolNotes.length > 0 && (
+      {m.role === 'assistant' && showToolCalls && (m.activities?.length ?? 0) > 0 ? (
+        <div className="kb-ask-activities">
+          {m.activities!.map((activity) => (
+            <KbToolActivityCard
+              key={activity.id}
+              activity={activity}
+              label={t(TOOL_NOTE_LABEL[toolNoteKind(activity.call)])}
+              detail={activity.detail ?? toolNoteDetail(activity.call)}
+            />
+          ))}
+        </div>
+      ) : m.role === 'assistant' && showToolCalls && m.toolNotes.length > 0 ? (
         <div className="kb-ask-tools">
           {m.toolNotes.map((note, j) => (
             <span key={j} className="kb-ask-tool-note">
-              {note.kind === 'search' ? (
-                <IconSearch />
-              ) : note.kind === 'create' || note.kind === 'cli' ? (
-                <IconFilePlus />
-              ) : note.kind === 'edit' ? (
-                <IconEdit />
-              ) : note.kind === 'delete' ? (
-                <IconTrash />
-              ) : (
-                <IconFileText />
-              )}
+              <KbToolKindIcon kind={note.kind} />
               {note.label}
               {note.detail && <span className="kb-ask-tool-detail">{note.detail}</span>}
               {note.count > 1 && <span className="kb-ask-tool-count">×{note.count}</span>}
@@ -749,7 +812,7 @@ const AskMessageRow = memo(function AskMessageRow({
             </span>
           ))}
         </div>
-      )}
+      ) : null}
       {m.role === 'assistant' && m.subAgent && (
         <div className="kb-ask-subagent" role="status">
           <span className="kb-ask-subagent-label">{t('askDocAgentLabel')}</span>
@@ -937,7 +1000,8 @@ export function KbAskPanel({
   onBubbleDragStart,
   surfaceRole = 'home',
   mirror = false,
-}: {  /**
+}: {
+  /**
    * The transcript this mount owns (P0-1): project-store takes the id
    * verbatim for a file-less chat, so two mounts of this panel (Home's copy
    * and the overlay's standalone one) must pass different ids or their
@@ -1427,142 +1491,152 @@ export function KbAskPanel({
       busy && last?.role === 'assistant' && last.streaming
         ? { text: last.text, reasoning: runReasoningRef.current, busy: true }
         : null
-    window.aiOffice.askRunEvent?.({
+    window.aiOffice?.askRunEvent?.({
       type: 'snapshot',
       payload: { messages: messagesRef.current, liveRun },
     })
   }
 
-    /* ── the run-event handlers, shared by this mount's own loop AND by the
-     * mirror mounts' relay (pub/sub): Home's loop publishes each event over
-     * home:ask-run-event, a mirror mount applies the relayed event through
-     * the SAME handlers, so both mounts render one identical run. */
-    const runEventHandlers = {
-      onText: (text: string) => patchLast({ text }),
-      onReasoning: (text: string) => {
-        runReasoningRef.current += text
-        patchLast({ reasoning: runReasoningRef.current })
-      },
-      onToolExecuted: ({ call, execution }: { call: AgentToolCall; execution: ToolExecution }) => {
-        // a successful create_document names the file it saved: the lineage
-        // record's path half (the settled artifact parse's own regex)
-        if (call.name === CREATE_DOCUMENT_TOOL && !execution.isError) {
-          const path = /^\s*path: (.+)$/m.exec(execution.output)?.[1]?.trim()
-          if (path) {
-            pendingLineageRef.current = {
-              path,
-              task: runInstructionRef.current,
-            }
+  /* ── the run-event handlers, shared by this mount's own loop AND by the
+   * mirror mounts' relay (pub/sub): Home's loop publishes each event over
+   * home:ask-run-event, a mirror mount applies the relayed event through
+   * the SAME handlers, so both mounts render one identical run. */
+  const runEventHandlers = {
+    onText: (text: string) => patchLast({ text }),
+    onReasoning: (text: string) => {
+      runReasoningRef.current += text
+      patchLast({ reasoning: runReasoningRef.current })
+    },
+    onToolExecuted: ({ call, execution }: { call: AgentToolCall; execution: ToolExecution }) => {
+      // a successful create_document names the file it saved: the lineage
+      // record's path half (the settled artifact parse's own regex)
+      if (call.name === CREATE_DOCUMENT_TOOL && !execution.isError) {
+        const path = /^\s*path: (.+)$/m.exec(execution.output)?.[1]?.trim()
+        if (path) {
+          pendingLineageRef.current = {
+            path,
+            task: runInstructionRef.current,
           }
         }
-        patchLast(
-          (last) => ({
-            artifacts: settleArtifact(last.artifacts, call, execution),
-            // the sub-agent's live line ends with the call that carried it
-            ...(call.name === DOCUMENT_AGENT_TOOL ? { subAgent: undefined } : {}),
-          }),
-          { sync: true },
-        )
-      },
-      onToolStart: (call: AgentToolCall) => {
-        // a delegated task begins its rolling status line immediately — sync
-        if (call.name === DOCUMENT_AGENT_TOOL) {
-          patchLast((last) => ({ ...last, subAgent: { kind: 'other' } }), { sync: true })
-        }
-        patchLast((last) => ({
-          artifacts: (() => {
-            const started = artifactFromCall(call, cliContextRef.current?.outDir)
-            return started ? [...last.artifacts, started] : last.artifacts
-          })(),
-          toolNotes: appendToolNote(last.toolNotes, {
-            kind: toolNoteKind(call),
-            label: t(TOOL_NOTE_LABEL[toolNoteKind(call)]),
-            detail: toolNoteDetail(
-              call,
-              (index) => corpusRef.current[index]?.name,
-              (index) => availableAttachments()[index]?.name,
-            ),
-            count: 1,
-          }),
-        }))
-      },
-      onDone: () => finishLast(),
-      onUsage: (usage: AgentTokenUsage) => {
-        runUsageRef.current = addTokenUsage(runUsageRef.current, usage)
-        setSessionUsage((prev) => addTokenUsage(prev, usage))
-        patchLast({ usage: runUsageRef.current }, { sync: true })
-      },
-      onError: (error: string) =>
-        patchLast(
-          (last) => ({
-            text: last.text || error,
-            streaming: false,
-            isError: !last.text,
-          }),
-          { sync: true },
+      }
+      patchLast(
+        (last) => ({
+          activities: finishAskToolActivity(last.activities ?? [], call, execution),
+          artifacts: settleArtifact(last.artifacts, call, execution),
+          // the sub-agent's live line ends with the call that carried it
+          ...(call.name === DOCUMENT_AGENT_TOOL ? { subAgent: undefined } : {}),
+        }),
+        { sync: true },
+      )
+    },
+    onToolStart: (call: AgentToolCall) => {
+      // a delegated task begins its rolling status line immediately — sync
+      if (call.name === DOCUMENT_AGENT_TOOL) {
+        patchLast((last) => ({ ...last, subAgent: { kind: 'other' } }), { sync: true })
+      }
+      const detail = toolNoteDetail(
+        call,
+        (index) => corpusRef.current[index]?.name,
+        (index) => availableAttachments()[index]?.name,
+      )
+      patchLast((last) => ({
+        activities: startAskToolActivity(last.activities ?? [], call).map((activity) =>
+          activity.id === call.id ? { ...activity, detail: detail ?? activity.detail } : activity,
         ),
+        artifacts: (() => {
+          const started = artifactFromCall(call, cliContextRef.current?.outDir)
+          return started ? [...last.artifacts, started] : last.artifacts
+        })(),
+        toolNotes: appendToolNote(last.toolNotes, {
+          kind: toolNoteKind(call),
+          label: t(TOOL_NOTE_LABEL[toolNoteKind(call)]),
+          detail,
+          count: 1,
+        }),
+      }))
+    },
+    onDone: () => finishLast(),
+    onUsage: (usage: AgentTokenUsage) => {
+      runUsageRef.current = addTokenUsage(runUsageRef.current, usage)
+      setSessionUsage((prev) => addTokenUsage(prev, usage))
+      patchLast({ usage: runUsageRef.current }, { sync: true })
+    },
+    onError: (error: string) =>
+      patchLast(
+        (last) => ({
+          text: last.text || error,
+          streaming: false,
+          isError: !last.text,
+        }),
+        { sync: true },
+      ),
+  }
+  /** apply one relayed run event through the same handlers the loop uses */
+  const applyRunEvent = (type: string, payload: unknown): void => {
+    switch (type) {
+      case 'text':
+        runEventHandlers.onText(payload as string)
+        break
+      case 'reasoning':
+        runEventHandlers.onReasoning(payload as string)
+        break
+      case 'tool-start':
+        runEventHandlers.onToolStart(payload as AgentToolCall)
+        break
+      case 'tool-executed':
+        runEventHandlers.onToolExecuted(
+          payload as { call: AgentToolCall; execution: ToolExecution },
+        )
+        break
+      case 'done':
+        runEventHandlers.onDone()
+        break
+      case 'usage':
+        runEventHandlers.onUsage(payload as AgentTokenUsage)
+        break
+      case 'error':
+        runEventHandlers.onError(payload as string)
+        break
+      default:
+        break
     }
-    /** apply one relayed run event through the same handlers the loop uses */
-    const applyRunEvent = (type: string, payload: unknown): void => {
-      switch (type) {
-        case 'text':
-          runEventHandlers.onText(payload as string)
-          break
-        case 'reasoning':
-          runEventHandlers.onReasoning(payload as string)
-          break
-        case 'tool-start':
-          runEventHandlers.onToolStart(payload as AgentToolCall)
-          break
-        case 'tool-executed':
-          runEventHandlers.onToolExecuted(payload as { call: AgentToolCall; execution: ToolExecution })
-          break
-        case 'done':
-          runEventHandlers.onDone()
-          break
-        case 'usage':
-          runEventHandlers.onUsage(payload as AgentTokenUsage)
-          break
-        case 'error':
-          runEventHandlers.onError(payload as string)
-          break
-        default:
-          break
-      }
-    }
-    /** one relayed user-message event: append it like a local send would */
-    const appendUserMessage = (entry: { role: 'user'; text: string }): void => {
-      mutateMessages((prev) => [...prev, { role: 'user', text: entry.text, toolNotes: [], artifacts: [] }])
-    }
-    // the mirror mount's subscriptions: the snapshot + every later run event
-    useEffect(() => {
-      if (!mirror) return
-      const api = window.aiOffice as Partial<HomeApi>
-      let mounted = true
-      void api.askRunSnapshot?.().then((snap) => {
-        if (!mounted || !snap) return
-        mutateMessages(() => snap.messages as AskMessage[])
+  }
+  /** one relayed user-message event: append it like a local send would */
+  const appendUserMessage = (entry: { role: 'user'; text: string }): void => {
+    mutateMessages((prev) => [
+      ...prev,
+      { role: 'user', text: entry.text, toolNotes: [], artifacts: [] },
+    ])
+  }
+  // the mirror mount's subscriptions: the snapshot + every later run event
+  useEffect(() => {
+    if (!mirror) return
+    const api = window.aiOffice as Partial<HomeApi>
+    let mounted = true
+    void api.askRunSnapshot?.().then((snap) => {
+      if (!mounted || !snap) return
+      mutateMessages(() => snap.messages as AskMessage[])
+      setBusy(snap.liveRun?.busy ?? false)
+    })
+    const off = api.onAskRunEvent?.((evt) => {
+      if (evt.type === 'snapshot') {
+        const snap = evt.payload as { messages: AskMessage[]; liveRun?: { busy?: boolean } | null }
+        mutateMessages(() => snap.messages)
         setBusy(snap.liveRun?.busy ?? false)
-      })
-      const off = api.onAskRunEvent?.((evt) => {
-        if (evt.type === 'snapshot') {
-          const snap = evt.payload as { messages: AskMessage[]; liveRun?: { busy?: boolean } | null }
-          mutateMessages(() => snap.messages)
-          setBusy(snap.liveRun?.busy ?? false)
-          return
-        }
-        if (evt.type === 'user-message') {
-          appendUserMessage(evt.payload as { role: 'user'; text: string })
-          return
-        }
-        applyRunEvent(evt.type, evt.payload)
-      })
-      return () => {
-        mounted = false
-        off?.()
+        return
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- the mirror's subscription is a mount-time contract
-    }, [mirror])
+      if (evt.type === 'user-message') {
+        appendUserMessage(evt.payload as { role: 'user'; text: string })
+        return
+      }
+      applyRunEvent(evt.type, evt.payload)
+    })
+    return () => {
+      mounted = false
+      off?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the mirror's subscription is a mount-time contract
+  }, [mirror])
 
   /** where this panel's transcript lives, once project-store has answered */
   const [activeChat, setActiveChat] = useState<string>(chatId)
@@ -1773,7 +1847,7 @@ export function KbAskPanel({
     // event still goes out so every other mount sees the new turn
     if (mirror) {
       if (entry.role === 'user') {
-        window.aiOffice.askRunEvent?.({ type: 'user-message', payload: entry })
+        window.aiOffice?.askRunEvent?.({ type: 'user-message', payload: entry })
       }
       publishSnapshot()
       return
@@ -2335,131 +2409,136 @@ export function KbAskPanel({
       },
     })
 
-    if (!mirror) loopRef.current = new AgentLoop({
-      transport: createIpcTransport<AiSettings>({
-        onStream: (listener) => window.aiOffice.onAiStream(listener),
-        start: (request) => window.aiOffice.aiStream(request),
-        cancel: (requestId) => void window.aiOffice.aiStreamCancel(requestId),
-        getSettings: () => settingsRef.current as AiSettings,
-        unknownErrorText: () => t('askUnknownError'),
-      }),
-      // the paranoid posture's gate: while the mode answers here, EVERY tool
-      // call reaches confirmTool (the gate itself classifies reads and
-      // resolves them without a card). A getter read per call, so a mid-
-      // session mode flip changes the gate without rebuilding the loop
-      confirmAllTools: () => permissionModeRef.current === 'paranoid',
-      // The approval gate consults the PERMISSION MODE first, then the
-      // app-session allow set, then cards:
-      //
-      // - auto (完全自动): every tool runs — deletion included, whose honest
-      //   safety net is the OS trash (delete_file moves files there, so
-      //   "fully automatic" is recoverable, not irreversible; the tool-note
-      //   chip still records each run). The card's decision-relevant
-      //   summaries (edit sizes, the delegation's target pin) are skipped
-      //   with it — there is nothing to decide.
-      // - smart (必要时询问, the default): today's matrix — risk:'high' tools
-      //   card once per app session (the set is MAIN-side now, so the other
-      //   panel mount and the next thread both honor an always-allow),
-      //   'always-ask' tools (delete_file) card every single time, reads
-      //   never card.
-      // - paranoid (始终询问): every call with a side effect cards (the risk-
-      //   graded ones plus the shell operator's visible acts — see
-      //   PARANOID_CARDS_TOOLS); pure reads stay cardless, and the card
-      //   offers no always-allow button: the posture says ask every time, so
-      //   a button whose grant this mode never consults would be a lie.
-      //
-      // Before the card parks, the decision-relevant facts the truncated
-      // arguments preview cannot be trusted to show get their own line:
-      // edit_file's removed/added sizes (the preview caps at 400 chars) and
-      // document_agent's target document (pinned for the run).
-      confirmTool: async (call, tool) => {
-        const mode = permissionModeRef.current
-        if (mode === 'auto') return true
-        if (mode === 'paranoid') {
-          if (!toolHasSideEffect(call, tool)) return true
-          let argsSummary: string | undefined
-          if (call.name === EDIT_FILE_TOOL) argsSummary = await editFileArgsSummary(call.input)
-          else if (call.name === DOCUMENT_AGENT_TOOL) argsSummary = await describeAgentTarget()
-          return confirm.confirm(argsSummary === undefined ? call : { ...call, argsSummary }, {
-            sessionAllowable: false,
-          })
-        }
-        // smart: the app-session consult (an absent channel answers false —
-        // the card shows, fail closed), never for the destructive grade
-        if (tool?.risk !== 'always-ask' && (await sessionAllows(call.name)) === true) {
-          return true
-        }
-        let argsSummary: string | undefined
-        if (call.name === EDIT_FILE_TOOL) {
-          argsSummary = await editFileArgsSummary(call.input)
-        } else if (call.name === DOCUMENT_AGENT_TOOL) {
-          argsSummary = await describeAgentTarget()
-        }
-        return confirm.confirm(argsSummary === undefined ? call : { ...call, argsSummary }, {
-          sessionAllowable: tool?.risk !== 'always-ask',
-        })
-      },
-      skill: composeSkills('home-ask', '', [
-        createKnowledgeBaseSkill({
-          listFiles: () => corpusRef.current,
-          // the search dep adapts the kb:search answer (bare array or the
-          // scoped {hits, notIndexed} object) and feeds the chip's hint; the
-          // round scope rides each call the skill attaches
-          search: createKbSearchDep(
-            (query) => window.aiOffice.kbSearch(query),
-            (paths) => setScopeNotIndexed(paths),
-            () => scopeRef.current,
-          ),
-          read: (path, offset, opts) => window.aiOffice.kbRead(path, offset, opts?.scopePaths),
-          // the round scope, live: the loop re-reads the prompt and tools
-          // before every model request, so the chip governs without a rebuild
-          scopePaths: () => scopeRef.current,
-          alsoCitable: () => [
-            ...docSkill.createdPaths(),
-            ...cliSkill.createdPaths(),
-            ...availableAttachments().map((a) => a.path),
-          ],
+    if (!mirror)
+      loopRef.current = new AgentLoop({
+        transport: createIpcTransport<AiSettings>({
+          onStream: (listener) => window.aiOffice.onAiStream(listener),
+          start: (request) => window.aiOffice.aiStream(request),
+          cancel: (requestId) => void window.aiOffice?.aiStreamCancel?.(requestId),
+          getSettings: () => settingsRef.current as AiSettings,
+          unknownErrorText: () => t('askUnknownError'),
         }),
-        filesSkill,
-        docSkill,
-        fileOpsSkill,
-        documentAgentSkill,
-        cliSkill,
-        appSkill,
-        browserSkill,
-        shellSkill,
-      ]),
-      events: {
-        onText: (text) => {
-          runEventHandlers.onText(text)
-          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'text', payload: text })
+        // the paranoid posture's gate: while the mode answers here, EVERY tool
+        // call reaches confirmTool (the gate itself classifies reads and
+        // resolves them without a card). A getter read per call, so a mid-
+        // session mode flip changes the gate without rebuilding the loop
+        confirmAllTools: () => permissionModeRef.current === 'paranoid',
+        // The approval gate consults the PERMISSION MODE first, then the
+        // app-session allow set, then cards:
+        //
+        // - auto (完全自动): every tool runs — deletion included, whose honest
+        //   safety net is the OS trash (delete_file moves files there, so
+        //   "fully automatic" is recoverable, not irreversible; the activity
+        //   cards still record each run). The card's decision-relevant
+        //   summaries (edit sizes, the delegation's target pin) are skipped
+        //   with it — there is nothing to decide.
+        // - smart (必要时询问, the default): today's matrix — risk:'high' tools
+        //   card once per app session (the set is MAIN-side now, so the other
+        //   panel mount and the next thread both honor an always-allow),
+        //   'always-ask' tools (delete_file) card every single time, reads
+        //   never card.
+        // - paranoid (始终询问): every call with a side effect cards (the risk-
+        //   graded ones plus the shell operator's visible acts — see
+        //   PARANOID_CARDS_TOOLS); pure reads stay cardless, and the card
+        //   offers no always-allow button: the posture says ask every time, so
+        //   a button whose grant this mode never consults would be a lie.
+        //
+        // Before the card parks, the decision-relevant facts the truncated
+        // arguments preview cannot be trusted to show get their own line:
+        // edit_file's removed/added sizes (the preview caps at 400 chars) and
+        // document_agent's target document (pinned for the run).
+        confirmTool: async (call, tool) => {
+          const mode = permissionModeRef.current
+          if (mode === 'auto') return true
+          if (mode === 'paranoid') {
+            if (!toolHasSideEffect(call, tool)) return true
+            let argsSummary: string | undefined
+            if (call.name === EDIT_FILE_TOOL) argsSummary = await editFileArgsSummary(call.input)
+            else if (call.name === DOCUMENT_AGENT_TOOL) argsSummary = await describeAgentTarget()
+            return confirm.confirm(argsSummary === undefined ? call : { ...call, argsSummary }, {
+              sessionAllowable: false,
+            })
+          }
+          // smart: the app-session consult (an absent channel answers false —
+          // the card shows, fail closed), never for the destructive grade
+          if (tool?.risk !== 'always-ask' && (await sessionAllows(call.name)) === true) {
+            return true
+          }
+          let argsSummary: string | undefined
+          if (call.name === EDIT_FILE_TOOL) {
+            argsSummary = await editFileArgsSummary(call.input)
+          } else if (call.name === DOCUMENT_AGENT_TOOL) {
+            argsSummary = await describeAgentTarget()
+          }
+          return confirm.confirm(argsSummary === undefined ? call : { ...call, argsSummary }, {
+            sessionAllowable: tool?.risk !== 'always-ask',
+          })
         },
-        onReasoning: (text) => {
-          runEventHandlers.onReasoning(text)
-          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'reasoning', payload: text })
+        skill: composeSkills('home-ask', '', [
+          createKnowledgeBaseSkill({
+            listFiles: () => corpusRef.current,
+            // the search dep adapts the kb:search answer (bare array or the
+            // scoped {hits, notIndexed} object) and feeds the chip's hint; the
+            // round scope rides each call the skill attaches
+            search: createKbSearchDep(
+              (query) => window.aiOffice.kbSearch(query),
+              (paths) => setScopeNotIndexed(paths),
+              () => scopeRef.current,
+            ),
+            read: (path, offset, opts) => window.aiOffice.kbRead(path, offset, opts?.scopePaths),
+            // the round scope, live: the loop re-reads the prompt and tools
+            // before every model request, so the chip governs without a rebuild
+            scopePaths: () => scopeRef.current,
+            alsoCitable: () => [
+              ...docSkill.createdPaths(),
+              ...cliSkill.createdPaths(),
+              ...availableAttachments().map((a) => a.path),
+            ],
+          }),
+          filesSkill,
+          docSkill,
+          fileOpsSkill,
+          documentAgentSkill,
+          cliSkill,
+          appSkill,
+          browserSkill,
+          shellSkill,
+        ]),
+        events: {
+          onText: (text) => {
+            runEventHandlers.onText(text)
+            if (!mirror) window.aiOffice?.askRunEvent?.({ type: 'text', payload: text })
+          },
+          onReasoning: (text) => {
+            runEventHandlers.onReasoning(text)
+            if (!mirror) window.aiOffice?.askRunEvent?.({ type: 'reasoning', payload: text })
+          },
+          onToolExecuted: ({ call, execution }) => {
+            runEventHandlers.onToolExecuted({ call, execution })
+            if (!mirror)
+              window.aiOffice?.askRunEvent?.({
+                type: 'tool-executed',
+                payload: { call, execution },
+              })
+          },
+          onToolStart: (call) => {
+            runEventHandlers.onToolStart(call)
+            if (!mirror) window.aiOffice?.askRunEvent?.({ type: 'tool-start', payload: call })
+          },
+          onDone: () => {
+            runEventHandlers.onDone()
+            if (!mirror) window.aiOffice?.askRunEvent?.({ type: 'done', payload: null })
+          },
+          onUsage: (usage) => {
+            runEventHandlers.onUsage(usage)
+            if (!mirror) window.aiOffice?.askRunEvent?.({ type: 'usage', payload: usage })
+          },
+          onError: (error) => {
+            runEventHandlers.onError(error)
+            if (!mirror) window.aiOffice?.askRunEvent?.({ type: 'error', payload: error })
+          },
         },
-        onToolExecuted: ({ call, execution }) => {
-          runEventHandlers.onToolExecuted({ call, execution })
-          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'tool-executed', payload: { call, execution } })
-        },
-        onToolStart: (call) => {
-          runEventHandlers.onToolStart(call)
-          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'tool-start', payload: call })
-        },
-        onDone: () => {
-          runEventHandlers.onDone()
-          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'done', payload: null })
-        },
-        onUsage: (usage) => {
-          runEventHandlers.onUsage(usage)
-          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'usage', payload: usage })
-        },
-        onError: (error) => {
-          runEventHandlers.onError(error)
-          if (!mirror) window.aiOffice.askRunEvent?.({ type: 'error', payload: error })
-        },
-      },
-    })
+      })
     // The document sub-agent's live status: while a document_agent call runs,
     // the main side relays its progress here and the answer's rolling
     // "文档助手：…" line follows the sub-agent's work (the loop serializes
@@ -2878,7 +2957,14 @@ export function KbAskPanel({
         ...(skills.length > 0 ? { skills: [...skills] } : {}),
         ...(files.length > 0 ? { attachments: [...files] } : {}),
       },
-      { role: 'assistant', text: '', toolNotes: [], artifacts: [], streaming: true },
+      {
+        role: 'assistant',
+        text: '',
+        toolNotes: [],
+        activities: [],
+        artifacts: [],
+        streaming: true,
+      },
     ])
     persist({ role: 'user', text: question })
     try {
@@ -3651,7 +3737,9 @@ export function KbAskPanel({
               <div className="kb-selection-chip" role="status">
                 <span className="kb-selection-chip-dot" aria-hidden />
                 <span className="kb-selection-chip-text">
-                  {editorSelection.length > 120 ? `${editorSelection.slice(0, 120)}…` : editorSelection}
+                  {editorSelection.length > 120
+                    ? `${editorSelection.slice(0, 120)}…`
+                    : editorSelection}
                 </span>
                 <button
                   type="button"

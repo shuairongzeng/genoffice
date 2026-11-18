@@ -1,6 +1,13 @@
 import type { Dict } from './zh'
 
 export const th: Dict = {
+  askToolStatusRunning: 'Running',
+  askToolStatusDone: 'Done',
+  askToolStatusError: 'Failed',
+  askToolStatusDenied: 'Denied',
+  askToolStatusCancelled: 'Cancelled',
+  askToolInput: 'Input',
+  askToolOutput: 'Output',
   ok: 'ตกลง',
   // Sidebar navigation
   navRecent: 'ล่าสุด',

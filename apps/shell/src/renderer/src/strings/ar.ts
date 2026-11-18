@@ -1,6 +1,13 @@
 import type { Dict } from './zh'
 
 export const ar: Dict = {
+  askToolStatusRunning: 'Running',
+  askToolStatusDone: 'Done',
+  askToolStatusError: 'Failed',
+  askToolStatusDenied: 'Denied',
+  askToolStatusCancelled: 'Cancelled',
+  askToolInput: 'Input',
+  askToolOutput: 'Output',
   ok: 'موافق',
   // Sidebar navigation
   navRecent: 'الأخيرة',

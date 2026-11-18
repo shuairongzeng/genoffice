@@ -39,6 +39,7 @@ const SKIP_SIGNATURE = 'skip_thought_signature_validator'
 
 interface GeminiPart {
   text?: string
+  thought?: boolean
   functionCall?: { name?: string; args?: Record<string, unknown> }
   thoughtSignature?: string
   /** snake_case spelling some gateways forward verbatim */
@@ -137,7 +138,8 @@ function emitGeminiJsonMessage(bodyText: string, cb: StreamCallbacks): void {
     for (const part of event.candidates?.[0]?.content?.parts ?? []) {
       if (part.text) {
         emitted = true
-        cb.onDelta(part.text)
+        if (part.thought === true) cb.onReasoningDelta?.(part.text)
+        else cb.onDelta(part.text)
       }
       if (part.functionCall?.name) {
         emitted = true
@@ -281,7 +283,8 @@ async function geminiTurn(
     for (const part of event.candidates?.[0]?.content?.parts ?? []) {
       if (part.text) {
         emitted = true
-        cb.onDelta(part.text)
+        if (part.thought === true) cb.onReasoningDelta?.(part.text)
+        else cb.onDelta(part.text)
       }
       // Gemini emits function calls whole, never as partial JSON
       if (part.functionCall?.name) {
