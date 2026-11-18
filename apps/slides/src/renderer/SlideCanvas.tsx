@@ -33,7 +33,13 @@ import type {
   PictureRenderNode,
   GroupRenderNode,
 } from '@genoffice/pptx-render'
-import { boxPivotProps, fillToKonva, isConnectorNode, isEditableText } from './konva-adapter'
+import {
+  boxPivotProps,
+  fillToKonva,
+  isConnectorNode,
+  isEditableText,
+  type FindSpan,
+} from './konva-adapter'
 import { tableCellAtPoint, tableCellOverlayBox, tableLocalPointFromStage } from './table-hit'
 import { EDGE_GRIP_PX, isPromptPlaceholder, textHitAtPoint } from './text-hit-area'
 import type { EditCaret, EditPointsState } from './action-context'
@@ -428,6 +434,8 @@ interface Props {
   images: Map<string, HTMLImageElement>
   /** Element/cell currently edited in the DOM overlay: canvas skips drawing its text (avoids ghosting under the overlay) */
   editingText?: { sourceId: string; cell?: { row: number; col: number } } | null
+  /** Active find hit (issue #56 P1 #7): the hit's run-level text highlight, cleared when the hit moves on */
+  findHit?: { sourceId: string; spans: FindSpan[] } | null
   /** Canvas CSS zoom (App's zoom): screen-distance semantics such as drag thresholds must be converted back to canvas coordinates */
   zoom?: number
   /** Rubber-band selection (drag a rectangle on blank area): set of elements fully inside the rectangle */
@@ -849,6 +857,7 @@ export function SlideCanvas({
   onContextMenu,
   images,
   editingText,
+  findHit,
   zoom = 1,
   onMarqueeSelect,
   onDuplicateTo,
@@ -1474,6 +1483,7 @@ export function SlideCanvas({
             snapTargets={snapTargets}
             images={images}
             editingText={editingText}
+            findHit={findHit}
             livePreview={selectedIds.length === 1}
             zoom={zoom}
             multiDrag={selectedIds.length > 1 && selectedIds.includes(n.sourceId)}
@@ -2044,6 +2054,9 @@ interface NodeProps {
   selBBox?: { x: number; y: number; w: number; h: number } | null
   images: Map<string, HTMLImageElement>
   editingText?: Props['editingText']
+  /** Active find hit: only the top-level node it names highlights (group
+   *  members never carry spans — their hits select the group, per the dialog) */
+  findHit?: Props['findHit']
   /** Live resize preview only for single selection (multi-select gestures commit per node; the preview's undo-merge semantics don't hold, so it's off) */
   livePreview: boolean
   zoom: number
@@ -2087,6 +2100,7 @@ function NodeView({
   selBBox,
   images,
   editingText,
+  findHit,
   livePreview,
   zoom,
   multiDrag,
@@ -2566,6 +2580,7 @@ function NodeView({
           hideCellText={
             editingText && editingText.sourceId === node.sourceId ? editingText.cell : undefined
           }
+          findHit={findHit}
         />
         {/* Multi-select: PowerPoint-style per-element border so every selected element is visibly selected
           (the shared Transformer only draws one combined box). Lives inside the node group so it follows drags/transforms. */}

@@ -1454,6 +1454,15 @@ export function presetToShapeKind(preset: string | undefined): ShapeKind {
   }
 }
 
+/** One background highlight rect behind a run, covering (part of) its line box. */
+export interface HighlightRect {
+  x: number
+  y: number
+  w: number
+  h: number
+  color: string
+}
+
 /** Absolute positioning of one glyph run as Konva Text (relative to the text box top-left). */
 export interface GlyphDraw {
   text: string
@@ -1475,8 +1484,10 @@ export interface GlyphDraw {
   direction?: 'rtl'
   /** Rotated glyph (eaVert latin words / vert blocks: 90; vert270 blocks: -90; x/y is the rotation anchor) */
   rotation?: number
-  /** Text highlight (<a:rPr><a:highlight>): background rect drawn behind the run, covering the line box */
-  highlight?: { x: number; y: number; w: number; h: number; color: string }
+  /** Text highlight rects (<a:rPr><a:highlight>, or find hits): background
+   *  rects drawn behind the run, covering the line box. One authored highlight
+   *  per run; find hits may add several (one per distinct occurrence). */
+  highlight?: HighlightRect | HighlightRect[]
   shadowColor?: string
   shadowBlur?: number
   shadowOffsetX?: number
@@ -1823,6 +1834,96 @@ export function layoutGlyphs(text: RenderTextLayout | undefined): GlyphDraw[] {
 /** Collect all glyph draws in a shape node (including the offset relative to the text box). */
 export function shapeGlyphs(node: ShapeRenderNode): GlyphDraw[] {
   return layoutGlyphs(node.text)
+}
+
+/** A find hit's position within a node's text (issue #56 P1 #7). */
+export interface FindSpan {
+  /** flat run index in layoutGlyphs iteration order (bullets included) */
+  runIdx: number
+  /** char range within that run's text */
+  start: number
+  end: number
+  /** table cell the span lives in; absent on plain text/shape hits */
+  cell?: { row: number; col: number }
+}
+
+/**
+ * layoutGlyphs with find-hit highlights: each spanned run gains translucent
+ * highlight rects over its line box, the char range interpolated linearly
+ * within the run (the pdf search's rect approximation; RTL runs mirror the
+ * interpolation because their logical char 0 renders at the run's right
+ * edge). Vertical layouts are skipped like authored run highlights — their
+ * lines are whole columns — and WordArt (txWarp) shapes drop them too: the
+ * per-character warp pass in NodeBody rebuilds every run and discards
+ * highlight rects (see the comment at that call site). A run carrying both
+ * an authored highlight and hits shows the hit colors while the hit is
+ * active; the authored one returns when it moves on. Contiguous/overlapping
+ * spans of one run merge into one rect; disjoint ones stay separate so the
+ * text between two occurrences is not painted.
+ */
+export function layoutGlyphsWithFind(
+  text: RenderTextLayout | undefined,
+  spans: readonly FindSpan[],
+  color: string,
+): GlyphDraw[] {
+  const out = layoutGlyphs(text)
+  if (!text || text.vert || !spans.length) return out
+  // per run, its spans' char ranges merged when contiguous or overlapping
+  const byRun = new Map<number, Array<{ start: number; end: number }>>()
+  for (const sp of spans) {
+    const list = byRun.get(sp.runIdx) ?? []
+    const merged = [...list, { start: sp.start, end: sp.end }].sort((a, b) => a.start - b.start)
+    const rects: Array<{ start: number; end: number }> = []
+    for (const r of merged) {
+      const last = rects[rects.length - 1]
+      if (last && r.start <= last.end) {
+        last.end = Math.max(last.end, r.end)
+      } else rects.push({ ...r })
+    }
+    byRun.set(sp.runIdx, rects)
+  }
+  let flat = 0
+  for (const line of text.lines) {
+    for (const run of line.runs) {
+      const ranges = byRun.get(flat)
+      if (ranges) {
+        const g = out[flat]
+        const len = Math.max(run.text.length, 1)
+        const rects: HighlightRect[] = []
+        for (const r of ranges) {
+          const end = Math.min(r.end, run.text.length)
+          let x1 = run.x + (r.start / len) * run.widthPx
+          let x2 = run.x + (end / len) * run.widthPx
+          if (run.rtl) {
+            // logical char 0 renders at the run's right edge: mirror the rect
+            // within the run box [x, x+widthPx]
+            const m1 = 2 * run.x + run.widthPx - x2
+            const m2 = 2 * run.x + run.widthPx - x1
+            x1 = m1
+            x2 = m2
+          }
+          if (x2 - x1 > 0.01) rects.push({ x: x1, y: line.top, w: x2 - x1, h: line.height, color })
+        }
+        if (g && rects.length) g.highlight = rects.length === 1 ? rects[0] : rects
+      }
+      flat++
+    }
+  }
+  return out
+}
+
+/** A glyph's highlight rects, whichever shape the field takes. */
+export function highlightRects(g: GlyphDraw): HighlightRect[] {
+  return g.highlight ? (Array.isArray(g.highlight) ? g.highlight : [g.highlight]) : []
+}
+
+/** Collect a shape node's glyph draws with find-hit highlights applied. */
+export function shapeGlyphsWithFind(
+  node: ShapeRenderNode,
+  spans: readonly FindSpan[],
+  color: string,
+): GlyphDraw[] {
+  return layoutGlyphsWithFind(node.text, spans, color)
 }
 
 /** Normalize a color for CSS (#RRGGBB / #RRGGBBAA → rgba). */
