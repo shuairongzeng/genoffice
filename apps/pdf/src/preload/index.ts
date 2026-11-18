@@ -79,6 +79,11 @@ const api: PdfApi = {
     ipcRenderer.on(PDF_CHANNELS.printRequest, listener)
     return () => ipcRenderer.removeListener(PDF_CHANNELS.printRequest, listener)
   },
+  onFindRequest: (handler) => {
+    const listener = () => handler()
+    ipcRenderer.on(PDF_CHANNELS.findRequest, listener)
+    return () => ipcRenderer.removeListener(PDF_CHANNELS.findRequest, listener)
+  },
   onFileRenamed: (handler) => {
     const listener = (_e: Electron.IpcRendererEvent, newPath: string) => handler(newPath)
     ipcRenderer.on(PDF_CHANNELS.fileRenamed, listener)

@@ -122,6 +122,8 @@ export const ko = {
   pageOf: '전체 {total}쪽',
   appPageOf: '{current}/{total} 페이지',
   search: '검색',
+  searchCase: '대/소문자 구분',
+  searchWholeWord: '전체 단어 일치',
   searchPrev: '이전',
   searchNext: '다음',
   searchCount: '{current} / {total}',

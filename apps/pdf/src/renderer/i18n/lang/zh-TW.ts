@@ -120,6 +120,8 @@ export const zhTW = {
   pageOf: '共 {total} 頁',
   appPageOf: '第 {current} 頁,共 {total} 頁',
   search: '搜尋',
+  searchCase: '區分大小寫',
+  searchWholeWord: '全字相符',
   searchPrev: '上一個',
   searchNext: '下一個',
   searchCount: '{current} / {total}',

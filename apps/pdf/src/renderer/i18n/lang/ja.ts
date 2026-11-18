@@ -122,6 +122,8 @@ export const ja = {
   pageOf: '全 {total} ページ',
   appPageOf: '{current} / {total} ページ',
   search: '検索',
+  searchCase: '大文字と小文字を区別',
+  searchWholeWord: '単語全体を一致',
   searchPrev: '前へ',
   searchNext: '次へ',
   searchCount: '{current} / {total}',

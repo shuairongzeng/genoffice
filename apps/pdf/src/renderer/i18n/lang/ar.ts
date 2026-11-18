@@ -121,6 +121,8 @@ export const ar = {
   pageOf: 'من {total}',
   appPageOf: 'الصفحة {current} من {total}',
   search: 'بحث',
+  searchCase: 'مطابقة حالة الأحرف',
+  searchWholeWord: 'مطابقة الكلمة كاملة',
   searchPrev: 'السابق',
   searchNext: 'التالي',
   searchCount: '{current} / {total}',

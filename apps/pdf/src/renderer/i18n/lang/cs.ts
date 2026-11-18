@@ -123,6 +123,8 @@ export const cs = {
   pageOf: 'z {total}',
   appPageOf: 'Stránka {current} z {total}',
   search: 'Hledat',
+  searchCase: 'Rozlišovat velikost písmen',
+  searchWholeWord: 'Pouze celá slova',
   searchPrev: 'Předchozí',
   searchNext: 'Další',
   searchCount: '{current} / {total}',
