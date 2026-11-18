@@ -208,7 +208,7 @@ export type SectionId =
   | 'plugins'
   | 'about'
 
-const SECTIONS: readonly { id: SectionId; labelKey: StringKey }[] = [
+export const SECTIONS: readonly { id: SectionId; labelKey: StringKey }[] = [
   { id: 'account', labelKey: 'setSecAccount' },
   { id: 'aiModel', labelKey: 'setSecAiModel' },
   { id: 'aiMedia', labelKey: 'setSecAiMedia' },

@@ -13,7 +13,8 @@
 
 export interface SleepCandidate {
   id: string
-  /** when the tab was last the active one (ms epoch) */
+  /** the idle clock's start: the tab's last activation, or its latest
+   *  background wake, whichever is newer (ms epoch) */
   lastActiveAt: number
 }
 

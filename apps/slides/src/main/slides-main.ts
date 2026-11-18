@@ -1793,8 +1793,7 @@ export function registerSlidesIpc(): void {
       const session = sessions.get(e.sender.id)
       const slide = session?.opened.deck.slides[op.slideIndex]
       const el = slide?.elements.find((x) => matchesElementRef(x, op.elementId))
-      if (!el || el.type !== 'picture')
-        return { ok: false, error: 'Picture element not found' }
+      if (!el || el.type !== 'picture') return { ok: false, error: 'Picture element not found' }
       const mediaRef = el.mediaRef
       const bytes = session!.opened.archive.readBytes(mediaRef)
       if (!bytes) return { ok: false, error: `Media part not found: ${mediaRef}` }
@@ -5058,12 +5057,21 @@ export function setSlidesCloseTabHook(fn: (() => void) | null): void {
   closeActiveTabHook = fn
 }
 
+/**
+ * One menu command to the focused slides view, for the app menu template.
+ * (The shell's palette dispatch and tab rail send 'slides:menu' straight to
+ * the resolved tab's webContents instead — their target is deterministic,
+ * not whichever view holds focus.)
+ */
+function sendSlidesMenuCommand(cmd: string): void {
+  ;(windowRefs.activeWebContents ?? BrowserWindow.getFocusedWindow()?.webContents)?.send(
+    'slides:menu',
+    cmd,
+  )
+}
+
 export function buildSlidesMenu(): Menu {
-  const send = (cmd: string) =>
-    (windowRefs.activeWebContents ?? BrowserWindow.getFocusedWindow()?.webContents)?.send(
-      'slides:menu',
-      cmd,
-    )
+  const send = sendSlidesMenuCommand
   const isMac = process.platform === 'darwin'
   const labels = appMenuLabels(getUiLang())
   const appMenu = appMenuTemplate(process.platform, labels, {

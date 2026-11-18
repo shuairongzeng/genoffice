@@ -6079,6 +6079,7 @@ export async function createAiDocument(
 
 // ---- application menu ----
 
+/** one menu command to the focused docs view */
 function sendCommand(command: MenuCommand, payload?: string): void {
   activeDocsWebContents()?.send('menu:command', command, payload)
 }
