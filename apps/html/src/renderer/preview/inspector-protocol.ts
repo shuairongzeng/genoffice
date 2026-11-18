@@ -18,6 +18,24 @@ export type ToInspector =
   | { type: 'gx:mark'; marks: Array<{ sid: number; label: string }> }
   /** restore the window scroll of the copy an edit just replaced */
   | { type: 'gx:scrollTo'; y: number }
+  /** turn text reporting on/off: the frame pushes a gx:docText snapshot when it
+   *  flips on and after every settled mutation while on (the host's find panel
+   *  searches that mirror — the frame's DOM is cross-origin and unreadable) */
+  | { type: 'gx:setDocText'; on: boolean }
+  /** paint find matches: one entry per match holding its per-node pieces (node
+   *  ids from the last gx:docText); `active` emphasizes every piece of that
+   *  match (an index into `matches`), -1 for none; `scroll` brings the active
+   *  match into view — set only when the search context moved (new needle or
+   *  a different active match), a repaint-in-place rescan passes false */
+  | {
+      type: 'gx:findMark'
+      matches: Array<Array<{ id: number; start: number; end: number }>>
+      active: number
+      scroll: boolean
+    }
+  /** move emphasis + scroll to another already-marked match (match index) */
+  | { type: 'gx:findActivate'; active: number }
+  | { type: 'gx:findClear' }
 
 /** effective styles of the selected element (px numbers without unit, colours as #rrggbb, '' when transparent) */
 export interface ComputedSnapshot {
@@ -128,6 +146,13 @@ export type FromInspectorBody =
   | { type: 'gx:moveTo'; sid: number; position: 'before' | 'after'; ref_sid: number }
   /** a resize or reorder drag started / ended (the host hides its chrome meanwhile) */
   | { type: 'gx:drag'; active: boolean }
+  /** the rendered text of the frame, node by node in document order, with ids
+   *  that stay stable across mutations (surviving nodes keep theirs) — the
+   *  host's find searches this mirror and addresses ranges by (id, start, end).
+   *  `sep` ('\n') marks that a block boundary precedes the node: joining with
+   *  it keeps whole-word matching honest at block edges, while inline runs
+   *  join seamlessly */
+  | { type: 'gx:docText'; nodes: Array<{ id: number; text: string; sep?: string }> }
 
 /** Message tags the instrumented inspector can emit; anything else is forged. */
 const KNOWN_FROM_INSPECTOR = new Set([
@@ -147,6 +172,7 @@ const KNOWN_FROM_INSPECTOR = new Set([
   'gx:resize',
   'gx:moveTo',
   'gx:drag',
+  'gx:docText',
 ])
 
 export function isFromInspector(data: unknown): data is FromInspector {

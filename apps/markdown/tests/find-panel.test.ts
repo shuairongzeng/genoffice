@@ -168,6 +168,38 @@ describe('FindPanel', () => {
     editor.destroy()
   })
 
+  it('clears the OLD target when the host swaps it under an open panel', () => {
+    vi.useFakeTimers()
+    const editor = createEditor('one two one')
+    const first = tiptapFindTarget(editor)
+    const secondEditor = createEditor('other text')
+    const second = tiptapFindTarget(secondEditor)
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    act(() => {
+      root.render(createElement(FindPanel, { target: first, strings: STRINGS, onClose() {} }))
+    })
+    type(container.querySelector<HTMLInputElement>('.find-input')!, 'one')
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+    // the editor's marks are painted through the first target
+    expect(searchPluginKey.getState(editor.state)!.find().length).toBe(2)
+    // the host retargets (html does this between its source pane and the
+    // rendered preview): the first target's hits must not linger
+    act(() => {
+      root.render(createElement(FindPanel, { target: second, strings: STRINGS, onClose() {} }))
+    })
+    expect(searchPluginKey.getState(editor.state)!.find().length).toBe(0)
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    secondEditor.destroy()
+    editor.destroy()
+  })
+
   it('clears the painted hits when unmounted by the host', () => {
     vi.useFakeTimers()
     const editor = createEditor('one two one')
