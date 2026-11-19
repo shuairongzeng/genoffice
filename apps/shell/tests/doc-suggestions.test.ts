@@ -271,6 +271,17 @@ describe('the prose trio (the everyday fallback)', () => {
       'summarize',
     ])
   })
+
+  it('media tabs suggest inspect, analyze, and extract to Word', () => {
+    expect(keys(suggestForDocument(meta({ kind: 'media', fileName: 'photo.png' })))).toEqual([
+      'media-describe',
+      'media-analyze',
+      'media-to-doc',
+    ])
+    expect(
+      keys(suggestForDocument(meta({ kind: 'media', isEmpty: true, fileName: 'clip.mp4' }))),
+    ).toEqual(['media-describe', 'media-analyze', 'media-to-doc'])
+  })
 })
 
 describe('the cap, the dedupe, and the stable order', () => {

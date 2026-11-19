@@ -58,6 +58,7 @@ import {
   syncBrowserPageView,
   teardownBrowserTab,
 } from '../../../browser/src/main/browser-main'
+import { MEDIA_EXTS, createMediaView, requestMediaClose } from './media-main'
 import type { DocumentTabKind, TabKind } from '../shared/tabs-api'
 import type { EditorFamily } from './mcp/tools/formats'
 import type { DocsControl } from './mcp/tools/document-tools'
@@ -122,6 +123,7 @@ export type UntitledTitleKey =
   | 'untitledMarkdown'
   | 'untitledHtml'
   | 'untitledPdf'
+  | 'untitledMedia'
   | 'untitledBrowser'
 
 export interface AppDescriptor {
@@ -330,6 +332,15 @@ export const documentApps: readonly AppDescriptor[] = [
       discard: htmlDiscardPendingAssets,
       discardNeedsFilePath: true,
     },
+  },
+  {
+    id: 'media',
+    extensions: MEDIA_EXTS,
+    untitledTitle: 'Media',
+    untitledTitleKey: 'untitledMedia',
+    createView: createMediaView,
+    requestClose: requestMediaClose,
+    agentDocument: false,
   },
   // ── the browser/html split ──────────────────────────────────────────────
   // The html app is the HTML *file* editor: .html/.htm paths route to it and
@@ -616,3 +627,10 @@ export {
 // come from the app's own shared contract, not a shell-side copy
 export { BROWSER_CHANNELS } from '../../../browser/src/shared/ipc'
 export type { BrowserAskAboutPayload } from '../../../browser/src/shared/annotations'
+export {
+  MEDIA_EXTS,
+  mediaFilePathForWebContents,
+  mediaReadSnapshot,
+  registerMediaIpc,
+  registerMediaProtocol,
+} from './media-main'

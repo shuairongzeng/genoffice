@@ -201,6 +201,8 @@ import {
   markSheetsShuttingDown,
   markSheetsUntitledPath,
   markSheetsUnsavedNew,
+  mediaFilePathForWebContents,
+  mediaReadSnapshot,
   PDF_CHANNELS,
   BROWSER_CHANNELS,
   pdfFileRenamed,
@@ -216,6 +218,8 @@ import {
   recordRecentFile,
   registerAiIpc,
   registerDocsIpc,
+  registerMediaIpc,
+  registerMediaProtocol,
   registerPrivilegedSchemes,
   registerProjectIpc,
   removeRecentFiles,
@@ -263,6 +267,7 @@ import {
 import { createCliRunner } from './mcp/cli-runner'
 import { DEFAULT_MCP_PORT } from './mcp/mcp-server'
 import { createDocsControl, installDocsBridge } from './mcp/docs-bridge'
+import { analyzeMediaTool } from '@genoffice/ai-search'
 import { createSlidesControl } from './mcp/slides-bridge'
 import type { SlidesReadOptions } from './mcp/tools/slides-tools'
 import { createSheetsControl, installSheetsBridge } from './mcp/sheets-bridge'
@@ -528,6 +533,8 @@ registerPrivilegedSchemes()
 // same file when they pick up i18n later. GENOFFICE_LANG overrides for tests.
 
 const APP_SETTINGS_PATH = () => join(app.getPath('userData'), 'app-settings.json')
+const AI_SETTINGS_PATH = () =>
+  process.env.GENOFFICE_AI_SETTINGS || join(app.getPath('userData'), 'ai-settings.json')
 const OPEN_DOCUMENTS_PATH = () => join(app.getPath('userData'), OPEN_DOCUMENTS_FILE)
 /** only the instance holding the single-instance lock may write or remove the registry */
 let ownsOpenDocumentsRegistry = false
@@ -829,6 +836,7 @@ const tMain = createI18n({
     untitledDeck: '未命名演示文稿',
     untitledMarkdown: '未命名 Markdown',
     untitledHtml: '未命名 HTML',
+    untitledMedia: '媒体文件',
     untitledPdf: '未命名 PDF',
     untitledBrowser: '浏览器',
     menuNewSlide: 'AI Slides',
@@ -965,6 +973,7 @@ const tMain = createI18n({
     untitledDeck: 'Untitled Presentation',
     untitledMarkdown: 'Untitled Markdown',
     untitledHtml: 'Untitled HTML',
+    untitledMedia: 'Media',
     untitledPdf: 'Untitled PDF',
     untitledBrowser: 'Browser',
     menuNewSlide: 'AI Slides',
@@ -1103,6 +1112,7 @@ const tMain = createI18n({
     untitledDeck: 'Bản trình bày chưa có tiêu đề',
     untitledMarkdown: 'Markdown chưa có tiêu đề',
     untitledHtml: 'HTML chưa có tiêu đề',
+    untitledMedia: 'Tệp phương tiện',
     untitledPdf: 'PDF chưa có tiêu đề',
     untitledBrowser: 'Trình duyệt',
     menuNewSlide: 'AI Slides',
@@ -1245,6 +1255,7 @@ const tMain = createI18n({
     untitledDeck: '無題のプレゼンテーション',
     untitledMarkdown: '無題の Markdown',
     untitledHtml: '無題の HTML',
+    untitledMedia: 'メディア',
     untitledPdf: '無題の PDF',
     untitledBrowser: 'ブラウザ',
     menuNewSlide: 'AI Slides',
@@ -1387,6 +1398,7 @@ const tMain = createI18n({
     untitledDeck: '제목 없는 프레젠테이션',
     untitledMarkdown: '제목 없는 Markdown',
     untitledHtml: '제목 없는 HTML',
+    untitledMedia: '미디어',
     untitledPdf: '제목 없는 PDF',
     untitledBrowser: '브라우저',
     menuNewSlide: 'AI Slides',
@@ -1528,6 +1540,7 @@ const tMain = createI18n({
     untitledDeck: 'Présentation sans titre',
     untitledMarkdown: 'Markdown sans titre',
     untitledHtml: 'HTML sans titre',
+    untitledMedia: 'Média',
     untitledPdf: 'PDF sans titre',
     untitledBrowser: 'Navigateur',
     menuNewSlide: 'AI Slides',
@@ -1671,6 +1684,7 @@ const tMain = createI18n({
     untitledDeck: 'Unbenannte Präsentation',
     untitledMarkdown: 'Unbenanntes Markdown',
     untitledHtml: 'Unbenanntes HTML',
+    untitledMedia: 'Medien',
     untitledPdf: 'Unbenanntes PDF',
     untitledBrowser: 'Browser',
     menuNewSlide: 'AI Slides',
@@ -1815,6 +1829,7 @@ const tMain = createI18n({
     untitledDeck: 'Presentación sin título',
     untitledMarkdown: 'Markdown sin título',
     untitledHtml: 'HTML sin título',
+    untitledMedia: 'Multimedia',
     untitledPdf: 'PDF sin título',
     untitledBrowser: 'Navegador',
     menuNewSlide: 'AI Slides',
@@ -1959,6 +1974,7 @@ const tMain = createI18n({
     untitledDeck: 'งานนำเสนอไม่มีชื่อ',
     untitledMarkdown: 'Markdown ไม่มีชื่อ',
     untitledHtml: 'HTML ไม่มีชื่อ',
+    untitledMedia: 'สื่อ',
     untitledPdf: 'PDF ไม่มีชื่อ',
     untitledBrowser: 'เบราว์เซอร์',
     menuNewSlide: 'AI Slides',
@@ -2098,6 +2114,7 @@ const tMain = createI18n({
     untitledDeck: 'Presentasi tanpa judul',
     untitledMarkdown: 'Markdown tanpa judul',
     untitledHtml: 'HTML tanpa judul',
+    untitledMedia: 'Media',
     untitledPdf: 'PDF tanpa judul',
     untitledBrowser: 'Peramban',
     menuNewSlide: 'AI Slides',
@@ -2241,6 +2258,7 @@ const tMain = createI18n({
     untitledDeck: 'Презентация без названия',
     untitledMarkdown: 'Markdown без названия',
     untitledHtml: 'HTML без названия',
+    untitledMedia: 'Медиафайл',
     untitledPdf: 'PDF без названия',
     untitledBrowser: 'Браузер',
     menuNewSlide: 'AI Slides',
@@ -2384,6 +2402,7 @@ const tMain = createI18n({
     untitledDeck: 'عرض تقديمي بدون عنوان',
     untitledMarkdown: 'Markdown بدون عنوان',
     untitledHtml: 'HTML بدون عنوان',
+    untitledMedia: 'ملف وسائط',
     untitledPdf: 'PDF بدون عنوان',
     untitledBrowser: 'المتصفح',
     menuNewSlide: 'AI Slides',
@@ -2523,6 +2542,7 @@ const tMain = createI18n({
     untitledDeck: 'Apresentação sem título',
     untitledMarkdown: 'Markdown sem título',
     untitledHtml: 'HTML sem título',
+    untitledMedia: 'Mídia',
     untitledPdf: 'PDF sem título',
     untitledBrowser: 'Navegador',
     menuNewSlide: 'AI Slides',
@@ -2666,6 +2686,7 @@ const tMain = createI18n({
     untitledDeck: 'Presentazione senza titolo',
     untitledMarkdown: 'Markdown senza titolo',
     untitledHtml: 'HTML senza titolo',
+    untitledMedia: 'File multimediale',
     untitledPdf: 'PDF senza titolo',
     untitledBrowser: 'Browser',
     menuNewSlide: 'AI Slides',
@@ -2809,6 +2830,7 @@ const tMain = createI18n({
     untitledDeck: 'Prezentacja bez tytułu',
     untitledMarkdown: 'Markdown bez tytułu',
     untitledHtml: 'HTML bez tytułu',
+    untitledMedia: 'Plik multimedialny',
     untitledPdf: 'PDF bez tytułu',
     untitledBrowser: 'Przeglądarka',
     menuNewSlide: 'AI Slides',
@@ -2952,6 +2974,7 @@ const tMain = createI18n({
     untitledDeck: 'Prezentace bez názvu',
     untitledMarkdown: 'Markdown bez názvu',
     untitledHtml: 'HTML bez názvu',
+    untitledMedia: 'Multimédia',
     untitledPdf: 'PDF bez názvu',
     untitledBrowser: 'Prohlížeč',
     menuNewSlide: 'AI Slides',
@@ -3093,6 +3116,7 @@ const tMain = createI18n({
     untitledDeck: 'Naamloze presentatie',
     untitledMarkdown: 'Naamloos Markdown',
     untitledHtml: 'Naamloos HTML',
+    untitledMedia: 'Media',
     untitledPdf: 'Naamloze PDF',
     untitledBrowser: 'Browser',
     menuNewSlide: 'AI Slides',
@@ -3236,6 +3260,7 @@ const tMain = createI18n({
     untitledDeck: 'Persembahan tanpa tajuk',
     untitledMarkdown: 'Markdown tanpa tajuk',
     untitledHtml: 'HTML tanpa tajuk',
+    untitledMedia: 'Media',
     untitledPdf: 'PDF tanpa tajuk',
     untitledBrowser: 'Pelayar',
     menuNewSlide: 'AI Slides',
@@ -3378,6 +3403,7 @@ const tMain = createI18n({
     untitledDeck: 'מצגת ללא שם',
     untitledMarkdown: 'Markdown ללא שם',
     untitledHtml: 'HTML ללא שם',
+    untitledMedia: 'מדיה',
     untitledPdf: 'PDF ללא שם',
     untitledBrowser: 'דפדפן',
     menuNewSlide: 'AI Slides',
@@ -3517,6 +3543,7 @@ const tMain = createI18n({
     untitledDeck: 'बिना शीर्षक प्रस्तुति',
     untitledMarkdown: 'अनाम Markdown',
     untitledHtml: 'अनाम HTML',
+    untitledMedia: 'मीडिया',
     untitledPdf: 'अनाम PDF',
     untitledBrowser: 'ब्राउज़र',
     menuNewSlide: 'AI Slides',
@@ -3660,6 +3687,7 @@ const tMain = createI18n({
     untitledDeck: '未命名簡報',
     untitledMarkdown: '未命名 Markdown',
     untitledHtml: '未命名 HTML',
+    untitledMedia: '媒體檔案',
     untitledPdf: '未命名 PDF',
     untitledBrowser: '瀏覽器',
     menuNewSlide: 'AI Slides',
@@ -6682,6 +6710,8 @@ app.whenReady().then(async () => {
     // the manual shares the shell's own renderer bundle (help mode)
     help: join(__dirname, '../renderer'),
   })
+  registerMediaProtocol()
+  registerMediaIpc()
   if (headlessArgv.kind !== 'none') {
     await runHeadlessExportEntry(headlessArgv)
     return
@@ -6827,6 +6857,21 @@ app.whenReady().then(async () => {
       pdf: (wc, payload) => pdfReadText(wc, payload as { start?: number; end?: number }),
       markdown: mcpAgentIo.markdown?.read,
       html: mcpAgentIo.html?.read,
+      media: (wc, payload) => mediaReadSnapshot(wc, payload as { timestampSec?: number }),
+    },
+    toolReaders: {
+      'media:analyze_media': async (wc, payload) => {
+        const filePath = mediaFilePathForWebContents(wc.id)
+        if (!filePath) throw new Error('the media tab has no backing file on disk')
+        const requirements = typeof payload.requirements === 'string' ? payload.requirements.trim() : ''
+        const outcome = await analyzeMediaTool(
+          AI_SETTINGS_PATH(),
+          { mediaUrls: [filePath], requirements },
+          { mediaRoots: [dirname(filePath)] },
+        )
+        if (outcome.error) throw new Error(outcome.error)
+        return { text: outcome.text ?? '' }
+      },
     },
   })
   // The dock's browser skill (charter W2b): browser:* tool calls land here —

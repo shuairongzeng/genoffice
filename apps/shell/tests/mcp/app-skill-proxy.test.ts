@@ -327,4 +327,48 @@ describe('the IPC registration', () => {
       executeAppSkillRead(deps, 'markdown:read_text', { document: 'tab-8', offset: 999_999 }),
     ).rejects.toThrow(/beyond the document length/)
   })
+
+  it('exposes and routes media:read_media and media:analyze_media for open media tabs', async () => {
+    const readMedia = vi.fn(async () => ({
+      text: 'File: clip.mp4',
+      images: [{ base64: 'AAA', mime: 'image/jpeg' }],
+    }))
+    const analyzeMedia = vi.fn(async () => ({ text: 'Spoken summary of clip.mp4' }))
+    const windows: DesktopWindowInfo[] = [
+      { id: 'tab-20', kind: 'media', title: 'clip.mp4', filePath: '/tmp/clip.mp4', active: true },
+    ]
+    const deps: AppSkillProxyDeps = {
+      listWindows: () => windows,
+      webContentsFor: (id) => (id === 'tab-20' ? contentsFor(20) : undefined),
+      readers: { media: readMedia },
+      toolReaders: { 'media:analyze_media': analyzeMedia },
+    }
+
+    const manifest = buildAppSkillManifest(windows, deps.readers, deps.toolReaders)
+    expect(manifest.tools.map((t) => t.name)).toEqual(['media:read_media', 'media:analyze_media'])
+
+    const snapshot = await executeAppSkillRead(deps, 'media:read_media', { timestampSec: 1.5 })
+    expect(snapshot.target.id).toBe('tab-20')
+    expect(readMedia).toHaveBeenCalledWith(expect.anything(), { timestampSec: 1.5 })
+
+    await expect(
+      executeAppSkillRead(deps, 'media:read_media', { timestampSec: -2 }),
+    ).rejects.toThrow(/non-negative finite number/)
+
+    const analyzed = await executeAppSkillRead(deps, 'media:analyze_media', {
+      requirements: 'Transcribe and summarize',
+    })
+    expect(analyzed.result).toEqual({ text: 'Spoken summary of clip.mp4' })
+    expect(analyzeMedia).toHaveBeenCalledWith(expect.anything(), {
+      requirements: 'Transcribe and summarize',
+    })
+
+    await expect(
+      executeAppSkillRead(deps, 'media:analyze_media', { requirements: '   ' }),
+    ).rejects.toThrow(/non-empty string/)
+
+    // Closing the media tab removes both tools from the manifest.
+    const emptyManifest = buildAppSkillManifest([], deps.readers, deps.toolReaders)
+    expect(emptyManifest.tools).toEqual([])
+  })
 })

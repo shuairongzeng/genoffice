@@ -211,4 +211,36 @@ describe('formatProxiedAppResult', () => {
     cyclic.self = cyclic
     expect(formatProxiedAppResult(cyclic)).toBe(String(cyclic))
   })
+
+  it('strips base64 images arrays when serializing structured objects and forwards multimodal images on executeTool', async () => {
+    const serialized = formatProxiedAppResult({
+      kind: 'image',
+      images: [{ base64: 'AAA_HUGE_BASE64', mime: 'image/png' }],
+    })
+    expect(serialized).toContain('"kind": "image"')
+    expect(serialized).not.toContain('AAA_HUGE_BASE64')
+
+    const manifest: ProxiedAppManifest = {
+      windows: [{ id: 'tab-m1', kind: 'media', title: 'card.png', filePath: '/tmp/card.png', active: true }],
+      tools: [
+        {
+          name: 'media:read_media',
+          kind: 'media',
+          description: 'read open media',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+    }
+    const { skill } = skillWith(manifest, async () => ({
+      target: { id: 'tab-m1', kind: 'media', title: 'card.png', path: '/tmp/card.png' },
+      result: {
+        text: 'File: card.png\nDimensions: 800x600 px',
+        images: [{ base64: 'iVBORw0KGgo=', mime: 'image/png' }],
+      },
+    }))
+    const exec = await skill.executeTool(call('media:read_media', {}))
+    expect(exec.output).toContain('Dimensions: 800x600 px')
+    expect(exec.output).not.toContain('iVBORw0KGgo=')
+    expect(exec.images).toEqual([{ base64: 'iVBORw0KGgo=', mime: 'image/png' }])
+  })
 })

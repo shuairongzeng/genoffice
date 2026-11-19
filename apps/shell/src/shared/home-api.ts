@@ -533,9 +533,39 @@ export const HOME_TAB_KINDS: readonly TabKind[] = [
   'pdf',
   'markdown',
   'html',
+  'media',
   'browser',
   'help',
 ]
+
+export type MediaKind = 'image' | 'audio' | 'video'
+
+export interface MediaInfo {
+  token: string
+  streamUrl: string
+  filePath: string
+  fileName: string
+  ext: string
+  mediaKind: MediaKind
+  mime: string
+  sizeBytes: number
+}
+
+export interface MediaSnapshotRequest {
+  requestId: string
+  timestampSec?: number
+}
+
+export interface MediaSnapshotImage {
+  base64: string
+  mime: string
+}
+
+export interface MediaSnapshotReply {
+  requestId: string
+  text: string
+  images?: MediaSnapshotImage[]
+}
 
 /**
  * The desktop's look-and-feel prefs. `wallpaper`: 'default' (the animated
@@ -1471,6 +1501,14 @@ export interface HomeApi {
     provider: AiSearchProviderId
     apiKey: string
   }): Promise<{ ok: boolean; error?: string }>
+  /** resolve active media view metadata and token stream URL */
+  mediaGetInfo(token: string): Promise<MediaInfo | null>
+  /** open the active view's bound media file in the OS default application */
+  mediaOpenSystem(): Promise<{ ok: boolean; error?: string }>
+  /** subscribe to main-process snapshot/frame requests for AI direct reading */
+  onMediaReadSnapshotRequest(handler: (req: MediaSnapshotRequest) => void): () => void
+  /** return the rendered image/video/audio snapshot payload back to the main process */
+  sendMediaReadSnapshotReply(reply: MediaSnapshotReply): void
 }
 
 export interface AiCatalogEntry extends AiProviderMeta {
@@ -1855,4 +1893,8 @@ export const HOME_CHANNELS = {
   cloudProjects: 'home:cloud-projects',
   cloudProjectsCached: 'home:cloud-projects-cached',
   openCloudProject: 'home:open-cloud-project',
+  mediaGetInfo: 'media:get-info',
+  mediaOpenSystem: 'media:open-system',
+  mediaReadSnapshotRequest: 'media:read-snapshot-request',
+  mediaReadSnapshotReply: 'media:read-snapshot-reply',
 } as const

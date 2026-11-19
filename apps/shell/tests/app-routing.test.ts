@@ -54,8 +54,39 @@ vi.mock('../../html/src/main/html-main', () => ({
   htmlSaveToPath: () => Promise.resolve(),
   requestHtmlClose: () => Promise.resolve(true),
 }))
+vi.mock('../src/main/media-main', () => ({
+  MEDIA_EXTS: [
+    'png',
+    'jpg',
+    'jpeg',
+    'webp',
+    'gif',
+    'svg',
+    'bmp',
+    'ico',
+    'avif',
+    'mp3',
+    'wav',
+    'm4a',
+    'aac',
+    'ogg',
+    'flac',
+    'opus',
+    'mp4',
+    'webm',
+    'mov',
+    'm4v',
+    'mkv',
+  ],
+  createMediaView: () => ({}),
+  requestMediaClose: () => Promise.resolve(true),
+  mediaFilePathForWebContents: () => undefined,
+  mediaReadSnapshot: () => Promise.resolve({ text: '' }),
+  registerMediaIpc: () => {},
+  registerMediaProtocol: () => {},
+}))
 
-import { TEXT_RE, appForPath, renameStaysInApp } from '../src/main/app-routing'
+import { MEDIA_RE, TEXT_RE, appForPath, renameStaysInApp } from '../src/main/app-routing'
 
 describe('appForPath', () => {
   it('routes the markdown app at every extension it opens', () => {
@@ -71,6 +102,11 @@ describe('appForPath', () => {
     expect(appForPath('/x/a.pptx')).toBe('slides')
     expect(appForPath('/x/a.pdf')).toBe('pdf')
     expect(appForPath('/x/a.html')).toBe('html')
+    expect(appForPath('/x/photo.png')).toBe('media')
+    expect(appForPath('/x/song.mp3')).toBe('media')
+    expect(appForPath('/x/clip.mkv')).toBe('media')
+    expect(MEDIA_RE.test('/x/photo.avif')).toBe(true)
+    expect(MEDIA_RE.test('/x/notes.docx')).toBe(false)
   })
 
   it('has no app for an extension nothing opens', () => {

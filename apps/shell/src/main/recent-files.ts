@@ -125,6 +125,29 @@ export const EXT_FAMILY: Record<string, readonly string[]> = {
   // the two views disagree about which files the filter means.
   md: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'],
   html: ['html', 'htm'],
+  media: [
+    'png',
+    'jpg',
+    'jpeg',
+    'webp',
+    'gif',
+    'svg',
+    'bmp',
+    'ico',
+    'avif',
+    'mp3',
+    'wav',
+    'm4a',
+    'aac',
+    'ogg',
+    'flac',
+    'opus',
+    'mp4',
+    'webm',
+    'mov',
+    'm4v',
+    'mkv',
+  ],
 }
 
 /** Family-aware extension match for sidebar filters (recents and starred share it). */

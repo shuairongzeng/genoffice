@@ -20,6 +20,9 @@ describe('matchesExtFamily', () => {
     expect(matchesExtFamily('json', 'md')).toBe(true)
     expect(matchesExtFamily('csv', 'xlsx')).toBe(true)
     expect(matchesExtFamily('htm', 'html')).toBe(true)
+    expect(matchesExtFamily('png', 'media')).toBe(true)
+    expect(matchesExtFamily('mp3', 'media')).toBe(true)
+    expect(matchesExtFamily('mkv', 'media')).toBe(true)
   })
 
   it('still matches exact extensions and rejects outsiders', () => {

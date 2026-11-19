@@ -128,6 +128,41 @@ vi.mock('../../browser/src/main/browser-main', () => ({
   teardownBrowserTab: (...args: unknown[]) => teardownBrowserTab(...(args as [])),
 }))
 
+const createMediaView = vi.fn(() => ({ webContents: { id: 9 } }))
+const requestMediaClose = vi.fn(() => Promise.resolve(true))
+
+vi.mock('../src/main/media-main', () => ({
+  MEDIA_EXTS: [
+    'png',
+    'jpg',
+    'jpeg',
+    'webp',
+    'gif',
+    'svg',
+    'bmp',
+    'ico',
+    'avif',
+    'mp3',
+    'wav',
+    'm4a',
+    'aac',
+    'ogg',
+    'flac',
+    'opus',
+    'mp4',
+    'webm',
+    'mov',
+    'm4v',
+    'mkv',
+  ],
+  createMediaView: (...args: unknown[]) => createMediaView(...(args as [])),
+  requestMediaClose: (...args: unknown[]) => requestMediaClose(...(args as [])),
+  mediaFilePathForWebContents: vi.fn(),
+  mediaReadSnapshot: vi.fn(),
+  registerMediaIpc: vi.fn(),
+  registerMediaProtocol: vi.fn(),
+}))
+
 import {
   agentIoFor,
   appForKind,
@@ -152,6 +187,7 @@ const DOC_TAB_KINDS: DocumentTabKind[] = [
   'pdf',
   'markdown',
   'html',
+  'media',
   'browser',
 ]
 
@@ -184,9 +220,8 @@ describe('the descriptor table itself', () => {
         seen.set(ext, app.id)
       }
     }
-    // the pre-registry routing table had 20 extensions plus 6 structured plain-text
-    // formats routed to the markdown source-mode editor (26 total)
-    expect(seen.size).toBe(26)
+    // 26 document/text extensions + 21 media extensions = 47
+    expect(seen.size).toBe(47)
   })
 
   it('every descriptor carries the faces the shell dispatches through', () => {
@@ -279,6 +314,7 @@ describe('per-family close guard dispatch', () => {
       pdf: requestPdfClose,
       markdown: requestMarkdownClose,
       html: requestHtmlClose,
+      media: requestMediaClose,
       browser: requestBrowserClose,
     }
     for (const kind of DOC_TAB_KINDS) {

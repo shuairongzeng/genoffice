@@ -150,6 +150,7 @@ export const FILTERS: { key: string; label: StringKey }[] = [
   { key: 'pdf', label: 'filterPdf' },
   { key: 'md', label: 'filterMd' },
   { key: 'html', label: 'filterHtml' },
+  { key: 'media', label: 'filterMedia' },
 ]
 
 /** filter keys that stand for a family of extensions (mirrors recent-files.ts) */
@@ -159,6 +160,29 @@ export const FILTER_FAMILY: Record<string, readonly string[]> = {
   pptx: ['pptx', 'ppt', 'odp', 'otp'],
   md: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'],
   html: ['html', 'htm'],
+  media: [
+    'png',
+    'jpg',
+    'jpeg',
+    'webp',
+    'gif',
+    'svg',
+    'bmp',
+    'ico',
+    'avif',
+    'mp3',
+    'wav',
+    'm4a',
+    'aac',
+    'ogg',
+    'flac',
+    'opus',
+    'mp4',
+    'webm',
+    'mov',
+    'm4v',
+    'mkv',
+  ],
 }
 
 export function matchesFilter(entry: RecentEntry, filter: string): boolean {

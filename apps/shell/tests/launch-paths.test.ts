@@ -46,9 +46,21 @@ describe('collectLaunchPaths', () => {
     ).toEqual(['/notes.txt'])
   })
 
+  it('accepts supported image, audio, and video extensions from argv', () => {
+    expect(collectLaunchPaths(['GenOffice.app', '/photo.png'], undefined, () => true)).toEqual([
+      '/photo.png',
+    ])
+    expect(collectLaunchPaths(['GenOffice.app', '/voice.mp3'], undefined, () => true)).toEqual([
+      '/voice.mp3',
+    ])
+    expect(collectLaunchPaths(['GenOffice.app', '/clip.mkv'], undefined, () => true)).toEqual([
+      '/clip.mkv',
+    ])
+  })
+
   it('still drops a path nothing opens', () => {
     // a file that exists but is not a document the shell can route
-    expect(collectLaunchPaths(['GenOffice.app', '/photo.png'], undefined, () => true)).toEqual([])
+    expect(collectLaunchPaths(['GenOffice.app', '/archive.zip'], undefined, () => true)).toEqual([])
     expect(collectLaunchPaths(['GenOffice.app', '/notes.txt'], undefined, () => false)).toEqual([])
   })
 

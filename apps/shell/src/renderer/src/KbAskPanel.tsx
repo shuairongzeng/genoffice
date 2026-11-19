@@ -265,6 +265,9 @@ const SUGGESTION_LABEL_KEYS: Record<string, StringKey> = {
   publish: 'askSugPublish',
   translate: 'askSugTranslate',
   'make-presentation': 'askSugPresentation',
+  'media-describe': 'askSugMediaDescribe',
+  'media-analyze': 'askSugMediaAnalyze',
+  'media-to-doc': 'askSugMediaToDoc',
 }
 
 /** a suggestion's chip label key ('summarize' → askSugSummarize) */
@@ -295,6 +298,12 @@ function suggestionPromptKey(suggestion: DocSuggestion): StringKey | null {
       return 'askSugTranslatePrompt'
     case 'make-presentation':
       return 'askSugPresentationPrompt'
+    case 'media-describe':
+      return 'askSugMediaDescribePrompt'
+    case 'media-analyze':
+      return 'askSugMediaAnalyzePrompt'
+    case 'media-to-doc':
+      return 'askSugMediaToDocPrompt'
     default:
       return null
   }
@@ -1471,7 +1480,7 @@ export function KbAskPanel({
     const active = tabs?.find(
       (t) =>
         t.active &&
-        AGENT_DOCUMENT_KINDS.has(t.kind) &&
+        (AGENT_DOCUMENT_KINDS.has(t.kind) || t.kind === 'media') &&
         t.filePath !== undefined &&
         t.filePath !== '',
     )

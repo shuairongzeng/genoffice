@@ -60,7 +60,9 @@ void Promise.all([
   // is, and the screen plus its stylesheet are only ever wanted on the other
   // one. A static import meant Home's first paint paid for a manual nobody had
   // opened.
-  const isHelp = new URLSearchParams(location.search).get('mode') === 'help'
+  const params = new URLSearchParams(location.search)
+  const isHelp = params.get('mode') === 'help'
+  const isMedia = params.get('view') === 'media'
   // The ask panel's standalone mount (?view=ask-panel): the panel alone, the
   // surface W2's native overlay view above documents loads. Like the manual,
   // it shares this boot (language, theme, panel prefs) but renders none of
@@ -79,6 +81,9 @@ void Promise.all([
   const HelpScreen = React.lazy(() =>
     import('./i18n/help/HelpScreen').then((m) => ({ default: m.HelpScreen })),
   )
+  const MediaViewer = React.lazy(() =>
+    import('./MediaViewer').then((m) => ({ default: m.MediaViewer })),
+  )
   createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <LocaleProvider initial={lang}>
@@ -86,6 +91,10 @@ void Promise.all([
           <AskPanelEntry />
         ) : isDock ? (
           <DockEntry />
+        ) : isMedia ? (
+          <React.Suspense fallback={<div className="boot" />}>
+            <MediaViewer />
+          </React.Suspense>
         ) : isHelp ? (
           <React.Suspense fallback={<div className="boot" />}>
             <HelpScreen />

@@ -32,6 +32,9 @@ import type {
   HomeApi,
   HomeTabEntry,
   HomeTabsState,
+  MediaInfo,
+  MediaSnapshotReply,
+  MediaSnapshotRequest,
   AgentTaskResult,
   AgentTaskStatus,
   DocumentAgentTarget,
@@ -1336,6 +1339,23 @@ const homeApi: HomeApi = {
     return raw.ok === true
       ? { ok: true }
       : { ok: false, error: typeof raw.error === 'string' ? raw.error : 'Connection failed' }
+  },
+  async mediaGetInfo(token) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.mediaGetInfo, token)) as MediaInfo | null
+  },
+  async mediaOpenSystem() {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.mediaOpenSystem)) as {
+      ok: boolean
+      error?: string
+    }
+  },
+  onMediaReadSnapshotRequest(handler) {
+    const listener = (_event: IpcRendererEvent, req: MediaSnapshotRequest) => handler(req)
+    ipcRenderer.on(HOME_CHANNELS.mediaReadSnapshotRequest, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.mediaReadSnapshotRequest, listener)
+  },
+  sendMediaReadSnapshotReply(reply: MediaSnapshotReply) {
+    ipcRenderer.send(HOME_CHANNELS.mediaReadSnapshotReply, reply)
   },
 }
 

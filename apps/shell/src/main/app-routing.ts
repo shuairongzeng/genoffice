@@ -3,8 +3,10 @@ import type { DocumentTabKind } from '../shared/tabs-api'
 
 /** the routing pattern for one app's extensions, built from the registry's
  *  extension list so the regexes and the table cannot drift */
-const extensionRe = (id: DocumentTabKind): RegExp =>
-  new RegExp(`\\.(${documentApps.find((app) => app.id === id)!.extensions.join('|')})$`, 'i')
+const extensionRe = (id: DocumentTabKind): RegExp => {
+  const extensions = documentApps.find((app) => app.id === id)?.extensions ?? []
+  return extensions.length > 0 ? new RegExp(`\\.(${extensions.join('|')})$`, 'i') : /(?!)/
+}
 
 // shared by the open route, the open-dialog filter and the rename gate so they cannot drift
 // .odt/.odp (and the .ott/.ots/.otp templates) open through the docs/slides/sheets
@@ -15,8 +17,9 @@ const PPTX_RE = extensionRe('slides')
 const PDF_RE = extensionRe('pdf')
 const TEXT_RE = extensionRe('markdown')
 const HTML_RE = extensionRe('html')
+const MEDIA_RE = extensionRe('media')
 
-export { DOCX_RE, XLSX_RE, PPTX_RE, PDF_RE, HTML_RE, TEXT_RE }
+export { DOCX_RE, XLSX_RE, PPTX_RE, PDF_RE, HTML_RE, MEDIA_RE, TEXT_RE }
 
 /** the app that owns files with this path's extension; the registry is the source of truth */
 export { appForPath }

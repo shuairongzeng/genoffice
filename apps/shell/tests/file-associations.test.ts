@@ -42,10 +42,13 @@ describe('packaged file associations', () => {
     }
   })
 
-  it('keeps plain text and JSON off the Windows list, where NSIS would make the app their default', () => {
+  it('keeps plain text, JSON, and media types off the Windows list, where NSIS would make the app their default', () => {
     const winExts = config.win.fileAssociations.map((entry: { ext: string }) => entry.ext)
     expect(winExts).not.toContain('txt')
     expect(winExts).not.toContain('json')
+    for (const ext of ['png', 'jpg', 'svg', 'mp3', 'wav', 'mp4', 'mkv']) {
+      expect(winExts, `.${ext} should stay open-with-only on Windows`).not.toContain(ext)
+    }
     for (const ext of ['docx', 'xlsx', 'pptx', 'pdf', 'md', 'html']) {
       expect(winExts, `.${ext} missing from the Windows associations`).toContain(ext)
     }

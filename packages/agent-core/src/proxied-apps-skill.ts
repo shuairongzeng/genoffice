@@ -1,4 +1,4 @@
-import type { AgentToolCall, AgentToolDef, ToolExecution } from './types'
+import type { AgentImage, AgentToolCall, AgentToolDef, ToolExecution } from './types'
 import type { AgentSkill } from './skill'
 
 /**
@@ -75,27 +75,52 @@ export interface ProxiedAppsDeps {
 }
 
 const PROXIED_APPS_PROMPT = `## Open documents in other GenOffice apps (read-only)
-Documents the user has open in GenOffice's other apps are readable here. Each
-turn's context lists them (tab id | app | title | path).
+Documents and media the user has open in GenOffice's other apps are readable here.
+Each turn's context lists them (tab id | app | title | path).
 - Read tools are prefixed by app (docs:…, sheets:…, slides:…, markdown:…,
-  html:…, pdf:…). Pass a tab id or path as \`document\`; omit it to read that app's
-  active document. A tool absent from this turn was not offered because no
-  document of that app is open — do not retry it.
+  html:…, pdf:…, media:…). Pass a tab id or path as \`document\`; omit it to
+  read that app's active document. A tool absent from this turn was not
+  offered because no document of that app is open — do not retry it.
+- Open images, audio, and video tabs expose \`media:read_media\` (returns
+  visual frames + metadata for images/videos, or duration/playback metadata for
+  audio) and, when configured, \`media:analyze_media\` for full-clip audio or
+  video transcription and semantic analysis.
 - These tools themselves are READ-ONLY: to edit or modify an open document
   (Word, spreadsheets, slides, PDFs, Markdown/plain text, or HTML), switch to
   its tab with \`shell:switch_tab\` if it is not already active and delegate
   the edit via \`document_agent\` (never tell the user to open an app's own
-  AI panel, because it is hosted by this panel). Never claim a read tool
-  changed a document.
+  AI panel, because it is hosted by this panel). Media tabs cannot be edited
+  in place; you may use document creation tools to save derived notes/docs.
 - Reading is not a substitute for the knowledge base: the corpus tools search
   all indexed files; the proxied tools see only what is open right now, with
   unsaved edits included.`
 
 /**
+ * Extract vision image attachments from a proxied tool result, if any.
+ */
+export function extractProxiedImages(result: unknown): AgentImage[] | undefined {
+  if (!result || typeof result !== 'object') return undefined
+  const rawImages = (result as { images?: unknown }).images
+  if (!Array.isArray(rawImages) || rawImages.length === 0) return undefined
+  const valid: AgentImage[] = []
+  for (const item of rawImages) {
+    if (!item || typeof item !== 'object') continue
+    const base64 = (item as { base64?: unknown }).base64
+    const mime = (item as { mime?: unknown }).mime
+    if (typeof base64 === 'string' && base64.length > 0 && typeof mime === 'string' && mime.length > 0) {
+      valid.push({ base64, mime })
+    }
+  }
+  return valid.length > 0 ? valid : undefined
+}
+
+/**
  * Turn a proxied read result into model-facing text: the families return
- * plain text (docs, markdown, html) or JSON-serializable structures (sheets
- * workbook overview, slides deck); a structure is pretty-printed rather than
- * stringified inline so block/element references stay greppable.
+ * plain text (docs, markdown, html, media) or JSON-serializable structures
+ * (sheets workbook overview, slides deck); a structure is pretty-printed
+ * rather than stringified inline so block/element references stay greppable.
+ * Inline `images` base64 payloads are stripped so they travel as multimodal
+ * user parts instead of bloating text context.
  */
 export function formatProxiedAppResult(result: unknown): string {
   if (typeof result === 'string') return result
@@ -106,10 +131,16 @@ export function formatProxiedAppResult(result: unknown): string {
   ) {
     return (result as { text: string }).text
   }
+  let printable = result
+  if (result && typeof result === 'object' && !Array.isArray(result) && 'images' in result) {
+    const rest = { ...(result as Record<string, unknown>) }
+    delete rest.images
+    printable = rest
+  }
   try {
-    return JSON.stringify(result, null, 2)
+    return JSON.stringify(printable, null, 2)
   } catch {
-    return String(result)
+    return String(printable)
   }
 }
 
@@ -180,9 +211,11 @@ export function createProxiedAppsSkill(deps: ProxiedAppsDeps): AgentSkill {
       if (input.document === '') delete input.document
       try {
         const { target, result } = await deps.execute(call.name, input)
+        const images = extractProxiedImages(result)
         return {
           output: formatProxiedAppResult(result),
           summary: `read ${target.title}`,
+          ...(images ? { images } : {}),
         }
       } catch (error) {
         // a closed tab or a busy bridge: the reason is the tool result, so the

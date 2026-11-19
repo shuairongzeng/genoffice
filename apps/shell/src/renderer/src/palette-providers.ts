@@ -331,6 +331,7 @@ function tabIcon(kind: TabKind): PaletteRow['icon'] {
     markdown: 'md',
     html: 'html',
     pdf: 'pdf',
+    media: 'png',
   }
   return kind === 'help' ? { kind: 'book' } : { kind: 'file', ext: ext[kind] ?? 'app' }
 }

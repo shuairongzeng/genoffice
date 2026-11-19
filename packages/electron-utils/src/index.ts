@@ -108,6 +108,8 @@ export {
   type HeadlessExportTarget,
 } from './headless-export'
 export {
+  MEDIA_SCHEME,
+  MEDIA_SCHEME_PRIVILEGE,
   RENDERER_SCHEME,
   DOCX_MEDIA_SCHEME_PRIVILEGE,
   RENDERER_SCHEME_PRIVILEGE,

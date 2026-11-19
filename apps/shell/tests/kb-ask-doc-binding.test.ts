@@ -647,5 +647,20 @@ describe('mid-run tab switch protection', () => {
     await settle()
     expect(host.querySelector('.kb-ask-header-title')?.textContent).toBe('summary.docx')
     expect(host.textContent).not.toContain('Total is 2500 RMB.')
+
+    // Switching to an active media tab binds a per-file thread and displays media suggestion chips.
+    surfaceTabs = [
+      { id: 't4', kind: 'media', title: 'photo.png', filePath: '/desk/photo.png', active: true },
+    ]
+    act(() => surfaceListener?.())
+    await settle()
+    expect(host.querySelector('.kb-ask-header-title')?.textContent).toBe('photo.png')
+    const mediaChatId = chatIdForPath('/desk/photo.png')
+    expect(
+      projectCalls.some(
+        (c) => c.method === 'resolveChat' && c.args.filePath === '/desk/photo.png',
+      ),
+    ).toBe(true)
+    expect(mediaChatId).not.toBe(docChatId)
   })
 })

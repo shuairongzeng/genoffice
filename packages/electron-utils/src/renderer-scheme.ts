@@ -31,6 +31,19 @@ export const DOCX_MEDIA_SCHEME_PRIVILEGE: CustomScheme = {
   },
 }
 
+/** Privileged streaming media scheme for read-only image, audio, and video views. */
+export const MEDIA_SCHEME = 'genoffice-media'
+export const MEDIA_SCHEME_PRIVILEGE: CustomScheme = {
+  scheme: MEDIA_SCHEME,
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    corsEnabled: true,
+    stream: true,
+  },
+}
+
 export type RendererHost =
   'docs' | 'sheets' | 'slides' | 'pdf' | 'markdown' | 'html' | 'browser' | 'help'
 

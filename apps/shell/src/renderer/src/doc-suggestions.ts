@@ -95,7 +95,7 @@ export const FEW_HEADING_COUNT = 3
 // ── normalization ────────────────────────────────────────
 
 /** the shape families the rules branch on */
-type DocFamily = 'prose' | 'sheet' | 'deck' | 'fixed'
+type DocFamily = 'prose' | 'sheet' | 'deck' | 'fixed' | 'media'
 
 /**
  * The metadata as the rules read it: every optional normalized to a known
@@ -133,6 +133,8 @@ function familyOf(kind: string): DocFamily {
       return 'deck'
     case 'pdf':
       return 'fixed'
+    case 'media':
+      return 'media'
     default:
       return 'prose'
   }
@@ -211,7 +213,7 @@ const lineageRule: SuggestionRule = (doc) =>
  * names offer one — and an outline to plan against.
  */
 const blankRule: SuggestionRule = (doc) => {
-  if (!doc.isEmpty) return []
+  if (!doc.isEmpty || doc.family === 'media') return []
   if (doc.family === 'sheet') return [{ key: 'fill-data' }]
   if (doc.family === 'deck') return [{ key: 'make-presentation' }]
   const draft: DocSuggestion = doc.topic
@@ -228,7 +230,9 @@ const blankRule: SuggestionRule = (doc) => {
  * rules.
  */
 const longRule: SuggestionRule = (doc) => {
-  if (doc.isEmpty || doc.family === 'sheet' || doc.family === 'deck') return []
+  if (doc.isEmpty || doc.family === 'sheet' || doc.family === 'deck' || doc.family === 'media') {
+    return []
+  }
   if (doc.words === null || doc.words < LONG_DOC_WORDS) return []
   return [{ key: 'summarize' }, { key: 'outline' }]
 }
@@ -275,6 +279,15 @@ const pdfRule: SuggestionRule = (doc) =>
     : [{ key: 'summarize' }, { key: 'translate' }, { key: 'make-presentation' }]
 
 /**
+ * The media rule: read-only image, audio, and video tabs suggest inspecting the
+ * visual frame, analyzing full audio/video content, or extracting notes into Word.
+ */
+const mediaRule: SuggestionRule = (doc) =>
+  doc.family !== 'media'
+    ? []
+    : [{ key: 'media-describe' }, { key: 'media-analyze' }, { key: 'media-to-doc' }]
+
+/**
  * The markdown rule: a markdown document is usually headed somewhere — polish
  * the writing, then publish it. Markdown's own pair, ranked ahead of the
  * prose trio so publish makes the cap on a plain .md.
@@ -309,6 +322,7 @@ const RULES: readonly SuggestionRule[] = [
   sheetsRule,
   slidesRule,
   pdfRule,
+  mediaRule,
   markdownRule,
   proseRule,
 ]

@@ -228,6 +228,23 @@ function BrowserIcon() {
   )
 }
 
+function MediaIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 240 240" fill="none" aria-hidden="true">
+      <rect width="240" height="240" rx="48" fill="#059669" />
+      <rect x="46" y="58" width="148" height="124" rx="18" stroke="#fff" strokeWidth="14" />
+      <circle cx="88" cy="100" r="14" fill="#fff" />
+      <path
+        d="M62 162l38-40 26 26 20-20 34 34"
+        stroke="#fff"
+        strokeWidth="14"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 /** the per-kind tab glyph, keyed the way the strip's entries are */
 export const KIND_ICON: Record<TabSummary['kind'], ReactElement> = {
   home: <HomeIcon />,
@@ -237,6 +254,7 @@ export const KIND_ICON: Record<TabSummary['kind'], ReactElement> = {
   pdf: <PdfIcon />,
   markdown: <MarkdownIcon />,
   html: <HtmlIcon />,
+  media: <MediaIcon />,
   browser: <BrowserIcon />,
   help: <HelpIcon />,
 }
