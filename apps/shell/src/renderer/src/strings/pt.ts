@@ -622,6 +622,9 @@ export const pt: Dict = {
   dockExpand: 'Abrir o painel de IA',
   dockCollapse: 'Recolher o painel de IA',
   dockResize: 'Arraste para redimensionar o painel de IA',
+  petMenuResetPos: 'Redefinir posição',
+  petMenuSleep: 'Tirar uma soneca',
+  petMenuWake: 'Acordar',
   panelApiMissing:
     'O painel de IA precisa de APIs que esta janela não expõe. Reinicie o aplicativo.',
   workTabsAria: 'Documentos abertos',

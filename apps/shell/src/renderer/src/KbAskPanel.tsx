@@ -95,6 +95,7 @@ import { activeProvider } from '@genoffice/ai-provider/browser'
 import type { ChatMessage, ChatMeta, ProjectApi, RunSummary } from '@genoffice/project-store'
 import { useI18n } from './locale'
 import { MascotSvg, BubbleDragContext } from './AiDock'
+import type { AiPetActivity, AiPetRunSnapshot } from './ai-pet-state'
 import { FileBadge } from './file-badge'
 import type { StringKey } from './strings'
 import { useConfirm } from './ConfirmDialog'
@@ -1001,6 +1002,7 @@ export function KbAskPanel({
   onBubbleDragStart,
   surfaceRole = 'home',
   mirror = false,
+  onPetActivityChange,
 }: {
   /**
    * The transcript this mount owns (P0-1): project-store takes the id
@@ -1069,6 +1071,8 @@ export function KbAskPanel({
    * (home:ask-run-question). A closed mount never receives an event.
    */
   mirror?: boolean
+  /** Emits simplified live AI run activity & completed count for the floating pet */
+  onPetActivityChange?: (state: AiPetRunSnapshot) => void
 }): React.JSX.Element {
   const { t, lang, dateLocale } = useI18n()
   /** the bubble drag: the host's prop wins; the dock's context (the pet's own
@@ -1204,6 +1208,18 @@ export function KbAskPanel({
       void window.aiOffice.aiSessionAllowAdd?.(toolName)?.catch(() => {})
     },
   })
+  const [remoteConfirmPending, setRemoteConfirmPending] = useState(false)
+  const prevConfirmBroadcastRef = useRef(false)
+  useEffect(() => {
+    if (mirror) return
+    const pending = confirm.card !== null
+    if (prevConfirmBroadcastRef.current === pending) return
+    prevConfirmBroadcastRef.current = pending
+    window.aiOffice?.askRunEvent?.({
+      type: 'confirm-state',
+      payload: { pending },
+    })
+  }, [mirror, confirm.card])
   /** runs this session started: the live half of the background-task list */
   const [liveTasks, setLiveTasks] = useState<LiveTask[]>([])
   /** runs a previous session left unfinished: the stored half, read once on mount */
@@ -1540,21 +1556,24 @@ export function KbAskPanel({
         (index) => corpusRef.current[index]?.name,
         (index) => availableAttachments()[index]?.name,
       )
-      patchLast((last) => ({
-        activities: startAskToolActivity(last.activities ?? [], call).map((activity) =>
-          activity.id === call.id ? { ...activity, detail: detail ?? activity.detail } : activity,
-        ),
-        artifacts: (() => {
-          const started = artifactFromCall(call, cliContextRef.current?.outDir)
-          return started ? [...last.artifacts, started] : last.artifacts
-        })(),
-        toolNotes: appendToolNote(last.toolNotes, {
-          kind: toolNoteKind(call),
-          label: t(TOOL_NOTE_LABEL[toolNoteKind(call)]),
-          detail,
-          count: 1,
+      patchLast(
+        (last) => ({
+          activities: startAskToolActivity(last.activities ?? [], call).map((activity) =>
+            activity.id === call.id ? { ...activity, detail: detail ?? activity.detail } : activity,
+          ),
+          artifacts: (() => {
+            const started = artifactFromCall(call, cliContextRef.current?.outDir)
+            return started ? [...last.artifacts, started] : last.artifacts
+          })(),
+          toolNotes: appendToolNote(last.toolNotes, {
+            kind: toolNoteKind(call),
+            label: t(TOOL_NOTE_LABEL[toolNoteKind(call)]),
+            detail,
+            count: 1,
+          }),
         }),
-      }))
+        { sync: true },
+      )
     },
     onDone: () => finishLast(),
     onUsage: (usage: AgentTokenUsage) => {
@@ -1591,12 +1610,17 @@ export function KbAskPanel({
         break
       case 'done':
         runEventHandlers.onDone()
+        if (mirror) setRemoteConfirmPending(false)
         break
       case 'usage':
         runEventHandlers.onUsage(payload as AgentTokenUsage)
         break
       case 'error':
         runEventHandlers.onError(payload as string)
+        if (mirror) {
+          setBusy(false)
+          setRemoteConfirmPending(false)
+        }
         break
       default:
         break
@@ -1618,12 +1642,19 @@ export function KbAskPanel({
       if (!mounted || !snap) return
       mutateMessages(() => snap.messages as AskMessage[])
       setBusy(snap.liveRun?.busy ?? false)
+      if (!snap.liveRun?.busy) setRemoteConfirmPending(false)
     })
     const off = api.onAskRunEvent?.((evt) => {
       if (evt.type === 'snapshot') {
         const snap = evt.payload as { messages: AskMessage[]; liveRun?: { busy?: boolean } | null }
         mutateMessages(() => snap.messages)
         setBusy(snap.liveRun?.busy ?? false)
+        if (!snap.liveRun?.busy) setRemoteConfirmPending(false)
+        return
+      }
+      if (evt.type === 'confirm-state') {
+        const p = evt.payload as { pending?: unknown } | null | undefined
+        setRemoteConfirmPending(p?.pending === true)
         return
       }
       if (evt.type === 'user-message') {
@@ -1638,6 +1669,60 @@ export function KbAskPanel({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the mirror's subscription is a mount-time contract
   }, [mirror])
+
+  const onPetActivityChangeRef = useRef(onPetActivityChange)
+  onPetActivityChangeRef.current = onPetActivityChange
+  const prevStreamingRef = useRef(false)
+  const completedSeqRef = useRef(0)
+  const lastEmittedPetRef = useRef<AiPetRunSnapshot | null>(null)
+
+  const lastAskMsg = messages[messages.length - 1]
+  const petStreaming = busy || (lastAskMsg?.role === 'assistant' && lastAskMsg.streaming === true)
+  const petConfirmPending = mirror ? remoteConfirmPending : confirm.card !== null
+  const petHasRunningTool =
+    lastAskMsg?.role === 'assistant' &&
+    ((lastAskMsg.activities?.some((a) => a.status === 'running') ?? false) ||
+      lastAskMsg.subAgent !== undefined)
+  const petLastError =
+    !petStreaming && lastAskMsg?.role === 'assistant' && lastAskMsg.isError === true
+
+  const petActivity: AiPetActivity = petConfirmPending
+    ? 'attention'
+    : petStreaming
+      ? petHasRunningTool
+        ? 'working'
+        : 'thinking'
+      : petLastError
+        ? 'error'
+        : 'idle'
+
+  useEffect(() => {
+    const wasStreaming = prevStreamingRef.current
+    prevStreamingRef.current = petStreaming
+    if (
+      wasStreaming &&
+      !petStreaming &&
+      lastAskMsg?.role === 'assistant' &&
+      !lastAskMsg.isError &&
+      lastAskMsg.text.trim().length > 0
+    ) {
+      completedSeqRef.current += 1
+    }
+    const nextSnapshot: AiPetRunSnapshot = {
+      activity: petActivity,
+      completedSeq: completedSeqRef.current,
+    }
+    const prev = lastEmittedPetRef.current
+    if (
+      prev &&
+      prev.activity === nextSnapshot.activity &&
+      prev.completedSeq === nextSnapshot.completedSeq
+    ) {
+      return
+    }
+    lastEmittedPetRef.current = nextSnapshot
+    onPetActivityChangeRef.current?.(nextSnapshot)
+  }, [petActivity, petStreaming, lastAskMsg])
 
   /** where this panel's transcript lives, once project-store has answered */
   const [activeChat, setActiveChat] = useState<string>(chatId)
@@ -3583,7 +3668,7 @@ export function KbAskPanel({
               // corpus for itself
               <div className="kb-ask-hello">
                 <div className="kb-ask-hello-bird" aria-hidden="true">
-                  <MascotSvg />
+                  <MascotSvg decorative mood="hover" />
                 </div>
                 <h3>{t('askHelloTitle')}</h3>
                 <p>{t('askHelloTagline')}</p>

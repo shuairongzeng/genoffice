@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { HomeApi } from '../../shared/home-api'
 import type { PendingAskQuery } from '../../shared/ask-forward'
 import {
@@ -16,6 +16,7 @@ import {
   PET_SIZE,
   type AiPetPos,
 } from './AiDock'
+import { IDLE_PET_RUN_SNAPSHOT, useAiPetBehavior, type AiPetRunSnapshot } from './ai-pet-state'
 import { useI18n } from './locale'
 import { KbAskPanel, CHAT_ID } from './KbAskPanel'
 
@@ -138,6 +139,7 @@ export function AskPanelEntry(): React.JSX.Element | null {
   // exactly the way Home's own panel consumes a local handoff
   const [pendingQuery, setPendingQuery] = useState<PendingAskQuery | null>(null)
   const [focusSeq, setFocusSeq] = useState(0)
+  const [petRunState, setPetRunState] = useState<AiPetRunSnapshot>(IDLE_PET_RUN_SNAPSHOT)
   // the drawer's shape, from the same prefs main sizes the view with —
   // unknown until the store answers (or the channels are absent: the stale
   // preload's fallback below), because this tree must not guess: the view may
@@ -529,13 +531,25 @@ export function AskPanelEntry(): React.JSX.Element | null {
           focusSignal={focusSeq}
           onEscapeCollapse={() => collapseOverlayDrawer()}
           onCollapse={collapseOverlayDrawer}
+          onPetActivityChange={setPetRunState}
           /* the header is the floating card's grab zone (Home's bubble shares
              the verb): absent while docked into a host app's slot — that
              panel is the app's own layout and does not move */
           onBubbleDragStart={dock.collapsed || embedded ? undefined : beginPanelDrag}
         />
       </div>
-      <OverlayPet collapsed={dock.collapsed} gulp={petGulp} onToggle={toggle} />
+      <OverlayPet
+        collapsed={dock.collapsed}
+        gulp={petGulp}
+        runState={petRunState}
+        onToggle={toggle}
+        onResetPos={() => {
+          const api = window.aiOffice as Partial<HomeApi>
+          if (typeof api.setAiDock === 'function') {
+            void api.setAiDock({ petPos: null }).catch(() => undefined)
+          }
+        }}
+      />
     </div>
   )
 }
@@ -613,20 +627,37 @@ function morphFromScales(
 function OverlayPet({
   collapsed,
   gulp,
+  runState,
   onToggle,
+  onResetPos,
 }: {
   collapsed: boolean
   /** the close morph landed: the satisfied munch plays on the bird */
   gulp: boolean
+  runState: AiPetRunSnapshot
   onToggle: () => void
+  onResetPos: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
+  const petRef = useRef<HTMLButtonElement | null>(null)
   const draggingRef = useRef(false)
+  const [isDragging, setIsDragging] = useState(false)
   /** true from the slop crossing until the next press: the trailing click of a
    *  finished drag must not toggle the drawer */
   const movedRef = useRef(false)
   /** the gesture's live pet position (chrome CSS px); null when the view's own bounds stand */
   const [dragPos, setDragPos] = useState<AiPetPos | null>(null)
+
+  const petBehavior = useAiPetBehavior({
+    collapsed,
+    dragging: isDragging,
+    runState,
+    reducedMotion: aiMotionReduced(),
+    petRef,
+    windowGaze: false,
+  })
+  const petBehaviorRef = useRef(petBehavior)
+  petBehaviorRef.current = petBehavior
 
   const beginDrag = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>): void => {
@@ -651,6 +682,8 @@ function OverlayPet({
       const grab = { x: event.clientX, y: event.clientY }
       const startX = event.clientX
       const startY = event.clientY
+      let lastClientX = startX
+      let lastTs = event.timeStamp || performance.now()
       // the pet-sized viewport at the press: the window-wide surface's
       // arrival is the viewport outgrowing it (or its resize event)
       const petFrame = { width: window.innerWidth, height: window.innerHeight }
@@ -686,6 +719,8 @@ function OverlayPet({
         window.removeEventListener('resize', onSurface)
         document.body.classList.remove('ai-pet-dragging')
         draggingRef.current = false
+        setIsDragging(false)
+        petBehaviorRef.current.onDragVelocity(0)
         if (!movedRef.current) return
         // the surface must not stay window-wide: the end report re-fits it
         // whatever the prefs decide (an unchanged position leaves the store
@@ -697,6 +732,7 @@ function OverlayPet({
         surface({ end: true })
         if (pos) void setDock({ petPos: pos }).catch(() => undefined)
         if (pos) window.addEventListener('resize', onSettle)
+        petBehaviorRef.current.triggerSettle()
       }
       const onMove = (ev: PointerEvent): void => {
         if (!movedRef.current) {
@@ -705,9 +741,17 @@ function OverlayPet({
           // a plain click never grows one
           if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < PET_CLICK_SLOP) return
           movedRef.current = true
+          setIsDragging(true)
+          petBehaviorRef.current.wakeUp()
           document.body.classList.add('ai-pet-dragging')
           surface({ start: true })
         }
+        const now = ev.timeStamp || performance.now()
+        const dt = Math.max(1, now - lastTs)
+        const vx = (ev.clientX - lastClientX) / dt
+        lastClientX = ev.clientX
+        lastTs = now
+        petBehaviorRef.current.onDragVelocity(vx)
         if (!surfaced && isPetSized()) {
           // the expansion has not landed yet: this move still carries the
           // pet-sized view's frame, and using it would offset the pet by the
@@ -738,6 +782,37 @@ function OverlayPet({
     [collapsed],
   )
 
+  const onContextMenu = useCallback(
+    async (event: ReactMouseEvent<HTMLButtonElement>): Promise<void> => {
+      event.preventDefault()
+      event.stopPropagation()
+      const api = window.aiOffice as Partial<HomeApi> | undefined
+      if (typeof api?.aiPetMenu !== 'function') return
+      const sleeping = petBehaviorRef.current.isSleeping
+      const action = await api
+        .aiPetMenu({
+          collapsed,
+          sleeping,
+          labels: {
+            toggle: t(collapsed ? 'dockExpand' : 'dockCollapse'),
+            sleep: t(sleeping ? 'petMenuWake' : 'petMenuSleep'),
+            reset: t('petMenuResetPos'),
+          },
+        })
+        .catch(() => null)
+      if (action === 'toggle') {
+        petBehaviorRef.current.wakeUp()
+        onToggle()
+      } else if (action === 'sleep') {
+        petBehaviorRef.current.toggleManualSleep()
+      } else if (action === 'reset') {
+        petBehaviorRef.current.wakeUp()
+        onResetPos()
+      }
+    },
+    [collapsed, onResetPos, onToggle, t],
+  )
+
   /** keyboard activation arrives without pointer events, so the drag flag resets here */
   const onKeyDown = (): void => {
     movedRef.current = false
@@ -745,8 +820,11 @@ function OverlayPet({
 
   return (
     <button
+      ref={petRef}
       type="button"
-      className={`ai-pet${!collapsed ? ' pet-hidden' : ''}${gulp ? ' gulp' : ''}`}
+      className={`ai-pet${!collapsed ? ' pet-hidden' : ''}${gulp ? ' gulp' : ''}${
+        isDragging ? ' dragging' : ''
+      }${petBehavior.settling ? ' settling' : ''}`}
       /* collapsed: the view IS the pet's bounds (main sized it around the
          bird), so the pet perches at its own origin — unless a drag is live,
          when it follows the pointer across the window-wide surface; expanded:
@@ -760,14 +838,19 @@ function OverlayPet({
       title={t(collapsed ? 'dockExpand' : 'dockCollapse')}
       aria-expanded={!collapsed}
       onPointerDown={beginDrag}
+      onPointerEnter={petBehavior.onPointerEnter}
+      onPointerLeave={petBehavior.onPointerLeave}
+      onPointerMove={petBehavior.onPointerMove}
       onClick={() => {
         // the trailing click of a real drag toggles nothing
         if (movedRef.current) return
+        petBehaviorRef.current.wakeUp()
         onToggle()
       }}
+      onContextMenu={(event) => void onContextMenu(event)}
       onKeyDown={onKeyDown}
     >
-      <MascotSvg />
+      <MascotSvg mood={petBehavior.mood} />
     </button>
   )
 }

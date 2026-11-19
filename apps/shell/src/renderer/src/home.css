@@ -1266,6 +1266,26 @@ html.genoffice-popover-open .work-tabs {
   }
 }
 
+.ai-pet.settling {
+  animation: ai-pet-settle 420ms cubic-bezier(0.22, 1.35, 0.36, 1);
+  transform-origin: 50% 90%;
+}
+
+@keyframes ai-pet-settle {
+  0% {
+    transform: rotate(var(--pet-tilt, 0deg)) scale(1.06, 0.94);
+  }
+  38% {
+    transform: rotate(0deg) scale(1.1, 0.84);
+  }
+  72% {
+    transform: rotate(0deg) scale(0.95, 1.08);
+  }
+  100% {
+    transform: rotate(0deg) scale(1, 1);
+  }
+}
+
 /* the global reduced-motion rule below (animation-duration: 0.01ms) already
  * zeroes these keyframes; the JS skips arming the morph under the same
  * setting, so neither the classes nor the click gate ever engage — belt and
@@ -1274,7 +1294,8 @@ html.genoffice-popover-open .work-tabs {
   .ai-drawer.morph-open .ai-drawer-panel,
   .ai-drawer.morph-close .ai-drawer-panel,
   .ai-pet.absorb,
-  .ai-pet.gulp {
+  .ai-pet.gulp,
+  .ai-pet.settling {
     animation: none;
   }
 }
@@ -1353,14 +1374,11 @@ body.ai-drawer-resizing {
 }
 
 /* ── the floating pet: the closed drawer's whole presence ──
- * A round bird, drawn with nine shapes and two CSS keyframes (blink and
- * breathing); the prefers-reduced-motion rule at this file's foot already
- * zeroes every animation, so a motion-sensitive setup gets a still bird.
+ * A 2.5D Lively Bluebird rendered in a compact 68x62 perch (`PET_SIZE`).
  * Fixed over the content area's bottom-right corner (left/top inline from
  * the persisted position, the default corner when none exists), it claims
- * no layout width anywhere. Colors live on custom properties — per
- * CLAUDE.md the mascot is the one place raw hues may sit, and only on those
- * definition lines. */
+ * no layout width anywhere. All raw color values sit strictly on single-line
+ * CSS custom-property definitions below. */
 .ai-pet {
   position: fixed;
   /* above the drawer's scrim; below the star-prompt card (60), the settings
@@ -1380,8 +1398,13 @@ body.ai-drawer-resizing {
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
-  /* the bird's palette lives on .ai-mascot-svg itself (any host renders the
-     same bird); the pet's rule keeps only its own behavior */
+  transform: rotate(var(--pet-tilt, 0deg));
+  transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ai-pet.dragging {
+  cursor: grabbing;
+  transition: transform 45ms linear;
 }
 
 /* expanded, the panel IS the pet: no second bird perches at the window's
@@ -1402,6 +1425,25 @@ body.ai-pet-dragging {
 .ai-pet:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Home floating pet context menu — reuses .dock-menu glass styling */
+.ai-pet-menu {
+  z-index: 55;
+  --pet-menu-glass: rgb(var(--glass-bg, 16 20 23));
+  --pet-menu-border: rgb(255 255 255 / 12%);
+  --pet-menu-dark-text: #f2f2f5;
+  --pet-menu-dark-hover: rgb(255 255 255 / 10%);
+}
+
+.ai-pet-menu[data-wallpaper-tone='dark'] {
+  background: color-mix(in srgb, var(--pet-menu-glass) 80%, transparent);
+  border-color: var(--pet-menu-border);
+  -webkit-backdrop-filter: blur(28px) saturate(1.25);
+  backdrop-filter: blur(28px) saturate(1.25);
+  --text: var(--pet-menu-dark-text);
+  --surface-subtle: var(--pet-menu-dark-hover);
+  color: var(--text);
 }
 
 /* ── the standalone ask-panel view (?view=ask-panel) ──
@@ -1508,6 +1550,11 @@ html.ask-panel-pet-only body {
   background: transparent;
 }
 
+/* Keep outer drop-shadow compact inside the 6px padding of the 68x62 overlay view */
+.ask-panel-entry.ask-panel-pet-only .ai-mascot-svg {
+  --mascot-shadow: drop-shadow(0 1px 3px var(--mascot-drop-c));
+}
+
 .ask-panel-entry .kb-ask {
   flex: 1;
   min-height: 0;
@@ -1539,27 +1586,176 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
   color: var(--text-secondary);
 }
 
-/* ── the mascot drawing (the pet's SVG internals) ── */
+/* ── the mascot drawing (the 2.5D Lively Bluebird SVG internals) ── */
 
 .ai-mascot-svg {
   display: block;
-  filter: var(--mascot-shadow);
-  transition: transform 0.16s;
-  /* the bird's palette lives on the SVG itself — any host (the pet button,
-   * the empty-state hello) renders the same bird */
-  --mascot-shadow: drop-shadow(0 4px 10px rgb(0 0 0 / 24%));
-  --mascot-body: var(--accent);
-  --mascot-belly: #ffffff;
-  --mascot-wing: color-mix(in srgb, var(--accent) 74%, #062033);
+  overflow: visible;
+  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  /* All raw color values sit strictly on single-line custom properties */
+  --mascot-drop-c: rgb(15 23 42 / 24%);
+  --mascot-shadow: drop-shadow(0 2px 4px var(--mascot-drop-c));
+  --mascot-white: #ffffff;
+  --mascot-deep: #062547;
+  --mascot-cyan: #22d3ee;
+  --mascot-green: #10b981;
+  --mascot-amber: #f59e0b;
+  --mascot-coral: #ef4444;
+  --mascot-belly-hi: #ffffff;
+  --mascot-belly-lo: #e8f1ff;
+  --mascot-rim-c: rgb(255 255 255 / 56%);
+  --mascot-spec-hi: rgb(255 255 255 / 58%);
+  --mascot-spec-lo: rgb(255 255 255 / 0%);
   --mascot-eyeball: #ffffff;
-  --mascot-pupil: #1f2a37;
+  --mascot-iris-hi: #2563eb;
+  --mascot-iris-lo: #0f294a;
+  --mascot-pupil: #0c1726;
   --mascot-glint: #ffffff;
-  --mascot-beak: #f59e0b;
-  --mascot-blush: color-mix(in srgb, var(--danger) 42%, transparent);
+  --mascot-beak-hi: #fbbf24;
+  --mascot-beak-lo: #d97706;
+  --mascot-blush-c: rgb(244 114 182 / 46%);
+  --mascot-ground-c: rgb(15 23 42 / 18%);
+  --mascot-badge-bg: rgb(255 255 255 / 92%);
+  --mascot-badge-border: rgb(15 23 42 / 12%);
+  --mascot-zzz-c: #64748b;
+  --mascot-body-hi: color-mix(in srgb, var(--accent) 52%, var(--mascot-white));
+  --mascot-body-mid: var(--accent);
+  --mascot-body-lo: color-mix(in srgb, var(--accent) 68%, var(--mascot-deep));
+  --mascot-wing-hi: color-mix(in srgb, var(--accent) 82%, var(--mascot-deep));
+  --mascot-wing-lo: color-mix(in srgb, var(--accent) 56%, var(--mascot-deep));
+  --mascot-aura-a: color-mix(in srgb, var(--accent) 88%, var(--mascot-white));
+  --mascot-aura-b: color-mix(in srgb, var(--accent) 62%, var(--mascot-cyan));
+  filter: var(--mascot-shadow);
 }
 
-.ai-pet:hover .ai-mascot-svg {
-  transform: scale(1.08) rotate(-4deg);
+[data-theme='dark'] .ai-mascot-svg,
+.home.desktop-mode[data-wallpaper-tone='dark'] .ai-mascot-svg {
+  --mascot-drop-c: rgb(0 0 0 / 50%);
+  --mascot-rim-c: rgb(255 255 255 / 72%);
+  --mascot-ground-c: rgb(0 0 0 / 36%);
+  --mascot-badge-bg: rgb(22 30 42 / 92%);
+  --mascot-badge-border: rgb(255 255 255 / 18%);
+  --mascot-zzz-c: #cbd5e1;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) .ai-mascot-svg {
+    --mascot-drop-c: rgb(0 0 0 / 50%);
+    --mascot-rim-c: rgb(255 255 255 / 72%);
+    --mascot-ground-c: rgb(0 0 0 / 36%);
+    --mascot-badge-bg: rgb(22 30 42 / 92%);
+    --mascot-badge-border: rgb(255 255 255 / 18%);
+    --mascot-zzz-c: #cbd5e1;
+  }
+}
+
+.ai-mascot-stop-body-hi {
+  stop-color: var(--mascot-body-hi);
+}
+.ai-mascot-stop-body-mid {
+  stop-color: var(--mascot-body-mid);
+}
+.ai-mascot-stop-body-lo {
+  stop-color: var(--mascot-body-lo);
+}
+.ai-mascot-stop-belly-hi {
+  stop-color: var(--mascot-belly-hi);
+}
+.ai-mascot-stop-belly-lo {
+  stop-color: var(--mascot-belly-lo);
+}
+.ai-mascot-stop-wing-hi {
+  stop-color: var(--mascot-wing-hi);
+}
+.ai-mascot-stop-wing-lo {
+  stop-color: var(--mascot-wing-lo);
+}
+.ai-mascot-stop-beak-hi {
+  stop-color: var(--mascot-beak-hi);
+}
+.ai-mascot-stop-beak-lo {
+  stop-color: var(--mascot-beak-lo);
+}
+.ai-mascot-stop-iris-hi {
+  stop-color: var(--mascot-iris-hi);
+}
+.ai-mascot-stop-iris-lo {
+  stop-color: var(--mascot-iris-lo);
+}
+.ai-mascot-stop-spec-hi {
+  stop-color: var(--mascot-spec-hi);
+}
+.ai-mascot-stop-spec-lo {
+  stop-color: var(--mascot-spec-lo);
+}
+.ai-mascot-stop-aura-a {
+  stop-color: var(--mascot-aura-a);
+}
+.ai-mascot-stop-aura-b {
+  stop-color: var(--mascot-aura-b);
+}
+
+.ai-mascot-ground-shadow {
+  fill: var(--mascot-ground-c);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.ai-mascot-rim {
+  stroke: var(--mascot-rim-c);
+  fill: none;
+}
+
+.ai-mascot-wing-line {
+  stroke: var(--mascot-rim-c);
+  fill: none;
+  opacity: 0.55;
+}
+
+.ai-mascot-eyeball {
+  fill: var(--mascot-eyeball);
+}
+
+.ai-mascot-pupil {
+  fill: var(--mascot-pupil);
+}
+
+.ai-mascot-glint,
+.ai-mascot-glint-sub {
+  fill: var(--mascot-glint);
+}
+
+.ai-mascot-beak-lower {
+  fill: var(--mascot-beak-lo);
+}
+
+.ai-mascot-blush {
+  fill: var(--mascot-blush-c);
+  transition: opacity 0.18s ease;
+}
+
+.ai-mascot-eye-closed,
+.ai-mascot-eye-happy,
+.ai-mascot-brow {
+  stroke: var(--mascot-pupil);
+  fill: none;
+}
+
+/* Eye tracking driven by --gaze-x / --gaze-y CSS variables */
+.ai-mascot-iris-group {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: translate(calc(var(--gaze-x, 0) * 2.1px), calc(var(--gaze-y, 0) * 1.6px));
+  transition: transform 90ms ease-out;
+}
+
+.ai-mascot-body-rig {
+  transform-box: fill-box;
+  transform-origin: 50% 65%;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .ai-mascot-breathe {
@@ -1568,14 +1764,24 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
   animation: mascot-breathe 4.2s ease-in-out infinite;
 }
 
-@keyframes mascot-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.035);
-  }
+.ai-mascot-tuft-group {
+  transform-box: fill-box;
+  transform-origin: 50% 90%;
+}
+
+.ai-mascot-tail {
+  transform-box: fill-box;
+  transform-origin: 10% 50%;
+}
+
+.ai-mascot-wing-left {
+  transform-box: fill-box;
+  transform-origin: 82% 28%;
+}
+
+.ai-mascot-wing-right {
+  transform-box: fill-box;
+  transform-origin: 18% 28%;
 }
 
 /* the fold itself lives on the eye's inner group so the group above keeps
@@ -1583,7 +1789,17 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
 .ai-mascot-blink {
   transform-box: fill-box;
   transform-origin: center;
-  animation: mascot-blink 5.4s ease-in-out infinite;
+  animation: mascot-blink 5.6s ease-in-out infinite;
+}
+
+@keyframes mascot-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.032, 0.985);
+  }
 }
 
 @keyframes mascot-blink {
@@ -1599,41 +1815,410 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
   }
 }
 
-.ai-mascot-shape {
-  fill: var(--mascot-body);
+/* Hover lift (also applies when decorative mood="hover" is mounted) */
+.ai-pet:hover .ai-mascot-svg,
+.ai-mascot-svg[data-mood='hover'] {
+  transform: scale(1.05) translateY(-1.5px);
 }
 
-.ai-mascot-belly {
-  fill: var(--mascot-belly);
+.ai-mascot-svg[data-mood='hover'] .ai-mascot-wing-left {
+  transform: rotate(8deg);
 }
 
-.ai-mascot-wing {
-  fill: var(--mascot-wing);
+.ai-mascot-svg[data-mood='hover'] .ai-mascot-wing-right {
+  transform: rotate(-8deg);
 }
 
-.ai-mascot-tuft {
-  stroke: var(--mascot-wing);
+.ai-mascot-svg[data-mood='hover'] .ai-mascot-tail {
+  animation: mascot-tail-wag 1.4s ease-in-out infinite;
+}
+
+/* Curious head tilt */
+.ai-mascot-svg[data-mood='curious'] .ai-mascot-body-rig {
+  animation: mascot-curious 2.4s cubic-bezier(0.36, 0, 0.2, 1) forwards;
+}
+
+.ai-mascot-svg[data-mood='curious'] .ai-mascot-tuft-group {
+  animation: mascot-tuft-sway 2.4s ease-in-out forwards;
+}
+
+@keyframes mascot-curious {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20%,
+  70% {
+    transform: rotate(-7.5deg) translateY(-1px);
+  }
+}
+
+@keyframes mascot-tuft-sway {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25%,
+  70% {
+    transform: rotate(6deg);
+  }
+}
+
+@keyframes mascot-tail-wag {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-7deg);
+  }
+}
+
+/* Sleepy nap pose & floating Zzz */
+.ai-mascot-svg[data-mood='sleepy'] .ai-mascot-body-rig {
+  transform: translateY(1.5px) scaleY(0.96);
+}
+
+.ai-mascot-svg[data-mood='sleepy'] .ai-mascot-breathe {
+  animation-duration: 6.2s;
+}
+
+.ai-mascot-zzz {
+  stroke: var(--mascot-zzz-c);
   fill: none;
 }
 
-.ai-mascot-eyeball {
-  fill: var(--mascot-eyeball);
+.ai-mascot-zzz-1 {
+  animation: mascot-zzz-float 2.6s ease-in-out infinite;
 }
 
-.ai-mascot-pupil {
-  fill: var(--mascot-pupil);
+.ai-mascot-zzz-2 {
+  animation: mascot-zzz-float 2.6s ease-in-out 0.9s infinite;
 }
 
-.ai-mascot-glint {
-  fill: var(--mascot-glint);
+@keyframes mascot-zzz-float {
+  0% {
+    opacity: 0;
+    transform: translate(0, 2px) scale(0.85);
+  }
+  30%,
+  70% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(1.5px, -3.5px) scale(1.06);
+  }
 }
 
-.ai-mascot-beak {
-  fill: var(--mascot-beak);
+/* Petted joyous bounce */
+.ai-mascot-svg[data-mood='petted'] .ai-mascot-body-rig {
+  animation: mascot-happy-bounce 0.55s ease-in-out infinite alternate;
 }
 
-.ai-mascot-blush {
-  fill: var(--mascot-blush);
+.ai-mascot-svg[data-mood='petted'] .ai-mascot-wing-left {
+  animation: mascot-flap-left 0.36s ease-in-out infinite alternate;
+}
+
+.ai-mascot-svg[data-mood='petted'] .ai-mascot-wing-right {
+  animation: mascot-flap-right 0.36s ease-in-out infinite alternate;
+}
+
+.ai-mascot-svg[data-mood='petted'] .ai-mascot-blush {
+  opacity: 0.95;
+}
+
+@keyframes mascot-happy-bounce {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    transform: translateY(-2.4px) scale(1.03, 0.98);
+  }
+}
+
+/* Dragging lifted surprise & fast flutter */
+.ai-mascot-svg[data-mood='dragging'] .ai-mascot-ground-shadow {
+  opacity: 0.35;
+  transform: scale(0.72);
+}
+
+.ai-mascot-svg[data-mood='dragging'] .ai-mascot-wing-left {
+  animation: mascot-flap-left 0.2s ease-in-out infinite alternate;
+}
+
+.ai-mascot-svg[data-mood='dragging'] .ai-mascot-wing-right {
+  animation: mascot-flap-right 0.2s ease-in-out infinite alternate;
+}
+
+.ai-mascot-svg[data-mood='dragging'] .ai-mascot-iris-group {
+  transform: translate(calc(var(--gaze-x, 0) * 1.4px), calc(var(--gaze-y, 0) * 1.1px)) scale(0.84);
+}
+
+@keyframes mascot-flap-left {
+  0% {
+    transform: rotate(-6deg);
+  }
+  100% {
+    transform: rotate(22deg);
+  }
+}
+
+@keyframes mascot-flap-right {
+  0% {
+    transform: rotate(6deg);
+  }
+  100% {
+    transform: rotate(-22deg);
+  }
+}
+
+/* Status aura rings & corner micro-badges */
+.ai-mascot-aura {
+  fill: none;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.ai-mascot-badge-pill {
+  fill: var(--mascot-badge-bg);
+  stroke: var(--mascot-badge-border);
+  stroke-width: 1;
+}
+
+.ai-mascot-badge-dot {
+  fill: var(--accent);
+}
+
+.ai-mascot-badge-dot-1 {
+  animation: mascot-dot-wave 1.1s ease-in-out infinite;
+}
+
+.ai-mascot-badge-dot-2 {
+  animation: mascot-dot-wave 1.1s ease-in-out 0.18s infinite;
+}
+
+.ai-mascot-badge-dot-3 {
+  animation: mascot-dot-wave 1.1s ease-in-out 0.36s infinite;
+}
+
+@keyframes mascot-dot-wave {
+  0%,
+  70%,
+  100% {
+    opacity: 0.45;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-1.5px);
+  }
+}
+
+.ai-mascot-svg[data-mood='thinking'] .ai-mascot-body-rig {
+  animation: mascot-float 2.2s ease-in-out infinite;
+}
+
+.ai-mascot-svg[data-mood='thinking'] .ai-mascot-aura {
+  stroke-dasharray: 10 6;
+  animation: mascot-aura-spin 4.2s linear infinite;
+}
+
+@keyframes mascot-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes mascot-aura-spin {
+  to {
+    stroke-dashoffset: -64;
+  }
+}
+
+/* Working (tool call / sub-agent running) */
+.ai-mascot-svg[data-mood='working'] {
+  --mascot-aura-a: var(--mascot-green);
+  --mascot-aura-b: var(--accent);
+}
+
+.ai-mascot-svg[data-mood='working'] .ai-mascot-aura {
+  stroke-dasharray: 12 5;
+  animation: mascot-aura-spin 2.4s linear infinite;
+}
+
+.ai-mascot-svg[data-mood='working'] .ai-mascot-wing-left {
+  animation: mascot-flap-left 0.55s ease-in-out infinite alternate;
+}
+
+.ai-mascot-svg[data-mood='working'] .ai-mascot-wing-right {
+  animation: mascot-flap-right 0.55s ease-in-out infinite alternate;
+}
+
+.ai-mascot-badge-spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mascot-spark-pulse 1.8s ease-in-out infinite;
+}
+
+.ai-mascot-badge-spark-bg {
+  fill: var(--mascot-green);
+  stroke: var(--mascot-white);
+  stroke-width: 1.2;
+}
+
+.ai-mascot-badge-spark-star {
+  fill: var(--mascot-white);
+}
+
+@keyframes mascot-spark-pulse {
+  0%,
+  100% {
+    transform: scale(0.95) rotate(0deg);
+  }
+  50% {
+    transform: scale(1.08) rotate(22deg);
+  }
+}
+
+/* Unread finished response */
+.ai-mascot-svg[data-mood='unread-done'] .ai-mascot-aura {
+  opacity: 0.72;
+  animation: mascot-aura-breathe 2.6s ease-in-out infinite;
+}
+
+.ai-mascot-badge-unread-ring {
+  fill: var(--accent);
+  opacity: 0.28;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mascot-unread-ring 2s ease-out infinite;
+}
+
+.ai-mascot-badge-unread-core {
+  fill: var(--accent);
+  stroke: var(--mascot-white);
+  stroke-width: 1.25;
+}
+
+@keyframes mascot-aura-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+@keyframes mascot-unread-ring {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.38);
+    opacity: 0;
+  }
+}
+
+/* Attention (pending confirmation card) */
+.ai-mascot-svg[data-mood='attention'] {
+  --mascot-aura-a: var(--mascot-amber);
+  --mascot-aura-b: var(--mascot-beak-hi);
+}
+
+.ai-mascot-svg[data-mood='attention'] .ai-mascot-body-rig {
+  animation: mascot-attention-hop 1.9s ease-in-out infinite;
+}
+
+.ai-mascot-svg[data-mood='attention'] .ai-mascot-aura {
+  animation: mascot-aura-breathe 1.6s ease-in-out infinite;
+}
+
+.ai-mascot-badge-attention-bg {
+  fill: var(--mascot-amber);
+  stroke: var(--mascot-white);
+  stroke-width: 1.2;
+}
+
+.ai-mascot-badge-glyph {
+  stroke: var(--mascot-white);
+  fill: none;
+}
+
+.ai-mascot-badge-glyph-dot {
+  fill: var(--mascot-white);
+}
+
+@keyframes mascot-attention-hop {
+  0%,
+  65%,
+  100% {
+    transform: translateY(0);
+  }
+  75% {
+    transform: translateY(-2.5px);
+  }
+  85% {
+    transform: translateY(0);
+  }
+  92% {
+    transform: translateY(-1.2px);
+  }
+}
+
+/* Error alert */
+.ai-mascot-svg[data-mood='error'] {
+  --mascot-aura-a: var(--mascot-coral);
+  --mascot-aura-b: var(--mascot-amber);
+}
+
+.ai-mascot-svg[data-mood='error'] .ai-mascot-body-rig {
+  animation: mascot-error-shake 0.55s ease-out 1;
+}
+
+.ai-mascot-badge-error-bg {
+  fill: var(--mascot-coral);
+  stroke: var(--mascot-white);
+  stroke-width: 1.2;
+}
+
+@keyframes mascot-error-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-2.5px) rotate(-3deg);
+  }
+  45% {
+    transform: translateX(2.5px) rotate(3deg);
+  }
+  70% {
+    transform: translateX(-1.5px) rotate(-1.5deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-mascot-svg,
+  .ai-mascot-body-rig,
+  .ai-mascot-breathe,
+  .ai-mascot-blink,
+  .ai-mascot-iris-group,
+  .ai-mascot-wing-left,
+  .ai-mascot-wing-right,
+  .ai-mascot-tuft-group,
+  .ai-mascot-tail,
+  .ai-mascot-aura,
+  .ai-mascot-badge * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 /* ---- main content ---- */
@@ -4001,7 +4586,9 @@ html[dir='rtl'] .quick-title-row {
 }
 .kb-ask-hello-bird {
   display: inline-flex;
-  padding: 6px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
   border-radius: 50%;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }

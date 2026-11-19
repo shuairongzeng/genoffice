@@ -609,6 +609,19 @@ export interface AiPetDragReport {
   end?: boolean
 }
 
+export type AiPetMenuAction = 'toggle' | 'sleep' | 'reset'
+
+/** Native context menu request sent by the compact transparent overlay pet view */
+export interface AiPetMenuRequest {
+  readonly collapsed: boolean
+  readonly sleeping: boolean
+  readonly labels: {
+    readonly toggle: string
+    readonly sleep: string
+    readonly reset: string
+  }
+}
+
 /** one of the Home loop's run events, relayed to every mirror mount (pub/sub) */
 export interface AskRunEvent {
   type:
@@ -619,6 +632,7 @@ export interface AskRunEvent {
     | 'done'
     | 'usage'
     | 'error'
+    | 'confirm-state'
     | 'user-message'
     | 'snapshot'
   payload: unknown
@@ -866,6 +880,13 @@ export interface HomeApi {
    * persists it through the ordinary `home:ai-dock-set` write (panelPos).
    */
   aiPanelDrag?(report: AiPetDragReport): void
+  /**
+   * Native context menu popup for the overlay pet view (`home:ai-pet-menu`):
+   * the transparent pet-only view is clamped to 68x62, so a DOM popup would
+   * clip inside it; main builds and pops the OS menu and resolves with the
+   * chosen action (or null when dismissed).
+   */
+  aiPetMenu?(request: AiPetMenuRequest): Promise<AiPetMenuAction | null>
   /**
    * Publish one of the Home loop's run events (or a message-list snapshot)
    * over `home:ask-run-event`: main relays it to every OTHER renderer, so a
@@ -1685,6 +1706,8 @@ export const HOME_CHANNELS = {
    *  requests (start: grow the view window-wide for the gesture; end: re-fit
    *  the parked card) — the pet drag's contract for the expanded panel */
   askPanelDrag: 'home:ask-panel-drag',
+  /** renderer → main: native context menu for the overlay pet view */
+  aiPetMenu: 'home:ai-pet-menu',
   /** renderer → main: the doc-mode dock overlay's hot-edge transitions —
    *  `enter` from the strip summons the dock (or cancels a pending hide),
    *  `leave` from the revealed dock arms the grace timer */

@@ -13,7 +13,7 @@ import { PET_SIZE } from '../src/renderer/src/AiDock'
 import { LocaleProvider } from '../src/renderer/src/locale'
 import { loadStrings } from '../src/renderer/src/strings'
 import type { PendingAskQuery } from '../src/shared/ask-forward'
-import type { AiDockPrefs } from '../src/shared/home-api'
+import type { AiDockPrefs, AiPetMenuAction, AskRunEvent } from '../src/shared/home-api'
 
 /**
  * The ask panel's standalone mount (src/renderer/src/panel-entry.tsx, the
@@ -929,5 +929,107 @@ describe("Esc's ladder (P1-4: the overlay answers the key itself)", () => {
     expect(container!.querySelector('.ai-slash-pop')).toBeNull()
     expect(textarea.value).toBe('/tone')
     expect(setAiDock).not.toHaveBeenCalled()
+  })
+})
+
+describe('Lively Bluebird overlay pet moods & native context menu', () => {
+  it('syncs AI thinking, working, attention, and unread-done moods and handles native menu verbs', async () => {
+    let runEventHandler: ((evt: AskRunEvent) => void) | null = null
+    const aiPetMenuMock = vi.fn<(...args: unknown[]) => Promise<AiPetMenuAction | null>>()
+    await mountEntry(
+      panelApi({
+        ...overlayChannels({ width: 400, collapsed: true, petPos: null }),
+        onAskRunEvent: (handler: (evt: AskRunEvent) => void) => {
+          runEventHandler = handler
+          return () => {
+            runEventHandler = null
+          }
+        },
+        aiPetMenu: aiPetMenuMock,
+      }),
+    )
+    const pet = container!.querySelector<HTMLButtonElement>('.ai-pet')!
+    const svg = () => pet.querySelector<SVGSVGElement>('.ai-mascot-svg')!
+    expect(svg().getAttribute('data-mood')).toBe('idle')
+
+    // 1. Native context menu: sleep -> wake -> reset position -> expand drawer
+    aiPetMenuMock.mockResolvedValueOnce('sleep')
+    await act(async () => {
+      pet.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    })
+    expect(svg().getAttribute('data-mood')).toBe('sleepy')
+
+    aiPetMenuMock.mockResolvedValueOnce('sleep')
+    await act(async () => {
+      pet.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    })
+    expect(svg().getAttribute('data-mood')).toBe('idle')
+
+    aiPetMenuMock.mockResolvedValueOnce('reset')
+    await act(async () => {
+      pet.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    })
+    expect(setAiDock).toHaveBeenCalledWith({ petPos: null })
+
+    // 2. Relayed AI run lifecycle: thinking -> working -> attention -> unread-done
+    await act(async () => {
+      runEventHandler!({
+        type: 'snapshot',
+        payload: {
+          messages: [
+            { role: 'user', text: 'Summarize report', toolNotes: [], artifacts: [] },
+            {
+              role: 'assistant',
+              text: '',
+              toolNotes: [],
+              activities: [],
+              artifacts: [],
+              streaming: true,
+            },
+          ],
+          liveRun: { text: '', busy: true },
+        },
+      })
+    })
+    expect(svg().getAttribute('data-mood')).toBe('thinking')
+
+    await act(async () => {
+      runEventHandler!({
+        type: 'tool-start',
+        payload: { id: 'c1', name: 'kb_search', input: { q: 'report' } },
+      })
+    })
+    expect(svg().getAttribute('data-mood')).toBe('working')
+
+    await act(async () => {
+      runEventHandler!({
+        type: 'confirm-state',
+        payload: { pending: true },
+      })
+    })
+    expect(svg().getAttribute('data-mood')).toBe('attention')
+
+    await act(async () => {
+      runEventHandler!({
+        type: 'confirm-state',
+        payload: { pending: false },
+      })
+      runEventHandler!({
+        type: 'text',
+        payload: 'All set.',
+      })
+      runEventHandler!({
+        type: 'done',
+        payload: null,
+      })
+    })
+    expect(svg().getAttribute('data-mood')).toBe('unread-done')
+
+    // Expanding through menu toggle calls setAiDock({ collapsed: false }) and clears unread
+    aiPetMenuMock.mockResolvedValueOnce('toggle')
+    await act(async () => {
+      pet.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    })
+    expect(setAiDock).toHaveBeenCalledWith({ collapsed: false })
   })
 })

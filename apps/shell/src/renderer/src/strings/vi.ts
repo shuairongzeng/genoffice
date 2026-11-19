@@ -612,6 +612,9 @@ export const vi: Dict = {
   dockExpand: 'Mở bảng điều khiển AI',
   dockCollapse: 'Thu gọn bảng điều khiển AI',
   dockResize: 'Kéo để đổi kích thước bảng điều khiển AI',
+  petMenuResetPos: 'Đặt lại vị trí góc',
+  petMenuSleep: 'Chợp mắt',
+  petMenuWake: 'Đánh thức',
   panelApiMissing:
     'Bảng điều khiển AI cần các API mà cửa sổ này không cung cấp. Hãy khởi động lại ứng dụng.',
   workTabsAria: 'Tài liệu đang mở',

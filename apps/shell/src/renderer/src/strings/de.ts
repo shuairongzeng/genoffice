@@ -636,6 +636,9 @@ export const de: Dict = {
   dockExpand: 'KI-Bereich öffnen',
   dockCollapse: 'KI-Bereich einklappen',
   dockResize: 'Ziehen, um die Breite des KI-Bereichs zu ändern',
+  petMenuResetPos: 'Position zurücksetzen',
+  petMenuSleep: 'Nickerchen machen',
+  petMenuWake: 'Aufwecken',
   panelApiMissing:
     'Das KI-Panel benötigt APIs, die dieses Fenster nicht bereitstellt. Bitte starten Sie die App neu.',
   workTabsAria: 'Geöffnete Dokumente',

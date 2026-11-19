@@ -1,5 +1,11 @@
-import { createContext, useCallback, useEffect, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import { createContext, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from 'react'
+import { createPortal } from 'react-dom'
+import { useDismissablePopover } from '@genoffice/ui'
 import type { AiDockPrefs } from '../../shared/home-api'
 import {
   AI_DOCK_WIDTH_DEFAULT,
@@ -14,6 +20,9 @@ import {
   PET_SIZE,
   type AiPetPos,
 } from '../../shared/desktop-geometry'
+import { placeFolderMenu } from './folder-menu-position'
+import { MascotSvg } from './AiMascot'
+import { IDLE_PET_RUN_SNAPSHOT, useAiPetBehavior, type AiPetRunSnapshot } from './ai-pet-state'
 import { useI18n } from './locale'
 
 /** the bubble's drag verb for the panel's header (the bubble hangs off the
@@ -70,6 +79,7 @@ export type { AiDockPrefs, AiPetPos }
 // pet-only view must size and clamp the bird identically, and its import
 // sites (panel-entry) keep reaching for them here
 export { PET_SIZE, PET_MARGIN, clampPetPos, defaultPetPos } from '../../shared/desktop-geometry'
+export { MascotSvg } from './AiMascot'
 
 /** where the drawer prefs live while the app-settings IPC contract is absent */
 const DOCK_PREFS_KEY = 'home.aiDock'
@@ -227,6 +237,10 @@ export interface AiDockProps {
   onWidthCommit: (width: number) => void
   /** the pet's drag ended with this position (clamped; never mid-drag) */
   onPetPosCommit: (pos: AiPetPos) => void
+  /** Reset the pet back to its default bottom-right corner */
+  onPetPosReset?: () => void
+  /** Live AI pipeline state driving mascot moods */
+  petRunState?: AiPetRunSnapshot
   /** the panel itself, mounted by Home so it outlives the drawer's closing */
   children: ReactNode
 }
@@ -240,6 +254,8 @@ export function AiDock({
   onExpand,
   onWidthCommit,
   onPetPosCommit,
+  onPetPosReset,
+  petRunState = IDLE_PET_RUN_SNAPSHOT,
   children,
 }: AiDockProps): React.JSX.Element {
   const { t } = useI18n()
@@ -333,6 +349,10 @@ export function AiDock({
   /* ── the pet's drag: the same gesture shape the width handle uses ── */
   /** the position shown while a drag is live; null when the persisted one stands */
   const [dragPos, setDragPos] = useState<AiPetPos | null>(null)
+  const [isPetDragging, setIsPetDragging] = useState(false)
+  const [petMenu, setPetMenu] = useState<{ x: number; top: number; dark: boolean } | null>(null)
+  const petRef = useRef<HTMLButtonElement | null>(null)
+  const petMenuRef = useRef<HTMLDivElement>(null)
   const petDraggingRef = useRef(false)
   /** true from the slop crossing until the next press: the trailing click of a
    *  finished drag must not toggle the drawer (a keyboard press resets it) */
@@ -343,6 +363,44 @@ export function AiDock({
   onCollapseRef.current = onCollapse
   const onPetPosCommitRef = useRef(onPetPosCommit)
   onPetPosCommitRef.current = onPetPosCommit
+
+  const petBehavior = useAiPetBehavior({
+    collapsed,
+    dragging: isPetDragging,
+    runState: petRunState,
+    reducedMotion: aiMotionReduced(),
+    petRef,
+    windowGaze: true,
+  })
+  const petBehaviorRef = useRef(petBehavior)
+  petBehaviorRef.current = petBehavior
+
+  useDismissablePopover(petMenu !== null, () => setPetMenu(null), {
+    inside: () => [petMenuRef.current],
+  })
+  useEffect(() => {
+    if (!petMenu) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setPetMenu(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [petMenu])
+  useLayoutEffect(() => {
+    const el = petMenuRef.current
+    if (!petMenu || !el) return
+    const scale = chromeScale()
+    const { left, top } = placeFolderMenu(
+      { x: petMenu.x / scale, y: petMenu.top / scale, above: petMenu.top / scale },
+      { width: el.offsetWidth, height: el.offsetHeight },
+      {
+        width: document.documentElement.clientWidth / scale,
+        height: window.innerHeight / scale,
+      },
+    )
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
+  }, [petMenu])
 
   /** the pet's shown position: the drag's live value, else the stored (or
    *  default) one, clamped into the window and out of the open drawer */
@@ -364,6 +422,8 @@ export function AiDock({
     const startY = event.clientY
     const startPos = shownPetPosRef.current
     let next = startPos
+    let lastClientX = startX
+    let lastTs = event.timeStamp || performance.now()
     const onMove = (ev: PointerEvent) => {
       const dx = ev.clientX - startX
       const dy = ev.clientY - startY
@@ -371,8 +431,17 @@ export function AiDock({
       if (!petDragMovedRef.current) {
         if (Math.hypot(dx, dy) < PET_CLICK_SLOP) return
         petDragMovedRef.current = true
+        setIsPetDragging(true)
+        setPetMenu(null)
+        petBehaviorRef.current.wakeUp()
         document.body.classList.add('ai-pet-dragging')
       }
+      const now = ev.timeStamp || performance.now()
+      const dt = Math.max(1, now - lastTs)
+      const vx = (ev.clientX - lastClientX) / dt
+      lastClientX = ev.clientX
+      lastTs = now
+      petBehaviorRef.current.onDragVelocity(vx)
       next = clampPetPos(
         { x: startPos.x + dx / scale, y: startPos.y + dy / scale },
         viewportRef.current,
@@ -388,8 +457,13 @@ export function AiDock({
       window.removeEventListener('blur', onCancel)
       document.body.classList.remove('ai-pet-dragging')
       petDraggingRef.current = false
+      setIsPetDragging(false)
+      petBehaviorRef.current.onDragVelocity(0)
       setDragPos(null)
-      if (commit && petDragMovedRef.current) onPetPosCommitRef.current(next)
+      if (commit && petDragMovedRef.current) {
+        onPetPosCommitRef.current(next)
+        petBehaviorRef.current.triggerSettle()
+      }
     }
     const onUp = () => finish(true)
     const onCancel = () => finish(false)
@@ -414,7 +488,6 @@ export function AiDock({
   const [morphPhase, setMorphPhase] = useState<'open' | 'close' | null>(null)
   const [petGulp, setPetGulp] = useState(false)
   const morphBusyRef = useRef(false)
-  const petRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
   const morphTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const gulpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -496,8 +569,22 @@ export function AiDock({
   const onPetClick = () => {
     if (petDragMovedRef.current) return
     if (morphBusyRef.current) return
+    setPetMenu(null)
+    petBehaviorRef.current.wakeUp()
     if (collapsed) onExpandRef.current()
     else onCollapseRef.current()
+  }
+  const onPetContextMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const rect = petRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const dark = Boolean(petRef.current?.closest('[data-wallpaper-tone="dark"]'))
+    setPetMenu({
+      x: event.clientX > 0 ? event.clientX : rect.left + rect.width / 2,
+      top: rect.top,
+      dark,
+    })
   }
   /** keyboard activation arrives without pointer events, so the drag flag resets here */
   const onPetKeyDown = () => {
@@ -531,17 +618,69 @@ export function AiDock({
       <button
         type="button"
         ref={petRef}
-        className={`ai-pet${open ? ' pet-hidden' : ''}${morphPhase === 'open' ? ' absorb' : ''}${petGulp ? ' gulp' : ''}`}
+        className={`ai-pet${open ? ' pet-hidden' : ''}${morphPhase === 'open' ? ' absorb' : ''}${
+          petGulp ? ' gulp' : ''
+        }${isPetDragging ? ' dragging' : ''}${petBehavior.settling ? ' settling' : ''}`}
         style={{ left: shownPetPos.x, top: shownPetPos.y }}
         aria-label={t(collapsed ? 'dockExpand' : 'dockCollapse')}
         title={t(collapsed ? 'dockExpand' : 'dockCollapse')}
         aria-expanded={open}
         onPointerDown={beginPetDrag}
+        onPointerEnter={petBehavior.onPointerEnter}
+        onPointerLeave={petBehavior.onPointerLeave}
+        onPointerMove={petBehavior.onPointerMove}
         onClick={onPetClick}
+        onContextMenu={onPetContextMenu}
         onKeyDown={onPetKeyDown}
       >
-        <MascotSvg />
+        <MascotSvg mood={petBehavior.mood} />
       </button>
+      {petMenu &&
+        createPortal(
+          <div
+            className="dock-menu ai-pet-menu"
+            ref={petMenuRef}
+            role="menu"
+            aria-label={t('navAsk')}
+            data-wallpaper-tone={petMenu.dark ? 'dark' : undefined}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setPetMenu(null)
+                petBehavior.wakeUp()
+                if (collapsed) onExpandRef.current()
+                else onCollapseRef.current()
+              }}
+            >
+              {t(collapsed ? 'dockExpand' : 'dockCollapse')}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setPetMenu(null)
+                petBehavior.toggleManualSleep()
+              }}
+            >
+              {t(petBehavior.isSleeping ? 'petMenuWake' : 'petMenuSleep')}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setPetMenu(null)
+                petBehavior.wakeUp()
+                if (onPetPosReset) onPetPosReset()
+                else onPetPosCommitRef.current(defaultPetPos(viewportRef.current))
+              }}
+            >
+              {t('petMenuResetPos')}
+            </button>
+          </div>,
+          document.body,
+        )}
       {/* doc-covered: the document's native view paints above this whole
        * renderer, and the drawer's visual is hosted by the native overlay
        * view above it (main/ai-drawer-view.ts) — this HTML copy stays hidden
@@ -599,69 +738,5 @@ export function AiDock({
         </div>
       </section>
     </>
-  )
-}
-
-/**
- * The pet's whole presence: a round bird drawn with a handful of shapes.
- * Blink and breathing are CSS keyframes (home.css) — a motion-sensitive
- * setup already zeroes every animation, so the bird simply sits still there.
- * Its colors live on custom properties so the chrome stays token-based.
- *
- * Exported because the ask panel's standalone mount (panel-entry.tsx — the
- * surface the W2 native overlay view loads over a document) renders its own
- * pet as the overlay's collapse control: the same drawing, so the bird is
- * one bird whichever layer it perches on.
- */
-export function MascotSvg(): React.JSX.Element {
-  return (
-    <svg
-      className="ai-mascot-svg"
-      viewBox="0 0 72 64"
-      width="56"
-      height="50"
-      fill="none"
-      aria-hidden="true"
-    >
-      <g className="ai-mascot-breathe">
-        {/* head tuft: two feathers */}
-        <path
-          className="ai-mascot-tuft"
-          d="M31.5 19.5q1.8-6 6.5-6.5"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-        <path
-          className="ai-mascot-tuft"
-          d="M36.5 18.5q3-4.5 7.5-3.5"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-        {/* body and belly */}
-        <ellipse className="ai-mascot-shape" cx="36" cy="39" rx="24" ry="20" />
-        <ellipse className="ai-mascot-belly" cx="36" cy="46" rx="12.5" ry="8.5" />
-        {/* wing */}
-        <path className="ai-mascot-wing" d="M14.5 37.5q4.5 8.5 14.5 6.5q-4.5-6.5-14.5-6.5Z" />
-        {/* eyes: the inner group is what the blink keyframe folds */}
-        <g className="ai-mascot-eye" transform="translate(27.5 33)">
-          <g className="ai-mascot-blink">
-            <ellipse className="ai-mascot-eyeball" rx="4.7" ry="4.7" />
-            <circle className="ai-mascot-pupil" cx="0.9" cy="0.7" r="2.05" />
-            <circle className="ai-mascot-glint" cx="-1.6" cy="-1.7" r="0.95" />
-          </g>
-        </g>
-        <g className="ai-mascot-eye" transform="translate(44.5 33)">
-          <g className="ai-mascot-blink">
-            <ellipse className="ai-mascot-eyeball" rx="4.7" ry="4.7" />
-            <circle className="ai-mascot-pupil" cx="-0.9" cy="0.7" r="2.05" />
-            <circle className="ai-mascot-glint" cx="1.6" cy="-1.7" r="0.95" />
-          </g>
-        </g>
-        {/* beak and blush */}
-        <path className="ai-mascot-beak" d="M33 38.5 36 42.5 39 38.5Z" />
-        <ellipse className="ai-mascot-blush" cx="20.5" cy="40.5" rx="3.4" ry="2.2" />
-        <ellipse className="ai-mascot-blush" cx="51.5" cy="40.5" rx="3.4" ry="2.2" />
-      </g>
-    </svg>
   )
 }

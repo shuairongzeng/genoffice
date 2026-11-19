@@ -620,6 +620,9 @@ export const ms: Dict = {
   dockExpand: 'Buka panel AI',
   dockCollapse: 'Kuncupkan panel AI',
   dockResize: 'Seret untuk ubah lebar panel AI',
+  petMenuResetPos: 'Set semula kedudukan sudut',
+  petMenuSleep: 'Rehat sebentar',
+  petMenuWake: 'Bangunkan',
   panelApiMissing:
     'Panel AI memerlukan API yang tiada pada tetingkap ini. Mulakan semula aplikasi.',
   workTabsAria: 'Dokumen terbuka',

@@ -14,6 +14,7 @@ import { normalizeAiPermissionMode } from '@genoffice/ui/ai-permission-mode'
 import type {
   AccountLoginEvent,
   AiLineageEntry,
+  AiPetMenuAction,
   AskRunEvent,
   KbRecallHit,
   KbSourcesReport,
@@ -837,6 +838,10 @@ const homeApi: HomeApi = {
   // the pet drag's, same window-wide contract for the gesture's duration
   aiPanelDrag(report) {
     ipcRenderer.send(HOME_CHANNELS.askPanelDrag, report)
+  },
+  async aiPetMenu(request) {
+    const action: unknown = await ipcRenderer.invoke(HOME_CHANNELS.aiPetMenu, request)
+    return action === 'toggle' || action === 'sleep' || action === 'reset' ? action : null
   },
   // the loop's pub/sub backbone: Home's loop publishes run events, the
   // mirror mounts subscribe — a closed mount never receives one

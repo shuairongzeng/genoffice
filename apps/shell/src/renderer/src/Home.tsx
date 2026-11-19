@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent } from 'react'
 import { AiDock, normalizeAiDockPrefs, readLocalAiDockPrefs, writeLocalAiDockPrefs } from './AiDock'
+import { IDLE_PET_RUN_SNAPSHOT, type AiPetRunSnapshot } from './ai-pet-state'
 import {
   addDockCustom,
   type DockCustomPlace,
@@ -209,6 +210,7 @@ export function Home() {
       alive = false
     }
   }, [])
+  const [petRunState, setPetRunState] = useState<AiPetRunSnapshot>(IDLE_PET_RUN_SNAPSHOT)
   /** the dock prefs' one writer: state, ref, then the store — the same order
    *  the ask thread's ref-then-state writers keep, so a read right after the
    *  write sees the new value even before the paint */
@@ -2684,10 +2686,12 @@ export function Home() {
         width={dock.width}
         petPos={dock.petPos}
         docActive={docTabActive}
+        petRunState={petRunState}
         onCollapse={() => applyDockPrefs({ collapsed: true })}
         onExpand={() => applyDockPrefs({ collapsed: false })}
         onWidthCommit={(width) => applyDockPrefs({ width })}
         onPetPosCommit={(petPos) => applyDockPrefs({ petPos })}
+        onPetPosReset={() => applyDockPrefs({ petPos: null })}
       >
         <KbAskPanel
           onOpenPath={(path, text) =>
@@ -2701,6 +2705,7 @@ export function Home() {
           focusSignal={focusComposerSeq}
           onCollapse={() => applyDockPrefs({ collapsed: true })}
           onOpenKbCenter={showKbCenter}
+          onPetActivityChange={setPetRunState}
         />
       </AiDock>
       {confirmDialog}

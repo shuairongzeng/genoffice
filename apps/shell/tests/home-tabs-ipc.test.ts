@@ -34,7 +34,34 @@ const ipcMainMock = vi.hoisted(() => {
   }
 })
 
-vi.mock('electron', () => ({ ipcMain: { handle: ipcMainMock.handle, on: ipcMainMock.on } }))
+const menuMock = vi.hoisted(() => {
+  const popup = vi.fn((opts?: { callback?: () => void }) => {
+    opts?.callback?.()
+  })
+  const buildFromTemplate = vi.fn(
+    (template: Array<{ label?: string; type?: string; click?: () => void }>) => ({
+      template,
+      popup,
+    }),
+  )
+  return {
+    popup,
+    buildFromTemplate,
+    fromWebContents: vi.fn(() => null),
+    getFocusedWindow: vi.fn(() => null),
+    getAllWebContents: vi.fn(() => []),
+  }
+})
+
+vi.mock('electron', () => ({
+  ipcMain: { handle: ipcMainMock.handle, on: ipcMainMock.on },
+  BrowserWindow: {
+    fromWebContents: menuMock.fromWebContents,
+    getFocusedWindow: menuMock.getFocusedWindow,
+  },
+  Menu: { buildFromTemplate: menuMock.buildFromTemplate },
+  webContents: { getAllWebContents: menuMock.getAllWebContents },
+}))
 
 /** the injected forward routing spies both registerHomeWorkbenchIpc describes share */
 const forwardAskQuery = vi.fn()
@@ -500,10 +527,20 @@ describe('registerHomeWorkbenchIpc', () => {
   it('adopts a pet-position patch — null included — and keeps it through other patches', async () => {
     registerWorkbench()
     const moved = await invoke('home:ai-dock-set', { petPos: { x: 120, y: 80 }, panelPos: null })
-    expect(moved).toEqual({ width: 400, collapsed: false, petPos: { x: 120, y: 80 }, panelPos: null })
+    expect(moved).toEqual({
+      width: 400,
+      collapsed: false,
+      petPos: { x: 120, y: 80 },
+      panelPos: null,
+    })
     // a later patch without petPos keeps the parked pet
     const untouched = await invoke('home:ai-dock-set', { collapsed: true })
-    expect(untouched).toEqual({ width: 400, collapsed: true, petPos: { x: 120, y: 80 }, panelPos: null })
+    expect(untouched).toEqual({
+      width: 400,
+      collapsed: true,
+      petPos: { x: 120, y: 80 },
+      panelPos: null,
+    })
     // an explicit null returns it to the default corner
     const home = await invoke('home:ai-dock-set', { petPos: null, panelPos: null })
     expect(home).toEqual({ width: 400, collapsed: true, petPos: null, panelPos: null })
@@ -1155,5 +1192,48 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
       ipcMainMock.onHandlers.get('home:ai-pet-drag')!({ sender }, bad)
     }
     expect(applyDrawerOverlayPetDrag).not.toHaveBeenCalled()
+  })
+
+  it('pops a native menu for home:ai-pet-menu and guards dismissed vs clicked actions', async () => {
+    menuMock.buildFromTemplate.mockClear()
+    menuMock.popup.mockClear()
+
+    // Invalid payload returns null without building a menu
+    expect(await invoke('home:ai-pet-menu', null)).toBeNull()
+    expect(
+      await invoke('home:ai-pet-menu', { labels: { toggle: '', sleep: 'S', reset: 'R' } }),
+    ).toBeNull()
+    expect(menuMock.buildFromTemplate).not.toHaveBeenCalled()
+
+    // Dismissed menu resolves null via callback
+    const dismissed = await invoke('home:ai-pet-menu', {
+      collapsed: true,
+      sleeping: false,
+      labels: { toggle: 'Expand', sleep: 'Nap', reset: 'Reset' },
+    })
+    expect(dismissed).toBeNull()
+    expect(menuMock.buildFromTemplate).toHaveBeenCalledTimes(1)
+    const builtTpl = menuMock.buildFromTemplate.mock.calls[0]![0]
+    expect(builtTpl.map((item) => item.type ?? item.label)).toEqual([
+      'Expand',
+      'Nap',
+      'separator',
+      'Reset',
+    ])
+
+    // Item click settles before the deferred callback runs
+    menuMock.popup.mockImplementationOnce(function (
+      this: { template: Array<{ click?: () => void }> },
+      opts?: { callback?: () => void },
+    ) {
+      this.template[1]?.click?.()
+      opts?.callback?.()
+    })
+    const clicked = await invoke('home:ai-pet-menu', {
+      collapsed: true,
+      sleeping: true,
+      labels: { toggle: 'Expand', sleep: 'Wake', reset: 'Reset' },
+    })
+    expect(clicked).toBe('sleep')
   })
 })

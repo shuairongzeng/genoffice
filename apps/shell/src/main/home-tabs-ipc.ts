@@ -1,9 +1,11 @@
-import { ipcMain, webContents } from 'electron'
+import { BrowserWindow, ipcMain, Menu, webContents } from 'electron'
 import type { Rectangle, WebContents } from 'electron'
 
 import { HOME_CHANNELS } from '../shared/home-api'
 import type {
   AiPetDragReport,
+  AiPetMenuAction,
+  AiPetMenuRequest,
   DockHotEdgeReport,
   DockNavIntent,
   DockOpenState,
@@ -358,6 +360,29 @@ function asPetDragReport(value: unknown): AiPetDragReport | null {
   return { ...(start ? { start: true } : {}), ...(end ? { end: true } : {}) }
 }
 
+function asAiPetMenuRequest(value: unknown): AiPetMenuRequest | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Partial<AiPetMenuRequest>
+  const labels = raw.labels
+  if (!labels || typeof labels !== 'object') return null
+  const { toggle, sleep, reset } = labels as Partial<AiPetMenuRequest['labels']>
+  if (
+    typeof toggle !== 'string' ||
+    !toggle.trim() ||
+    typeof sleep !== 'string' ||
+    !sleep.trim() ||
+    typeof reset !== 'string' ||
+    !reset.trim()
+  ) {
+    return null
+  }
+  return {
+    collapsed: raw.collapsed === true,
+    sleeping: raw.sleeping === true,
+    labels: { toggle, sleep, reset },
+  }
+}
+
 /**
  * A hot-edge report, whole: an object carrying at least one of the
  * `enter`/`leave` flags, each a boolean when present. Null on anything else
@@ -591,6 +616,31 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
     // gate differs (the expanded floating panel, not the pet-only view)
     const report = asPetDragReport(raw)
     if (report) deps.applyDrawerOverlayPanelDrag(event.sender, report)
+  })
+  ipcMain.handle(HOME_CHANNELS.aiPetMenu, (event, raw: unknown) => {
+    const req = asAiPetMenuRequest(raw)
+    if (!req) return Promise.resolve<AiPetMenuAction | null>(null)
+    return new Promise<AiPetMenuAction | null>((resolve) => {
+      let settled = false
+      const done = (action: AiPetMenuAction | null): void => {
+        if (settled) return
+        settled = true
+        resolve(action)
+      }
+      const menu = Menu.buildFromTemplate([
+        { label: req.labels.toggle, click: () => done('toggle') },
+        { label: req.labels.sleep, click: () => done('sleep') },
+        { type: 'separator' },
+        { label: req.labels.reset, click: () => done('reset') },
+      ])
+      const win =
+        BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined
+      menu.popup({
+        ...(win ? { window: win } : {}),
+        // Defer dismissal so a menu item click handler wins when both fire on close
+        callback: () => setImmediate(() => done(null)),
+      })
+    })
   })
 
   /* ── the loop's pub/sub backbone: Home's loop publishes run events, every

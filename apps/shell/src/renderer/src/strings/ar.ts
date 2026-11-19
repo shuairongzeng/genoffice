@@ -611,6 +611,9 @@ export const ar: Dict = {
   dockExpand: 'فتح لوحة الذكاء الاصطناعي',
   dockCollapse: 'طي لوحة الذكاء الاصطناعي',
   dockResize: 'اسحب لتغيير حجم لوحة الذكاء الاصطناعي',
+  petMenuResetPos: 'إعادة تعيين الموضع',
+  petMenuSleep: 'أخذ قيلولة',
+  petMenuWake: 'إيقاظ',
   panelApiMissing:
     'يحتاج لوحة الذكاء الاصطناعي إلى واجهات برمجية غير متاحة في هذه النافذة. أعد تشغيل التطبيق.',
   workTabsAria: 'المستندات المفتوحة',
