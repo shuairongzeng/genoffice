@@ -1,35 +1,29 @@
+import { randomUUID } from 'node:crypto'
 import { ipcMain, webContents } from 'electron'
 import type { WebContents } from 'electron'
 import {
+  AGENT_DOCUMENT_KINDS,
+  HEADLESS_AGENT_CHANNELS,
   MAX_AGENT_TASK_CHARS,
   type AgentTaskResult,
   type AgentTaskStatus,
 } from '@genoffice/agent-core'
 
 /**
- * Shell-main half of the document-agent delegation (W2). The dock panel's
+ * Shell-main half of the document-agent delegation. The dock panel's
  * `document_agent` tool calls land here over `document-agent:run`; this
- * module routes the task to the ACTIVE docs tab's renderer, which runs its
- * headless copy of the docs agent loop (apps/docs/src/renderer/ai/
- * headless-agent.ts) against the live editor, and answers with the task's
- * result. The sub-agent's live progress streams back the same way
- * (`docs:agent-task-progress` → `document-agent:progress` to the calling
- * panel), so the global panel can show the rolling "文档助手：…" status
- * instead of a silent spinner.
- *
- * The plumbing mirrors the MCP docs bridge (mcp/docs-bridge.ts): a pending
- * map keyed by task id, reply validation by sender webContents, a timeout, a
- * destroyed-watcher so a tab closed mid-task fails its run honestly, and the
- * same readiness handshake (`docs:agent-ready`) so a task never waits out
- * its whole cap on a tab that is still booting. One delegated task per
- * document at a time (a second call answers a busy error — the simpler
- * honest policy: no hidden queue).
+ * module routes the task to the ACTIVE document tab's renderer (across all 6
+ * supported document kinds: docs, sheets, slides, pdf, markdown, html), which
+ * runs its headless copy of the app's agent loop against the live document and
+ * answers with the task's result (plus an undo checkpoint id when mutated).
+ * The sub-agent's live progress streams back (`app:agent-task-progress` →
+ * `document-agent:progress` to the calling panel), and `document-agent:undo`
+ * forwards panel rollback clicks back to the owning tab (`app:agent-undo`).
  *
  * Target pinning: the panel resolves the target at CARD time with the
- * read-only `document-agent:describe` and shows the document's title; the
- * run carries that tab id, and a mismatch (the person switched tabs between
- * the card and the allow) refuses with a re-ask instead of quietly working
- * on a different document.
+ * read-only `document-agent:describe` and shows the document's kind and title;
+ * the run carries that tab id, and a mismatch refuses with a re-ask instead
+ * of quietly working on a different document.
  *
  * The channels serve the same panel-hosting webContents the browser skill's
  * channel does (the shell renderer and the drawer overlay's panel copy);
@@ -41,20 +35,16 @@ export const DOCUMENT_AGENT_CHANNELS = {
   /** read-only: which document a delegation would target right now (card time) */
   describe: 'document-agent:describe',
   cancel: 'document-agent:cancel',
+  undo: 'document-agent:undo',
   progress: 'document-agent:progress',
 } as const
-
-/** the app-side channels (the renderer half is the docs app's headless agent) */
-const TASK_COMMAND = 'docs:agent-task'
-const TASK_PROGRESS = 'docs:agent-task-progress'
-const TASK_RESULT = 'docs:agent-task-result'
-const TASK_ABORT = 'docs:agent-task-abort'
-const TASK_READY = 'docs:agent-ready'
 
 /** how long one delegated task may run before the bridge aborts it */
 export const DOCUMENT_AGENT_TIMEOUT_MS = 3 * 60_000
 /** how long a not-yet-ready tab may take to announce itself (mirror of the MCP bridge's boot window, shorter) */
 export const DOCUMENT_AGENT_READY_TIMEOUT_MS = 10_000
+/** how long one undo request to a document renderer may take */
+export const DOCUMENT_AGENT_UNDO_TIMEOUT_MS = 15_000
 /** a buffered cancel older than this is stale (the race window is sub-millisecond) */
 const CANCEL_BUFFER_MS = 2_000
 /** LOW-10: what the bridge accepts from a renderer's result report (the rest truncates) */
@@ -62,6 +52,7 @@ const MAX_RESULT_SUMMARY_CHARS = 20_000
 const MAX_RESULT_EDITS = 100
 const MAX_EDIT_TOOL_CHARS = 100
 const MAX_EDIT_SUMMARY_CHARS = 400
+const MAX_CHECKPOINT_ID_CHARS = 120
 
 /** one tab as the routing sees it (the same enumeration the surface context uses) */
 export interface DocumentAgentTab {
@@ -74,7 +65,14 @@ export interface DocumentAgentTab {
 /** the describe answer: which document a delegation targets right now */
 export interface DocumentAgentTarget {
   tabId: string
+  kind: string
   title: string
+}
+
+/** result returned by `document-agent:undo` */
+export interface DocumentAgentUndoResult {
+  ok: boolean
+  error?: string
 }
 
 export interface DocumentAgentBridgeDeps {
@@ -94,6 +92,8 @@ export interface DocumentAgentBridgeDeps {
 interface ActiveTask {
   taskId: string
   tabId: string
+  kind: string
+  title: string
   wcId: number
   /** the panel webContents awaiting the result (progress is relayed here) */
   caller: WebContents
@@ -102,7 +102,15 @@ interface ActiveTask {
   timer: NodeJS.Timeout
 }
 
+interface PendingUndo {
+  undoId: string
+  wcId: number
+  resolve: (result: DocumentAgentUndoResult) => void
+  timer: NodeJS.Timeout
+}
+
 const activeByTask = new Map<string, ActiveTask>()
+const pendingUndos = new Map<string, PendingUndo>()
 /** the task running in one document tab, by tab id (the busy rule) */
 const busyByTab = new Map<string, string>()
 /** tabs that announced headless-agent readiness, by webContents id */
@@ -120,43 +128,41 @@ const KIND_LABEL: Record<string, string> = {
   sheets: 'a spreadsheet',
   slides: 'a presentation',
   pdf: 'a PDF',
-  markdown: 'a markdown document',
+  markdown: 'a markdown/text document',
   html: 'an html document',
   browser: 'the browser',
   home: 'the Home desktop',
 }
 
-/** resolve the tab a delegated task targets: strictly the ACTIVE docs tab */
+/** resolve the tab a delegated task targets: strictly the ACTIVE supported document tab */
 function resolveTarget(
   tabs: readonly DocumentAgentTab[],
 ): { tab: DocumentAgentTab } | { error: string } {
-  // the active tab's kind comes first: a focused spreadsheet is a sharper,
-  // more honest answer than "no Word document is open"
   const active = tabs.find((t) => t.active)
-  if (active && active.kind !== 'docs') {
-    const label = KIND_LABEL[active.kind] ?? active.kind
-    return {
-      error:
-        `the active tab is ${label}, not a Word document — the document assistant works on the ` +
-        'active Word document; switch to it first (shell:switch_tab)',
-    }
+  if (active && AGENT_DOCUMENT_KINDS.has(active.kind)) {
+    return { tab: active }
   }
-  const docsTabs = tabs.filter((t) => t.kind === 'docs')
-  if (docsTabs.length === 0) {
+  const docTabs = tabs.filter((t) => AGENT_DOCUMENT_KINDS.has(t.kind))
+  if (docTabs.length === 0) {
     return {
       error:
-        'no Word document is open — open one first (shell:open_path, or a new document tab), ' +
+        'no document is open — open one first (shell:open_path, or a new document tab), ' +
         'then delegate to the document assistant',
     }
   }
-  if (!active) {
+  if (active) {
+    const label = KIND_LABEL[active.kind] ?? active.kind
     return {
       error:
-        'no Word document tab is active — switch to it first (shell:switch_tab), then delegate ' +
-        'to the document assistant',
+        `the active tab is ${label}, not a document — switch to a document tab first ` +
+        '(shell:switch_tab), then delegate to the document assistant',
     }
   }
-  return { tab: active }
+  return {
+    error:
+      'no document tab is active — switch to it first (shell:switch_tab), then delegate ' +
+      'to the document assistant',
+  }
 }
 
 function settleTask(taskId: string, run: (task: ActiveTask) => void): void {
@@ -187,6 +193,12 @@ function watchDestroyed(wcId: number): void {
           ),
         ),
       )
+    }
+    for (const [undoId, pending] of [...pendingUndos]) {
+      if (pending.wcId !== wcId) continue
+      pendingUndos.delete(undoId)
+      clearTimeout(pending.timer)
+      pending.resolve({ ok: false, error: 'the document tab was closed before undo completed' })
     }
   })
 }
@@ -262,12 +274,12 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
   const isPanel = (sender: WebContents): boolean =>
     deps.panelWebContents().some((wc) => !wc.isDestroyed() && wc === sender)
 
-  ipcMain.on(TASK_READY, (event) => {
+  ipcMain.on(HEADLESS_AGENT_CHANNELS.ready, (event) => {
     readyIds.add(event.sender.id)
     watchDestroyed(event.sender.id)
   })
 
-  ipcMain.on(TASK_PROGRESS, (event, raw: unknown) => {
+  ipcMain.on(HEADLESS_AGENT_CHANNELS.progress, (event, raw: unknown) => {
     const payload = raw as { taskId?: unknown; status?: unknown }
     if (!payload || typeof payload.taskId !== 'string') return
     const task = activeByTask.get(payload.taskId)
@@ -278,26 +290,63 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
     if (!task.caller.isDestroyed()) {
       task.caller.send(DOCUMENT_AGENT_CHANNELS.progress, {
         taskId: payload.taskId,
+        kind: task.kind,
         status: payload.status,
       })
     }
   })
 
-  ipcMain.on(TASK_RESULT, (event, raw: unknown) => {
-    const payload = raw as { taskId?: unknown; ok?: unknown; summary?: unknown; edits?: unknown }
+  ipcMain.on(HEADLESS_AGENT_CHANNELS.result, (event, raw: unknown) => {
+    const payload = raw as {
+      taskId?: unknown
+      ok?: unknown
+      summary?: unknown
+      edits?: unknown
+      checkpointId?: unknown
+    }
     if (!payload || typeof payload.taskId !== 'string') return
     const task = activeByTask.get(payload.taskId)
     if (!task || task.wcId !== event.sender.id) return
     const summary =
       typeof payload.summary === 'string' ? payload.summary.slice(0, MAX_RESULT_SUMMARY_CHARS) : ''
+    const checkpointId =
+      typeof payload.checkpointId === 'string' && payload.checkpointId.trim()
+        ? payload.checkpointId.trim().slice(0, MAX_CHECKPOINT_ID_CHARS)
+        : undefined
     settleTask(payload.taskId, (t) => {
       if (payload.ok === true) {
         const edits = normalizeEdits(payload.edits)
-        t.resolve({ ok: true, summary, ...(edits ? { edits } : {}) })
+        t.resolve({
+          ok: true,
+          summary,
+          ...(edits ? { edits } : {}),
+          ...(checkpointId ? { checkpointId } : {}),
+          tabId: t.tabId,
+          kind: t.kind,
+          title: t.title,
+        })
       } else {
         t.reject(new Error(summary || 'the document assistant failed the task'))
       }
     })
+  })
+
+  ipcMain.on(HEADLESS_AGENT_CHANNELS.undoResult, (event, raw: unknown) => {
+    const payload = raw as { undoId?: unknown; ok?: unknown; error?: unknown }
+    if (!payload || typeof payload.undoId !== 'string') return
+    const pending = pendingUndos.get(payload.undoId)
+    if (!pending || pending.wcId !== event.sender.id) return
+    pendingUndos.delete(payload.undoId)
+    clearTimeout(pending.timer)
+    if (payload.ok === true) {
+      pending.resolve({ ok: true })
+    } else {
+      const error =
+        typeof payload.error === 'string' && payload.error.trim()
+          ? payload.error.slice(0, MAX_EDIT_SUMMARY_CHARS)
+          : 'failed to undo changes'
+      pending.resolve({ ok: false, error })
+    }
   })
 
   // the card-time read: which document a delegation would target right now.
@@ -309,7 +358,7 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
         throw new Error('document-agent:describe is not callable from this sender')
       const target = resolveTarget(await deps.listDocumentTabs())
       if ('error' in target) return { error: target.error }
-      return { tabId: target.tab.id, title: target.tab.title }
+      return { tabId: target.tab.id, kind: target.tab.kind, title: target.tab.title }
     },
   )
 
@@ -376,7 +425,7 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
       const result = new Promise<AgentTaskResult>((resolve, reject) => {
         const timer = setTimeout(() => {
           // stop the renderer's task too: a timed-out task must not keep editing
-          if (!wc.isDestroyed()) wc.send(TASK_ABORT, { taskId })
+          if (!wc.isDestroyed()) wc.send(HEADLESS_AGENT_CHANNELS.abort, { taskId })
           settleTask(taskId, (t) =>
             t.reject(
               new Error(
@@ -389,6 +438,8 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
         activeByTask.set(taskId, {
           taskId,
           tabId: target.tab.id,
+          kind: target.tab.kind,
+          title: target.tab.title,
           wcId: wc.id,
           caller: event.sender,
           resolve,
@@ -397,7 +448,7 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
         })
         busyByTab.set(target.tab.id, taskId)
       })
-      wc.send(TASK_COMMAND, { taskId, task: task.task })
+      wc.send(HEADLESS_AGENT_CHANNELS.task, { taskId, task: task.task })
       return result
     },
   )
@@ -412,7 +463,7 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
       if (task.caller !== event.sender) continue
       hadActive = true
       const wc = webContents.fromId(task.wcId)
-      if (wc && !wc.isDestroyed()) wc.send(TASK_ABORT, { taskId })
+      if (wc && !wc.isDestroyed()) wc.send(HEADLESS_AGENT_CHANNELS.abort, { taskId })
     }
     // the race: a cancel that lands while its run is still registering (the
     // handler's awaits) has no task to abort — buffer it per caller so the
@@ -420,6 +471,41 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
     if (!hadActive) bufferedCancels.set(event.sender.id, Date.now())
     return true
   })
+
+  ipcMain.handle(
+    DOCUMENT_AGENT_CHANNELS.undo,
+    async (event, raw: unknown): Promise<DocumentAgentUndoResult> => {
+      if (!isPanel(event.sender)) {
+        throw new Error('document-agent:undo is not callable from this sender')
+      }
+      const req = (raw ?? {}) as { tabId?: unknown; checkpointId?: unknown }
+      if (
+        typeof req.tabId !== 'string' ||
+        !req.tabId.trim() ||
+        typeof req.checkpointId !== 'string' ||
+        !req.checkpointId.trim()
+      ) {
+        return { ok: false, error: 'invalid undo checkpoint request' }
+      }
+      if (busyByTab.has(req.tabId)) {
+        return { ok: false, error: 'document assistant is currently running a task on this tab' }
+      }
+      const wc = deps.webContentsFor(req.tabId)
+      if (!wc || wc.isDestroyed()) {
+        return { ok: false, error: 'document tab is no longer open' }
+      }
+      watchDestroyed(wc.id)
+      const undoId = `undo-${randomUUID()}`
+      return await new Promise<DocumentAgentUndoResult>((resolve) => {
+        const timer = setTimeout(() => {
+          pendingUndos.delete(undoId)
+          resolve({ ok: false, error: 'undo timed out' })
+        }, DOCUMENT_AGENT_UNDO_TIMEOUT_MS)
+        pendingUndos.set(undoId, { undoId, wcId: wc.id, resolve, timer })
+        wc.send(HEADLESS_AGENT_CHANNELS.undo, { undoId, checkpointId: req.checkpointId })
+      })
+    },
+  )
 }
 
 /** test seam: the routing decision, pure over the tab list */

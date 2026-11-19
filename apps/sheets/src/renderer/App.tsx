@@ -53,6 +53,10 @@ import {
 } from './univer-state'
 import { applyChangePlan, planFromOps, type OpExecutorContext } from './op-executor'
 import { installSheetsMcpBridge, type McpSheetHandlers } from './mcp-bridge'
+import {
+  installHeadlessAgentBridge as installSheetsHeadlessAgentBridge,
+  type SheetsHeadlessAgentDeps,
+} from './ai/headless-agent'
 import { renameChartRefsForSheet } from './workbook-ops'
 import { formatSelectionRanges } from './selection-ranges'
 import {
@@ -164,6 +168,7 @@ import {
   columnLabel,
   parseAddress,
   rangeCellCount,
+  type RangeBounds,
 } from '@genoffice/xlsx-gateway/domain/cell-address'
 import { aggregateWorkbookRange } from './ai/aggregate-range'
 import { collectCellFormulaTexts, quadraticFormulaError } from './formula-cost'
@@ -2130,28 +2135,28 @@ export function App({
     )
   }
 
+  async function ensureSheetRangeLoaded(range: RangeBounds, sheetId?: string): Promise<boolean> {
+    const state = lazyWorkbookRef.current
+    if (!state) return true
+    // Fully-loaded workbooks (formula mode) have every cell in the grid.
+    if (state.flags.preloadComplete) return true
+    const runtime = univerRef.current
+    const workbook = runtime?.univerAPI.getActiveWorkbook()
+    const worksheet =
+      sheetId === undefined ? workbook?.getActiveSheet() : workbook?.getSheetBySheetId(sheetId)
+    if (!runtime || !worksheet) return false
+    // A sheet added this session has no file part to stream from — the grid already holds everything.
+    if (!state.file.sheets.some((sheet) => sheet.id === worksheet.getSheetId())) return true
+    // Anything reaching here genuinely streams; refuse blocks too large to load in one request.
+    if (rangeCellCount(range) > MAX_READ_RANGE_CELLS) return false
+    return ensureLazyRangeLoaded(runtime, lazyWorkbookRef, worksheet, range, setMessage)
+  }
+
   function sheetsSkillDeps(): SheetsSkillDeps {
     return {
       getActiveSheetInfo,
       aggregateRange: (sheetId, bounds) => aggregateWorkbookRange(readContext(), sheetId, bounds),
-      ensureRangeLoaded: async (range, sheetId) => {
-        const state = lazyWorkbookRef.current
-        if (!state) return true
-        // Fully-loaded workbooks (formula mode) have every cell in the grid.
-        if (state.flags.preloadComplete) return true
-        const runtime = univerRef.current
-        const workbook = runtime?.univerAPI.getActiveWorkbook()
-        const worksheet =
-          sheetId === undefined ? workbook?.getActiveSheet() : workbook?.getSheetBySheetId(sheetId)
-        if (!runtime || !worksheet) return false
-        // A sheet added this session has no file part to stream from — the
-        // grid already holds everything.
-        if (!state.file.sheets.some((sheet) => sheet.id === worksheet.getSheetId())) return true
-        // Anything reaching here genuinely streams; refuse blocks too large
-        // to load in one request.
-        if (rangeCellCount(range) > MAX_READ_RANGE_CELLS) return false
-        return ensureLazyRangeLoaded(runtime, lazyWorkbookRef, worksheet, range, setMessage)
-      },
+      ensureRangeLoaded: ensureSheetRangeLoaded,
       readCells: (addresses, sheetId) => readCellsImpl(readContext(), addresses, sheetId),
       readFormats: (addresses, sheetId) => readFormatsImpl(readContext(), addresses, sheetId),
       readSheetFeatures: (sheetId) => readSheetFeaturesImpl(readContext(), sheetId),
@@ -5265,6 +5270,7 @@ export function App({
     hasWorkbook: () =>
       univerRef.current?.univerAPI.getActiveWorkbook() != null && lazyWorkbookRef.current != null,
     context: () => getActiveSheetInfo(),
+    ensureRangeLoaded: ensureSheetRangeLoaded,
     // The MCP read is machine-facing: `value` is the model value, not the
     // rendered text a number format or a narrow column produced. The rendered
     // text rides along as `display` when the two differ, so a caller can still
@@ -5362,11 +5368,66 @@ export function App({
     },
     saveTo: async (path, overwrite) => handleSave('save-as', true, { path, overwrite }),
   }
+  const headlessAgentDepsRef = useRef<SheetsHeadlessAgentDeps | null>(null)
+  headlessAgentDepsRef.current = {
+    isReady: () => univerRef.current?.univerAPI.getActiveWorkbook() != null && !workbookOpeningRef.current,
+    isOpening: () => workbookOpeningRef.current,
+    getSkillDeps: () => sheetsSkillDeps(),
+    getSettings: () => window.desktopApi.getAiSettings(),
+    captureCheckpoint: () => ({
+      mode: lazyWorkbookRef.current ? 'lazy' : 'demo',
+      undoDepth: undoStackDepth(univerRef.current),
+      adapterRev: adapterRef.current.getSnapshot().revision,
+    }),
+    computeRollback: (before) => {
+      if (before.mode === 'lazy' || lazyWorkbookRef.current) {
+        const steps = Math.max(0, undoStackDepth(univerRef.current) - before.undoDepth)
+        return steps > 0 ? { mode: 'lazy', steps } : null
+      }
+      const steps = Math.max(0, adapterRef.current.getSnapshot().revision - before.adapterRev)
+      return steps > 0 ? { mode: 'demo', steps } : null
+    },
+    restoreCheckpoint: async (payload) => {
+      if (payload.mode === 'lazy' || lazyWorkbookRef.current) {
+        const api = univerRef.current?.univerAPI
+        if (!api) return { ok: false, error: t('appUndoFailed') }
+        for (let step = 0; step < payload.steps; step += 1) {
+          await api.undo()
+        }
+        return { ok: true }
+      }
+      try {
+        let receipt = adapterRef.current.undo()
+        for (let step = 1; step < payload.steps; step += 1) {
+          receipt = adapterRef.current.undo()
+        }
+        loadSnapshotIntoUniver(
+          univerRef.current,
+          adapterRef.current.getSnapshot(),
+          'new-workbook',
+          'Untitled',
+        )
+        queueDemoVisualInstallForActiveSheet()
+        setRevision(receipt.revision)
+        setPreview(null)
+        setMessage(t('appUndoCommitted', { revision: receipt.revision }))
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : t('appUndoFailed') }
+      }
+    },
+    onMutated: () => {
+      const state = lazyWorkbookRef.current
+      if (state) setPendingEdits(journalSize(state.editJournal))
+    },
+  }
   useEffect(() => {
     const handlers = mcpSheetHandlersRef
-    return installSheetsMcpBridge({
+    const offMcp = installSheetsMcpBridge({
       hasWorkbook: () => handlers.current?.hasWorkbook() ?? false,
       context: () => handlers.current?.context(),
+      ensureRangeLoaded: (bounds, sheetId) =>
+        handlers.current?.ensureRangeLoaded?.(bounds, sheetId) ?? true,
       readCells: (addresses, sheetId) => handlers.current?.readCells(addresses, sheetId) ?? {},
       sheets: () => handlers.current?.sheets() ?? [],
       focusSheet: (sheetId, address) => handlers.current?.focusSheet(sheetId, address),
@@ -5378,6 +5439,20 @@ export function App({
           error: 'the spreadsheet is not ready',
         },
     })
+    const offAgent = installSheetsHeadlessAgentBridge({
+      isReady: () => headlessAgentDepsRef.current?.isReady() ?? false,
+      isOpening: () => headlessAgentDepsRef.current?.isOpening?.() ?? false,
+      getSkillDeps: () => headlessAgentDepsRef.current!.getSkillDeps(),
+      getSettings: () => headlessAgentDepsRef.current!.getSettings(),
+      captureCheckpoint: () => headlessAgentDepsRef.current!.captureCheckpoint(),
+      computeRollback: (before) => headlessAgentDepsRef.current!.computeRollback(before),
+      restoreCheckpoint: (payload) => headlessAgentDepsRef.current!.restoreCheckpoint(payload),
+      onMutated: () => headlessAgentDepsRef.current?.onMutated?.(),
+    })
+    return () => {
+      offMcp()
+      offAgent()
+    }
   }, [])
   /// Re-renders the floating visuals after a journal mutation (edits and
   /// their undo/redo closures share it).

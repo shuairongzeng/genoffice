@@ -85,7 +85,8 @@ const KIND_LABEL: Record<DocumentTabKind, string> = {
 }
 
 /** input keys forwarded to the family reader (validated); every tool also takes `document` */
-const SHEETS_PAYLOAD_KEYS = ['addresses', 'sheet', 'sheetId'] as const
+const SHEETS_PAYLOAD_KEYS = ['range', 'addresses', 'sheet', 'sheetId'] as const
+const PDF_PAYLOAD_KEYS = ['start', 'end'] as const
 /** mirrors the sheets read tool's own cap */
 const MAX_READ_ADDRESSES = 100
 
@@ -105,7 +106,7 @@ const TOOL_SPECS: Partial<Record<DocumentTabKind, ToolSpec>> = {
     description:
       'Read a Word document the user has open in GenOffice. Returns a block list — one ' +
       '"index|type|text" line per block (a reading overview; long blocks are clipped). ' +
-      'Read-only: to change the document, tell the user to use the docs app’s own AI panel.',
+      'Read-only: to modify this open document, switch to its tab if needed (shell:switch_tab) and call document_agent.',
     inputSchema: { type: 'object', properties: { ...PROXIED_APP_DOCUMENT_FIELD } },
     payloadKeys: [],
   },
@@ -113,19 +114,26 @@ const TOOL_SPECS: Partial<Record<DocumentTabKind, ToolSpec>> = {
     kind: 'sheets',
     name: 'sheets:read_sheet',
     description:
-      'Read a spreadsheet the user has open in GenOffice. Without `addresses`: the workbook ' +
-      'overview (sheet names, ids, data extents). With A1 `addresses` (at most 100): those ' +
-      "cells' current values and formulas, from `sheet` by name or the overview's `sheetId`. " +
-      'Read-only: to change the workbook, tell the user to use the sheets app’s own AI panel.',
+      'Read a spreadsheet the user has open in GenOffice. Without `range` or `addresses`: ' +
+      'returns the workbook overview (sheet names, ids, data extents) plus a first-screen ' +
+      'cell preview grid with formulas (up to 100 rows / 2,000 cells). Pass `range` (e.g. ' +
+      '"A1:F32") or `addresses` (cell addresses or A1 ranges) to read specific regions, ' +
+      'clamped automatically to the worksheet data extent. ' +
+      'Read-only: to modify this open workbook, switch to its tab if needed (shell:switch_tab) and call document_agent.',
     inputSchema: {
       type: 'object',
       properties: {
         ...PROXIED_APP_DOCUMENT_FIELD,
+        range: {
+          type: 'string',
+          description:
+            'A1 range to read as a grid (e.g. "A1:F32", clamped safely to the worksheet data extent; max 2,000 cells)',
+        },
         addresses: {
           type: 'array',
           items: { type: 'string' },
           description:
-            'A1 addresses to read (values + formulas, at most 100); omit for the overview only',
+            'A1 cell addresses (e.g. ["A1", "B2"]) or A1 range strings (e.g. ["A1:F32"]) to read; omit for the overview + preview grid',
         },
         sheet: {
           type: 'string',
@@ -144,8 +152,8 @@ const TOOL_SPECS: Partial<Record<DocumentTabKind, ToolSpec>> = {
     name: 'slides:read_deck',
     description:
       'Read the presentation the user has open in GenOffice: every slide with its elements ' +
-      '(ids, types, text, geometry in document-space EMU). Read-only: to change the deck, ' +
-      'tell the user to use the slides app’s own AI panel.',
+      '(ids, types, text, geometry in document-space EMU). ' +
+      'Read-only: to modify this open deck, switch to its tab if needed (shell:switch_tab) and call document_agent.',
     inputSchema: { type: 'object', properties: { ...PROXIED_APP_DOCUMENT_FIELD } },
     payloadKeys: [],
   },
@@ -153,8 +161,8 @@ const TOOL_SPECS: Partial<Record<DocumentTabKind, ToolSpec>> = {
     kind: 'markdown',
     name: 'markdown:read_text',
     description:
-      'Read the markdown text of a document the user has open in the GenOffice markdown editor. ' +
-      'Read-only: to change it, tell the user to use the markdown app’s own AI panel.',
+      'Read the markdown/plain-text content of a document the user has open in the GenOffice markdown/text editor. ' +
+      'Read-only: to modify this open document, switch to its tab if needed (shell:switch_tab) and call document_agent.',
     inputSchema: { type: 'object', properties: { ...PROXIED_APP_DOCUMENT_FIELD } },
     payloadKeys: [],
   },
@@ -163,9 +171,32 @@ const TOOL_SPECS: Partial<Record<DocumentTabKind, ToolSpec>> = {
     name: 'html:read_text',
     description:
       'Read the HTML source text of a document the user has open in the GenOffice html editor. ' +
-      'Read-only: to change it, tell the user to use the html app’s own AI panel.',
+      'Read-only: to modify this open document, switch to its tab if needed (shell:switch_tab) and call document_agent.',
     inputSchema: { type: 'object', properties: { ...PROXIED_APP_DOCUMENT_FIELD } },
     payloadKeys: [],
+  },
+  pdf: {
+    kind: 'pdf',
+    name: 'pdf:read_pages',
+    description:
+      'Read text (including OCR text for scanned pages) from a PDF the user has open in GenOffice, ' +
+      '1-based inclusive page numbers (up to 10 pages per call; defaults to pages 1-10). ' +
+      'Read-only: to modify or annotate this open PDF, switch to its tab if needed (shell:switch_tab) and call document_agent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...PROXIED_APP_DOCUMENT_FIELD,
+        start: {
+          type: 'integer',
+          description: '1-based start page number (defaults to 1)',
+        },
+        end: {
+          type: 'integer',
+          description: '1-based end page number, inclusive (defaults to start + 9, capped at 10 pages per call)',
+        },
+      },
+    },
+    payloadKeys: PDF_PAYLOAD_KEYS,
   },
 }
 
@@ -264,6 +295,13 @@ function readPayload(spec: ToolSpec, input: Record<string, unknown>): Record<str
         throw new Error(`read at most ${MAX_READ_ADDRESSES} addresses per call`)
       }
       payload.addresses = value
+      continue
+    }
+    if (key === 'start' || key === 'end') {
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+        throw new Error(`\`${key}\` must be a positive integer`)
+      }
+      payload[key] = value
       continue
     }
     if (typeof value !== 'string') throw new Error(`\`${key}\` must be a string`)

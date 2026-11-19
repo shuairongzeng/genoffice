@@ -184,9 +184,9 @@ describe('the descriptor table itself', () => {
         seen.set(ext, app.id)
       }
     }
-    // the pre-registry routing table had 20 extensions; shrinking it would
-    // silently un-route files the OS still offers GenOffice for
-    expect(seen.size).toBe(20)
+    // the pre-registry routing table had 20 extensions plus 6 structured plain-text
+    // formats routed to the markdown source-mode editor (26 total)
+    expect(seen.size).toBe(26)
   })
 
   it('every descriptor carries the faces the shell dispatches through', () => {

@@ -313,7 +313,16 @@ function ensureThirdPartyNotices() {
 // office types that is the point, for plain text and JSON it would hijack the
 // system editor, so Windows leaves those two out (mac/Linux only offer them
 // in Open With).
-const WIN_OPEN_WITH_ONLY_EXTS = new Set(['txt', 'json'])
+const WIN_OPEN_WITH_ONLY_EXTS = new Set([
+  'txt',
+  'json',
+  'log',
+  'yaml',
+  'yml',
+  'xml',
+  'ini',
+  'toml',
+])
 const FILE_ASSOCIATIONS = [
   {
     ext: 'docx',
@@ -449,6 +458,54 @@ const FILE_ASSOCIATIONS = [
     role: 'Editor',
     icon: 'json',
     mimeType: 'application/json',
+  },
+  {
+    ext: 'log',
+    name: 'Log File',
+    description: 'Log File',
+    role: 'Editor',
+    icon: 'txt',
+    mimeType: 'text/plain',
+  },
+  {
+    ext: 'yaml',
+    name: 'YAML Document',
+    description: 'YAML Document',
+    role: 'Editor',
+    icon: 'txt',
+    mimeType: 'application/yaml',
+  },
+  {
+    ext: 'yml',
+    name: 'YAML Document',
+    description: 'YAML Document',
+    role: 'Editor',
+    icon: 'txt',
+    mimeType: 'application/yaml',
+  },
+  {
+    ext: 'xml',
+    name: 'XML Document',
+    description: 'XML Document',
+    role: 'Editor',
+    icon: 'txt',
+    mimeType: 'application/xml',
+  },
+  {
+    ext: 'ini',
+    name: 'INI Configuration',
+    description: 'INI Configuration',
+    role: 'Editor',
+    icon: 'txt',
+    mimeType: 'text/plain',
+  },
+  {
+    ext: 'toml',
+    name: 'TOML Document',
+    description: 'TOML Document',
+    role: 'Editor',
+    icon: 'txt',
+    mimeType: 'application/toml',
   },
   {
     ext: 'html',

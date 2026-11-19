@@ -650,6 +650,49 @@ const desktopApi: DesktopApi = {
   signalMcpReady() {
     ipcRenderer.send(IPC_CHANNELS.mcpReady)
   },
+  onAgentTaskCommand(handler) {
+    const listener = (_event: unknown, message: unknown): void => {
+      if (isRecord(message) && typeof message.taskId === 'string' && typeof message.task === 'string') {
+        handler({ taskId: message.taskId, task: message.task })
+      }
+    }
+    ipcRenderer.on('app:agent-task', listener)
+    return () => ipcRenderer.removeListener('app:agent-task', listener)
+  },
+  onAgentTaskAbort(handler) {
+    const listener = (_event: unknown, message: unknown): void => {
+      if (isRecord(message) && typeof message.taskId === 'string') {
+        handler({ taskId: message.taskId })
+      }
+    }
+    ipcRenderer.on('app:agent-task-abort', listener)
+    return () => ipcRenderer.removeListener('app:agent-task-abort', listener)
+  },
+  reportAgentTaskProgress(report) {
+    ipcRenderer.send('app:agent-task-progress', report)
+  },
+  reportAgentTaskResult(result) {
+    ipcRenderer.send('app:agent-task-result', result)
+  },
+  signalAgentReady() {
+    ipcRenderer.send('app:agent-ready')
+  },
+  onAgentUndo(handler) {
+    const listener = (_event: unknown, message: unknown): void => {
+      if (
+        isRecord(message) &&
+        typeof message.undoId === 'string' &&
+        typeof message.checkpointId === 'string'
+      ) {
+        handler({ undoId: message.undoId, checkpointId: message.checkpointId })
+      }
+    }
+    ipcRenderer.on('app:agent-undo', listener)
+    return () => ipcRenderer.removeListener('app:agent-undo', listener)
+  },
+  reportAgentUndoResult(result) {
+    ipcRenderer.send('app:agent-undo-result', result)
+  },
   async hasQueuedWorkbook() {
     const result: unknown = await ipcRenderer.invoke('sheets:has-queued-workbook')
     return result === true

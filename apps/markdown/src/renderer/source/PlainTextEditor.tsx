@@ -41,6 +41,9 @@ const Loaded = Annotation.define<boolean>()
 export interface PlainTextEditorHandle {
   /** replace the buffer without marking the document dirty (the initial file load) */
   setDoc(text: string): void
+  getText(): string
+  /** replace the buffer as an undoable edit (updates dirty state and CodeMirror history) */
+  replaceText(text: string): void
   focus(): void
   undo(): boolean
   redo(): boolean
@@ -183,6 +186,14 @@ export const PlainTextEditor = forwardRef<PlainTextEditorHandle, Props>(function
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: text },
         annotations: Loaded.of(true),
+      })
+    },
+    getText: () => viewRef.current?.state.doc.toString() ?? '',
+    replaceText(text) {
+      const view = viewRef.current
+      if (!view || view.state.doc.toString() === text) return
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: text },
       })
     },
     focus: () => viewRef.current?.focus(),

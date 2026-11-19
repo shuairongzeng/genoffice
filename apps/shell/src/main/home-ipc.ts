@@ -214,7 +214,7 @@ const SEARCH_EXT_FAMILY: Record<string, readonly string[]> = {
   docx: ['docx', 'doc', 'odt', 'ott'],
   xlsx: ['xlsx', 'xlsm', 'xls', 'csv', 'tsv', 'ods', 'ots'],
   pptx: ['pptx', 'ppt', 'odp', 'otp'],
-  md: ['md', 'markdown', 'txt', 'json'],
+  md: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'],
   html: ['html', 'htm'],
 }
 
@@ -701,9 +701,8 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     if (openIn !== null) {
       throw new Error(
         `"${basename(req.path)}" is open in the ${openIn} app right now — editing the file ` +
-          'behind the app would fork it from what the person is looking at. A Word document ' +
-          'goes through document_agent instead; other kinds, ask the person to edit them in ' +
-          'their app',
+          'behind the app would fork it from what the person is looking at. Use `document_agent` ' +
+          'instead (switch to that tab first with `shell:switch_tab` if it is not active).',
       )
     }
     // existence before the scope verdict: a missing file's honest error is
@@ -764,7 +763,7 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
       throw new Error(
         `"${basename(req.path)}" is open in the ${openIn} app right now — deleting the file ` +
           'under the app would throw away the document the person is looking at. Ask the person ' +
-          "to close it first (a Word document's content goes through document_agent instead)",
+          'to close it first (to edit its content instead, use `document_agent`).',
       )
     }
     if (!host.statMaybeFile(req.path)?.isFile()) {
@@ -914,7 +913,10 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
         },
         { name: host.translate('filterPpt'), extensions: ['pptx', 'ppt', 'odp', 'otp'] },
         { name: host.translate('filterPdf'), extensions: ['pdf'] },
-        { name: host.translate('filterMarkdown'), extensions: ['md', 'markdown', 'txt', 'json'] },
+        {
+          name: host.translate('filterMarkdown'),
+          extensions: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'],
+        },
         { name: host.translate('filterHtml'), extensions: ['html', 'htm'] },
       ],
       properties: ['openFile', 'multiSelections'],

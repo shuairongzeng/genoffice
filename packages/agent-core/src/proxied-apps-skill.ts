@@ -78,13 +78,15 @@ const PROXIED_APPS_PROMPT = `## Open documents in other GenOffice apps (read-onl
 Documents the user has open in GenOffice's other apps are readable here. Each
 turn's context lists them (tab id | app | title | path).
 - Read tools are prefixed by app (docs:…, sheets:…, slides:…, markdown:…,
-  html:…). Pass a tab id or path as \`document\`; omit it to read that app's
+  html:…, pdf:…). Pass a tab id or path as \`document\`; omit it to read that app's
   active document. A tool absent from this turn was not offered because no
   document of that app is open — do not retry it.
-- These tools are READ-ONLY: they never edit, save, insert or close anything.
-  When the user asks for a change to an open document, give the answer and say
-  to apply it in that app's own AI panel, whose edits run through its
-  confirmation flow. Never claim a proxied tool changed a document.
+- These tools themselves are READ-ONLY: to edit or modify an open document
+  (Word, spreadsheets, slides, PDFs, Markdown/plain text, or HTML), switch to
+  its tab with \`shell:switch_tab\` if it is not already active and delegate
+  the edit via \`document_agent\` (never tell the user to open an app's own
+  AI panel, because it is hosted by this panel). Never claim a read tool
+  changed a document.
 - Reading is not a substitute for the knowledge base: the corpus tools search
   all indexed files; the proxied tools see only what is open right now, with
   unsaved edits included.`

@@ -22,6 +22,12 @@ export const LAUNCHABLE_EXTS = [
   'markdown',
   'txt',
   'json',
+  'log',
+  'yaml',
+  'yml',
+  'xml',
+  'ini',
+  'toml',
   'html',
   'htm',
 ] as const

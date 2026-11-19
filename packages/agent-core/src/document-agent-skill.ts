@@ -3,21 +3,42 @@ import type { AgentSkill, ExecutedToolCall } from './skill'
 
 /**
  * The dock's document-agent delegation: the global panel hands a document
- * task to the ACTIVE document tab's own agent — the headless copy of the
- * docs app's loop with its full toolset (insert/replace/ops, charts,
- * comments, notes), running inside that app's renderer against the live
- * editor. One confirm card gates the whole delegated task (risk:'high', the
- * card's arguments show the task text); within the task the sub-agent's own
- * write ops run under that mandate — its loop auto-allows confirms because
- * there is no person at the in-app panel to ask (the app's revision system
- * tracks every change for undo).
+ * task to the ACTIVE document tab's own agent — a headless copy of that app's
+ * agent loop running inside the tab's renderer against the live document
+ * (docs, sheets, slides, pdf, markdown/plain text, html). One confirm card gates
+ * the whole delegated task (risk:'high', the card's arguments show the task
+ * text); within the task the sub-agent's own write ops run under that mandate
+ * because nobody sits at the suppressed in-app panel to answer per-tool cards.
+ * Every edit creates a checkpoint (alongside the editor's own undo/revision
+ * stack) so the user can revert the run cleanly from the global panel.
  *
- * The main side routes the call to the active docs tab (a guiding error when
- * none is open or another task is already running there), relays the
- * sub-agent's live progress to the panel (the rolling "文档助手：…" status
- * line), and aborts it when the global run is cancelled or the tab closes.
+ * The main side routes the call to the active document tab (a guiding error
+ * when none is active or another task is already running there), relays the
+ * sub-agent's live progress to the panel, and aborts it when the global run is
+ * cancelled or the tab closes.
  */
 export const DOCUMENT_AGENT_TOOL = 'document_agent'
+
+/** document tab kinds that expose a headless in-tab agent via HEADLESS_AGENT_CHANNELS */
+export const AGENT_DOCUMENT_KINDS: ReadonlySet<string> = new Set([
+  'docs',
+  'sheets',
+  'slides',
+  'pdf',
+  'markdown',
+  'html',
+])
+
+/** unified IPC channels between shell main and every document app's headless agent */
+export const HEADLESS_AGENT_CHANNELS = {
+  task: 'app:agent-task',
+  progress: 'app:agent-task-progress',
+  result: 'app:agent-task-result',
+  abort: 'app:agent-task-abort',
+  ready: 'app:agent-ready',
+  undo: 'app:agent-undo',
+  undoResult: 'app:agent-undo-result',
+} as const
 
 /** longest task text the tool accepts (the whole text rides the card and the channel) */
 export const MAX_AGENT_TASK_CHARS = 4_000
@@ -51,14 +72,20 @@ export interface AgentTaskResult {
   summary: string
   /** the write ops the task applied, as the report of what changed */
   edits?: readonly { tool: string; summary: string }[]
+  /** rollback checkpoint id emitted by the app when edits were applied */
+  checkpointId?: string
+  /** target tab metadata filled by shell main */
+  tabId?: string
+  kind?: string
+  title?: string
 }
 
 export interface DocumentAgentDeps {
   /**
    * Run one delegated task on the active document tab. Rejects with the
-   * routing and lifetime errors (no document open, wrong kind, busy,
-   * timeout, tab closed mid-task, aborted) — the message is the model-facing
-   * tool result.
+   * routing and lifetime errors (no document open, non-document tab active,
+   * busy, timeout, tab closed mid-task, aborted) — the message is the
+   * model-facing tool result.
    */
   runAgentTask(task: string): Promise<AgentTaskResult>
   /**
@@ -67,38 +94,54 @@ export interface DocumentAgentDeps {
    * the global Stop button stops the sub-agent too, not just the wait.
    */
   cancelAgentTask?(): void
+  /**
+   * Optional hook fired right after a delegated task succeeds so the host panel
+   * can attach rollback checkpoints to the active assistant message.
+   */
+  onTaskResult?(result: AgentTaskResult): void
 }
 
 const DOCUMENT_AGENT_SYSTEM_PROMPT = `## Delegating document work (document_agent)
-The active Word document has its own agent — the document assistant — with
-the full editing toolset (insert content, replace blocks, apply ops, charts,
-comments, notes, long-form writing). document_agent is the DEFAULT for
-document work: when the task concerns the document the person has open,
-delegate it here — never rewrite the document's file behind the app with
-create_document, edit_file or delete_file (the file would fork from what the
-person is looking at):
-- Write the task as a complete, self-contained instruction: the assistant
-  sees only the task text and the document — none of this conversation.
+Every open document tab in GenOffice (Word \`docs\`, spreadsheets \`sheets\`,
+presentations \`slides\`, PDFs \`pdf\`, Markdown/plain-text \`markdown\`, HTML \`html\`)
+has its own live in-app assistant accessible through \`document_agent\`.
+The in-app AI sidebar is hidden while hosted in the Shell, so this tool is the
+ONLY and DEFAULT way to edit or operate on any open document — NEVER tell the
+user to switch to the app's own AI panel, and NEVER rewrite the file on disk
+with create_document, edit_file or delete_file (that would fork disk state
+from the live editor):
+- Target: acts on the currently ACTIVE document tab. If the target document is
+  open in another tab, switch to it first with \`shell:switch_tab\` before
+  calling \`document_agent\`.
+- Write the task as a complete, self-contained instruction: the assistant sees
+  only the task text and the live document — none of this conversation. Include
+  exact values, formulas, cell addresses, page numbers or section headings you
+  already retrieved or computed here.
+- Undoable by default: each task that mutates a document captures a rollback
+  checkpoint automatically (one click to undo in the panel, plus editor Ctrl+Z).
 - One task at a time per document; a second call while it works is refused.
 - While it works its live status streams back; the final result carries its
   summary and the edits it made (tools and counts). Report what IT reported —
   never claim document changes this tool did not return.
-- Use it for document-shaped work (draft a section, restructure, fix
-  formatting, add a chart or comment) — including small, precise ones ("把这份文档的标题改成《神兽研究》" is a
-  delegation, not a file rewrite). Reading the document is your own
-  docs:read_document call; small questions do not need a delegation.`
+- Use it for all document edits across all 6 kinds — small or large ("把这份文档的标题改成《神兽研究》",
+  "put =SUM(E2:E7) in E8 and format currency", "rename slide 2 title",
+  "highlight paragraph 1 in page 3", "update lines 10-12 in notes.txt",
+  "change hero background in index.html"). Reading an open document can also use
+  the read tools (such as docs:read_document / sheets:read_sheet), or delegate
+  directly when reading + editing belong together.`
 
 export function createDocumentAgentSkill(deps: DocumentAgentDeps): AgentSkill {
   const tool: AgentToolDef = {
     name: DOCUMENT_AGENT_TOOL,
     description:
-      'Delegate a task to the document assistant working inside the active Word ' +
-      'document — the FIRST choice for any task about that document: editing, ' +
-      'rewriting, restructuring, formatting, comments, long-form drafting. It has ' +
-      'the full editing toolset and reports a summary plus the edits it made; the ' +
-      'task must be self-contained (the assistant sees only the task and the ' +
-      'document). One task per document at a time. NEVER rewrite or replace a file ' +
-      'an app has open — that is what this tool is for.',
+      'Delegate a task to the document assistant working inside the active open ' +
+      'document tab (Word docs, spreadsheets, presentations, PDFs, Markdown/plain text, ' +
+      'or HTML) — the FIRST choice for any edit, rewrite, formatting, formula, chart, ' +
+      'slide change, PDF annotation/page operation, or text update on an open document. ' +
+      'All edits create an undoable checkpoint automatically. The task must be ' +
+      'self-contained (the assistant sees only the task and the live document). ' +
+      'If the target document is not active yet, call shell:switch_tab first. ' +
+      'NEVER rewrite or replace a file an app has open behind the editor.',
     // one delegated task = one card: the sub-agent's own writes run under this mandate
     risk: 'high',
     inputSchema: {
@@ -139,6 +182,7 @@ export function createDocumentAgentSkill(deps: DocumentAgentDeps): AgentSkill {
             summary: 'document task failed',
           }
         }
+        deps.onTaskResult?.(result)
         const edits = result.edits ?? []
         const editLines = edits
           .slice(0, 12)
@@ -169,7 +213,13 @@ export function createDocumentAgentSkill(deps: DocumentAgentDeps): AgentSkill {
     verifyResponse: (finalText, executed: readonly ExecutedToolCall[]) => {
       const delegated = executed.some((c) => c.name === DOCUMENT_AGENT_TOOL && c.ok)
       if (delegated) return null
-      if (!/\b(?:document assistant|sub-agent)\b|文档助手/i.test(finalText)) return null
+      if (
+        !/\b(?:document assistant|sub-agent)\b|文档助手|表格助手|演示助手|PDF\s*助手|Markdown\s*助手|HTML\s*助手/i.test(
+          finalText,
+        )
+      ) {
+        return null
+      }
       return (
         'The reply describes what the document assistant did, but document_agent did not ' +
         'succeed in this run. Report only what you actually did here, or call document_agent.'

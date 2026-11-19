@@ -76,10 +76,11 @@ Both tools accept only files the desktop already knows (starred, recent, in
 a knowledge folder, or indexed); anything else is refused — ask the person
 to handle those themselves.
 NEITHER tool is for a file an app has open: the file on disk would fork
-from the live document the person is looking at. A Word document open in a
-tab goes through document_agent; other open kinds, tell the person to edit
-them in their app. The main process refuses an edit to an open file with
-the same instruction — the refusal is the routing, follow it.`
+from the live document the person is looking at. ANY open document (docs,
+sheets, slides, pdf, markdown/plain text, html) goes through
+\`document_agent\` instead (switch to its tab first with \`shell:switch_tab\` if
+it is not active). The main process refuses an edit to an open file with the
+same instruction — the refusal is the routing, follow it.`
 
 // a plain-past-tense claim about this run: "the file was deleted" as corpus
 // history ("I deleted the old draft last week") still trips the guard — the

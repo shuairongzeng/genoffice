@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { userInfo } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { BrowserWindow, WebContentsView, app, dialog, ipcMain, shell } from 'electron'
@@ -66,17 +66,20 @@ import type {
   ValidateTextEditsRequest,
 } from '../shared/ipc'
 import type {
+  CaptureFileCheckpointResult,
   CertificateErrorCode,
   CertificateInfo,
   InspectCertificateResult,
   ListSystemCertificatesResult,
   PdfSignatureInfo,
+  RestoreFileCheckpointResult,
   SavedSignature,
   SignWithCertificateRequest,
   SignWithCertificateResult,
   SignaturePosition,
 } from '../shared/ipc'
 import { writePdfAtomically } from './atomic-write'
+import { createPdfFileCheckpoints, type PdfFileCheckpoints } from './file-checkpoints'
 import {
   cropPagesBytes,
   extractPagesBytes,
@@ -704,6 +707,10 @@ const allowedByWc = new Map<number, Set<string>>()
 const dirtyByWc = new Set<number>()
 const closeSaveWaiters = new Map<number, (ok: boolean) => void>()
 const saveAsWaiters = new Map<number, (ok: boolean) => void>()
+const readTextWaiters = new Map<
+  string,
+  { wcId: number; settle: (result: { text: string } | { error: string }) => void }
+>()
 /** Save As destination granted per view (main-process dialog pick); the save handler refuses any other non-source target */
 const saveAsTargetByWc = new Map<number, string>()
 /** Only a copy produced by this view may receive subsequent in-place redactions. */
@@ -1077,6 +1084,53 @@ export function sendPdfFindRequest(contents: WebContents): void {
   if (!contents.isDestroyed()) contents.send(PDF_CHANNELS.findRequest)
 }
 
+/** Read live text (with OCR fallback for scanned pages) from an open PDF view. */
+export function pdfReadText(
+  contents: WebContents,
+  payload?: { start?: number; end?: number },
+): Promise<string> {
+  if (contents.isDestroyed()) return Promise.reject(new Error('the document is no longer open'))
+  const requestId = randomUUID()
+  const wcId = contents.id
+  const reqPayload = {
+    requestId,
+    ...(typeof payload?.start === 'number' ? { start: payload.start } : {}),
+    ...(typeof payload?.end === 'number' ? { end: payload.end } : {}),
+  }
+  return new Promise<string>((resolve, reject) => {
+    let settled = false
+    const finish = (cb: () => void): void => {
+      if (settled) return
+      settled = true
+      clearInterval(retry)
+      clearTimeout(timer)
+      readTextWaiters.delete(requestId)
+      cb()
+    }
+    const retry = setInterval(() => {
+      if (contents.isDestroyed()) {
+        finish(() => reject(new Error('the document is no longer open')))
+        return
+      }
+      contents.send(PDF_CHANNELS.readTextRequest, reqPayload)
+    }, 250)
+    const timer = setTimeout(
+      () => finish(() => reject(new Error('timed out reading the document'))),
+      30_000,
+    )
+    readTextWaiters.set(requestId, {
+      wcId,
+      settle: (result) => {
+        finish(() => {
+          if ('text' in result) resolve(result.text)
+          else reject(new Error(result.error))
+        })
+      },
+    })
+    contents.send(PDF_CHANNELS.readTextRequest, reqPayload)
+  })
+}
+
 /**
  * Marks the whole Save As flow (dialog included) for the renderer, which pauses
  * autosave meanwhile: opening the save dialog blurs the window, and a
@@ -1128,6 +1182,21 @@ function withSignatures(
 }
 
 let ipcRegistered = false
+let fileCheckpoints: PdfFileCheckpoints | null = null
+let willQuitCheckpointCleanupHooked = false
+
+function getFileCheckpoints(): PdfFileCheckpoints {
+  if (!fileCheckpoints) {
+    fileCheckpoints = createPdfFileCheckpoints(join(app.getPath('temp'), 'genoffice-pdf-checkpoints'))
+  }
+  if (!willQuitCheckpointCleanupHooked) {
+    willQuitCheckpointCleanupHooked = true
+    app.once('will-quit', () => {
+      void fileCheckpoints?.cleanupAll()
+    })
+  }
+  return fileCheckpoints
+}
 
 /** Filesystem seam for readMergeInputs; defaults to node:fs/promises */
 export interface MergeInputIo {
@@ -1611,29 +1680,37 @@ function registerPdfIpc(): void {
   ipcMain.handle(
     PDF_CHANNELS.splitPdf,
     async (e, request: SplitPdfRequest): Promise<SplitPdfResult> => {
-      const { path, chunkSize, baseName } = request ?? {}
+      const { path, chunkSize, baseName, headless } = request ?? {}
       if (typeof path !== 'string' || !allowedByWc.get(e.sender.id)?.has(path)) {
         return { ok: false, error: 'pdf: path not granted to this view' }
       }
-      const win =
-        BrowserWindow.fromWebContents(e.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined
-      const picked = await showOpenDialogWithMemory(dialog, win, {
-        title: tm('dlgSplit'),
-        properties: ['openDirectory', 'createDirectory'],
-      })
-      const dir = picked.filePaths[0]
-      if (picked.canceled || !dir) return { ok: true, canceled: true }
+      const safeBase = String(baseName || 'split').replace(/[/\\:*?"<>|]/g, '_')
+      let dir: string | undefined
+      if (headless === true) {
+        dir = join(configuredDefaultSaveDir(app), `${safeBase}-split`)
+        await mkdir(dir, { recursive: true })
+      } else {
+        const win =
+          BrowserWindow.fromWebContents(e.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined
+        const picked = await showOpenDialogWithMemory(dialog, win, {
+          title: tm('dlgSplit'),
+          properties: ['openDirectory', 'createDirectory'],
+        })
+        dir = picked.filePaths[0]
+        if (picked.canceled || !dir) return { ok: true, canceled: true }
+      }
       try {
         const parts = await splitPdfBytes(
           new Uint8Array(await readFile(path)),
           typeof chunkSize === 'number' ? chunkSize : 1,
         )
-        const safeBase = String(baseName || 'split').replace(/[/\\:*?"<>|]/g, '_')
         for (const [i, bytes] of parts.entries()) {
           await writeFile(join(dir, `${safeBase}-${i + 1}.pdf`), bytes)
         }
-        // Many output files — don't open tabs; reveal them so success is never silent
-        shell.showItemInFolder(join(dir, `${safeBase}-1.pdf`))
+        // Many output files — don't open tabs; reveal interactively so success is never silent
+        if (headless !== true) {
+          shell.showItemInFolder(join(dir, `${safeBase}-1.pdf`))
+        }
         return { ok: true, savedDir: dir, count: parts.length }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -1704,7 +1781,7 @@ function registerPdfIpc(): void {
   ipcMain.handle(
     PDF_CHANNELS.replacePages,
     async (e, request: ReplacePagesRequest): Promise<ReplacePagesResult> => {
-      const { path, pages } = request ?? {}
+      const { path, pages, sourcePath, headless } = request ?? {}
       if (
         typeof path !== 'string' ||
         !allowedByWc.get(e.sender.id)?.has(path) ||
@@ -1713,15 +1790,28 @@ function registerPdfIpc(): void {
       ) {
         return { ok: false, error: 'pdf: path not granted to this view' }
       }
-      const win =
-        BrowserWindow.fromWebContents(e.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined
-      const picked = await showOpenDialogWithMemory(dialog, win, {
-        title: tm('dlgReplace'),
-        filters: [{ name: tm('filterPdf'), extensions: ['pdf'] }],
-        properties: ['openFile'],
-      })
-      const other = picked.filePaths[0]
-      if (picked.canceled || !other) return { ok: true, canceled: true }
+      let other: string | undefined
+      if (typeof sourcePath === 'string' && sourcePath.length > 0) {
+        if (!existsSync(sourcePath)) {
+          return { ok: false, error: 'pdf: replacement source file does not exist' }
+        }
+        other = sourcePath
+      } else if (headless === true) {
+        return {
+          ok: false,
+          error: 'replace_pages in delegated mode requires a source PDF path',
+        }
+      } else {
+        const win =
+          BrowserWindow.fromWebContents(e.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined
+        const picked = await showOpenDialogWithMemory(dialog, win, {
+          title: tm('dlgReplace'),
+          filters: [{ name: tm('filterPdf'), extensions: ['pdf'] }],
+          properties: ['openFile'],
+        })
+        other = picked.filePaths[0]
+        if (picked.canceled || !other) return { ok: true, canceled: true }
+      }
       try {
         const { merged, removed, inserted } = await replacePagesBytes(
           new Uint8Array(await readFile(path)),
@@ -1733,6 +1823,35 @@ function registerPdfIpc(): void {
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       }
+    },
+  )
+
+  ipcMain.handle(
+    PDF_CHANNELS.captureFileCheckpoint,
+    async (e, path: unknown): Promise<CaptureFileCheckpointResult> => {
+      if (typeof path !== 'string' || !allowedByWc.get(e.sender.id)?.has(path)) {
+        return { ok: false, error: 'pdf: path not granted to this view' }
+      }
+      try {
+        const checkpointId = await getFileCheckpoints().capture(e.sender.id, path)
+        return { ok: true, checkpointId }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    PDF_CHANNELS.restoreFileCheckpoint,
+    async (e, checkpointId: unknown, path: unknown): Promise<RestoreFileCheckpointResult> => {
+      if (
+        typeof checkpointId !== 'string' ||
+        typeof path !== 'string' ||
+        !allowedByWc.get(e.sender.id)?.has(path)
+      ) {
+        return { ok: false, error: 'pdf: path not granted to this view' }
+      }
+      return getFileCheckpoints().restore(e.sender.id, checkpointId, path)
     },
   )
 
@@ -2059,6 +2178,20 @@ function registerPdfIpc(): void {
     waiter?.(ok === true)
   })
 
+  ipcMain.on(PDF_CHANNELS.readTextResult, (e, raw: unknown) => {
+    const res = (raw ?? {}) as { requestId?: unknown; text?: unknown; error?: unknown }
+    if (typeof res.requestId !== 'string') return
+    const waiter = readTextWaiters.get(res.requestId)
+    if (!waiter || waiter.wcId !== e.sender.id) return
+    readTextWaiters.delete(res.requestId)
+    if (typeof res.text === 'string') waiter.settle({ text: res.text })
+    else {
+      waiter.settle({
+        error: typeof res.error === 'string' && res.error ? res.error : 'failed to read PDF pages',
+      })
+    }
+  })
+
   // Language channel shared with other modules; removeHandler tolerates duplicate registration
   ipcMain.removeHandler(PDF_CHANNELS.getLanguage)
   ipcMain.handle(PDF_CHANNELS.getLanguage, () => getUiLang())
@@ -2090,6 +2223,13 @@ function grantAndTrack(wc: WebContents, openPath?: string | null): void {
     closeSaveWaiters.delete(wcId)
     saveAsWaiters.get(wcId)?.(false)
     saveAsWaiters.delete(wcId)
+    for (const [reqId, waiter] of [...readTextWaiters]) {
+      if (waiter.wcId === wcId) {
+        readTextWaiters.delete(reqId)
+        waiter.settle({ error: 'the document is no longer open' })
+      }
+    }
+    void fileCheckpoints?.cleanupView(wcId)
   })
   // reload() remounts the renderer without destroying webContents, so the
   // destroyed handler never runs. A remount discards in-memory edits; the

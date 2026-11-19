@@ -21,6 +21,7 @@ import { announceWhenLoaded } from '../mcp-bridge'
 import type { AiPageSetupAccess } from './page-setup'
 import type { AiNotesAccess } from './note-ops'
 import { AI_REVISION_AUTHOR } from './AiPanel'
+import { TABLE_TRAILING_SKIP } from '../editor/extensions'
 import type { AiDocWriter, DocWriteResult, DocWriteSpec } from './doc-writer'
 import { buildDocWriterRequest, DOC_MAX_CHARS, extractFragment } from './doc-writer'
 import {
@@ -146,7 +147,10 @@ export interface HeadlessAgentOutcome {
   ok: boolean
   summary: string
   edits: Array<{ tool: string; summary: string }>
+  checkpointId?: string
 }
+
+const MAX_CHECKPOINTS = 20
 
 function numIdsFor(ctx: FileActionContext): NumIds {
   const blocks = ctx.doc?.parsed.blocks ?? []
@@ -212,12 +216,14 @@ async function runTask(
   onProgress: (status: AgentTaskStatus) => void,
   gskLoggedIn: boolean,
   registerCancel: (cancel: () => void) => void,
+  saveCheckpoint: (beforeDoc: unknown) => string,
 ): Promise<HeadlessAgentOutcome> {
   const ctx = deps.getCtx()
   const editor = ctx.editor
   if (!editor || !ctx.doc) {
     return { ok: false, summary: 'the document is not ready', edits: [] }
   }
+  const beforeDoc = editor.getJSON()
   const getSettings = deps.getSettings
   const edits: Array<{ tool: string; summary: string }> = []
   const numIds = () => numIdsFor(deps.getCtx())
@@ -277,9 +283,16 @@ async function runTask(
     registerCancel(() => handle.cancel())
     const result = await handle.done
     if (result.cancelled) {
-      return { ok: false, summary: 'the task was stopped before it finished', edits }
+      const checkpointId = edits.length > 0 ? saveCheckpoint(beforeDoc) : undefined
+      return {
+        ok: false,
+        summary: 'the task was stopped before it finished',
+        edits,
+        ...(checkpointId ? { checkpointId } : {}),
+      }
     }
-    return { ok: true, summary: result.text, edits }
+    const checkpointId = edits.length > 0 ? saveCheckpoint(beforeDoc) : undefined
+    return { ok: true, summary: result.text, edits, ...(checkpointId ? { checkpointId } : {}) }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return { ok: false, summary: message, edits }
@@ -299,6 +312,18 @@ export function installHeadlessAgentBridge(deps: HeadlessAgentDeps): () => void 
   let cancelled = false
   let cancelCurrent: (() => void) | null = null
   let currentTaskId: string | null = null
+  let checkpointSeq = 0
+  const checkpoints = new Map<string, unknown>()
+  const saveCheckpoint = (beforeDoc: unknown): string => {
+    const id = `docs-cp-${++checkpointSeq}`
+    checkpoints.set(id, beforeDoc)
+    while (checkpoints.size > MAX_CHECKPOINTS) {
+      const oldest = checkpoints.keys().next().value
+      if (oldest === undefined) break
+      checkpoints.delete(oldest)
+    }
+    return id
+  }
   // the readiness twin of the MCP bridge's announce: the shell keeps a
   // ready-set per tab and refuses (fast, with a wait hint) otherwise
   void announceWhenLoaded(
@@ -337,6 +362,7 @@ export function installHeadlessAgentBridge(deps: HeadlessAgentDeps): () => void 
       (status) => desktop.reportAgentTaskProgress({ taskId, status }),
       gskLoggedIn,
       (cancel) => (cancelCurrent = cancel),
+      saveCheckpoint,
     )
     currentTaskId = null
     cancelCurrent = null
@@ -345,6 +371,7 @@ export function installHeadlessAgentBridge(deps: HeadlessAgentDeps): () => void 
       ok: outcome.ok,
       summary: outcome.summary,
       edits: outcome.edits,
+      ...(outcome.checkpointId ? { checkpointId: outcome.checkpointId } : {}),
     })
   })
 
@@ -354,10 +381,50 @@ export function installHeadlessAgentBridge(deps: HeadlessAgentDeps): () => void 
     }
   })
 
+  const unsubscribeUndo = desktop.onAgentUndo?.((message) => {
+    if (!message || typeof message.undoId !== 'string' || typeof message.checkpointId !== 'string') {
+      return
+    }
+    if (currentTaskId !== null) {
+      desktop.reportAgentUndoResult?.({
+        undoId: message.undoId,
+        ok: false,
+        error: 'a task is currently running in this document',
+      })
+      return
+    }
+    const snapshot = checkpoints.get(message.checkpointId)
+    const editor = deps.getCtx().editor
+    if (!snapshot || !editor) {
+      desktop.reportAgentUndoResult?.({
+        undoId: message.undoId,
+        ok: false,
+        error: 'checkpoint is no longer available',
+      })
+      return
+    }
+    try {
+      editor
+        .chain()
+        .setMeta(TABLE_TRAILING_SKIP, true)
+        .setContent(snapshot as never)
+        .run()
+      checkpoints.delete(message.checkpointId)
+      desktop.reportAgentUndoResult?.({ undoId: message.undoId, ok: true })
+    } catch (error) {
+      desktop.reportAgentUndoResult?.({
+        undoId: message.undoId,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  })
+
   return () => {
     cancelled = true
     unsubscribeCommands()
     unsubscribeAborts()
+    unsubscribeUndo?.()
     cancelCurrent?.()
   }
 }

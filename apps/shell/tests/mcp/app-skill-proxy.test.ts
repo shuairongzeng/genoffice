@@ -212,4 +212,38 @@ describe('the IPC registration', () => {
       /input must be an object/,
     )
   })
+
+  it('forwards sheets:read_sheet range and registers/validates pdf:read_pages when a PDF reader is wired', async () => {
+    const readSheet = vi.fn(async () => ({ grid: 'A\t1' }))
+    const readPdf = vi.fn(async () => ({ text: '[Page 1]\nHello PDF' }))
+    const deps = {
+      listWindows: () => [...WINDOWS],
+      webContentsFor: (id: string) =>
+        id === 'tab-5' ? contentsFor(5) : id === 'tab-6' ? contentsFor(6) : undefined,
+      readers: { sheets: readSheet, pdf: readPdf },
+    }
+    const manifest = buildAppSkillManifest(WINDOWS, deps.readers)
+    expect(manifest.tools.map((t) => t.name)).toEqual(['sheets:read_sheet', 'pdf:read_pages'])
+
+    await executeAppSkillRead(deps, 'sheets:read_sheet', {
+      document: 'tab-5',
+      range: 'A1:F32',
+    })
+    expect(readSheet).toHaveBeenCalledWith(expect.anything(), { range: 'A1:F32' })
+
+    const pdfRes = await executeAppSkillRead(deps, 'pdf:read_pages', {
+      document: 'tab-6',
+      start: 2,
+      end: 5,
+    })
+    expect(pdfRes.target.id).toBe('tab-6')
+    expect(readPdf).toHaveBeenCalledWith(expect.anything(), { start: 2, end: 5 })
+
+    await expect(
+      executeAppSkillRead(deps, 'pdf:read_pages', { document: 'tab-6', start: 0 }),
+    ).rejects.toThrow(/positive integer/)
+    await expect(
+      executeAppSkillRead(deps, 'pdf:read_pages', { document: 'tab-6', end: '2' }),
+    ).rejects.toThrow(/positive integer/)
+  })
 })

@@ -54,7 +54,7 @@ export function openEditorOf(
 export function openDocumentRefusal(path: string, kind: string, verb: string): Error {
   return new Error(
     `"${path.slice(0, 120)}" is open in the ${kind} app right now — ${verb} the file behind ` +
-      'the app would fork it from what the person is looking at. A Word document goes through ' +
-      'document_agent instead; other kinds, ask the person to edit them in their app',
+      'the app would fork it from what the person is looking at. Use `document_agent` instead ' +
+      '(switch to that tab first with `shell:switch_tab` if it is not active).',
   )
 }

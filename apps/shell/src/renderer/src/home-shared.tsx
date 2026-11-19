@@ -157,7 +157,7 @@ export const FILTER_FAMILY: Record<string, readonly string[]> = {
   docx: ['docx', 'doc', 'odt', 'ott'],
   xlsx: ['xlsx', 'xlsm', 'xls', 'csv', 'tsv', 'ods', 'ots'],
   pptx: ['pptx', 'ppt', 'odp', 'otp'],
-  md: ['md', 'markdown', 'txt', 'json'],
+  md: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'],
   html: ['html', 'htm'],
 }
 

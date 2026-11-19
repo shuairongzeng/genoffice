@@ -4,7 +4,15 @@ import type { Lang } from '@genoffice/i18n'
 import type { AiStreamChunk } from '@genoffice/ai-provider'
 import { installDropOpenBridge } from '@genoffice/electron-utils/drop-open'
 import { AI_CHANNELS, PDF_CHANNELS } from '../shared/ipc'
-import type { PdfApi, UiTheme } from '../shared/ipc'
+import type {
+  AgentTaskCommandMessage,
+  AgentTaskResultReport,
+  AgentTaskStatusReport,
+  AgentUndoRequestMessage,
+  AgentUndoResultReport,
+  PdfApi,
+  UiTheme,
+} from '../shared/ipc'
 
 const api: PdfApi = {
   consumePending: () => ipcRenderer.invoke(PDF_CHANNELS.consumePending),
@@ -136,6 +144,45 @@ const api: PdfApi = {
     ipcRenderer.on(AI_CHANNELS.streamChunk, listener)
     return () => ipcRenderer.removeListener(AI_CHANNELS.streamChunk, listener)
   },
+  captureFileCheckpoint: (path) => ipcRenderer.invoke(PDF_CHANNELS.captureFileCheckpoint, path),
+  restoreFileCheckpoint: (checkpointId, path) =>
+    ipcRenderer.invoke(PDF_CHANNELS.restoreFileCheckpoint, checkpointId, path),
+  onAgentTaskCommand: (handler: (message: AgentTaskCommandMessage) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, message: AgentTaskCommandMessage) =>
+      handler(message)
+    ipcRenderer.on('app:agent-task', listener)
+    return () => ipcRenderer.removeListener('app:agent-task', listener)
+  },
+  onAgentTaskAbort: (handler: (message: { taskId: string }) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, message: { taskId: string }) => handler(message)
+    ipcRenderer.on('app:agent-task-abort', listener)
+    return () => ipcRenderer.removeListener('app:agent-task-abort', listener)
+  },
+  reportAgentTaskProgress: (report: AgentTaskStatusReport) =>
+    ipcRenderer.send('app:agent-task-progress', report),
+  reportAgentTaskResult: (result: AgentTaskResultReport) =>
+    ipcRenderer.send('app:agent-task-result', result),
+  signalAgentReady: () => ipcRenderer.send('app:agent-ready'),
+  onAgentUndo: (handler: (message: AgentUndoRequestMessage) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, message: AgentUndoRequestMessage) =>
+      handler(message)
+    ipcRenderer.on('app:agent-undo', listener)
+    return () => ipcRenderer.removeListener('app:agent-undo', listener)
+  },
+  reportAgentUndoResult: (result: AgentUndoResultReport) =>
+    ipcRenderer.send('app:agent-undo-result', result),
+  onReadTextRequest: (
+    handler: (req: { requestId: string; start?: number; end?: number }) => void,
+  ) => {
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      req: { requestId: string; start?: number; end?: number },
+    ) => handler(req)
+    ipcRenderer.on(PDF_CHANNELS.readTextRequest, listener)
+    return () => ipcRenderer.removeListener(PDF_CHANNELS.readTextRequest, listener)
+  },
+  sendReadTextResult: (result: { requestId: string; text?: string; error?: string }) =>
+    ipcRenderer.send(PDF_CHANNELS.readTextResult, result),
 }
 
 // Shared project chat store (registered app-wide by the shell's main init):

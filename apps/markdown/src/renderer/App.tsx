@@ -61,6 +61,7 @@ import { TableMenu } from './components/TableMenu'
 import { FrontmatterPanel } from './components/FrontmatterPanel'
 import { AiAskPopover } from './components/AiAskPopover'
 import { AiPanel, GensparkMark, type AiPreset, type MarkdownAiDeps } from './ai/AiPanel'
+import { installHeadlessAgentBridge } from './ai/headless-agent'
 import { EDIT_QUEUE_MAX, selectionForAnchor, type EditQueueItem } from './ai/edit-queue'
 import { addQueueAnchor, clearQueueAnchors, removeQueueAnchors } from './editor/aiQueueAnchors'
 import { DOCX_MAX_IMAGE_PX, exportDocxBytes } from './export/docxExport'
@@ -151,6 +152,8 @@ export default function App() {
   const sourceTextRef = useRef('')
   const sourceFormatRef = useRef<SourceTextFormat>({ bom: false, eol: '\n', trailingNewline: true })
   const sourceMode = isSourceMode(textMode)
+  const sourceModeRef = useRef(sourceMode)
+  sourceModeRef.current = sourceMode
   // bumped on every CodeMirror doc change so the ribbon's undo/redo state re-renders
   const [sourceRev, setSourceRev] = useState(0)
 
@@ -1027,8 +1030,14 @@ export default function App() {
     // editor is still loading keeps the main process retrying its request
     // instead of failing on a document that is merely not ready yet.
     const offReadText = window.markdownApi.onReadTextRequest(() => {
+      if (statusRef.current !== 'ready') return
+      if (sourceModeRef.current) {
+        const text = sourceRef.current?.getText() ?? sourceTextRef.current
+        window.markdownApi.sendReadTextResult({ text })
+        return
+      }
       const current = editorRef.current
-      if (!current || statusRef.current !== 'ready') return
+      if (!current) return
       try {
         const text = serializeMarkdown(
           envelopeRef.current,
@@ -1265,14 +1274,36 @@ export default function App() {
       onFrontmatterChange(inner)
       setFmOpen(inner.trim() !== '')
     },
+    isSourceMode: () => sourceMode,
+    getSourceText: () => sourceRef.current?.getText() ?? sourceTextRef.current,
+    replaceSourceText: (text) => {
+      sourceTextRef.current = text
+      sourceRef.current?.replaceText(text)
+      markDirty()
+    },
+    getFileName: () => (filePathRef.current ? filePathRef.current.replace(/^.*[/\\]/, '') : null),
+    getTextMode: () => textMode,
     // snapshots carry body + the raw frontmatter block (structured, no
     // file-text round-trip) so a rollback also reverts set_frontmatter and
     // an untouched block restores byte-for-byte
-    getSnapshot: () => ({
-      body: editorRef.current ? bodyMarkdown(editorRef.current) : '',
-      frontmatter: envelopeRef.current.frontmatter,
-    }),
+    getSnapshot: () =>
+      sourceMode
+        ? {
+            body: '',
+            frontmatter: '',
+            sourceText: sourceRef.current?.getText() ?? sourceTextRef.current,
+          }
+        : {
+            body: editorRef.current ? bodyMarkdown(editorRef.current) : '',
+            frontmatter: envelopeRef.current.frontmatter,
+          },
     restoreSnapshot: (snapshot) => {
+      if (snapshot.sourceText !== undefined && sourceMode) {
+        sourceTextRef.current = snapshot.sourceText
+        sourceRef.current?.replaceText(snapshot.sourceText)
+        markDirty()
+        return
+      }
       const current = editorRef.current
       if (!current) return
       envelopeRef.current.frontmatter = snapshot.frontmatter
@@ -1285,11 +1316,25 @@ export default function App() {
     },
     onRunDone: (mutated) => {
       // AI wrote into a never-saved document → name it from the content and save silently
-      if (!mutated || filePathRef.current || !editorRef.current) return
+      if (!mutated || filePathRef.current || !editorRef.current || sourceMode) return
       const name = deriveAutoFileName(editorRef.current)
       if (name) void doSave('save', name)
     },
   }
+
+  const headlessRefs = useRef({ status, sourceMode, aiDeps, editor })
+  headlessRefs.current = { status, sourceMode, aiDeps, editor }
+
+  useEffect(() => {
+    return installHeadlessAgentBridge({
+      isReady: () =>
+        headlessRefs.current.status === 'ready' &&
+        (headlessRefs.current.sourceMode
+          ? Boolean(sourceRef.current)
+          : Boolean(headlessRefs.current.editor)),
+      getDeps: () => headlessRefs.current.aiDeps,
+    })
+  }, [])
 
   const fileName = filePath ? filePath.replace(/^.*[/\\]/, '') : null
   const statusText =

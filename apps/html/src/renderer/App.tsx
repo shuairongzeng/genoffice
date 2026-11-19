@@ -30,6 +30,7 @@ import { instrumentForPreview } from './preview/instrument'
 import type { ComputedSnapshot, ElementRect, FromInspector } from './preview/inspector-protocol'
 import inspectorSource from './preview/inspector.js?raw'
 import { AiPanel, GensparkMark, type AiPreset, type HtmlAiDeps } from './ai/AiPanel'
+import { installHeadlessAgentBridge } from './ai/headless-agent'
 import { AiAskPopover, type AnchorRect, type AskMode } from './components/AiAskPopover'
 import {
   EDIT_QUEUE_MAX,
@@ -1703,6 +1704,16 @@ export default function App() {
       selectSid(sid, { reveal: true })
     },
   }
+
+  const headlessRefs = useRef({ status, aiDeps })
+  headlessRefs.current = { status, aiDeps }
+
+  useEffect(() => {
+    return installHeadlessAgentBridge({
+      isReady: () => headlessRefs.current.status === 'ready',
+      getDeps: () => headlessRefs.current.aiDeps,
+    })
+  }, [])
 
   const statusText = useMemo(() => {
     if (saveState === 'saving') return t('saving')

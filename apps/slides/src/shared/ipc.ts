@@ -1,5 +1,10 @@
 import type { AiPanelPrefs } from '@genoffice/ui'
-import type { KbFileInfo, KbReadPage, KbSearchHit } from '@genoffice/agent-core'
+import type {
+  AgentTaskStatus,
+  KbFileInfo,
+  KbReadPage,
+  KbSearchHit,
+} from '@genoffice/agent-core'
 /**
  * slides main-process <-> renderer IPC contract (Phase 3: open/save/edit, AI not included yet).
  *
@@ -1902,6 +1907,42 @@ export interface SlidesApi {
   onShowInk: (handler: (ev: ShowInkEvent) => void) => () => void
   /** Presenter: subscribe to navigation actions sent back by the audience window */
   onAudienceNav: (handler: (action: AudienceNavAction) => void) => () => void
+  onAgentTaskCommand: (handler: (message: AgentTaskCommandMessage) => void) => () => void
+  onAgentTaskAbort: (handler: (message: { taskId: string }) => void) => () => void
+  reportAgentTaskProgress: (report: AgentTaskStatusReport) => void
+  reportAgentTaskResult: (result: AgentTaskResultReport) => void
+  signalAgentReady: () => void
+  onAgentUndo: (handler: (message: AgentUndoRequestMessage) => void) => () => void
+  reportAgentUndoResult: (result: AgentUndoResultReport) => void
+}
+
+export interface AgentTaskCommandMessage {
+  taskId: string
+  task: string
+}
+
+export interface AgentTaskStatusReport {
+  taskId: string
+  status: AgentTaskStatus
+}
+
+export interface AgentTaskResultReport {
+  taskId: string
+  ok: boolean
+  summary: string
+  edits?: Array<{ tool: string; summary: string }>
+  checkpointId?: string
+}
+
+export interface AgentUndoRequestMessage {
+  undoId: string
+  checkpointId: string
+}
+
+export interface AgentUndoResultReport {
+  undoId: string
+  ok: boolean
+  error?: string
 }
 
 declare global {

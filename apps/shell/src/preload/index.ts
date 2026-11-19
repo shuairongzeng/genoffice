@@ -409,11 +409,21 @@ const homeApi: HomeApi = {
   async documentAgentCancel() {
     return (await ipcRenderer.invoke('document-agent:cancel')) === true
   },
+  async documentAgentUndo(tabId, checkpointId) {
+    return (await ipcRenderer.invoke('document-agent:undo', {
+      tabId,
+      checkpointId,
+    })) as { ok: boolean; error?: string }
+  },
   onDocumentAgentProgress(listener) {
     const inner = (_event: IpcRendererEvent, payload: unknown) => {
-      const event = payload as { taskId?: unknown; status?: unknown }
+      const event = payload as { taskId?: unknown; kind?: unknown; status?: unknown }
       if (!event || typeof event.taskId !== 'string') return
-      listener({ taskId: event.taskId, status: event.status as AgentTaskStatus })
+      listener({
+        taskId: event.taskId,
+        ...(typeof event.kind === 'string' ? { kind: event.kind } : {}),
+        status: event.status as AgentTaskStatus,
+      })
     }
     ipcRenderer.on('document-agent:progress', inner)
     return () => ipcRenderer.removeListener('document-agent:progress', inner)

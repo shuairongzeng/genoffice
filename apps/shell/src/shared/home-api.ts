@@ -60,7 +60,14 @@ export type {
 /** the describe answer: which document a delegation targets right now (main/document-agent.ts's shape) */
 export interface DocumentAgentTarget {
   tabId: string
+  kind: string
   title: string
+}
+
+/** result returned by `documentAgentUndo` */
+export interface DocumentAgentUndoResult {
+  ok: boolean
+  error?: string
 }
 
 /** the `browser:ask-about` push's payload: the annotation the "ask AI" entry sent */
@@ -633,8 +640,13 @@ export interface AskRunEvent {
     | 'usage'
     | 'error'
     | 'confirm-state'
+    | 'confirm-action'
+    | 'stop'
     | 'user-message'
     | 'snapshot'
+    | 'checkpoint-added'
+    | 'checkpoint-updated'
+    | 'subagent-progress'
   payload: unknown
 }
 
@@ -643,6 +655,7 @@ export interface AskRunEvent {
 export interface AskRunSnapshot {
   messages: unknown[]
   liveRun?: { text: string; reasoning?: string; busy: boolean } | null
+  confirmCard?: unknown | null
 }
 
 /**
@@ -1179,9 +1192,11 @@ export interface HomeApi {
   documentAgentRun(task: string, expectedTabId?: string): Promise<AgentTaskResult>
   /** abort this panel's in-flight delegated task (the run's Stop mid-task) */
   documentAgentCancel(): Promise<boolean>
+  /** revert the mutations applied by a delegated task using its checkpointId */
+  documentAgentUndo(tabId: string, checkpointId: string): Promise<DocumentAgentUndoResult>
   /** the sub-agent's live progress, relayed while a task runs; returns the unsubscribe */
   onDocumentAgentProgress(
-    listener: (event: { taskId: string; status: AgentTaskStatus }) => void,
+    listener: (event: { taskId: string; kind?: string; status: AgentTaskStatus }) => void,
   ): () => void
   // ---- the dock's browser skill: read/act on the active browser tab's page ----
   /** one browser:* tool call (read_page / screenshot_page / read_annotation_shot /

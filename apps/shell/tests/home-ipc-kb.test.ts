@@ -226,7 +226,7 @@ describe('kb:edit-file — the patch gate over the kb scope', () => {
     // the refusal steers the model to the delegation, not to a retry
     await expect(
       invoke('kb:edit-file', { path: file, old_string: 'original', new_string: 'rewritten' }),
-    ).rejects.toThrow(/goes through document_agent instead/)
+    ).rejects.toThrow(/Use `document_agent` instead/)
     // nothing was written — the live document and the file never fork
     expect(readFileSync(file, 'utf8')).toBe('original content')
   })
@@ -387,7 +387,7 @@ describe('kb:delete-file — one confirmation, the trash, fail closed', () => {
       /is open in the docs app right now/,
     )
     await expect(invoke('kb:delete-file', { path: file, confirmed: true })).rejects.toThrow(
-      /document_agent instead/,
+      /use `document_agent`/,
     )
     expect(trashCalls).toEqual([])
     expect(statSync(file, { throwIfNoEntry: false })).toBeDefined()

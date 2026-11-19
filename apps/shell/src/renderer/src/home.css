@@ -4959,6 +4959,58 @@ html[dir='rtl'] .quick-title-row {
   margin-left: 1px;
   letter-spacing: 1px;
 }
+/* Git-style document checkpoints: compact revert bar below mutated assistant turns */
+.kb-ask-checkpoints {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+}
+.kb-ask-checkpoint-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  background: var(--color-bg-subtle, var(--color-bg-page));
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.kb-ask-checkpoint-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-ask-checkpoint-undo {
+  border: 1px solid var(--color-border-default);
+  border-radius: 6px;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  background: var(--surface, var(--color-bg-page));
+  color: var(--color-accent, var(--accent));
+  cursor: pointer;
+}
+.kb-ask-checkpoint-undo:hover:not(:disabled) {
+  background: var(--hover, var(--color-bg-page));
+}
+.kb-ask-checkpoint-undo:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.kb-ask-checkpoint-done {
+  font-size: 11.5px;
+  color: var(--color-text-tertiary);
+}
+.kb-ask-checkpoint-error {
+  width: 100%;
+  font-size: 11.5px;
+  color: var(--danger);
+}
 .kb-ask-thinking {
   margin-bottom: 7px;
   border: 1px solid var(--color-border-default);
@@ -4978,6 +5030,23 @@ html[dir='rtl'] .quick-title-row {
   line-height: 20px;
   color: var(--color-text-secondary);
   white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.kb-ask-live-status {
+  margin-top: 6px;
+}
+.kb-ask-error-banner {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-8, 8px);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 /* the composer: the same glass the bubble is (the drawer's own surface), so
  * no box of its own — the solid dark panel and heavy border from

@@ -28,12 +28,15 @@ type ChunkListener = (chunk: {
 
 type CommandListener = (message: { taskId: string; task: string }) => void
 type AbortListener = (message: { taskId: string }) => void
+type UndoListener = (message: { undoId: string; checkpointId: string }) => void
 
 interface BridgeStub {
   commandListeners: CommandListener[]
   abortListeners: AbortListener[]
+  undoListeners: UndoListener[]
   progress: Array<{ taskId: string; status: { kind: string; tool?: string } }>
-  results: Array<{ taskId: string; ok: boolean; summary: string; edits?: unknown }>
+  results: Array<{ taskId: string; ok: boolean; summary: string; edits?: unknown; checkpointId?: string }>
+  undoResults: Array<{ undoId: string; ok: boolean; error?: string }>
   started: Array<{ requestId: string; messages: unknown[] }>
 }
 
@@ -93,8 +96,10 @@ function stubBridge(hangAfterTool = false): BridgeStub {
   const stub: BridgeStub = {
     commandListeners: [],
     abortListeners: [],
+    undoListeners: [],
     progress: [],
     results: [],
+    undoResults: [],
     started: [],
   }
   let streamListener: ChunkListener | null = null
@@ -158,8 +163,16 @@ function stubBridge(hangAfterTool = false): BridgeStub {
       ok: boolean
       summary: string
       edits?: unknown
+      checkpointId?: string
     }) => {
       stub.results.push(result)
+    },
+    onAgentUndo: (handler: UndoListener) => {
+      stub.undoListeners.push(handler)
+      return () => {}
+    },
+    reportAgentUndoResult: (result: { undoId: string; ok: boolean; error?: string }) => {
+      stub.undoResults.push(result)
     },
   }
   return stub
@@ -353,6 +366,28 @@ describe('the headless document agent', () => {
       const ins = marks.find((m) => m.type.name === 'ins')
       expect(ins, 'the insertion should carry the ins revision mark').toBeTruthy()
       expect(ins?.attrs.author).toBe(AI_REVISION_AUTHOR)
+      off()
+    } finally {
+      editor.destroy()
+    }
+  })
+
+  it('captures a checkpoint when mutated and restores original document on undo', async () => {
+    const editor = createEditor()
+    try {
+      const stub = stubBridge()
+      const off = install(editor)
+      fireTask(stub, 'task-cp', 'add a paragraph')
+      await settle()
+      expect(editor.state.doc.textContent).toContain('AI inserted')
+      const cpId = stub.results[0]?.checkpointId
+      expect(cpId).toBeTruthy()
+      for (const listener of stub.undoListeners) {
+        listener({ undoId: 'undo-1', checkpointId: cpId! })
+      }
+      expect(stub.undoResults).toEqual([{ undoId: 'undo-1', ok: true }])
+      expect(editor.state.doc.textContent).not.toContain('AI inserted')
+      expect(editor.state.doc.textContent).toContain('original body')
       off()
     } finally {
       editor.destroy()

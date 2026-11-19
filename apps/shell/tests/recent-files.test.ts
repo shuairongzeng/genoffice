@@ -40,8 +40,8 @@ describe('matchesExtFamily', () => {
  */
 describe('sidebar filter families agree with the other two', () => {
   const FAMILIES: ReadonlyArray<readonly [string, Record<string, readonly string[]>]> = [
-    ['Home', { md: ['md', 'markdown', 'txt', 'json'] }],
-    ['search', { md: ['md', 'markdown', 'txt', 'json'] }],
+    ['Home', { md: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'] }],
+    ['search', { md: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'] }],
   ]
 
   it.each(FAMILIES)('matches the %s family for the text app', (_name, family) => {

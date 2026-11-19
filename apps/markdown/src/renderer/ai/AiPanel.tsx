@@ -29,6 +29,7 @@ import {
   skillContextVars,
   streamText,
   withAttachedSkills,
+  type AgentSkill,
   type KbFileInfo,
   type MindMapTreeNode,
   type SkillVars,
@@ -59,6 +60,7 @@ import { clearAiHighlights } from '../editor/aiHighlight'
 import { setInactiveSelectionShown } from '../editor/inactiveSelection'
 import { redactTextBetween } from '../editor/redact'
 import { createMarkdownSkill, MARKDOWN_RULES } from './markdown-skill'
+import { createPlainTextSkill } from './plain-text-skill'
 import { MindMapCard } from './MindMapCard'
 import {
   buildDocWriterRequest,
@@ -145,6 +147,8 @@ export interface DocSnapshot {
   body: string
   /** raw frontmatter block (fences included), kept byte-for-byte */
   frontmatter: string
+  /** plain-text buffer snapshot when editing in sourceMode */
+  sourceText?: string
 }
 
 interface Snapshot {
@@ -165,6 +169,11 @@ export interface MarkdownAiDeps {
   getFrontmatter(): string
   /** replace the properties block; empty string removes it */
   setFrontmatter(inner: string): void
+  isSourceMode?: () => boolean
+  getSourceText?: () => string
+  replaceSourceText?: (text: string) => void
+  getFileName?: () => string | null
+  getTextMode?: () => string
   /** document body + frontmatter, for pre-mutation snapshots */
   getSnapshot(): DocSnapshot
   /** rollback: replace the document (body and frontmatter) with a snapshot */
@@ -516,6 +525,43 @@ export function AiPanel({
   // The loop is built once; every mutable value goes through a ref getter
   const loopRef = useRef<AgentLoop<DocSnapshot> | null>(null)
   if (!loopRef.current) {
+    const mdSkill = createMarkdownSkill(
+      () => depsRef.current.getEditor(),
+      {
+        read: () => depsRef.current.getFrontmatter(),
+        write: (inner) => depsRef.current.setFrontmatter(inner),
+      },
+      () => imageGenerationAvailable(settingsRef.current, gskLoggedInRef.current),
+      () => ({
+        write: (spec, onProgress, signal) => runDocWriterRef.current(spec, onProgress, signal),
+      }),
+    )
+    const txtSkill = createPlainTextSkill({
+      getText: () => depsRef.current.getSourceText?.() ?? '',
+      replaceText: (text) => depsRef.current.replaceSourceText?.(text),
+      fileName: () => depsRef.current.getFileName?.() ?? fileNameOf(filePathRef.current),
+      textMode: () => depsRef.current.getTextMode?.() ?? 'plain',
+    })
+    const activeDocSkill: AgentSkill = {
+      get id() {
+        return depsRef.current.isSourceMode?.() ? txtSkill.id : mdSkill.id
+      },
+      get systemPrompt() {
+        return depsRef.current.isSourceMode?.() ? txtSkill.systemPrompt : mdSkill.systemPrompt
+      },
+      get tools() {
+        return depsRef.current.isSourceMode?.() ? txtSkill.tools : mdSkill.tools
+      },
+      buildContext: () =>
+        depsRef.current.isSourceMode?.()
+          ? (txtSkill.buildContext?.() ?? '')
+          : (mdSkill.buildContext?.() ?? ''),
+      executeTool: (call, signal) =>
+        depsRef.current.isSourceMode?.()
+          ? txtSkill.executeTool(call, signal)
+          : mdSkill.executeTool(call, signal),
+    }
+
     loopRef.current = new AgentLoop<DocSnapshot>({
       transport: transportRef.current,
       // the document-writing tools stop at the inline allow/deny card; a denial
@@ -536,17 +582,7 @@ export function AiPanel({
               }),
             ]
           : []),
-        createMarkdownSkill(
-          () => depsRef.current.getEditor(),
-          {
-            read: () => depsRef.current.getFrontmatter(),
-            write: (inner) => depsRef.current.setFrontmatter(inner),
-          },
-          () => imageGenerationAvailable(settingsRef.current, gskLoggedInRef.current),
-          () => ({
-            write: (spec, onProgress, signal) => runDocWriterRef.current(spec, onProgress, signal),
-          }),
-        ),
+        activeDocSkill,
         createSearchSkill(),
       ]),
       captureSnapshot: () => depsRef.current.getSnapshot(),

@@ -99,6 +99,11 @@ import type {
   AutoSaveDefault,
   UiTheme,
   SetEffectsPatch,
+  AgentTaskCommandMessage,
+  AgentTaskStatusReport,
+  AgentTaskResultReport,
+  AgentUndoRequestMessage,
+  AgentUndoResultReport,
 } from '../shared/ipc'
 
 const api: SlidesApi = {
@@ -483,6 +488,28 @@ const api: SlidesApi = {
     ipcRenderer.on('slides:audience-nav', listener)
     return () => ipcRenderer.removeListener('slides:audience-nav', listener)
   },
+  onAgentTaskCommand: (handler: (message: AgentTaskCommandMessage) => void) => {
+    const listener = (_e: IpcRendererEvent, message: AgentTaskCommandMessage) => handler(message)
+    ipcRenderer.on('app:agent-task', listener)
+    return () => ipcRenderer.removeListener('app:agent-task', listener)
+  },
+  onAgentTaskAbort: (handler: (message: { taskId: string }) => void) => {
+    const listener = (_e: IpcRendererEvent, message: { taskId: string }) => handler(message)
+    ipcRenderer.on('app:agent-task-abort', listener)
+    return () => ipcRenderer.removeListener('app:agent-task-abort', listener)
+  },
+  reportAgentTaskProgress: (report: AgentTaskStatusReport) =>
+    ipcRenderer.send('app:agent-task-progress', report),
+  reportAgentTaskResult: (result: AgentTaskResultReport) =>
+    ipcRenderer.send('app:agent-task-result', result),
+  signalAgentReady: () => ipcRenderer.send('app:agent-ready'),
+  onAgentUndo: (handler: (message: AgentUndoRequestMessage) => void) => {
+    const listener = (_e: IpcRendererEvent, message: AgentUndoRequestMessage) => handler(message)
+    ipcRenderer.on('app:agent-undo', listener)
+    return () => ipcRenderer.removeListener('app:agent-undo', listener)
+  },
+  reportAgentUndoResult: (result: AgentUndoResultReport) =>
+    ipcRenderer.send('app:agent-undo-result', result),
 }
 
 contextBridge.exposeInMainWorld('slidesApi', api)

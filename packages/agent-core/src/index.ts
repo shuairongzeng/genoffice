@@ -122,7 +122,9 @@ export {
   type FileOpsDeps,
 } from './file-ops-skill'
 export {
+  AGENT_DOCUMENT_KINDS,
   DOCUMENT_AGENT_TOOL,
+  HEADLESS_AGENT_CHANNELS,
   MAX_AGENT_TASK_CHARS,
   createDocumentAgentSkill,
   type AgentTaskResult,

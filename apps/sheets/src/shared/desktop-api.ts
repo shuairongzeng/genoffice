@@ -37,7 +37,12 @@ import type {
   GenSparkAccountStatus,
 } from '@genoffice/ai-provider'
 import type { AiPanelPrefs } from '@genoffice/ui'
-import type { KbFileInfo, KbReadPage, KbSearchHit } from '@genoffice/agent-core'
+import type {
+  AgentTaskStatus,
+  KbFileInfo,
+  KbReadPage,
+  KbSearchHit,
+} from '@genoffice/agent-core'
 
 // edit schemas shared with the xlsx gateway package; re-exported so IPC consumers keep one import site
 export {
@@ -3026,6 +3031,35 @@ export interface McpCommandResult {
   error?: string
 }
 
+export interface AgentTaskCommandMessage {
+  taskId: string
+  task: string
+}
+
+export interface AgentTaskStatusReport {
+  taskId: string
+  status: AgentTaskStatus
+}
+
+export interface AgentTaskResultReport {
+  taskId: string
+  ok: boolean
+  summary: string
+  edits?: Array<{ tool: string; summary: string }>
+  checkpointId?: string
+}
+
+export interface AgentUndoRequestMessage {
+  undoId: string
+  checkpointId: string
+}
+
+export interface AgentUndoResultReport {
+  undoId: string
+  ok: boolean
+  error?: string
+}
+
 export interface DesktopApi {
   /** the AI drawer's persisted state (width, collapsed, petPos) — the hosted
    *  AI slot's width follows it; pushed on every change */
@@ -3153,6 +3187,13 @@ export interface DesktopApi {
   onMcpCommand(callback: (message: McpCommandMessage) => void): () => void
   reportMcpResult(result: McpCommandResult): void
   signalMcpReady(): void
+  onAgentTaskCommand(handler: (message: AgentTaskCommandMessage) => void): () => void
+  onAgentTaskAbort(handler: (message: { taskId: string }) => void): () => void
+  reportAgentTaskProgress(report: AgentTaskStatusReport): void
+  reportAgentTaskResult(result: AgentTaskResultReport): void
+  signalAgentReady(): void
+  onAgentUndo(handler: (message: AgentUndoRequestMessage) => void): () => void
+  reportAgentUndoResult(result: AgentUndoResultReport): void
   /// Is a shell-queued workbook path still waiting to be opened? (The shell's
   /// 'open' nudge loop can time out on slow cold starts; the renderer pulls.)
   hasQueuedWorkbook(): Promise<boolean>

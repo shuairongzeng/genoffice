@@ -26,7 +26,13 @@ const CORPUS = [
   { path: 'C:/kb/notes.md', folder: 'kb', name: 'notes.md', ext: 'md', sizeBytes: 512 },
 ]
 
-type ChunkListener = (chunk: { requestId: string; type: string; text?: string }) => void
+type ChunkListener = (chunk: {
+  requestId: string
+  type: string
+  text?: string
+  error?: string
+  toolCall?: { id: string; name: string; input: Record<string, unknown> }
+}) => void
 
 // ---- the ask-stream units --------------------------------------------------
 
@@ -396,5 +402,140 @@ describe('KbAskPanel streaming renders', () => {
     setViewport(el, 700)
     act(() => button!.click())
     expect(host.querySelector('.kb-ask-scroll-latest')).toBeNull()
+  })
+
+  it('preserves partial text, displays error banner, clears busy, and allows follow-up asks on mid-stream error', async () => {
+    const published: Array<{ type: string; payload: unknown }> = []
+    ;(window as unknown as { aiOffice: Record<string, unknown> }).aiOffice.askRunEvent = (evt: {
+      type: string
+      payload: unknown
+    }) => {
+      published.push(evt)
+    }
+
+    render()
+    await settle()
+    await ask('summarize the table')
+    expect(started).toHaveLength(1)
+    expect(host.querySelector('.ai-stop-btn')).toBeTruthy()
+
+    chunk('delta', 'Checking the spreadsheet first.')
+    pumpFrame()
+    expect(host.textContent).toContain('Checking the spreadsheet first.')
+
+    act(() => {
+      chunkListener?.({
+        requestId: started[0]!.requestId,
+        type: 'error',
+        error: 'Model output contains an unrecoverable tool call.',
+      })
+    })
+    await settle()
+
+    // Partial text stays intact and the error banner surfaces the failure clearly.
+    expect(host.textContent).toContain('Checking the spreadsheet first.')
+    const banner = host.querySelector('.kb-ask-error-banner[role="alert"]')
+    expect(banner?.textContent).toBe('Model output contains an unrecoverable tool call.')
+    // Stop button clears back to idle so follow-up questions are never deadlocked.
+    expect(host.querySelector('.ai-stop-btn')).toBeNull()
+    expect(host.querySelector('.ai-send-btn')).toBeTruthy()
+
+    const errEvt = published.find((e) => e.type === 'error')
+    expect(errEvt?.payload).toBe('Model output contains an unrecoverable tool call.')
+    const lastSnap = [...published].reverse().find((e) => e.type === 'snapshot')
+    expect((lastSnap?.payload as { liveRun?: unknown } | undefined)?.liveRun).toBeNull()
+
+    // Sending a second question immediately succeeds.
+    await ask('retry 1+1')
+    expect(started).toHaveLength(2)
+    chunk('delta', '2')
+    chunk('done')
+    await settle()
+    expect(host.textContent).toContain('2')
+  })
+
+  it('ignores whitespace-only text overwrites and keeps the live typing indicator visible while streaming', async () => {
+    ;(window as unknown as { aiOffice: Record<string, unknown> }).aiOffice.kbSearch = async () => []
+    render()
+    await settle()
+    await ask('analyze spending')
+    expect(started).toHaveLength(1)
+
+    chunk('delta', 'Inspecting sheet data.')
+    pumpFrame()
+    expect(host.textContent).toContain('Inspecting sheet data.')
+    // Live typing indicator remains visible below partial text while the run is still streaming.
+    expect(host.querySelector('.kb-ask-live-status .ai-typing')).toBeTruthy()
+
+    // A subsequent whitespace-only turn (e.g. "\n\n" before a tool call) must not erase prior text.
+    act(() => {
+      chunkListener?.({
+        requestId: started[0]!.requestId,
+        type: 'tool-call',
+        toolCall: { id: 'c1', name: 'search_knowledge_base', input: { query: 'cost' } },
+      })
+      chunkListener?.({ requestId: started[0]!.requestId, type: 'done' })
+    })
+    await settle()
+    expect(started).toHaveLength(2)
+
+    act(() => {
+      chunkListener?.({ requestId: started[1]!.requestId, type: 'delta', text: '\n\n' })
+    })
+    pumpFrame()
+    expect(host.textContent).toContain('Inspecting sheet data.')
+    expect(host.querySelector('.kb-ask-live-status .ai-typing')).toBeTruthy()
+
+    act(() => {
+      chunkListener?.({
+        requestId: started[1]!.requestId,
+        type: 'delta',
+        text: 'Final RMB total: 100.',
+      })
+      chunkListener?.({ requestId: started[1]!.requestId, type: 'done' })
+    })
+    await settle()
+    expect(host.textContent).toContain('Final RMB total: 100.')
+    expect(host.querySelector('.ai-typing')).toBeNull()
+  })
+
+  it('publishes an initial streaming snapshot even before chat ids finish resolving', async () => {
+    const published: Array<{ type: string; payload: unknown }> = []
+    let resolveIds!: (ids: { projectId: string; chatId: string }) => void
+    const pendingProjectApi = {
+      resolveChat: () =>
+        new Promise<{ projectId: string; chatId: string }>((resolve) => {
+          resolveIds = resolve
+        }),
+      loadChat: async () => [] as ChatMessage[],
+      appendChat: async () => {},
+      deleteChat: async () => {},
+      listChats: async () => [],
+    } as unknown as ProjectApi
+    ;(window as unknown as { projectApi: ProjectApi }).projectApi = pendingProjectApi
+    ;(window as unknown as { aiOffice: Record<string, unknown> }).aiOffice.askRunEvent = (evt: {
+      type: string
+      payload: unknown
+    }) => {
+      published.push(evt)
+    }
+
+    render()
+    await settle()
+    await ask('early question before ids resolve')
+
+    const snap = published.find((e) => e.type === 'snapshot')
+    expect(snap).toBeTruthy()
+    const payload = snap!.payload as {
+      messages: Array<{ role: string; streaming?: boolean }>
+      liveRun: { busy?: boolean } | null
+    }
+    expect(payload.liveRun?.busy).toBe(true)
+    expect(payload.messages.at(-1)?.role).toBe('assistant')
+    expect(payload.messages.at(-1)?.streaming).toBe(true)
+
+    resolveIds({ projectId: 'default', chatId: 'kb-ask' })
+    chunk('done')
+    await settle()
   })
 })

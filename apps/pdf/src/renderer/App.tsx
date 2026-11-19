@@ -7,6 +7,7 @@ import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist/legacy/build/pdf.mj
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import { AiPanel, GensparkMark } from './ai/AiPanel'
+import { installHeadlessAgentBridge } from './ai/headless-agent'
 import { AiAskPopover, type AskAnchorRect } from './AiAskPopover'
 import {
   createSavedAnnotCountsLoader,
@@ -15,6 +16,7 @@ import {
 } from './annotation-catalog'
 import {
   AUTO_OCR_PAGE_CAP,
+  isScannedText,
   OcrTextLayer,
   renderPageForOcr,
   runAutoOcr,
@@ -6722,6 +6724,125 @@ export default function App() {
     savedOnceRef.current = true
     void save(true)
   }
+
+  const headlessRefs = useRef({
+    doc,
+    filePath,
+    aiApi,
+    snapshot,
+    applySnapshot,
+    loadDoc,
+    autoSaveAfterAiRun,
+    runFileOp,
+    rewriteInPlace,
+    baseName,
+  })
+  headlessRefs.current = {
+    doc,
+    filePath,
+    aiApi,
+    snapshot,
+    applySnapshot,
+    loadDoc,
+    autoSaveAfterAiRun,
+    runFileOp,
+    rewriteInPlace,
+    baseName,
+  }
+
+  useEffect(() => {
+    return installHeadlessAgentBridge({
+      isReady: () => Boolean(headlessRefs.current.doc && headlessRefs.current.filePath),
+      getFilePath: () => headlessRefs.current.filePath,
+      getAppDeps: () => headlessRefs.current.aiApi,
+      captureEditSnapshot: () => headlessRefs.current.snapshot(),
+      restoreEditSnapshot: (snap) => headlessRefs.current.applySnapshot(snap),
+      reloadDoc: () =>
+        headlessRefs.current.loadDoc(headlessRefs.current.filePath, headlessRefs.current.doc),
+      splitPdfHeadless: (pagesPerFile) =>
+        headlessRefs.current.runFileOp(() =>
+          window.pdfApi.splitPdf({
+            path: headlessRefs.current.filePath,
+            chunkSize: pagesPerFile,
+            baseName: headlessRefs.current.baseName(),
+            headless: true,
+          }),
+        ),
+      replacePagesHeadless: (visIdxs) =>
+        headlessRefs.current.rewriteInPlace(() =>
+          window.pdfApi.replacePages({
+            path: headlessRefs.current.filePath,
+            pages: visIdxs,
+            headless: true,
+          }),
+        ),
+      onRunDone: () => void headlessRefs.current.autoSaveAfterAiRun(),
+    })
+  }, [])
+
+  useEffect(() => {
+    return window.pdfApi.onReadTextRequest?.((req) => {
+      const currentDoc = headlessRefs.current.doc
+      // Stay silent while loading so the main process retries until the document is ready.
+      if (!currentDoc) return
+      void (async () => {
+        try {
+          const total = currentDoc.numPages
+          const rawStart = req.start ?? 1
+          const rawEnd = req.end ?? rawStart + 9
+          if (
+            !Number.isInteger(rawStart) ||
+            !Number.isInteger(rawEnd) ||
+            rawStart < 1 ||
+            rawEnd < rawStart ||
+            rawStart > total
+          ) {
+            window.pdfApi.sendReadTextResult({
+              requestId: req.requestId,
+              error: `Invalid page range (document has ${total} pages)`,
+            })
+            return
+          }
+          const start = rawStart
+          const end = Math.min(total, rawEnd, start + 9)
+          const MAX_READ_TEXT_CHARS = 16_000
+          let out = `Document: ${headlessRefs.current.baseName()} (${total} pages total; showing pages ${start}-${end})\n\n`
+          for (let n = start; n <= end; n += 1) {
+            const page = await currentDoc.getPage(n)
+            const content = await page.getTextContent()
+            let text = ''
+            for (const item of content.items) {
+              if ('str' in item) {
+                text += item.str
+                if (item.hasEOL) text += '\n'
+              }
+            }
+            page.cleanup()
+            if (isScannedText(text)) {
+              const ocr = headlessRefs.current.aiApi.ocrText(n - 1)
+              if (ocr && ocr.trim()) {
+                text = `(recovered by OCR; may contain recognition errors)\n${ocr}`
+              }
+            }
+            out += `[Page ${n}]\n${text.trim()}\n\n`
+            if (out.length > MAX_READ_TEXT_CHARS) {
+              out = `${out.slice(0, MAX_READ_TEXT_CHARS)}\n… (truncated; read the rest in further calls)`
+              break
+            }
+          }
+          window.pdfApi.sendReadTextResult({
+            requestId: req.requestId,
+            text: out.trim() || '(No extractable text in this range; the pages may be scanned images)',
+          })
+        } catch (err) {
+          window.pdfApi.sendReadTextResult({
+            requestId: req.requestId,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+      })()
+    })
+  }, [])
 
   /** Internal destination of a Link annotation → jump to that page */
   const goToDest = async (dest: unknown) => {

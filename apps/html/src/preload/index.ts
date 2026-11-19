@@ -5,7 +5,18 @@ import type { AiStreamChunk } from '@genoffice/ai-provider'
 import type { ProjectApi } from '@genoffice/project-store'
 import { installDropOpenBridge } from '@genoffice/electron-utils/drop-open'
 import { AI_CHANNELS, HTML_CHANNELS } from '../shared/ipc'
-import type { AutoSaveDefault, ExportFormat, HtmlApi, SaveMode, UiTheme } from '../shared/ipc'
+import type {
+  AgentTaskCommandMessage,
+  AgentTaskResultReport,
+  AgentTaskStatusReport,
+  AgentUndoRequestMessage,
+  AgentUndoResultReport,
+  AutoSaveDefault,
+  ExportFormat,
+  HtmlApi,
+  SaveMode,
+  UiTheme,
+} from '../shared/ipc'
 
 const api: HtmlApi = {
   consumePending: () => ipcRenderer.invoke(HTML_CHANNELS.consumePending),
@@ -132,6 +143,30 @@ const api: HtmlApi = {
     ipcRenderer.invoke(AI_CHANNELS.imageSearch, query, maxResults),
   fetchImage: (url) => ipcRenderer.invoke(HTML_CHANNELS.fetchImage, url),
   aiGenerateImage: (op) => ipcRenderer.invoke(HTML_CHANNELS.aiGenerateImage, op),
+  onAgentTaskCommand: (handler: (message: AgentTaskCommandMessage) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, message: AgentTaskCommandMessage) =>
+      handler(message)
+    ipcRenderer.on('app:agent-task', listener)
+    return () => ipcRenderer.removeListener('app:agent-task', listener)
+  },
+  onAgentTaskAbort: (handler: (message: { taskId: string }) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, message: { taskId: string }) => handler(message)
+    ipcRenderer.on('app:agent-task-abort', listener)
+    return () => ipcRenderer.removeListener('app:agent-task-abort', listener)
+  },
+  reportAgentTaskProgress: (report: AgentTaskStatusReport) =>
+    ipcRenderer.send('app:agent-task-progress', report),
+  reportAgentTaskResult: (result: AgentTaskResultReport) =>
+    ipcRenderer.send('app:agent-task-result', result),
+  signalAgentReady: () => ipcRenderer.send('app:agent-ready'),
+  onAgentUndo: (handler: (message: AgentUndoRequestMessage) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, message: AgentUndoRequestMessage) =>
+      handler(message)
+    ipcRenderer.on('app:agent-undo', listener)
+    return () => ipcRenderer.removeListener('app:agent-undo', listener)
+  },
+  reportAgentUndoResult: (result: AgentUndoResultReport) =>
+    ipcRenderer.send('app:agent-undo-result', result),
 }
 
 /** Chat persistence: the shared project:* handlers are registered once by the shell (docs-main registerProjectIpc) */

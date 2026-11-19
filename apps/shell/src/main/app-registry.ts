@@ -301,7 +301,7 @@ export const documentApps: readonly AppDescriptor[] = [
   {
     id: 'markdown',
     family: 'md',
-    extensions: ['md', 'markdown', 'txt', 'json'],
+    extensions: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'],
     untitledTitle: 'AI Markdown',
     untitledTitleKey: 'untitledMarkdown',
     createView: createMarkdownView,
@@ -567,6 +567,7 @@ export {
   markPdfUntitledPath,
   pdfFileRenamed,
   pdfIsDirty,
+  pdfReadText,
   requestPdfSaveAs,
   sendPdfFindRequest,
   sendPdfPrintRequest,

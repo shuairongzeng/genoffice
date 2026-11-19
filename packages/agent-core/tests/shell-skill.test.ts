@@ -197,43 +197,38 @@ describe('the shell skill surface', () => {
     expect(prompt).toContain('files nobody has open')
   })
 
-  it('the surface section routes document-active to document_agent — docs only', () => {
-    // a docs tab active (the kind the shell main reports for Word documents):
-    // the decisive line names where the work goes
+  it('the surface section routes every supported document kind to document_agent', () => {
     const section = formatSurfaceSection(TABS, 'home')
-    // TABS has no active doc (t1 browser is active) — flip the fixture
-    const docActive: SurfaceTab[] = [
-      { id: 'home', kind: 'home', title: 'Home', active: false },
-      { id: 'doc1', kind: 'docs', title: 'Report', active: true, filePath: '/docs/report.docx' },
+    const cases: Array<[string, string]> = [
+      ['docs', 'Word document'],
+      ['sheets', 'spreadsheet'],
+      ['slides', 'presentation'],
+      ['pdf', 'PDF document'],
+      ['markdown', 'Markdown/text document'],
+      ['html', 'HTML document'],
     ]
-    expect(formatSurfaceSection(docActive, 'home')).toContain(
-      'This is the Word document the person is working in — tasks about its content go through document_agent, never a file rewrite.',
-    )
-    // the other document kinds host no delegable agent: the section must not
-    // promise document_agent a sheets/slides/pdf/markdown/html tab cannot
-    // keep — it states the honest rule instead (edit in the app, or switch)
-    for (const kind of ['sheets', 'slides', 'pdf', 'markdown', 'html']) {
-      const section = formatSurfaceSection(
+    for (const [kind, noun] of cases) {
+      const activeSection = formatSurfaceSection(
         [
           { id: 'home', kind: 'home', title: 'Home', active: false },
-          { id: 't1', kind, title: 'Ledger', active: true, filePath: `/docs/ledger.${kind}` },
+          { id: 't1', kind, title: 'Doc', active: true, filePath: `/docs/file.${kind}` },
         ],
         'home',
       )
-      expect(section).toContain(
-        `This ${kind} document belongs to its app — document_agent only works on a Word document; tell the person to edit it there, or switch to a docs tab first (shell:switch_tab).`,
+      expect(activeSection).toContain(
+        `This is the ${noun} the person is working in — tasks about its content or editing go through document_agent, never a file rewrite.`,
       )
-      expect(section).not.toContain('tasks about its content go through')
+      expect(activeSection).not.toContain('only works on a Word document')
     }
     // a browser tab active or nothing active: no routing line at all
-    expect(section).not.toContain('tasks about its content go through')
+    expect(section).not.toContain('tasks about its content')
     expect(section).not.toContain('belongs to its app')
     expect(
       formatSurfaceSection(
         [{ id: 'b', kind: 'browser', title: 'X', active: true, url: 'https://x.dev/' }],
         'home',
       ),
-    ).not.toContain('tasks about its content go through')
+    ).not.toContain('tasks about its content')
   })
 
   it('includes the active tab selection in the surface section; omits it when empty', () => {

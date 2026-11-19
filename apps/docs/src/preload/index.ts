@@ -197,8 +197,8 @@ const api: DesktopApi = {
   onAgentTaskCommand: (handler) => {
     const listener = (_event: IpcRendererEvent, message: Parameters<typeof handler>[0]) =>
       handler(message)
-    ipcRenderer.on('docs:agent-task', listener)
-    return () => ipcRenderer.removeListener('docs:agent-task', listener)
+    ipcRenderer.on('app:agent-task', listener)
+    return () => ipcRenderer.removeListener('app:agent-task', listener)
   },
   // the autosave-recovery question (hosted open flow): main pushes the ask,
   // the card answers — the renderer-side replacement for the native dialog
@@ -213,12 +213,19 @@ const api: DesktopApi = {
   onAgentTaskAbort: (handler) => {
     const listener = (_event: IpcRendererEvent, message: Parameters<typeof handler>[0]) =>
       handler(message)
-    ipcRenderer.on('docs:agent-task-abort', listener)
-    return () => ipcRenderer.removeListener('docs:agent-task-abort', listener)
+    ipcRenderer.on('app:agent-task-abort', listener)
+    return () => ipcRenderer.removeListener('app:agent-task-abort', listener)
   },
-  reportAgentTaskProgress: (report) => ipcRenderer.send('docs:agent-task-progress', report),
-  reportAgentTaskResult: (result) => ipcRenderer.send('docs:agent-task-result', result),
-  signalAgentReady: () => ipcRenderer.send('docs:agent-ready'),
+  reportAgentTaskProgress: (report) => ipcRenderer.send('app:agent-task-progress', report),
+  reportAgentTaskResult: (result) => ipcRenderer.send('app:agent-task-result', result),
+  signalAgentReady: () => ipcRenderer.send('app:agent-ready'),
+  onAgentUndo: (handler) => {
+    const listener = (_event: IpcRendererEvent, message: Parameters<typeof handler>[0]) =>
+      handler(message)
+    ipcRenderer.on('app:agent-undo', listener)
+    return () => ipcRenderer.removeListener('app:agent-undo', listener)
+  },
+  reportAgentUndoResult: (result) => ipcRenderer.send('app:agent-undo-result', result),
   // the hosted AI slot: the drawer state rides the shell's own aiDock
   // channels (the get answers any hosted renderer; standalone dev has no
   // handler, so it reads as null and the slot never shows). The broadcast

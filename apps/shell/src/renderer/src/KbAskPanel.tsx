@@ -1,5 +1,6 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AGENT_DOCUMENT_KINDS,
   AgentLoop,
   ATTACHMENT_IMAGE_EXTS,
   BROWSER_CLICK_TOOL,
@@ -225,6 +226,20 @@ const TOOL_NOTE_LABEL = {
   docagent: 'askToolDocAgent',
 } as const
 
+/** the sub-agent status line's label key per active document tab kind */
+const DOC_AGENT_KIND_LABEL: Record<string, StringKey> = {
+  docs: 'askDocAgentLabel',
+  sheets: 'askDocAgentLabelSheets',
+  slides: 'askDocAgentLabelSlides',
+  pdf: 'askDocAgentLabelPdf',
+  markdown: 'askDocAgentLabelMarkdown',
+  html: 'askDocAgentLabelHtml',
+}
+
+function docAgentLabelKey(kind?: string): StringKey {
+  return (kind ? DOC_AGENT_KIND_LABEL[kind] : undefined) ?? 'askDocAgentLabel'
+}
+
 /** the sub-agent status line's verb per status kind (the panel localizes the kind) */
 const DOC_AGENT_STATUS_LABEL = {
   thinking: 'askDocAgentThinking',
@@ -289,9 +304,14 @@ function suggestionPromptKey(suggestion: DocSuggestion): StringKey | null {
  * collapsed afterwards; a manual toggle wins over the live default */
 function KbThinkingBlock({ text, live, label }: { text: string; live: boolean; label: string }) {
   const [open, setOpen] = useState(live)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     if (live) setOpen(true)
   }, [live])
+  useEffect(() => {
+    if (!live || !open || !bodyRef.current) return
+    bodyRef.current.scrollTop = bodyRef.current.scrollHeight
+  }, [text, live, open])
   return (
     <details
       className="kb-ask-thinking"
@@ -299,7 +319,9 @@ function KbThinkingBlock({ text, live, label }: { text: string; live: boolean; l
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >
       <summary>{label}</summary>
-      <div className="kb-ask-thinking-text">{text}</div>
+      <div className="kb-ask-thinking-text" ref={bodyRef}>
+        {text}
+      </div>
     </details>
   )
 }
@@ -357,6 +379,17 @@ function KbToolActivityCard({
   )
 }
 
+export interface DocCheckpoint {
+  tabId: string
+  kind: string
+  title: string
+  checkpointId: string
+  editCount: number
+  reverted?: boolean
+  reverting?: boolean
+  error?: string
+}
+
 interface AskMessage {
   role: 'user' | 'assistant'
   text: string
@@ -367,6 +400,8 @@ interface AskMessage {
   artifacts: Artifact[]
   streaming?: boolean
   isError?: boolean
+  /** error detail captured when a run fails after partial text output */
+  error?: string
   /** reasoning captured during this answer's run (thinking block; UI-only, never persisted) */
   reasoning?: string
   /** tokens the provider billed for this answer, summed across its turns (absent when unreported) */
@@ -378,7 +413,9 @@ interface AskMessage {
   /** the "save as" buttons' outcome for this answer */
   saved?: { path: string; name: string } | { error: string } | 'saving'
   /** the document sub-agent's live status while a document_agent call runs (UI-only) */
-  subAgent?: AgentTaskStatus
+  subAgent?: AgentTaskStatus & { docKind?: string }
+  /** Git-style rollback checkpoints captured for delegated document mutations in this turn */
+  docCheckpoints?: DocCheckpoint[]
 }
 
 /** one run of this session, as the background-task list shows it */
@@ -727,6 +764,7 @@ const AskMessageRow = memo(function AskMessageRow({
   onRetry,
   onSaveAnswer,
   onCopyAnswer,
+  onUndoCheckpoint,
 }: {
   m: AskMessage
   index: number
@@ -748,6 +786,7 @@ const AskMessageRow = memo(function AskMessageRow({
   onRetry: (instruction: string) => void
   onSaveAnswer: (index: number, format: CreateDocumentFormat) => void
   onCopyAnswer: (text: string) => Promise<boolean>
+  onUndoCheckpoint: (index: number, checkpointId: string) => void
 }): React.JSX.Element {
   const { t } = useI18n()
   /** the copy verb's brief 已复制 feedback (the honest answer to a click) */
@@ -775,6 +814,8 @@ const AskMessageRow = memo(function AskMessageRow({
   // streaming off: the answer is held until it completes — the typing
   // indicator stays up and the full text appears in one piece
   const held = m.role === 'assistant' && m.streaming && !showStreaming
+  const hasText = m.text.trim().length > 0
+  const awaitingConfirm = isLast && confirmCard?.outcome === 'awaiting'
   return (
     <div className={`kb-ask-msg kb-ask-${m.role}${m.isError ? ' kb-ask-error' : ''}`}>
       {m.role === 'user' && m.attachments && <AskAttachments items={m.attachments} />}
@@ -817,7 +858,7 @@ const AskMessageRow = memo(function AskMessageRow({
       ) : null}
       {m.role === 'assistant' && m.subAgent && (
         <div className="kb-ask-subagent" role="status">
-          <span className="kb-ask-subagent-label">{t('askDocAgentLabel')}</span>
+          <span className="kb-ask-subagent-label">{t(docAgentLabelKey(m.subAgent.docKind))}</span>
           <span className="kb-ask-subagent-status">
             {t(DOC_AGENT_STATUS_LABEL[m.subAgent.kind])}
             <span className="kb-ask-subagent-dots" aria-hidden="true">
@@ -880,21 +921,59 @@ const AskMessageRow = memo(function AskMessageRow({
       )}
       {held ? (
         <AiTypingIndicator label={t('askHintBusy')} />
-      ) : m.text ? (
+      ) : hasText ? (
         m.role === 'assistant' ? (
           <Markdown text={m.text} navs={navs} />
         ) : (
           m.text
         )
-      ) : m.streaming ? (
+      ) : m.streaming && !awaitingConfirm ? (
         <AiTypingIndicator label={t('askHintBusy')} />
       ) : null}
+      {m.role === 'assistant' && !held && hasText && m.streaming && !awaitingConfirm && (
+        <div className="kb-ask-live-status">
+          <AiTypingIndicator label={t('askHintBusy')} />
+        </div>
+      )}
+      {m.role === 'assistant' && m.error && (
+        <div className="kb-ask-error-banner" role="alert">
+          {m.error}
+        </div>
+      )}
+      {m.role === 'assistant' && m.docCheckpoints && m.docCheckpoints.length > 0 && (
+        <div className="kb-ask-checkpoints" role="list">
+          {m.docCheckpoints.map((cp) => (
+            <div key={cp.checkpointId} className="kb-ask-checkpoint-row" role="listitem">
+              <span className="kb-ask-checkpoint-info" title={cp.title}>
+                {t('askDocUndoSummary', { title: cp.title, n: String(cp.editCount) })}
+              </span>
+              {cp.reverted ? (
+                <span className="kb-ask-checkpoint-done">{t('askDocUndoDone')}</span>
+              ) : (
+                <button
+                  type="button"
+                  className="kb-ask-checkpoint-undo"
+                  disabled={cp.reverting || busy}
+                  onClick={() => onUndoCheckpoint(index, cp.checkpointId)}
+                >
+                  {cp.reverting ? t('askDocUndoPending') : t('askDocUndoBtn')}
+                </button>
+              )}
+              {cp.error && (
+                <span className="kb-ask-checkpoint-error" title={cp.error}>
+                  {t('askDocUndoFailed', { error: cp.error })}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       {m.role === 'assistant' && m.usage && (
         <div className="ai-message-usage">
           <AiUsageChip usage={m.usage} lang={lang} />
         </div>
       )}
-      {m.role === 'assistant' && m.text && !m.streaming && !m.isError && (
+      {m.role === 'assistant' && hasText && !m.streaming && !m.isError && !m.error && (
         // the hover toolbar: gone at rest, revealed by the answer's hover
         // and by focus within it (the keyboard's way in — the buttons stay
         // tab-reachable, the reveal is the pointer's luxury)
@@ -1110,6 +1189,11 @@ export function KbAskPanel({
   const [attachNotice, setAttachNotice] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  const updateBusy = useCallback((next: boolean) => {
+    busyRef.current = next
+    setBusy(next)
+  }, [])
   const [corpusCount, setCorpusCount] = useState<number | null>(null)
   const [gskEmail, setGskEmail] = useState<string | null>(null)
   const [provider, setProvider] = useState<string | null>(null)
@@ -1156,7 +1240,7 @@ export function KbAskPanel({
    * (the describe call) and pinned into the run: a tab switch between the
    * card and the allow refuses with a re-ask instead of quietly retargeting.
    */
-  const agentTargetRef = useRef<{ tabId: string; title: string } | null>(null)
+  const agentTargetRef = useRef<{ tabId: string; kind: string; title: string } | null>(null)
   /**
    * The edit_file card's size line: what the patch removes and adds, with the
    * file's current size when the read answers. The raw arguments preview
@@ -1189,7 +1273,11 @@ export function KbAskPanel({
     try {
       const described = await window.aiOffice.documentAgentDescribe()
       if ('tabId' in described) {
-        agentTargetRef.current = { tabId: described.tabId, title: described.title }
+        agentTargetRef.current = {
+          tabId: described.tabId,
+          kind: described.kind ?? 'docs',
+          title: described.title,
+        }
         return `works in "${described.title}"`
       }
     } catch {
@@ -1208,16 +1296,19 @@ export function KbAskPanel({
       void window.aiOffice.aiSessionAllowAdd?.(toolName)?.catch(() => {})
     },
   })
-  const [remoteConfirmPending, setRemoteConfirmPending] = useState(false)
-  const prevConfirmBroadcastRef = useRef(false)
+  const confirmRef = useRef(confirm)
+  confirmRef.current = confirm
+  const confirmCardRef = useRef<ToolConfirmCard | null>(null)
+  confirmCardRef.current = confirm.card
+  const [remoteConfirmCard, setRemoteConfirmCard] = useState<ToolConfirmCard | null>(null)
   useEffect(() => {
     if (mirror) return
-    const pending = confirm.card !== null
-    if (prevConfirmBroadcastRef.current === pending) return
-    prevConfirmBroadcastRef.current = pending
     window.aiOffice?.askRunEvent?.({
       type: 'confirm-state',
-      payload: { pending },
+      payload: {
+        pending: confirm.card?.outcome === 'awaiting',
+        card: confirm.card,
+      },
     })
   }, [mirror, confirm.card])
   /** runs this session started: the live half of the background-task list */
@@ -1312,7 +1403,9 @@ export function KbAskPanel({
   docIdentityRef.current = docIdentity
   /** the doc-bound thread's path (null = the family root) */
   const docPath = docIdentity?.path ?? null
-  /** the previous pass's docPath: the switch watcher's edge detector */
+  /** thread path pinned while a run is active so opening a browser tab mid-run never tears down the loop */
+  const [boundDocPath, setBoundDocPath] = useState<string | null>(null)
+  /** the previous pass's boundDocPath: the switch watcher's edge detector */
   const prevDocPathRef = useRef<string | null>(null)
   /** whether the claim effect has run once: the first claim has no thread to leave */
   const hasClaimedRef = useRef(false)
@@ -1376,12 +1469,20 @@ export function KbAskPanel({
   const deriveDocIdentity = (): void => {
     const tabs = surfaceTabsRef.current
     const active = tabs?.find(
-      (t) => t.active && t.kind === 'docs' && t.filePath !== undefined && t.filePath !== '',
+      (t) =>
+        t.active &&
+        AGENT_DOCUMENT_KINDS.has(t.kind) &&
+        t.filePath !== undefined &&
+        t.filePath !== '',
     )
     const next = active
       ? { path: active.filePath as string, kind: active.kind, title: active.title }
       : null
     setDocIdentity((prev) => (prev?.path === next?.path ? prev : next))
+    if (!busyRef.current && !loopRef.current?.busy) {
+      const nextPath = next?.path ?? null
+      setBoundDocPath((prev) => (prev === nextPath ? prev : nextPath))
+    }
   }
   // the lineage query rides the doc binding: activation and every switch
   // re-ask for the document's AI origin (a record landing between tabs is
@@ -1449,6 +1550,8 @@ export function KbAskPanel({
   /** tokens billed so far in the in-flight answer (summed across turns) */
   const runUsageRef = useRef<AiTokenUsageView | undefined>(undefined)
   const runReasoningRef = useRef('')
+  /** separate reasoning across consecutive tool turns with a paragraph break */
+  const reasoningNeedsBreakRef = useRef(false)
   /** tokens billed across the panel's session (the composer chip) */
   const [sessionUsage, setSessionUsage] = useState<AiTokenUsageView | undefined>(undefined)
   /**
@@ -1504,13 +1607,18 @@ export function KbAskPanel({
   function publishSnapshot(): void {
     if (mirror) return
     const last = messagesRef.current[messagesRef.current.length - 1]
+    const isBusy = busyRef.current || Boolean(loopRef.current?.busy)
     const liveRun =
-      busy && last?.role === 'assistant' && last.streaming
+      isBusy && last?.role === 'assistant' && last.streaming
         ? { text: last.text, reasoning: runReasoningRef.current, busy: true }
         : null
     window.aiOffice?.askRunEvent?.({
       type: 'snapshot',
-      payload: { messages: messagesRef.current, liveRun },
+      payload: {
+        messages: messagesRef.current,
+        liveRun,
+        confirmCard: confirmCardRef.current,
+      },
     })
   }
 
@@ -1519,12 +1627,25 @@ export function KbAskPanel({
    * home:ask-run-event, a mirror mount applies the relayed event through
    * the SAME handlers, so both mounts render one identical run. */
   const runEventHandlers = {
-    onText: (text: string) => patchLast({ text }),
+    onText: (text: string) => {
+      if (text.trim().length === 0) return
+      patchLast({ text })
+    },
     onReasoning: (text: string) => {
+      if (!text) return
+      if (
+        reasoningNeedsBreakRef.current &&
+        runReasoningRef.current.length > 0 &&
+        !runReasoningRef.current.endsWith('\n\n')
+      ) {
+        runReasoningRef.current += runReasoningRef.current.endsWith('\n') ? '\n' : '\n\n'
+      }
+      reasoningNeedsBreakRef.current = false
       runReasoningRef.current += text
       patchLast({ reasoning: runReasoningRef.current })
     },
     onToolExecuted: ({ call, execution }: { call: AgentToolCall; execution: ToolExecution }) => {
+      reasoningNeedsBreakRef.current = true
       // a successful create_document names the file it saved: the lineage
       // record's path half (the settled artifact parse's own regex)
       if (call.name === CREATE_DOCUMENT_TOOL && !execution.isError) {
@@ -1549,7 +1670,14 @@ export function KbAskPanel({
     onToolStart: (call: AgentToolCall) => {
       // a delegated task begins its rolling status line immediately — sync
       if (call.name === DOCUMENT_AGENT_TOOL) {
-        patchLast((last) => ({ ...last, subAgent: { kind: 'other' } }), { sync: true })
+        const docKind = docIdentityRef.current?.kind
+        patchLast(
+          (last) => ({
+            ...last,
+            subAgent: { kind: 'other', ...(docKind ? { docKind } : {}) },
+          }),
+          { sync: true },
+        )
       }
       const detail = toolNoteDetail(
         call,
@@ -1575,42 +1703,68 @@ export function KbAskPanel({
         { sync: true },
       )
     },
-    onDone: () => finishLast(),
+    onDone: () => {
+      reasoningNeedsBreakRef.current = false
+      finishLast()
+    },
     onUsage: (usage: AgentTokenUsage) => {
       runUsageRef.current = addTokenUsage(runUsageRef.current, usage)
       setSessionUsage((prev) => addTokenUsage(prev, usage))
       patchLast({ usage: runUsageRef.current }, { sync: true })
     },
-    onError: (error: string) =>
+    onError: (error: string) => {
+      reasoningNeedsBreakRef.current = false
+      const errorText = error || tRef.current('askUnknownError')
       patchLast(
-        (last) => ({
-          text: last.text || error,
-          streaming: false,
-          isError: !last.text,
-        }),
+        (last) => {
+          const hasText = last.text.trim().length > 0
+          return {
+            text: hasText ? last.text : errorText,
+            streaming: false,
+            isError: !hasText,
+            error: hasText ? errorText : undefined,
+            subAgent: undefined,
+          }
+        },
         { sync: true },
-      ),
+      )
+    },
   }
   /** apply one relayed run event through the same handlers the loop uses */
   const applyRunEvent = (type: string, payload: unknown): void => {
     switch (type) {
       case 'text':
+        if (mirror) updateBusy(true)
         runEventHandlers.onText(payload as string)
         break
       case 'reasoning':
+        if (mirror) updateBusy(true)
         runEventHandlers.onReasoning(payload as string)
         break
       case 'tool-start':
+        if (mirror) updateBusy(true)
         runEventHandlers.onToolStart(payload as AgentToolCall)
         break
       case 'tool-executed':
+        if (mirror) updateBusy(true)
         runEventHandlers.onToolExecuted(
           payload as { call: AgentToolCall; execution: ToolExecution },
         )
         break
+      case 'subagent-progress': {
+        const subAgent = payload as (AgentTaskStatus & { docKind?: string }) | undefined
+        if (mirror) updateBusy(true)
+        patchLast((last) => ({ ...last, subAgent }), { sync: true })
+        break
+      }
       case 'done':
         runEventHandlers.onDone()
-        if (mirror) setRemoteConfirmPending(false)
+        if (mirror) {
+          runReasoningRef.current = ''
+          reasoningNeedsBreakRef.current = false
+          updateBusy(false)
+          setRemoteConfirmCard((prev) => (prev?.outcome === 'awaiting' ? null : prev))
+        }
         break
       case 'usage':
         runEventHandlers.onUsage(payload as AgentTokenUsage)
@@ -1618,10 +1772,39 @@ export function KbAskPanel({
       case 'error':
         runEventHandlers.onError(payload as string)
         if (mirror) {
-          setBusy(false)
-          setRemoteConfirmPending(false)
+          runReasoningRef.current = ''
+          reasoningNeedsBreakRef.current = false
+          updateBusy(false)
+          setRemoteConfirmCard(null)
         }
         break
+      case 'checkpoint-added': {
+        const cp = payload as DocCheckpoint
+        patchLast(
+          (last) => ({
+            docCheckpoints: [...(last.docCheckpoints ?? []), cp],
+          }),
+          { sync: true },
+        )
+        break
+      }
+      case 'checkpoint-updated': {
+        const update = payload as Partial<DocCheckpoint> & { checkpointId?: string }
+        if (!update?.checkpointId) break
+        mutateMessages((prev) =>
+          prev.map((msg) =>
+            msg.docCheckpoints?.some((cp) => cp.checkpointId === update.checkpointId)
+              ? {
+                  ...msg,
+                  docCheckpoints: msg.docCheckpoints.map((cp) =>
+                    cp.checkpointId === update.checkpointId ? { ...cp, ...update } : cp,
+                  ),
+                }
+              : msg,
+          ),
+        )
+        break
+      }
       default:
         break
     }
@@ -1633,6 +1816,29 @@ export function KbAskPanel({
       { role: 'user', text: entry.text, toolNotes: [], artifacts: [] },
     ])
   }
+  const stopLocalRunRef = useRef<() => void>(() => {})
+
+  // sync checkpoint rollback, confirmation clicks, and stop actions across Home and mirror mounts
+  useEffect(() => {
+    if (mirror) return
+    const api = window.aiOffice as Partial<HomeApi>
+    const off = api.onAskRunEvent?.((evt) => {
+      if (evt.type === 'checkpoint-updated') {
+        applyRunEvent(evt.type, evt.payload)
+      } else if (evt.type === 'confirm-action') {
+        const action = (evt.payload as { action?: string } | null | undefined)?.action
+        if (action === 'allow') confirmRef.current.allow()
+        else if (action === 'allow-session') confirmRef.current.allowSession()
+        else if (action === 'deny') confirmRef.current.deny()
+      } else if (evt.type === 'stop') {
+        stopLocalRunRef.current()
+      }
+    })
+    return () => {
+      off?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- syncs mirror interactions and checkpoints into Home
+  }, [mirror])
   // the mirror mount's subscriptions: the snapshot + every later run event
   useEffect(() => {
     if (!mirror) return
@@ -1640,24 +1846,50 @@ export function KbAskPanel({
     let mounted = true
     void api.askRunSnapshot?.().then((snap) => {
       if (!mounted || !snap) return
-      mutateMessages(() => snap.messages as AskMessage[])
-      setBusy(snap.liveRun?.busy ?? false)
-      if (!snap.liveRun?.busy) setRemoteConfirmPending(false)
+      const msgs = snap.messages as AskMessage[]
+      const last = msgs[msgs.length - 1]
+      runReasoningRef.current =
+        last?.role === 'assistant' && last.streaming
+          ? (last.reasoning ?? snap.liveRun?.reasoning ?? '')
+          : ''
+      reasoningNeedsBreakRef.current = false
+      mutateMessages(() => msgs)
+      updateBusy(snap.liveRun?.busy ?? false)
+      setRemoteConfirmCard((snap.confirmCard as ToolConfirmCard | null | undefined) ?? null)
     })
     const off = api.onAskRunEvent?.((evt) => {
       if (evt.type === 'snapshot') {
-        const snap = evt.payload as { messages: AskMessage[]; liveRun?: { busy?: boolean } | null }
+        const snap = evt.payload as {
+          messages: AskMessage[]
+          liveRun?: { reasoning?: string; busy?: boolean } | null
+          confirmCard?: ToolConfirmCard | null
+        }
+        const last = snap.messages[snap.messages.length - 1]
+        runReasoningRef.current =
+          last?.role === 'assistant' && last.streaming
+            ? (last.reasoning ?? snap.liveRun?.reasoning ?? '')
+            : ''
+        reasoningNeedsBreakRef.current = false
         mutateMessages(() => snap.messages)
-        setBusy(snap.liveRun?.busy ?? false)
-        if (!snap.liveRun?.busy) setRemoteConfirmPending(false)
+        updateBusy(snap.liveRun?.busy ?? false)
+        setRemoteConfirmCard(snap.confirmCard ?? null)
         return
       }
       if (evt.type === 'confirm-state') {
-        const p = evt.payload as { pending?: unknown } | null | undefined
-        setRemoteConfirmPending(p?.pending === true)
+        const p = evt.payload as
+          | { pending?: unknown; card?: ToolConfirmCard | null }
+          | null
+          | undefined
+        if (p && 'card' in p) {
+          setRemoteConfirmCard(p.card ?? null)
+        } else if (p?.pending === false) {
+          setRemoteConfirmCard(null)
+        }
         return
       }
       if (evt.type === 'user-message') {
+        runReasoningRef.current = ''
+        reasoningNeedsBreakRef.current = false
         appendUserMessage(evt.payload as { role: 'user'; text: string })
         return
       }
@@ -1678,7 +1910,9 @@ export function KbAskPanel({
 
   const lastAskMsg = messages[messages.length - 1]
   const petStreaming = busy || (lastAskMsg?.role === 'assistant' && lastAskMsg.streaming === true)
-  const petConfirmPending = mirror ? remoteConfirmPending : confirm.card !== null
+  const petConfirmPending = mirror
+    ? remoteConfirmCard?.outcome === 'awaiting'
+    : confirm.card?.outcome === 'awaiting'
   const petHasRunningTool =
     lastAskMsg?.role === 'assistant' &&
     ((lastAskMsg.activities?.some((a) => a.status === 'running') ?? false) ||
@@ -1941,6 +2175,7 @@ export function KbAskPanel({
     const ids = chatIdsRef.current
     if (!ids) {
       pendingRef.current.push(entry)
+      if (entry.role === 'user') publishSnapshot()
       return
     }
     void window.projectApi?.appendChat({ ...ids, ...entry }).catch(() => undefined)
@@ -1955,12 +2190,12 @@ export function KbAskPanel({
     // The mount's first pass (null → null, or the initial pull landing)
     // has nothing to leave; `hasClaimedRef` keeps the FIRST real claim from
     // tearing down an empty panel.
-    if (prevDocPathRef.current === docPath) return
+    if (prevDocPathRef.current === boundDocPath) return
     const hadThread = hasClaimedRef.current
-    prevDocPathRef.current = docPath
+    prevDocPathRef.current = boundDocPath
     if (hadThread) leaveThread()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- leaveThread is the panel's stable teardown verb
-  }, [docPath])
+  }, [boundDocPath])
 
   useEffect(() => {
     // Claim whichever thread is active — the active document's when the
@@ -1990,7 +2225,7 @@ export function KbAskPanel({
       .catch(() => undefined)
     void claimThread(
       api,
-      docPath ? { docPath, chatId: activeChat } : { chatId: activeChat },
+      boundDocPath ? { docPath: boundDocPath, chatId: activeChat } : { chatId: activeChat },
       pendingRef.current,
       show,
       () => current,
@@ -1999,10 +2234,10 @@ export function KbAskPanel({
         if (!current) return
         chatIdsRef.current = ids
         setClaimedChatId(ids.chatId)
-        // the seed's authority: this claim ran for THIS docPath (null for a
+        // the seed's authority: this claim ran for THIS boundDocPath (null for a
         // family claim), after the history restore inside the claim — an
         // ask that follows it is provably in the thread the identity says
-        claimedDocPathRef.current = docPath
+        claimedDocPathRef.current = boundDocPath
         for (const entry of pendingRef.current.splice(0)) persist(entry)
         // the first snapshot the mirror mounts align to: the restored
         // transcript plus whatever is streaming now
@@ -2017,7 +2252,7 @@ export function KbAskPanel({
     // re-triggers the claim; refreshThreads reads live refs (the doc
     // binding, the store) — its identity is deliberately not a dependency
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docPath, activeChat, surfaceSettled, mutateMessages])
+  }, [boundDocPath, activeChat, surfaceSettled, mutateMessages])
 
   const refreshThreads = async (api: ProjectApi, queryArg?: string): Promise<void> => {
     try {
@@ -2054,6 +2289,8 @@ export function KbAskPanel({
   const leaveThread = (): void => {
     loopRef.current?.reset()
     confirm.clear()
+    setRemoteConfirmCard(null)
+    updateBusy(false)
     chatIdsRef.current = null
     // the doc claim being left is no longer the seed's authority: an ask
     // before the next claim resolves writes into a thread that is not yet
@@ -2385,10 +2622,36 @@ export function KbAskPanel({
     // agent and streams its live status back over document-agent:progress.
     // The run carries the card-time target pin (a tab switch re-asks)
     const documentAgentSkill = createDocumentAgentSkill({
-      runAgentTask: (task) => window.aiOffice.documentAgentRun(task, agentTargetRef.current?.tabId),
+      runAgentTask: (task) => {
+        const expectedTabId = agentTargetRef.current?.tabId
+        agentTargetRef.current = null
+        return window.aiOffice.documentAgentRun(task, expectedTabId)
+      },
       // the run's abort signal (Stop mid-task) reaches the sub-agent through
       // the skill's executor calling this
       cancelAgentTask: () => void window.aiOffice.documentAgentCancel(),
+      onTaskResult: (result) => {
+        if (!result.ok || !result.checkpointId || !result.tabId) return
+        const editCount = result.edits?.length ?? 0
+        if (editCount === 0) return
+        const checkpoint: DocCheckpoint = {
+          tabId: result.tabId,
+          kind: result.kind ?? 'docs',
+          title: result.title ?? '',
+          checkpointId: result.checkpointId,
+          editCount,
+        }
+        patchLast(
+          (last) => ({
+            docCheckpoints: [...(last.docCheckpoints ?? []), checkpoint],
+          }),
+          { sync: true },
+        )
+        window.aiOffice?.askRunEvent?.({
+          type: 'checkpoint-added',
+          payload: checkpoint,
+        })
+      },
     })
     // the desktop loop: read-only tools over the other apps' open windows,
     // forwarded to the shell main's app-skill proxy over IPC
@@ -2535,7 +2798,10 @@ export function KbAskPanel({
         // document_agent's target document (pinned for the run).
         confirmTool: async (call, tool) => {
           const mode = permissionModeRef.current
-          if (mode === 'auto') return true
+          if (mode === 'auto') {
+            if (call.name === DOCUMENT_AGENT_TOOL) agentTargetRef.current = null
+            return true
+          }
           if (mode === 'paranoid') {
             if (!toolHasSideEffect(call, tool)) return true
             let argsSummary: string | undefined
@@ -2548,6 +2814,7 @@ export function KbAskPanel({
           // smart: the app-session consult (an absent channel answers false —
           // the card shows, fail closed), never for the destructive grade
           if (tool?.risk !== 'always-ask' && (await sessionAllows(call.name)) === true) {
+            if (call.name === DOCUMENT_AGENT_TOOL) agentTargetRef.current = null
             return true
           }
           let argsSummary: string | undefined
@@ -2621,7 +2888,12 @@ export function KbAskPanel({
           },
           onError: (error) => {
             runEventHandlers.onError(error)
-            if (!mirror) window.aiOffice?.askRunEvent?.({ type: 'error', payload: error })
+            confirmRef.current.settleAll(false)
+            updateBusy(false)
+            if (!mirror) {
+              window.aiOffice?.askRunEvent?.({ type: 'error', payload: error })
+              publishSnapshot()
+            }
           },
         },
       })
@@ -2631,7 +2903,24 @@ export function KbAskPanel({
     // tool calls, so every event in the call's window belongs to it). Sync
     // flush: statuses are discrete beats, not per-token streams
     const offAgentProgress = window.aiOffice.onDocumentAgentProgress?.((event) => {
-      patchLast((last) => ({ ...last, subAgent: event.status }), { sync: true })
+      let nextSubAgent: (AgentTaskStatus & { docKind?: string }) | undefined
+      patchLast(
+        (last) => {
+          nextSubAgent = {
+            ...event.status,
+            ...(event.kind
+              ? { docKind: event.kind }
+              : last.subAgent?.docKind
+                ? { docKind: last.subAgent.docKind }
+                : {}),
+          }
+          return { ...last, subAgent: nextSubAgent }
+        },
+        { sync: true },
+      )
+      if (!mirror && nextSubAgent) {
+        window.aiOffice?.askRunEvent?.({ type: 'subagent-progress', payload: nextSubAgent })
+      }
     })
     return () => {
       offTabsChanged?.()
@@ -2693,9 +2982,17 @@ export function KbAskPanel({
     // sync: the finish must repaint now, not on the next frame — Stop and
     // onDone land in the same tick, and busy turns false in the same breath
     patchLast({ streaming: false }, { sync: true })
-    setBusy(false)
+    updateBusy(false)
     // the finished turn is also the snapshot the mirrors settle to
     if (!mirror) publishSnapshot()
+  }
+
+  stopLocalRunRef.current = () => {
+    askSeqRef.current++
+    // a confirmation left open when Stop is pressed counts as denied
+    confirmRef.current.settleAll(false)
+    loopRef.current?.cancel()
+    finishLast()
   }
 
   const ask = (): Promise<void> => {
@@ -2919,7 +3216,7 @@ export function KbAskPanel({
     // Enter before busy re-renders would otherwise queue a second run whose
     // streaming bubble the first run's patches would land on
     if (!instruction || busy || loopRef.current?.busy) return
-    if (!mirror) setBusy(true)
+    if (!mirror) updateBusy(true)
     refreshSettings()
     // the lineage record's task half: the person's raw question this run answers
     runInstructionRef.current = instruction
@@ -2948,6 +3245,8 @@ export function KbAskPanel({
         : null
     const question = lineageSeed ? `${lineageSeed}\n${instruction}` : instruction
     if (mirror) {
+      updateBusy(true)
+      setRemoteConfirmCard(null)
       // the single executor is Home's loop: forward the question there — the
       // mirror never runs its own. The turn lands back through the pub/sub
       // events (user-message + the run's stream).
@@ -2968,6 +3267,7 @@ export function KbAskPanel({
     const seq = ++askSeqRef.current
     runUsageRef.current = undefined
     runReasoningRef.current = ''
+    reasoningNeedsBreakRef.current = false
     // a new run owns the stream: the previous answer's confirm card is history
     confirm.clear()
     // freshly starred files are answerable this very turn; so are documents
@@ -3030,7 +3330,7 @@ export function KbAskPanel({
       ])
       persist({ role: 'user', text: question })
       persist({ role: 'assistant', text: guidance })
-      setBusy(false)
+      updateBusy(false)
       return
     }
     mutateMessages((prev) => [
@@ -3187,6 +3487,47 @@ export function KbAskPanel({
     [mutateMessages],
   )
 
+  const undoDocCheckpoint = useCallback(
+    async (index: number, checkpointId: string): Promise<void> => {
+      const answer = messagesRef.current[index]
+      const target = answer?.docCheckpoints?.find((cp) => cp.checkpointId === checkpointId)
+      if (!target || target.reverting || target.reverted) return
+      const updateCheckpoint = (patch: Partial<DocCheckpoint>): void => {
+        mutateMessages((prev) =>
+          prev.map((m) =>
+            m.docCheckpoints?.some((cp) => cp.checkpointId === checkpointId)
+              ? {
+                  ...m,
+                  docCheckpoints: m.docCheckpoints.map((cp) =>
+                    cp.checkpointId === checkpointId ? { ...cp, ...patch } : cp,
+                  ),
+                }
+              : m,
+          ),
+        )
+        window.aiOffice?.askRunEvent?.({
+          type: 'checkpoint-updated',
+          payload: { checkpointId, ...patch },
+        })
+      }
+      updateCheckpoint({ reverting: true, error: undefined })
+      try {
+        const res = await window.aiOffice.documentAgentUndo(target.tabId, checkpointId)
+        if (res.ok) {
+          updateCheckpoint({ reverting: false, reverted: true, error: undefined })
+        } else {
+          updateCheckpoint({ reverting: false, error: res.error ?? 'failed' })
+        }
+      } catch (error) {
+        updateCheckpoint({
+          reverting: false,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    },
+    [mutateMessages],
+  )
+
   const hasFiles = (e: React.DragEvent): boolean => e.dataTransfer.types.includes('Files')
   // files dropped on the panel attach to the question; stopPropagation keeps
   // them from Home's drop-to-open bridge and its full-window overlay
@@ -3248,7 +3589,7 @@ export function KbAskPanel({
         const threadLabel = [...threads.pinned, ...threads.docs, ...threads.other].find(
           (row) => row.chatId === activeId,
         )?.label
-        const title = askHeaderTitle(docPath, threadLabel, t('askThreadNew'))
+        const title = askHeaderTitle(boundDocPath, threadLabel, t('askThreadNew'))
         return (
           <div
             className="kb-ask-header"
@@ -3702,15 +4043,44 @@ export function KbAskPanel({
                 // the card is the last row's alone: handing it to history rows
                 // would churn their props while a decision is in flight
                 confirmCard={
-                  i === messages.length - 1 && m.role === 'assistant' ? confirm.card : null
+                  i === messages.length - 1 && m.role === 'assistant'
+                    ? mirror
+                      ? remoteConfirmCard
+                      : confirm.card
+                    : null
                 }
-                onAllow={confirm.allow}
-                onAllowSession={confirm.allowSession}
-                onDeny={confirm.deny}
+                onAllow={
+                  mirror
+                    ? () =>
+                        window.aiOffice?.askRunEvent?.({
+                          type: 'confirm-action',
+                          payload: { action: 'allow' },
+                        })
+                    : confirm.allow
+                }
+                onAllowSession={
+                  mirror
+                    ? () =>
+                        window.aiOffice?.askRunEvent?.({
+                          type: 'confirm-action',
+                          payload: { action: 'allow-session' },
+                        })
+                    : confirm.allowSession
+                }
+                onDeny={
+                  mirror
+                    ? () =>
+                        window.aiOffice?.askRunEvent?.({
+                          type: 'confirm-action',
+                          payload: { action: 'deny' },
+                        })
+                    : confirm.deny
+                }
                 onOpenPath={openPath}
                 onRetry={retryAsk}
                 onSaveAnswer={saveAnswer}
                 onCopyAnswer={copyAnswer}
+                onUndoCheckpoint={undoDocCheckpoint}
               />
             ))}
           </div>
@@ -3732,9 +4102,12 @@ export function KbAskPanel({
         )}
       </div>
       {messages.length > 0 && (
-        <p className="kb-ask-nosave" data-kind={docIdentity !== null ? 'doc' : 'panel'}>
+        <p
+          className="kb-ask-nosave"
+          data-kind={boundDocPath !== null || docIdentity !== null ? 'doc' : 'panel'}
+        >
           <IconInfo />
-          {t(docIdentity !== null ? 'askDocSaved' : 'askNoSave')}
+          {t(boundDocPath !== null || docIdentity !== null ? 'askDocSaved' : 'askNoSave')}
         </p>
       )}
       {gskEmail === null && provider === 'genspark' && (
@@ -3880,11 +4253,12 @@ export function KbAskPanel({
         onPasteFiles={(files) => void addDroppedFiles(files)}
         onSend={() => void ask()}
         onStop={() => {
-          askSeqRef.current++
-          // a confirmation left open when Stop is pressed counts as denied
-          confirm.settleAll(false)
-          loopRef.current?.cancel()
-          finishLast()
+          if (mirror) {
+            window.aiOffice?.askRunEvent?.({ type: 'stop', payload: null })
+            updateBusy(false)
+            return
+          }
+          stopLocalRunRef.current()
         }}
       />
       {confirmDialog}

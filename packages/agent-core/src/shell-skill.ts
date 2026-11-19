@@ -1,5 +1,6 @@
 import type { AgentToolCall, ToolExecution } from './types'
 import type { AgentSkill } from './skill'
+import { AGENT_DOCUMENT_KINDS } from './document-agent-skill'
 
 /**
  * The dock's shell operator skill: the surface context plus the desktop's own
@@ -100,8 +101,15 @@ export const APP_SELECTION_CHANGED = 'app:selection-changed'
 /** which mount's panel copy this skill serves — the visibility line differs */
 export type SurfaceViewer = 'home' | 'overlay' | 'docked'
 
-/** document kinds whose apps host no delegable agent (docs is the one that does) */
-const DOCUMENT_KINDS_WITHOUT_AGENT = new Set(['sheets', 'slides', 'pdf', 'markdown', 'html'])
+/** human-readable document kind label for the surface routing prompt */
+const DOC_KIND_NOUN: Record<string, string> = {
+  docs: 'Word document',
+  sheets: 'spreadsheet',
+  slides: 'presentation',
+  pdf: 'PDF document',
+  markdown: 'Markdown/text document',
+  html: 'HTML document',
+}
 
 /** a compact kind label for the section (the model reads it; English by design) */
 function kindLabel(kind: string): string {
@@ -220,19 +228,13 @@ export function formatSurfaceSection(
   if (active?.selection) {
     lines.push(`Selection: "${active.selection}"`)
   }
-  // the decisive routing line: while a Word document is the active tab, tasks
-  // about it belong to the app's own agent — the section names where the
-  // person's attention is, so it also names where the work goes. Only docs
-  // can be delegated to: the other document kinds get the honest rule (the
-  // document-agent bridge's own message — switch to a docs tab or edit in
-  // the app), not a promise document_agent cannot keep
-  if (active && active.kind === 'docs') {
+  // the decisive routing line: while any supported document tab is active, tasks
+  // about its content or edits belong to that app's headless agent via
+  // document_agent — never a disk file rewrite.
+  if (active && AGENT_DOCUMENT_KINDS.has(active.kind)) {
+    const noun = DOC_KIND_NOUN[active.kind] ?? `${kindLabel(active.kind)} document`
     lines.push(
-      'This is the Word document the person is working in — tasks about its content go through document_agent, never a file rewrite.',
-    )
-  } else if (active && DOCUMENT_KINDS_WITHOUT_AGENT.has(active.kind)) {
-    lines.push(
-      `This ${kindLabel(active.kind)} document belongs to its app — document_agent only works on a Word document; tell the person to edit it there, or switch to a docs tab first (shell:switch_tab).`,
+      `This is the ${noun} the person is working in — tasks about its content or editing go through document_agent, never a file rewrite.`,
     )
   }
   lines.push(
@@ -305,10 +307,12 @@ without a confirmation step; use them when the person asks for exactly that
   ALWAYS delegate with document_agent. NEVER rewrite, replace or delete a
   file an app has open (create_document, edit_file, delete_file): the file on
   disk would fork from the live document the person is looking at.
+- If the target document is open in another tab (not the active tab), switch to
+  it first with shell:switch_tab and then call document_agent. NEVER tell the
+  person to use an app's own AI panel — all 6 document apps delegate here.
 - edit_file and delete_file are for plain text files that are NOT open in any
   app (notes, scripts, configs). A path that is open in a tab belongs to its
-  app — a Word document goes through document_agent; other kinds, tell the
-  person to edit them in their app.
+  app and goes through document_agent.
 - The active tab is a browser page → work on its content with the browser
   tools; steer it with shell:navigate.
 - Opening things, switching tabs, or files nobody has open → the shell tools

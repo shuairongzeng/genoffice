@@ -96,8 +96,10 @@ let deleteFile: ReturnType<typeof vi.fn>
 let documentAgentRun: ReturnType<typeof vi.fn>
 let documentAgentCancel: ReturnType<typeof vi.fn>
 let documentAgentDescribe: ReturnType<typeof vi.fn>
+let documentAgentUndo: ReturnType<typeof vi.fn>
 let agentProgressListener:
-  ((event: { taskId: string; status: { kind: string; tool?: string } }) => void) | null
+  | ((event: { taskId: string; kind?: string; status: { kind: string; tool?: string } }) => void)
+  | null
 let project: ReturnType<typeof projectApiStub>
 let runs: ReturnType<typeof runsApiStub>
 /**
@@ -185,7 +187,8 @@ beforeEach(() => {
     edits: [{ tool: 'insert_content', summary: 'inserted 2 blocks' }],
   }))
   documentAgentCancel = vi.fn(async () => true)
-  documentAgentDescribe = vi.fn(async () => ({ tabId: 't1', title: 'Report.docx' }))
+  documentAgentDescribe = vi.fn(async () => ({ tabId: 't1', kind: 'docs', title: 'Report.docx' }))
+  documentAgentUndo = vi.fn(async () => ({ ok: true }))
   agentProgressListener = null
   project = projectApiStub([])
   runs = runsApiStub([])
@@ -212,6 +215,7 @@ beforeEach(() => {
     documentAgentRun,
     documentAgentCancel,
     documentAgentDescribe,
+    documentAgentUndo,
     onDocumentAgentProgress: (listener: typeof agentProgressListener) => {
       agentProgressListener = listener
       return () => {
@@ -779,6 +783,52 @@ describe("the three-state card and the conversation's session allows", () => {
     expect(documentAgentRun).not.toHaveBeenCalled()
   })
 
+  it('renders a Git-style undo button when checkpointId returns and reverts on click', async () => {
+    documentAgentDescribe.mockResolvedValueOnce({
+      tabId: 't-sheet',
+      kind: 'sheets',
+      title: 'budget.xlsx',
+    })
+    documentAgentRun.mockResolvedValueOnce({
+      ok: true,
+      summary: 'updated A1',
+      edits: [{ tool: 'propose_operations', summary: 'set A1=100' }],
+      checkpointId: 'cp-sheet-1',
+      tabId: 't-sheet',
+      kind: 'sheets',
+      title: 'budget.xlsx',
+    })
+    toolCallStream('document_agent', { task: 'set A1 to 100' })
+    render()
+    await settle()
+    await ask('update sheet')
+    click('.ai-confirm-allow')
+    await settle()
+    const undoBtn = host.querySelector('.kb-ask-checkpoint-undo') as HTMLButtonElement | null
+    expect(undoBtn).not.toBeNull()
+    expect(host.querySelector('.kb-ask-checkpoint-info')?.textContent).toContain('budget.xlsx')
+    undoBtn!.click()
+    await settle()
+    expect(documentAgentUndo).toHaveBeenCalledWith('t-sheet', 'cp-sheet-1')
+    expect(host.querySelector('.kb-ask-checkpoint-done')?.textContent).toBe('Undone')
+  })
+
+  it('clears stale card-time tab pin when subsequent document_agent skips card (session-allow or auto)', async () => {
+    // First call in smart mode pins tabId 't1' via describe
+    toolCallStream('document_agent', { task: 'edit first doc' })
+    render()
+    await settle()
+    await ask('first ask')
+    click('.ai-confirm-session')
+    await settle()
+    expect(documentAgentRun).toHaveBeenLastCalledWith('edit first doc', 't1')
+    // Second call skips card via session-allow: expectedTabId must be undefined (not stale 't1')
+    toolCallStream('document_agent', { task: 'edit switched sheet' })
+    await ask('second ask')
+    await settle()
+    expect(documentAgentRun).toHaveBeenLastCalledWith('edit switched sheet', undefined)
+  })
+
   it('the edit_file card shows the size of what the patch removes (HIGH-2)', async () => {
     toolCallStream('edit_file', {
       path: 'C:/kb/notes.md',
@@ -1233,5 +1283,292 @@ describe("the answer row's hover toolbar (the redesign)", () => {
       vi.useRealTimers()
     }
     expect(copy.textContent).toBe('Copy')
+  })
+})
+
+describe('mirror mount confirmation cards and stop forwarding', () => {
+  it('renders relayed confirm-state card in mirror mode and forwards allow, allow-session, and stop actions', async () => {
+    const sentEvents: Array<{ type: string; payload: unknown }> = []
+    let runEventListener: ((evt: { type: string; payload: unknown }) => void) | null = null
+    const aiOffice = (window as unknown as { aiOffice: Record<string, unknown> }).aiOffice
+    aiOffice.askRunSnapshot = async () => ({
+      messages: [
+        { role: 'user', text: 'edit cell A1', toolNotes: [], artifacts: [] },
+        { role: 'assistant', text: '', toolNotes: [], activities: [], artifacts: [], streaming: true },
+      ],
+      liveRun: { text: '', busy: true },
+      confirmCard: null,
+    })
+    aiOffice.onAskRunEvent = (handler: (evt: { type: string; payload: unknown }) => void) => {
+      runEventListener = handler
+      return () => {
+        runEventListener = null
+      }
+    }
+    aiOffice.askRunEvent = (evt: { type: string; payload: unknown }) => {
+      sentEvents.push(evt)
+    }
+
+    act(() =>
+      root.render(
+        createElement(
+          LocaleProvider,
+          { initial: 'en' },
+          createElement(KbAskPanel, {
+            mirror: true,
+            onOpenPath: () => {},
+            onGoToRecents: () => {},
+            onOpenModelSettings: () => {},
+            onOpenScopeSettings: () => {},
+          }),
+        ),
+      ),
+    )
+    await settle()
+
+    // Stop button should reflect relayed liveRun.busy state.
+    const stopBtn = host.querySelector<HTMLButtonElement>('.ai-stop-btn')
+    expect(stopBtn).toBeTruthy()
+
+    // Relay an awaiting confirmation card from Home.
+    act(() => {
+      runEventListener?.({
+        type: 'confirm-state',
+        payload: {
+          pending: true,
+          card: {
+            toolName: 'document_agent',
+            args: '{"task":"set A1"}',
+            argsSummary: 'sample.xlsx',
+            outcome: 'awaiting',
+            timedOut: false,
+            sessionAllowable: true,
+          },
+        },
+      })
+    })
+    await settle()
+
+    const allowBtn = host.querySelector<HTMLButtonElement>('.ai-confirm-card .ai-confirm-allow')
+    const sessionBtn = host.querySelector<HTMLButtonElement>('.ai-confirm-card .ai-confirm-session')
+    expect(allowBtn).toBeTruthy()
+    expect(sessionBtn).toBeTruthy()
+
+    act(() => allowBtn!.click())
+    act(() => sessionBtn!.click())
+    act(() => stopBtn!.click())
+
+    expect(sentEvents).toEqual([
+      { type: 'confirm-action', payload: { action: 'allow' } },
+      { type: 'confirm-action', payload: { action: 'allow-session' } },
+      { type: 'stop', payload: null },
+    ])
+  })
+
+  it('preserves partial text, displays error banner, and clears busy in mirror mode on error event', async () => {
+    let runEventListener: ((evt: { type: string; payload: unknown }) => void) | null = null
+    const aiOffice = (window as unknown as { aiOffice: Record<string, unknown> }).aiOffice
+    aiOffice.askRunSnapshot = async () => ({
+      messages: [
+        { role: 'user', text: 'summarize spending', toolNotes: [], artifacts: [] },
+        {
+          role: 'assistant',
+          text: 'Let me check the sheet first.',
+          toolNotes: [],
+          activities: [],
+          artifacts: [],
+          streaming: true,
+        },
+      ],
+      liveRun: { text: 'Let me check the sheet first.', busy: true },
+      confirmCard: null,
+    })
+    aiOffice.onAskRunEvent = (handler: (evt: { type: string; payload: unknown }) => void) => {
+      runEventListener = handler
+      return () => {
+        runEventListener = null
+      }
+    }
+
+    act(() =>
+      root.render(
+        createElement(
+          LocaleProvider,
+          { initial: 'en' },
+          createElement(KbAskPanel, {
+            mirror: true,
+            onOpenPath: () => {},
+            onGoToRecents: () => {},
+            onOpenModelSettings: () => {},
+            onOpenScopeSettings: () => {},
+          }),
+        ),
+      ),
+    )
+    await settle()
+
+    expect(host.querySelector('.ai-stop-btn')).toBeTruthy()
+    expect(host.querySelector('.kb-ask-live-status .ai-typing')).toBeTruthy()
+
+    act(() => {
+      runEventListener?.({ type: 'error', payload: 'Mid-stream tool call failure' })
+    })
+    await settle()
+
+    expect(host.textContent).toContain('Let me check the sheet first.')
+    expect(host.querySelector('.kb-ask-error-banner[role="alert"]')?.textContent).toBe(
+      'Mid-stream tool call failure',
+    )
+    expect(host.querySelector('.ai-stop-btn')).toBeNull()
+    expect(host.querySelector('.ai-typing')).toBeNull()
+  })
+
+  it('forwards document-agent progress events from Home and renders them in mirror mode', async () => {
+    const published: Array<{ type: string; payload: unknown }> = []
+    const aiOffice = (window as unknown as { aiOffice: Record<string, unknown> }).aiOffice
+    aiOffice.askRunEvent = (evt: { type: string; payload: unknown }) => {
+      published.push(evt)
+    }
+
+    // Mount Home panel, start a run, and emit a document-agent progress update.
+    render()
+    await settle()
+    ;(window as unknown as { aiOffice: { aiStream: unknown } }).aiOffice.aiStream = (
+      request: StartedRequest,
+    ) => {
+      started.push(request)
+    }
+    await ask('update workbook')
+    act(() => {
+      agentProgressListener?.({
+        taskId: 'task-1',
+        kind: 'sheets',
+        status: { kind: 'reading' },
+      })
+    })
+    await settle()
+
+    const progressEvent = published.find((e) => e.type === 'subagent-progress')
+    expect(progressEvent?.payload).toEqual({ kind: 'reading', docKind: 'sheets' })
+
+    // Now render a mirror panel and feed the relayed subagent-progress event into it.
+    let mirrorListener: ((evt: { type: string; payload: unknown }) => void) | null = null
+    aiOffice.askRunSnapshot = async () => ({
+      messages: [
+        { role: 'user', text: 'update workbook', toolNotes: [], artifacts: [] },
+        { role: 'assistant', text: '', toolNotes: [], activities: [], artifacts: [], streaming: true },
+      ],
+      liveRun: { text: '', busy: true },
+      confirmCard: null,
+    })
+    aiOffice.onAskRunEvent = (handler: (evt: { type: string; payload: unknown }) => void) => {
+      mirrorListener = handler
+      return () => {
+        mirrorListener = null
+      }
+    }
+
+    act(() => root.unmount())
+    root = createRoot(host)
+    act(() =>
+      root.render(
+        createElement(
+          LocaleProvider,
+          { initial: 'en' },
+          createElement(KbAskPanel, {
+            mirror: true,
+            onOpenPath: () => {},
+            onGoToRecents: () => {},
+            onOpenModelSettings: () => {},
+            onOpenScopeSettings: () => {},
+          }),
+        ),
+      ),
+    )
+    await settle()
+
+    act(() => {
+      mirrorListener?.({
+        type: 'subagent-progress',
+        payload: { kind: 'writing', docKind: 'sheets' },
+      })
+    })
+    await settle()
+
+    const subAgent = host.querySelector('.kb-ask-subagent')
+    expect(subAgent).toBeTruthy()
+    expect(subAgent?.textContent).toMatch(/writing/i)
+  })
+
+  it('resets mirror reasoning accumulator across consecutive turns', async () => {
+    let runEventListener: ((evt: { type: string; payload: unknown }) => void) | null = null
+    const aiOffice = (window as unknown as { aiOffice: Record<string, unknown> }).aiOffice
+    aiOffice.askRunSnapshot = async () => ({
+      messages: [
+        { role: 'user', text: 'turn 1', toolNotes: [], artifacts: [] },
+        { role: 'assistant', text: '', toolNotes: [], activities: [], artifacts: [], streaming: true },
+      ],
+      liveRun: { text: '', busy: true },
+      confirmCard: null,
+    })
+    aiOffice.onAskRunEvent = (handler: (evt: { type: string; payload: unknown }) => void) => {
+      runEventListener = handler
+      return () => {
+        runEventListener = null
+      }
+    }
+
+    act(() =>
+      root.render(
+        createElement(
+          LocaleProvider,
+          { initial: 'en' },
+          createElement(KbAskPanel, {
+            mirror: true,
+            onOpenPath: () => {},
+            onGoToRecents: () => {},
+            onOpenModelSettings: () => {},
+            onOpenScopeSettings: () => {},
+          }),
+        ),
+      ),
+    )
+    await settle()
+
+    act(() => {
+      runEventListener?.({ type: 'reasoning', payload: 'First turn thought.' })
+      runEventListener?.({ type: 'text', payload: 'Answer one.' })
+      runEventListener?.({ type: 'done', payload: null })
+    })
+    await settle()
+    expect(host.querySelector('.kb-ask-thinking-text')?.textContent).toBe('First turn thought.')
+
+    // Second turn arrives via snapshot + reasoning delta.
+    act(() => {
+      runEventListener?.({
+        type: 'snapshot',
+        payload: {
+          messages: [
+            { role: 'user', text: 'turn 1', toolNotes: [], artifacts: [] },
+            { role: 'assistant', text: 'Answer one.', toolNotes: [], activities: [], artifacts: [] },
+            { role: 'user', text: 'turn 2', toolNotes: [], artifacts: [] },
+            { role: 'assistant', text: '', toolNotes: [], activities: [], artifacts: [], streaming: true },
+          ],
+          liveRun: { text: '', reasoning: '', busy: true },
+          confirmCard: null,
+        },
+      })
+    })
+    await settle()
+    act(() => {
+      runEventListener?.({ type: 'reasoning', payload: 'Second turn thought.' })
+    })
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    await settle()
+
+    const thoughts = [...host.querySelectorAll('.kb-ask-thinking-text')].map((el) => el.textContent)
+    expect(thoughts).toEqual(['Second turn thought.'])
   })
 })

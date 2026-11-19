@@ -116,6 +116,7 @@ import { ToastHost } from './components/toast'
 import { showToast } from './components/toast-bus'
 import { t, useI18n } from './i18n/locale'
 import { AiPanel } from './ai/AiPanel'
+import { installHeadlessAgentBridge } from './ai/headless-agent'
 import { ChartDataDialog } from './components/ChartDataDialog'
 import type { BrushFormat } from './format-brush'
 import { isTextUndoTarget, shouldRouteHistoryToDeck } from './undo-routing'
@@ -1633,6 +1634,34 @@ export function App() {
       insertActions.insertDroppedMedia(ctxRef.current, file, kind, atPx),
     [],
   )
+
+  const headlessRefs = useRef({
+    slides,
+    current,
+    selectedIds,
+    applySlide,
+    applyDeck,
+    flushNotes,
+  })
+  headlessRefs.current = { slides, current, selectedIds, applySlide, applyDeck, flushNotes }
+
+  useEffect(() => {
+    return installHeadlessAgentBridge({
+      isReady: () => headlessRefs.current.slides.length > 0,
+      getSlides: () => headlessRefs.current.slides,
+      getCurrent: () => headlessRefs.current.current,
+      getSelectedIds: () => headlessRefs.current.selectedIds,
+      applySlide: (slideIndex, updated) => headlessRefs.current.applySlide(slideIndex, updated),
+      applyDeck: (all, goTo) => headlessRefs.current.applyDeck(all, goTo),
+      fitWidthPx: FIT_WIDTH,
+      onBeforeRun: () => headlessRefs.current.flushNotes(),
+      onPathChange: (nextPath) => {
+        setPath(nextPath)
+        setDirty(false)
+      },
+      onMutated: () => setDirty(true),
+    })
+  }, [])
 
   // The clipboard lives in the main process, so a slide copied here can be pasted
   // into any other open deck.

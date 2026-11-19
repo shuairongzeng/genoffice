@@ -682,7 +682,12 @@ async function resolveSaveTarget(
   const picked = await showSaveDialogWithMemory(dialog, win, {
     title: tm('dlgSaveTitle'),
     defaultPath,
-    filters: [{ name: tm('filterMarkdown'), extensions: ['md', 'markdown', 'txt', 'json'] }],
+    filters: [
+      {
+        name: tm('filterMarkdown'),
+        extensions: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'],
+      },
+    ],
   })
   if (picked.canceled || !picked.filePath) return 'canceled'
   return picked.filePath

@@ -56,18 +56,33 @@ describe('the document-agent skill surface', () => {
     expect(skill.systemPrompt).toContain('self-contained')
     expect(skill.systemPrompt).toContain('One task at a time')
     expect(skill.systemPrompt).toContain('never claim document changes')
-    // the primacy wording: document_agent is the DEFAULT for document work,
-    // never a file rewrite behind the app
-    expect(skill.systemPrompt).toContain('document_agent is the DEFAULT for')
-    expect(skill.systemPrompt).toContain("never rewrite the document's file behind the app")
+    // the primacy wording: document_agent is the DEFAULT for document work across all 6 kinds
+    expect(skill.systemPrompt).toContain('ONLY and DEFAULT way')
+    expect(skill.systemPrompt).toContain('NEVER rewrite the file on disk')
     expect(skill.systemPrompt).toContain('把这份文档的标题改成《神兽研究》')
     // the tool's own description carries the same primacy
-    expect(tool.description).toContain('the FIRST choice for any task about that document')
+    expect(tool.description).toContain('the FIRST choice for any edit')
     expect(tool.description).toContain('NEVER rewrite or replace a file an app has open')
   })
 
-  it('a successful task reports the summary and the edits', async () => {
-    const { skill } = skillWith()
+  it('a successful task reports the summary, the edits, and notifies onTaskResult', async () => {
+    const onTaskResult = vi.fn()
+    const skill = createDocumentAgentSkill({
+      runAgentTask: vi.fn(async () => ({
+        ok: true,
+        summary: 'inserted two paragraphs and fixed the heading',
+        edits: [
+          { tool: 'insert_content', summary: 'inserted 2 blocks' },
+          { tool: 'replace_blocks', summary: 'replaced blocks 0-1' },
+        ],
+        checkpointId: 'cp-1',
+        tabId: 't1',
+        kind: 'docs',
+        title: 'Report.docx',
+      })),
+      cancelAgentTask: vi.fn(),
+      onTaskResult,
+    })
     const execution = await skill.executeTool(
       call(DOCUMENT_AGENT_TOOL, { task: 'add a summary section' }),
     )
@@ -77,6 +92,14 @@ describe('the document-agent skill surface', () => {
     expect(execution.output).toContain('insert_content: inserted 2 blocks')
     expect(execution.output).toContain('edits (2)')
     expect(execution.summary).toBe('document assistant · 2 edits')
+    expect(onTaskResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkpointId: 'cp-1',
+        tabId: 't1',
+        kind: 'docs',
+        title: 'Report.docx',
+      }),
+    )
   })
 
   it('a task that only read reports edits: none', async () => {

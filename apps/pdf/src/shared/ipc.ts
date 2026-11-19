@@ -1,6 +1,11 @@
 import type { AiPanelPrefs } from '@genoffice/ui'
 import type { Lang } from '@genoffice/i18n'
-import type { KbFileInfo, KbReadPage, KbSearchHit } from '@genoffice/agent-core'
+import type {
+  AgentTaskStatus,
+  KbFileInfo,
+  KbReadPage,
+  KbSearchHit,
+} from '@genoffice/agent-core'
 import type { AiSettings, AiStreamChunk, AiStreamRequest } from '@genoffice/ai-provider'
 import type { PrintDuplex, PrintJobOptions, PrinterInfo } from '@genoffice/electron-utils/print-job'
 export type { PrintDuplex, PrintJobOptions, PrinterInfo }
@@ -31,6 +36,8 @@ export const PDF_CHANNELS = {
   setPageSize: 'pdf:set-page-size',
   splitPages: 'pdf:split-pages',
   cropPages: 'pdf:crop-pages',
+  captureFileCheckpoint: 'pdf:capture-file-checkpoint',
+  restoreFileCheckpoint: 'pdf:restore-file-checkpoint',
   exportImages: 'pdf:export-images',
   convertOffice: 'pdf:convert-office',
   createDocument: 'pdf:create-document',
@@ -56,6 +63,8 @@ export const PDF_CHANNELS = {
   print: 'pdf:print',
   printers: 'pdf:printers',
   fileRenamed: 'pdf:file-renamed',
+  readTextRequest: 'pdf:read-text-request',
+  readTextResult: 'pdf:read-text-result',
   getLanguage: 'app:get-language',
   languageChanged: 'app:language-changed',
   getTheme: 'app:get-theme',
@@ -789,6 +798,8 @@ export interface SplitPdfRequest {
   chunkSize: number
   /** Base for output file names: <baseName>-1.pdf, <baseName>-2.pdf, … */
   baseName: string
+  /** Write into default save dir/<baseName>-split without popping a folder picker. */
+  headless?: boolean
 }
 
 export type SplitPdfResult =
@@ -827,7 +838,17 @@ export interface ReplacePagesRequest {
   path: string
   /** Original page indices to replace */
   pages: number[]
+  /** Optional replacement PDF path (bypasses native file picker). */
+  sourcePath?: string
+  /** When true without sourcePath, fail instead of opening a native picker dialog. */
+  headless?: boolean
 }
+
+export type CaptureFileCheckpointResult =
+  | { ok: true; checkpointId: string }
+  | { ok: false; error: string }
+
+export type RestoreFileCheckpointResult = { ok: true } | { ok: false; error: string }
 
 export type ReplacePagesResult =
   | { ok: true; removed: number; inserted: number }
@@ -1071,4 +1092,46 @@ export interface PdfApi {
   aiStream(request: AiStreamRequest): Promise<void>
   aiStreamCancel(requestId: string): Promise<void>
   onAiStream(handler: (chunk: AiStreamChunk) => void): () => void
+  captureFileCheckpoint(path: string): Promise<CaptureFileCheckpointResult>
+  restoreFileCheckpoint(checkpointId: string, path: string): Promise<RestoreFileCheckpointResult>
+  onAgentTaskCommand(handler: (message: AgentTaskCommandMessage) => void): () => void
+  onAgentTaskAbort(handler: (message: { taskId: string }) => void): () => void
+  reportAgentTaskProgress(report: AgentTaskStatusReport): void
+  reportAgentTaskResult(result: AgentTaskResultReport): void
+  signalAgentReady(): void
+  onAgentUndo(handler: (message: AgentUndoRequestMessage) => void): () => void
+  reportAgentUndoResult(result: AgentUndoResultReport): void
+  onReadTextRequest(
+    handler: (req: { requestId: string; start?: number; end?: number }) => void,
+  ): () => void
+  sendReadTextResult(result: { requestId: string; text?: string; error?: string }): void
+}
+
+export interface AgentTaskCommandMessage {
+  taskId: string
+  task: string
+}
+
+export interface AgentTaskStatusReport {
+  taskId: string
+  status: AgentTaskStatus
+}
+
+export interface AgentTaskResultReport {
+  taskId: string
+  ok: boolean
+  summary: string
+  edits?: Array<{ tool: string; summary: string }>
+  checkpointId?: string
+}
+
+export interface AgentUndoRequestMessage {
+  undoId: string
+  checkpointId: string
+}
+
+export interface AgentUndoResultReport {
+  undoId: string
+  ok: boolean
+  error?: string
 }

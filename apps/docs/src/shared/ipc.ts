@@ -430,6 +430,19 @@ export interface AgentTaskResultReport {
   summary: string
   /** the write ops the task applied (what changed) */
   edits?: Array<{ tool: string; summary: string }>
+  /** Git-style checkpoint id emitted when the task mutated the document */
+  checkpointId?: string
+}
+
+export interface AgentUndoRequestMessage {
+  undoId: string
+  checkpointId: string
+}
+
+export interface AgentUndoResultReport {
+  undoId: string
+  ok: boolean
+  error?: string
 }
 
 export interface McpCommandResult {
@@ -665,6 +678,10 @@ export interface DesktopApi {
   reportAgentTaskResult(result: AgentTaskResultReport): void
   /** the headless agent: announce this tab's editor is ready for delegated tasks (mirrors signalMcpReady) */
   signalAgentReady(): void
+  /** the headless agent: receive a Git-style checkpoint undo request from the shell panel */
+  onAgentUndo(handler: (message: AgentUndoRequestMessage) => void): () => void
+  /** the headless agent: report whether restoring the checkpoint succeeded */
+  reportAgentUndoResult(result: AgentUndoResultReport): void
   getRecentFiles(): Promise<string[]>
   pickImage(): Promise<PickImageResult | null>
   /** Mailings tab: pick a local .xlsx or .csv and read it as a recipient list */

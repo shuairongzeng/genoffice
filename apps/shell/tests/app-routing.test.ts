@@ -93,7 +93,7 @@ describe('appForPath', () => {
  */
 describe("the open route's text-app pattern", () => {
   it('claims every extension the open dialog offers for the text app', () => {
-    for (const ext of ['md', 'markdown', 'txt', 'json']) {
+    for (const ext of ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml']) {
       expect(TEXT_RE.test(`/x/notes.${ext}`)).toBe(true)
     }
   })

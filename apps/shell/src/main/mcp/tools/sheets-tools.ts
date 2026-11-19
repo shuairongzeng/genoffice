@@ -176,14 +176,20 @@ function createGridContentTools(deps: SheetsToolDeps, host: SessionHost): McpToo
       name: 'read_sheet',
       description:
         'Read the visible workbook: sheet names with data extents, and optionally the current ' +
-        'values/formulas of specific cells. Address a worksheet by NAME (the CLI convention, and ' +
-        'stable across sessions) or by the sheetId the overview reports.',
+        'values/formulas of specific cells or an A1 range. Address a worksheet by NAME (the CLI ' +
+        'convention, and stable across sessions) or by the sheetId the overview reports.',
       inputSchema: {
+        range: z
+          .string()
+          .optional()
+          .describe(
+            'A1 range to read as a grid (e.g. "A1:F32", clamped to data extent; max 2,000 cells)',
+          ),
         addresses: z
           .array(z.string())
           .optional()
           .describe(
-            'A1 addresses to read (values + formulas, at most 100 per call); omit to get the workbook overview only',
+            'A1 cell addresses or A1 range strings (values + formulas, at most 100 entries per call); omit for the workbook overview + preview',
           ),
         sheet: z
           .string()
@@ -203,6 +209,7 @@ function createGridContentTools(deps: SheetsToolDeps, host: SessionHost): McpToo
           throw new Error(`read at most ${MAX_READ_ADDRESSES} addresses per call`)
         }
         const payload = {
+          ...(typeof args.range === 'string' && args.range.trim() ? { range: args.range.trim() } : {}),
           ...(Array.isArray(args.addresses) ? { addresses: args.addresses.map(String) } : {}),
           ...(typeof args.sheet === 'string' ? { sheet: args.sheet } : {}),
           ...(typeof args.sheetId === 'string' ? { sheetId: args.sheetId } : {}),

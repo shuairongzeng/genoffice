@@ -590,3 +590,62 @@ describe('the create_document lineage record', () => {
     })
   })
 })
+
+describe('mid-run tab switch protection', () => {
+  it('keeps an active run pinned to its document thread when a browser tab activates mid-run, then switches once idle', async () => {
+    surfaceTabs = [
+      { id: 't1', kind: 'sheets', title: 'costs.xlsx', filePath: '/desk/costs.xlsx', active: true },
+    ]
+    render()
+    await settle()
+    expect(host.querySelector('.kb-ask-header-title')?.textContent).toBe('costs.xlsx')
+
+    // Keep the model stream open so we can switch tabs mid-run (e.g. shell:open_browser).
+    ;(window as unknown as { aiOffice: { aiStream: unknown } }).aiOffice.aiStream = (
+      request: StartedRequest,
+    ) => {
+      started.push(request)
+    }
+
+    await ask('total spending in RMB')
+    expect(started).toHaveLength(1)
+    expect(host.querySelector('.ai-stop-btn')).toBeTruthy()
+
+    // Simulate shell:open_browser activating a non-document browser tab while the run is in flight.
+    surfaceTabs = [
+      { id: 't1', kind: 'sheets', title: 'costs.xlsx', filePath: '/desk/costs.xlsx', active: false },
+      { id: 't2', kind: 'browser', title: 'Rates', url: 'https://example.com', active: true },
+    ]
+    act(() => surfaceListener?.())
+    await settle()
+
+    // The active run must NOT be cancelled or cleared, and the thread stays bound to costs.xlsx.
+    expect(host.querySelector('.ai-stop-btn')).toBeTruthy()
+    expect(host.querySelector('.kb-ask-header-title')?.textContent).toBe('costs.xlsx')
+
+    // Complete the stream and verify the final answer lands and persists under costs.xlsx.
+    act(() => {
+      chunkListener?.({
+        requestId: started[0]!.requestId,
+        type: 'delta',
+        text: 'Total is 2500 RMB.',
+      })
+      chunkListener?.({ requestId: started[0]!.requestId, type: 'done' })
+    })
+    await settle()
+
+    expect(host.querySelector('.ai-stop-btn')).toBeNull()
+    expect(host.textContent).toContain('Total is 2500 RMB.')
+    const docChatId = chatIdForPath('/desk/costs.xlsx')
+    expect(chats.get(docChatId)?.some((m) => m.text === 'Total is 2500 RMB.')).toBe(true)
+
+    // Once idle, switching to another document tab transitions threads normally.
+    surfaceTabs = [
+      { id: 't3', kind: 'docs', title: 'summary.docx', filePath: '/desk/summary.docx', active: true },
+    ]
+    act(() => surfaceListener?.())
+    await settle()
+    expect(host.querySelector('.kb-ask-header-title')?.textContent).toBe('summary.docx')
+    expect(host.textContent).not.toContain('Total is 2500 RMB.')
+  })
+})
