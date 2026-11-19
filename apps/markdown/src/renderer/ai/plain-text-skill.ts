@@ -1,8 +1,9 @@
 import type { AgentSkill, AgentToolCall, AgentToolDef, ToolExecution } from '@genoffice/agent-core'
 
 /**
- * AgentSkill for plain-text and structured text files edited in sourceMode
- * (.txt, .json, .log, .yaml, .yml, .xml, .ini, .toml) inside the Markdown app.
+ * AgentSkill for plain-text, config, and code files edited in sourceMode
+ * (.txt, .json, .log, .yaml, .yml, .xml, .ini, .toml, .py, .ts, .tsx, .js, .jsx, .css, .sql, .sh, .bat)
+ * inside the Markdown app.
  */
 
 export interface PlainTextSkillDeps {

@@ -61,7 +61,7 @@ describe('listFolder', () => {
     mkdirSync(join(root, 'node_modules'))
     touch('report.docx')
     touch('notes.md')
-    touch('image.png')
+    touch('archive.zip')
     touch('~$report.docx')
     touch('.DS_Store')
     touch('Thumbs.db')
@@ -108,16 +108,29 @@ describe('listFolder', () => {
    * on Home, so a file the open dialog happily offers cannot be clicked into
    * from the folder pane — the same drift, one list further along.
    */
-  it('lists the text app extensions alongside markdown', async () => {
+  it('lists the text app, code, and media extensions alongside markdown', async () => {
     touch('notes.md')
     touch('notes.txt')
     touch('data.json')
+    touch('config.yaml')
+    touch('script.py')
+    touch('app.ts')
     touch('photo.png')
+    touch('audio.mp3')
+    touch('video.mp4')
+    touch('archive.zip')
+    touch('installer.exe')
 
     expect((await listFolder(root, new Set())).files.map((f) => f.name).sort()).toEqual([
+      'app.ts',
+      'audio.mp3',
+      'config.yaml',
       'data.json',
       'notes.md',
       'notes.txt',
+      'photo.png',
+      'script.py',
+      'video.mp4',
     ])
   })
 

@@ -220,8 +220,8 @@ describe('the descriptor table itself', () => {
         seen.set(ext, app.id)
       }
     }
-    // 26 document/text extensions + 21 media extensions = 47
-    expect(seen.size).toBe(47)
+    // 26 document/text extensions + 9 code extensions + 21 media extensions = 56
+    expect(seen.size).toBe(56)
   })
 
   it('every descriptor carries the faces the shell dispatches through', () => {

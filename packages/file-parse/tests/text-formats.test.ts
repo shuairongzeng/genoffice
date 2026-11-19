@@ -13,6 +13,12 @@ describe('parseFileToText: plain-text formats', () => {
     ['sample.xml', '<root><item>value</item></root>'],
     ['sample.html', '<html><body><p>page</p></body></html>'],
     ['sample.py', 'def hello():\n    return "world"'],
+    ['sample.yaml', 'app: genoffice\nport: 3000'],
+    ['sample.toml', 'name = "genoffice"\nversion = 3'],
+    ['sample.ini', '[server]\nhost = 127.0.0.1'],
+    ['sample.ts', 'export const answer: number = 42'],
+    ['sample.sql', 'SELECT id, name FROM docs;'],
+    ['sample.sh', '#!/usr/bin/env bash\necho ok'],
   ]
 
   for (const [name, content] of cases) {

@@ -13,7 +13,7 @@ import type { I18n, StringKey } from './locale'
    width, so it ellipsizes and a hover ScreenTip carries the full list. Keep in
    sync with the main-process open-dialog filter (OPEN_DIALOG_EXTENSIONS). */
 export const OPEN_LOCAL_EXTENSIONS =
-  '.docx / .odt / .ott / .xlsx / .xlsm / .xls / .csv / .tsv / .ods / .ots / .pptx / .odp / .otp / .pdf / .md / .html'
+  '.docx / .odt / .ott / .xlsx / .xlsm / .xls / .csv / .tsv / .ods / .ots / .pptx / .odp / .otp / .pdf / .md / .txt / .json / .log / .yaml / .xml / .py / .ts / .js / .sql / .html / .png / .jpg / .mp3 / .mp4'
 
 /** drag payload of home file/folder rows (JSON array of absolute paths) */
 export const DRAG_PATHS_MIME = 'application/x-genoffice-paths'
@@ -158,7 +158,27 @@ export const FILTER_FAMILY: Record<string, readonly string[]> = {
   docx: ['docx', 'doc', 'odt', 'ott'],
   xlsx: ['xlsx', 'xlsm', 'xls', 'csv', 'tsv', 'ods', 'ots'],
   pptx: ['pptx', 'ppt', 'odp', 'otp'],
-  md: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'],
+  md: [
+    'md',
+    'markdown',
+    'txt',
+    'json',
+    'log',
+    'yaml',
+    'yml',
+    'xml',
+    'ini',
+    'toml',
+    'py',
+    'ts',
+    'tsx',
+    'js',
+    'jsx',
+    'css',
+    'sql',
+    'sh',
+    'bat',
+  ],
   html: ['html', 'htm'],
   media: [
     'png',

@@ -46,7 +46,7 @@ describe('collectLaunchPaths', () => {
     ).toEqual(['/notes.txt'])
   })
 
-  it('accepts supported image, audio, and video extensions from argv', () => {
+  it('accepts supported image, audio, video, and code extensions from argv', () => {
     expect(collectLaunchPaths(['GenOffice.app', '/photo.png'], undefined, () => true)).toEqual([
       '/photo.png',
     ])
@@ -55,6 +55,15 @@ describe('collectLaunchPaths', () => {
     ])
     expect(collectLaunchPaths(['GenOffice.app', '/clip.mkv'], undefined, () => true)).toEqual([
       '/clip.mkv',
+    ])
+    expect(collectLaunchPaths(['GenOffice.app', '/script.py'], undefined, () => true)).toEqual([
+      '/script.py',
+    ])
+    expect(collectLaunchPaths(['GenOffice.app', '/app.ts'], undefined, () => true)).toEqual([
+      '/app.ts',
+    ])
+    expect(collectLaunchPaths(['GenOffice.app', '/query.sql'], undefined, () => true)).toEqual([
+      '/query.sql',
     ])
   })
 

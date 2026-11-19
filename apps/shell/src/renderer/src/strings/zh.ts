@@ -809,6 +809,16 @@ export const zh = {
   mediaTypeImage: '图片',
   mediaTypeAudio: '音频',
   mediaTypeVideo: '视频',
+  mediaAskAi: '问 AI',
+  mediaAskImagePrompt: '请分析当前打开的图片内容：',
+  mediaAskAudioPrompt: '请分析当前打开的音频文件：',
+  mediaAskVideoPrompt: '请截取当前视频 {time}（约 {seconds} 秒）处的画面并分析：',
+  askDocHistoryButton: '修改历史',
+  askDocHistoryTitle: '文档修改历史',
+  askDocHistoryEmpty: '暂无可撤销的修改记录',
+  askDocHistoryStep: '第 {n} 步',
+  askDocHistoryRollback: '回退至此步前',
+  askDocHistoryRollbackMulti: '回退至此步前（含后续 {n} 步）',
 }
 
 export type Dict = typeof zh

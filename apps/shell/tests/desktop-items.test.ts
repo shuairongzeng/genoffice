@@ -186,7 +186,7 @@ describe('mergeDesktopItems', () => {
 })
 
 describe('alias opens', () => {
-  it('routes a known document through openPath, the OS default otherwise', () => {
+  it('routes a known document, text, code, or media file through openPath, the OS default otherwise', () => {
     const api = {
       openPath: vi.fn(),
       desktopOpenExternal: vi.fn(),
@@ -194,6 +194,8 @@ describe('alias opens', () => {
     const aliases = [
       entry('/docs/report.docx'),
       entry('/docs/photo.png'),
+      entry('/docs/script.py'),
+      entry('/docs/archive.zip'),
       entry('/docs/Projects', { directory: true }),
     ]
     const items = mergeDesktopItems(
@@ -202,8 +204,10 @@ describe('alias opens', () => {
     )
     items.filter((i) => i.alias).forEach((item) => item.open())
     expect(api.openPath).toHaveBeenCalledWith('/docs/report.docx')
-    expect(api.openPath).toHaveBeenCalledTimes(1)
-    expect(api.desktopOpenExternal).toHaveBeenCalledWith('/docs/photo.png')
+    expect(api.openPath).toHaveBeenCalledWith('/docs/photo.png')
+    expect(api.openPath).toHaveBeenCalledWith('/docs/script.py')
+    expect(api.openPath).toHaveBeenCalledTimes(3)
+    expect(api.desktopOpenExternal).toHaveBeenCalledWith('/docs/archive.zip')
     // a folder is the OS's to open (in-app browsing is the folder-roots surface)
     expect(api.desktopOpenExternal).toHaveBeenCalledWith('/docs/Projects')
     expect(api.desktopOpenExternal).toHaveBeenCalledTimes(2)
@@ -219,11 +223,25 @@ describe('alias opens', () => {
     expect(items.find((i) => i.path === '/docs/Projects')?.kind).toBe('folder')
   })
 
-  it('keeps the extension knowledge the drop bridge defines', () => {
-    for (const path of ['/a.docx', '/b.XLSX', '/c.md', '/d.markdown', '/e.html', '/f.ots']) {
+  it('keeps the extension knowledge aligned across office, text, code, and media formats', () => {
+    for (const path of [
+      '/a.docx',
+      '/b.XLSX',
+      '/c.md',
+      '/d.markdown',
+      '/e.html',
+      '/f.ots',
+      '/g.txt',
+      '/h.yaml',
+      '/i.py',
+      '/j.ts',
+      '/k.png',
+      '/l.mp3',
+      '/m.MOV',
+    ]) {
       expect(isOpenableDocument(path), path).toBe(true)
     }
-    for (const path of ['/a.png', '/b.zip', '/c.exe', '/d', '/e.MOV']) {
+    for (const path of ['/b.zip', '/c.exe', '/d', '/e.bin']) {
       expect(isOpenableDocument(path), path).toBe(false)
     }
   })

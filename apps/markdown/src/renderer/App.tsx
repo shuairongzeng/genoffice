@@ -956,7 +956,9 @@ export default function App() {
     printingRef.current = true
     const title =
       (filePathRef.current
-        ? filePathRef.current.replace(/^.*[/\\]/, '').replace(/\.(md|markdown|txt|json)$/i, '')
+        ? filePathRef.current
+            .replace(/^.*[/\\]/, '')
+            .replace(/\.(md|markdown|txt|json|log|yaml|yml|xml|ini|toml|py|ts|tsx|js|jsx|css|sql|sh|bat)$/i, '')
         : deriveAutoFileName(current)) || 'Untitled'
     let printRoot: HTMLElement = current.view.dom
     if (sourceMode) {

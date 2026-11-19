@@ -206,6 +206,7 @@ export function MediaViewer(): React.JSX.Element {
   const stageRef = useRef<HTMLDivElement | null>(null)
   const dragOriginRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
   const handledRequestsRef = useRef<Set<string>>(new Set())
+  const keyDownHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {})
 
   const infoRef = useRef(info)
   infoRef.current = info
@@ -383,32 +384,56 @@ export function MediaViewer(): React.JSX.Element {
     return unsubscribe
   }, [])
 
-  // Keyboard shortcuts for audio/video playback
-  useEffect(() => {
-    if (!info || info.mediaKind === 'image') return
-    const onKeyDown = (e: KeyboardEvent): void => {
-      const target = e.target as HTMLElement | null
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.isContentEditable)) {
-        return
-      }
-      const mediaEl = info.mediaKind === 'video' ? videoRef.current : audioRef.current
-      if (!mediaEl) return
-      if (e.code === 'Space') {
-        e.preventDefault()
-        if (mediaEl.paused) void mediaEl.play().catch(() => undefined)
-        else mediaEl.pause()
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault()
-        mediaEl.currentTime = Math.max(0, mediaEl.currentTime - 10)
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault()
-        const maxDur = Number.isFinite(mediaEl.duration) ? mediaEl.duration : mediaEl.currentTime + 10
-        mediaEl.currentTime = Math.min(maxDur, mediaEl.currentTime + 10)
-      }
+  // Keyboard shortcuts for image inspection and audio/video playback
+  keyDownHandlerRef.current = (e: KeyboardEvent): void => {
+    const current = infoRef.current
+    if (!current || loadErrorRef.current) return
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+    const target = e.target as HTMLElement | null
+    const tag = target?.tagName
+    if (target && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable)) {
+      return
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [info])
+    if (current.mediaKind === 'image') {
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault()
+        stepZoom(1.25)
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault()
+        stepZoom(1 / 1.25)
+      } else if (e.key === '0') {
+        e.preventDefault()
+        resetToFit()
+      } else if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault()
+        setRotation((r) => (r + 90) % 360)
+      }
+      return
+    }
+    const mediaEl = current.mediaKind === 'video' ? videoRef.current : audioRef.current
+    if (!mediaEl) return
+    if (e.code === 'Space') {
+      if (tag === 'BUTTON') return
+      e.preventDefault()
+      togglePlay()
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      handleSeek(Math.max(0, mediaEl.currentTime - 5))
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      const maxDur = Number.isFinite(mediaEl.duration) ? mediaEl.duration : mediaEl.currentTime + 5
+      handleSeek(Math.min(maxDur, mediaEl.currentTime + 5))
+    } else if (e.key === 'm' || e.key === 'M') {
+      e.preventDefault()
+      toggleMute()
+    }
+  }
+
+  useEffect(() => {
+    const listener = (e: KeyboardEvent): void => keyDownHandlerRef.current(e)
+    window.addEventListener('keydown', listener)
+    return () => window.removeEventListener('keydown', listener)
+  }, [])
 
   function effectiveZoomBase(): number {
     if (!fitMode || !imgRef.current || !naturalSize) return zoom
@@ -531,6 +556,31 @@ export function MediaViewer(): React.JSX.Element {
     }
   }
 
+  async function handleAskAi(): Promise<void> {
+    if (!info) return
+    let text: string
+    if (info.mediaKind === 'image') {
+      text = t('mediaAskImagePrompt')
+    } else if (info.mediaKind === 'audio') {
+      text = t('mediaAskAudioPrompt')
+    } else {
+      const rawSec = videoRef.current?.currentTime ?? currentTime
+      const clamped = Number.isFinite(rawSec) && rawSec >= 0 ? rawSec : 0
+      text = t('mediaAskVideoPrompt', {
+        time: formatTime(clamped),
+        seconds: String(Math.round(clamped)),
+      })
+    }
+    await window.aiOffice.setAiDock?.({ collapsed: false }).catch(() => undefined)
+    await window.aiOffice
+      .forwardAskQuery?.({
+        text,
+        seq: Date.now(),
+        origin: 'deep-link',
+      })
+      .catch(() => undefined)
+  }
+
   function captureVideoFrame(): void {
     const video = videoRef.current
     if (!video || !info || video.videoWidth <= 0) return
@@ -604,6 +654,14 @@ export function MediaViewer(): React.JSX.Element {
           <span className="media-status-readout">{formatBytes(info.sizeBytes)}</span>
         </div>
         <div className="media-header-actions">
+          <button
+            type="button"
+            className="media-btn primary"
+            data-testid="media-ask-ai"
+            onClick={() => void handleAskAi()}
+          >
+            {t('mediaAskAi')}
+          </button>
           <button
             type="button"
             className="media-btn"
@@ -832,7 +890,7 @@ export function MediaViewer(): React.JSX.Element {
       )}
 
       {info.mediaKind === 'video' && !loadError && (
-        <footer className="media-controls-bar">
+        <footer className="media-controls-bar media-controls-video">
           <div className="media-seek-row">
             <span className="media-time-label">{formatTime(currentTime)}</span>
             <input
@@ -847,51 +905,53 @@ export function MediaViewer(): React.JSX.Element {
             />
             <span className="media-time-label">{formatTime(duration)}</span>
           </div>
-          <div className="media-controls-group">
-            <button type="button" className="media-btn primary" onClick={togglePlay}>
-              {playing ? t('mediaPause') : t('mediaPlay')}
-            </button>
-            <select
-              className="media-select"
-              aria-label={t('mediaSpeed')}
-              value={playbackRate}
-              onChange={(e) => handleSpeedChange(Number(e.target.value))}
-            >
-              {SPEED_OPTIONS.map((rate) => (
-                <option key={rate} value={rate}>
-                  {rate}x
-                </option>
-              ))}
-            </select>
-            <button type="button" className="media-btn" onClick={toggleMute}>
-              {muted ? t('mediaUnmute') : t('mediaMute')}
-            </button>
-            <input
-              type="range"
-              className="media-volume-slider"
-              aria-label={t('mediaVolume')}
-              min={0}
-              max={1}
-              step={0.05}
-              value={muted ? 0 : volume}
-              onChange={(e) => handleVolumeChange(Number(e.target.value))}
-            />
-          </div>
-          <div className="media-controls-group">
-            {videoDims && (
-              <span className="media-status-readout">
-                {videoDims.w} × {videoDims.h}
-              </span>
-            )}
-            <button type="button" className="media-btn" onClick={captureVideoFrame}>
-              {t('mediaCaptureFrame')}
-            </button>
-            <button type="button" className="media-btn" onClick={togglePictureInPicture}>
-              {t('mediaPip')}
-            </button>
-            <button type="button" className="media-btn" onClick={toggleFullscreen}>
-              {t('mediaFullscreen')}
-            </button>
+          <div className="media-controls-row">
+            <div className="media-controls-group">
+              <button type="button" className="media-btn primary" onClick={togglePlay}>
+                {playing ? t('mediaPause') : t('mediaPlay')}
+              </button>
+              <select
+                className="media-select"
+                aria-label={t('mediaSpeed')}
+                value={playbackRate}
+                onChange={(e) => handleSpeedChange(Number(e.target.value))}
+              >
+                {SPEED_OPTIONS.map((rate) => (
+                  <option key={rate} value={rate}>
+                    {rate}x
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="media-btn" onClick={toggleMute}>
+                {muted ? t('mediaUnmute') : t('mediaMute')}
+              </button>
+              <input
+                type="range"
+                className="media-volume-slider"
+                aria-label={t('mediaVolume')}
+                min={0}
+                max={1}
+                step={0.05}
+                value={muted ? 0 : volume}
+                onChange={(e) => handleVolumeChange(Number(e.target.value))}
+              />
+            </div>
+            <div className="media-controls-group">
+              {videoDims && (
+                <span className="media-status-readout">
+                  {videoDims.w} × {videoDims.h}
+                </span>
+              )}
+              <button type="button" className="media-btn" onClick={captureVideoFrame}>
+                {t('mediaCaptureFrame')}
+              </button>
+              <button type="button" className="media-btn" onClick={togglePictureInPicture}>
+                {t('mediaPip')}
+              </button>
+              <button type="button" className="media-btn" onClick={toggleFullscreen}>
+                {t('mediaFullscreen')}
+              </button>
+            </div>
           </div>
         </footer>
       )}

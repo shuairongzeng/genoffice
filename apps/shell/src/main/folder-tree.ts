@@ -25,6 +25,7 @@ import type {
   RenameResult,
 } from '../shared/home-api'
 import { isValidRenameName } from './rename-validation'
+import { MEDIA_EXTS } from './media-main'
 import { statPathEntriesAsync } from './recent-files'
 import { mkdirDirs } from '@genoffice/electron-utils'
 
@@ -50,8 +51,24 @@ export const TREE_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
   'markdown',
   'txt',
   'json',
+  'log',
+  'yaml',
+  'yml',
+  'xml',
+  'ini',
+  'toml',
+  'py',
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'css',
+  'sql',
+  'sh',
+  'bat',
   'html',
   'htm',
+  ...MEDIA_EXTS,
 ])
 
 const HIDDEN_DIR_NAMES = new Set(['node_modules', '__macosx'])

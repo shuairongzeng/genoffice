@@ -351,7 +351,7 @@ function createWidgetsProvider(): DesktopItemProvider {
  * openExternal handler re-validates anyway, so this only picks the channel.
  */
 const OPENABLE_DOC_RE =
-  /\.(docx|odt|ott|xlsx|xlsm|xls|csv|tsv|ods|ots|pptx|odp|otp|pdf|md|markdown|html|htm)$/i
+  /\.(docx|doc|odt|ott|xlsx|xlsm|xls|csv|tsv|ods|ots|pptx|ppt|odp|otp|pdf|md|markdown|txt|json|log|yaml|yml|xml|ini|toml|py|ts|tsx|js|jsx|css|sql|sh|bat|html|htm|png|jpg|jpeg|webp|gif|svg|bmp|ico|avif|mp3|wav|m4a|aac|ogg|flac|opus|mp4|webm|mov|m4v|mkv)$/i
 
 /** whether the suite opens this path in a tab rather than deferring to the OS */
 export function isOpenableDocument(path: string): boolean {

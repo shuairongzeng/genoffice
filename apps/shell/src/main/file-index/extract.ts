@@ -36,7 +36,7 @@ export async function extractText(path: string): Promise<Extracted> {
       }
     }
     const parsed = await parseFileToText(path, { maxChars: MAX_BODY_CHARS })
-    if (parsed.kind === 'unsupported') return { kind: 'name-only' }
+    if (parsed.kind === 'unsupported' || parsed.kind === 'image') return { kind: 'name-only' }
     if (!parsed.ok || parsed.kind !== 'text')
       return { kind: 'error', error: parsed.error ?? 'parse failed' }
     return { kind: 'text', text: (parsed.text ?? '').slice(0, MAX_BODY_CHARS) }

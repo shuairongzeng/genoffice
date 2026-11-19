@@ -28,6 +28,7 @@ import {
   statPathEntries,
 } from './recent-files'
 import { isUserVisibleFile, isMoveSource, type FileTargetSources } from './file-targets'
+import { MEDIA_EXTS } from './media-main'
 import { renameStaysInApp } from './app-routing'
 import { isSameFile, isValidRawRenameName } from './rename-validation'
 import {
@@ -125,6 +126,7 @@ export type HomeFileString =
   | 'filterPdf'
   | 'filterMarkdown'
   | 'filterHtml'
+  | 'filterMedia'
   | 'errBadArgs'
   | 'errBadName'
   | 'errBadExtension'
@@ -214,7 +216,27 @@ const SEARCH_EXT_FAMILY: Record<string, readonly string[]> = {
   docx: ['docx', 'doc', 'odt', 'ott'],
   xlsx: ['xlsx', 'xlsm', 'xls', 'csv', 'tsv', 'ods', 'ots'],
   pptx: ['pptx', 'ppt', 'odp', 'otp'],
-  md: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'],
+  md: [
+    'md',
+    'markdown',
+    'txt',
+    'json',
+    'log',
+    'yaml',
+    'yml',
+    'xml',
+    'ini',
+    'toml',
+    'py',
+    'ts',
+    'tsx',
+    'js',
+    'jsx',
+    'css',
+    'sql',
+    'sh',
+    'bat',
+  ],
   html: ['html', 'htm'],
   media: [
     'png',
@@ -938,9 +960,30 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
         { name: host.translate('filterPdf'), extensions: ['pdf'] },
         {
           name: host.translate('filterMarkdown'),
-          extensions: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'],
+          extensions: [
+            'md',
+            'markdown',
+            'txt',
+            'json',
+            'log',
+            'yaml',
+            'yml',
+            'xml',
+            'ini',
+            'toml',
+            'py',
+            'ts',
+            'tsx',
+            'js',
+            'jsx',
+            'css',
+            'sql',
+            'sh',
+            'bat',
+          ],
         },
         { name: host.translate('filterHtml'), extensions: ['html', 'htm'] },
+        { name: host.translate('filterMedia'), extensions: [...MEDIA_EXTS] },
       ],
       properties: ['openFile', 'multiSelections'],
     })

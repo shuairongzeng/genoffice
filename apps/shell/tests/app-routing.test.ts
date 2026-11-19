@@ -94,6 +94,10 @@ describe('appForPath', () => {
     expect(appForPath('/x/notes.markdown')).toBe('markdown')
     expect(appForPath('/x/notes.txt')).toBe('markdown')
     expect(appForPath('/x/data.json')).toBe('markdown')
+    expect(appForPath('/x/config.yaml')).toBe('markdown')
+    expect(appForPath('/x/script.py')).toBe('markdown')
+    expect(appForPath('/x/index.ts')).toBe('markdown')
+    expect(appForPath('/x/query.sql')).toBe('markdown')
   })
 
   it('leaves the other apps on their own extensions', () => {

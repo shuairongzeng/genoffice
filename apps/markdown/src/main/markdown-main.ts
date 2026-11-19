@@ -685,7 +685,27 @@ async function resolveSaveTarget(
     filters: [
       {
         name: tm('filterMarkdown'),
-        extensions: ['md', 'markdown', 'txt', 'json', 'log', 'yaml', 'yml', 'xml', 'ini', 'toml'],
+        extensions: [
+          'md',
+          'markdown',
+          'txt',
+          'json',
+          'log',
+          'yaml',
+          'yml',
+          'xml',
+          'ini',
+          'toml',
+          'py',
+          'ts',
+          'tsx',
+          'js',
+          'jsx',
+          'css',
+          'sql',
+          'sh',
+          'bat',
+        ],
       },
     ],
   })

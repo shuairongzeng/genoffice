@@ -130,6 +130,12 @@ import {
 import { RunRecorder, runsBridgeOf } from './ask-runs'
 import { RafFlushQueue } from './ask-stream'
 import { useStickToBottom } from './use-stick-to-bottom'
+import {
+  checkpointsToRollback,
+  collectDocCheckpoints,
+  type DocCheckpoint,
+} from './doc-checkpoints'
+export type { DocCheckpoint } from './doc-checkpoints'
 
 /**
  * The workbench's knowledge-base ask panel: chat with the reader's corpus
@@ -386,17 +392,6 @@ function KbToolActivityCard({
       </div>
     </details>
   )
-}
-
-export interface DocCheckpoint {
-  tabId: string
-  kind: string
-  title: string
-  checkpointId: string
-  editCount: number
-  reverted?: boolean
-  reverting?: boolean
-  error?: string
 }
 
 interface AskMessage {
@@ -1996,14 +1991,23 @@ export function KbAskPanel({
   useDismissablePopover(headerMenuOpen, () => setHeaderMenuOpen(false), {
     inside: () => [headerMenuRef.current],
   })
+  /** the Git-style edit-history popover in the header */
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const historyRef = useRef<HTMLDivElement | null>(null)
+  useDismissablePopover(historyOpen, () => setHistoryOpen(false), {
+    inside: () => [historyRef.current],
+  })
   useEffect(() => {
-    if (!headerMenuOpen) return
+    if (!headerMenuOpen && !historyOpen) return
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setHeaderMenuOpen(false)
+      if (event.key === 'Escape') {
+        setHeaderMenuOpen(false)
+        setHistoryOpen(false)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [headerMenuOpen])
+  }, [headerMenuOpen, historyOpen])
   /** the search box's live text (round-tripped to the store, debounced) */
   const [libraryQuery, setLibraryQuery] = useState('')
   /** the query's mirror: event-time refreshes (delete, rename, pin) keep it */
@@ -2643,12 +2647,22 @@ export function KbAskPanel({
         if (!result.ok || !result.checkpointId || !result.tabId) return
         const editCount = result.edits?.length ?? 0
         if (editCount === 0) return
+        let lastUserText = ''
+        for (let i = messagesRef.current.length - 1; i >= 0; i -= 1) {
+          const m = messagesRef.current[i]
+          if (m?.role === 'user' && m.text.trim()) {
+            lastUserText = m.text.trim().replace(/\s+/g, ' ').slice(0, 60)
+            break
+          }
+        }
         const checkpoint: DocCheckpoint = {
           tabId: result.tabId,
           kind: result.kind ?? 'docs',
           title: result.title ?? '',
           checkpointId: result.checkpointId,
           editCount,
+          createdAt: Date.now(),
+          ...(lastUserText ? { summary: lastUserText } : {}),
         }
         patchLast(
           (last) => ({
@@ -3446,7 +3460,10 @@ export function KbAskPanel({
       // theirs, and the composer takes the focus so the next keystroke
       // continues it (an empty draft still takes the parked text itself)
       if (plan.scopePaths && draft.trim() !== '') composerRef.current?.focus()
-      else setDraft(plan.text)
+      else {
+        setDraft(plan.text)
+        composerRef.current?.focus()
+      }
     }
   })
 
@@ -3496,19 +3513,18 @@ export function KbAskPanel({
     [mutateMessages],
   )
 
-  const undoDocCheckpoint = useCallback(
-    async (index: number, checkpointId: string): Promise<void> => {
-      const answer = messagesRef.current[index]
-      const target = answer?.docCheckpoints?.find((cp) => cp.checkpointId === checkpointId)
-      if (!target || target.reverting || target.reverted) return
-      const updateCheckpoint = (patch: Partial<DocCheckpoint>): void => {
+  const rollbackToCheckpoint = useCallback(
+    async (checkpointId: string): Promise<void> => {
+      const plan = checkpointsToRollback(messagesRef.current, checkpointId)
+      if (plan.length === 0) return
+      const updateCheckpoint = (id: string, patch: Partial<DocCheckpoint>): void => {
         mutateMessages((prev) =>
           prev.map((m) =>
-            m.docCheckpoints?.some((cp) => cp.checkpointId === checkpointId)
+            m.docCheckpoints?.some((cp) => cp.checkpointId === id)
               ? {
                   ...m,
                   docCheckpoints: m.docCheckpoints.map((cp) =>
-                    cp.checkpointId === checkpointId ? { ...cp, ...patch } : cp,
+                    cp.checkpointId === id ? { ...cp, ...patch } : cp,
                   ),
                 }
               : m,
@@ -3516,25 +3532,36 @@ export function KbAskPanel({
         )
         window.aiOffice?.askRunEvent?.({
           type: 'checkpoint-updated',
-          payload: { checkpointId, ...patch },
+          payload: { checkpointId: id, ...patch },
         })
       }
-      updateCheckpoint({ reverting: true, error: undefined })
-      try {
-        const res = await window.aiOffice.documentAgentUndo(target.tabId, checkpointId)
-        if (res.ok) {
-          updateCheckpoint({ reverting: false, reverted: true, error: undefined })
-        } else {
-          updateCheckpoint({ reverting: false, error: res.error ?? 'failed' })
+      for (const cp of plan) {
+        updateCheckpoint(cp.checkpointId, { reverting: true, error: undefined })
+        try {
+          const res = await window.aiOffice.documentAgentUndo(cp.tabId, cp.checkpointId)
+          if (res.ok) {
+            updateCheckpoint(cp.checkpointId, { reverting: false, reverted: true, error: undefined })
+          } else {
+            updateCheckpoint(cp.checkpointId, { reverting: false, error: res.error ?? 'failed' })
+            break
+          }
+        } catch (error) {
+          updateCheckpoint(cp.checkpointId, {
+            reverting: false,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          break
         }
-      } catch (error) {
-        updateCheckpoint({
-          reverting: false,
-          error: error instanceof Error ? error.message : String(error),
-        })
       }
     },
     [mutateMessages],
+  )
+
+  const undoDocCheckpoint = useCallback(
+    async (_index: number, checkpointId: string): Promise<void> => {
+      await rollbackToCheckpoint(checkpointId)
+    },
+    [rollbackToCheckpoint],
   )
 
   const hasFiles = (e: React.DragEvent): boolean => e.dataTransfer.types.includes('Files')
@@ -3599,6 +3626,9 @@ export function KbAskPanel({
           (row) => row.chatId === activeId,
         )?.label
         const title = askHeaderTitle(boundDocPath, threadLabel, t('askThreadNew'))
+        const checkpointTimeline = collectDocCheckpoints(messages)
+        const activeCheckpointCount = checkpointTimeline.filter((e) => !e.checkpoint.reverted).length
+        const anyReverting = checkpointTimeline.some((e) => e.checkpoint.reverting)
         return (
           <div
             className="kb-ask-header"
@@ -3608,7 +3638,7 @@ export function KbAskPanel({
               // carries the pet and the bubble follows its anchor.
               if (!bubbleDragStart || event.button !== 0) return
               const target = event.target as HTMLElement
-              if (target.closest('button, input, textarea, a, [role=menu]')) return
+              if (target.closest('button, input, textarea, a, [role=menu], [role=dialog]')) return
               bubbleDragStart(event)
             }}
           >
@@ -3625,6 +3655,117 @@ export function KbAskPanel({
             <div className="kb-ask-header-title" title={title}>
               {title}
             </div>
+            {checkpointTimeline.length > 0 && (
+              <div className="kb-ask-history-wrap" ref={historyRef}>
+                <button
+                  type="button"
+                  className="kb-ask-history-button"
+                  data-testid="kb-ask-history-btn"
+                  aria-label={t('askDocHistoryButton')}
+                  title={t('askDocHistoryButton')}
+                  aria-expanded={historyOpen}
+                  onClick={() => {
+                    setHeaderMenuOpen(false)
+                    setHistoryOpen((was) => !was)
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path
+                      d="M3 4v3.2h3.2M3.3 7.1A5 5 0 1 1 4.1 11"
+                      stroke="currentColor"
+                      strokeWidth="1.45"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M8 5.4v2.8l2 1.2"
+                      stroke="currentColor"
+                      strokeWidth="1.45"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  {activeCheckpointCount > 0 && (
+                    <span className="kb-ask-history-badge">{activeCheckpointCount}</span>
+                  )}
+                </button>
+                {historyOpen && (
+                  <div
+                    className="kb-ask-history-pop"
+                    data-testid="kb-ask-history-pop"
+                    role="dialog"
+                    aria-label={t('askDocHistoryTitle')}
+                  >
+                    <div className="kb-ask-history-head">{t('askDocHistoryTitle')}</div>
+                    <div className="kb-ask-history-list" role="list">
+                      {checkpointTimeline.map((entry) => {
+                        const cp = entry.checkpoint
+                        const timeLabel = cp.createdAt
+                          ? new Date(cp.createdAt).toLocaleTimeString(dateLocale, {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : ''
+                        return (
+                          <div
+                            key={cp.checkpointId}
+                            className={`kb-ask-history-item${cp.reverted ? ' reverted' : ''}`}
+                            data-testid="kb-ask-history-item"
+                            role="listitem"
+                          >
+                            <div className="kb-ask-history-meta">
+                              <span className="kb-ask-history-step">
+                                {t('askDocHistoryStep', { n: String(entry.stepNumber) })}
+                              </span>
+                              <span className="kb-ask-history-doc" title={cp.title}>
+                                {t('askDocUndoSummary', {
+                                  title: cp.title,
+                                  n: String(cp.editCount),
+                                })}
+                              </span>
+                              {timeLabel && <span className="kb-ask-history-time">{timeLabel}</span>}
+                            </div>
+                            {cp.summary && (
+                              <div className="kb-ask-history-summary" title={cp.summary}>
+                                {cp.summary}
+                              </div>
+                            )}
+                            <div className="kb-ask-history-actions">
+                              {cp.reverted ? (
+                                <span className="kb-ask-checkpoint-done">
+                                  {t('askDocUndoDone')}
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="kb-ask-checkpoint-undo"
+                                  data-testid="kb-ask-history-rollback"
+                                  disabled={cp.reverting || anyReverting || busy}
+                                  onClick={() => void rollbackToCheckpoint(cp.checkpointId)}
+                                >
+                                  {cp.reverting
+                                    ? t('askDocUndoPending')
+                                    : entry.laterActiveCount > 0
+                                      ? t('askDocHistoryRollbackMulti', {
+                                          n: String(entry.laterActiveCount),
+                                        })
+                                      : t('askDocHistoryRollback')}
+                                </button>
+                              )}
+                              {cp.error && (
+                                <span className="kb-ask-checkpoint-error" title={cp.error}>
+                                  {t('askDocUndoFailed', { error: cp.error })}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="kb-ask-header-menu" ref={headerMenuRef}>
               <button
                 type="button"
@@ -3632,7 +3773,10 @@ export function KbAskPanel({
                 aria-label={t('askHeaderMenu')}
                 title={t('askHeaderMenu')}
                 aria-expanded={headerMenuOpen}
-                onClick={() => setHeaderMenuOpen((was) => !was)}
+                onClick={() => {
+                  setHistoryOpen(false)
+                  setHeaderMenuOpen((was) => !was)
+                }}
               >
                 ⋯
               </button>

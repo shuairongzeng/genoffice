@@ -46,7 +46,7 @@ describe('packaged file associations', () => {
     const winExts = config.win.fileAssociations.map((entry: { ext: string }) => entry.ext)
     expect(winExts).not.toContain('txt')
     expect(winExts).not.toContain('json')
-    for (const ext of ['png', 'jpg', 'svg', 'mp3', 'wav', 'mp4', 'mkv']) {
+    for (const ext of ['png', 'jpg', 'svg', 'mp3', 'wav', 'mp4', 'mkv', 'py', 'ts', 'js', 'sql', 'sh', 'bat']) {
       expect(winExts, `.${ext} should stay open-with-only on Windows`).not.toContain(ext)
     }
     for (const ext of ['docx', 'xlsx', 'pptx', 'pdf', 'md', 'html']) {
