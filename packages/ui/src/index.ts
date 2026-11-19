@@ -180,5 +180,6 @@ export {
 } from './ai-permission-mode'
 export { AI_PERMISSION_MODE_STRINGS, type AiPermissionModeStrings } from './strings-ai-permission'
 export { ProviderLogo } from './provider-logos'
+export { useHostedAiSlot, type HostedAiDockState, type HostedAiSlotBridge } from './hosted-ai-slot'
 export { useRedactLabelField } from './use-redact-label'
 export type { RedactLabelField } from './use-redact-label'

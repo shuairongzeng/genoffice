@@ -2093,8 +2093,10 @@ export function DesktopView({
     const home = surfaceRef.current?.closest('.home')
     if (!home) return
     home.setAttribute('data-wallpaper-tone', darkWallpaper ? 'dark' : 'light')
+    window.aiOffice.setTitleBarDark?.(darkWallpaper)
     return () => {
       home.removeAttribute('data-wallpaper-tone')
+      window.aiOffice.setTitleBarDark?.(false)
     }
   }, [darkWallpaper])
 

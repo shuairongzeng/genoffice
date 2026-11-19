@@ -37,3 +37,15 @@ html[data-ai-panel-side='right'] .app-shell.copilot-collapsed .sheet-body {
 html[data-ai-panel-side='right'] .ai-panel-collapse svg {
   transform: scaleX(-1);
 }
+
+/* Hosted slot placeholder in shell-hosted editors keeps zero transition lag. */
+.ai-dock.ai-dock-hosted {
+  transition: none;
+  min-width: 0;
+}
+
+/* When hosted inside the shell tab strip, disable standalone ribbon drag bands
+   so Windows HTCAPTION hit-testing never swallows overlay button clicks. */
+html[data-hosted-in-shell='true'] .ribbon-tabs {
+  -webkit-app-region: no-drag;
+}

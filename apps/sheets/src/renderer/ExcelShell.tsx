@@ -9,6 +9,7 @@ import {
   useRibbonCollapse,
   aiPanelInitiallyOpen,
   rememberAiPanelOpen,
+  useAiPanelPrefs,
   useAiSidebarEnabled,
   type AiTokenUsageView,
   type ToolConfirmCard,
@@ -578,10 +579,12 @@ export function ExcelShell({
   useEffect(() => {
     let alive = true
     typeof window.sheetsHost?.isHostedInShell === 'function' &&
-      window.sheetsHost.isHostedInShell().then((hosted) => {
-        if (alive) setAiHostedInShell(hosted)
-      })
-      .catch(() => undefined)
+      window.sheetsHost
+        .isHostedInShell()
+        .then((hosted) => {
+          if (alive) setAiHostedInShell(hosted)
+        })
+        .catch(() => undefined)
     return () => {
       alive = false
     }
@@ -598,6 +601,7 @@ export function ExcelShell({
   // the hosted AI slot: the global drawer's reserved space in this app (the
   // overlay docks into it at left — no blank slot between the grid and the panel)
   const hostedSlot = useHostedAiSlot(aiHostedInShell)
+  const { side: aiPanelSide } = useAiPanelPrefs()
   /** hosted and the drawer open: the slot reserves the drawer's width; collapsed
    *  (pet-only), the slot collapses to zero and the grid takes the whole row */
   const hostedDockOpen = aiHostedInShell && hostedSlot.dock !== null && !hostedSlot.dock.collapsed
@@ -740,8 +744,7 @@ export function ExcelShell({
       if (aiHostedInShell) void window.sheetsHost.openGlobalAi()
       else if (command === 'ai-open-panel') setIsCopilotOpen(true)
       else setIsCopilotOpen((v) => !v)
-    }
-    else if (command === 'chart-element-title') setChartTextTarget('title')
+    } else if (command === 'chart-element-title') setChartTextTarget('title')
     else if (command === 'chart-element-axis-cat') setChartTextTarget('axis-category')
     else if (command === 'chart-element-axis-val') setChartTextTarget('axis-value')
     else if (command === 'formula-bar-toggle') toggleFormulaBarExpand()
@@ -1010,7 +1013,13 @@ export function ExcelShell({
         className="sheet-body"
         style={
           aiHostedInShell
-            ? { gridTemplateColumns: hostedDockOpen ? `${hostedSlot.width}px minmax(0, 1fr)` : 'minmax(0, 1fr)' }
+            ? {
+                gridTemplateColumns: hostedDockOpen
+                  ? aiPanelSide === 'right'
+                    ? `minmax(0, 1fr) ${hostedSlot.width}px`
+                    : `${hostedSlot.width}px minmax(0, 1fr)`
+                  : 'minmax(0, 1fr)',
+              }
             : undefined
         }
       >
@@ -1031,48 +1040,48 @@ export function ExcelShell({
         {/* hosted: the global drawer is the only AI face — this app's own
             panel must not render a second one (no two AI panels at once) */}
         {!aiHostedInShell && (
-        <AiChatPanel
-          isOpen={isCopilotOpen}
-          hideRail={!aiSidebarEnabled}
-          hasContent={sheetHasContent}
-          chat={chat}
-          {...(historicChat !== undefined ? { historicChat } : {})}
-          attachments={attachments}
-          attachedSkills={attachedSkills}
-          onToggleSkill={onToggleSkill}
-          attachNotice={attachNotice}
-          onPickAttachments={onPickAttachments}
-          onAddAttachmentPaths={onAddAttachmentPaths}
-          onAddPastedImage={onAddPastedImage}
-          onRemoveAttachment={onRemoveAttachment}
-          prompt={prompt}
-          preview={preview}
-          aiBusy={aiBusy}
-          confirmCard={aiConfirmCard ?? null}
-          onConfirmAllow={onAiConfirmAllow}
-          onConfirmDeny={onAiConfirmDeny}
-          sessionUsage={sessionUsage}
-          onPromptChange={onPromptChange}
-          onSend={onSend}
-          onSendQueued={(text, atts) => {
-            if (aiBusy) return false
-            onSend(text, atts)
-            return true
-          }}
-          onStop={onStop}
-          onNewChat={onNewChat}
-          onUndo={onUndo}
-          scopeRange={aiScopeRange}
-          scopeColumns={aiScopeColumns}
-          scopeLocked={aiScopeLocked}
-          onScopeDismiss={onAiScopeDismiss}
-          onCitation={onAiCitation}
-          onExpand={() => {
-            if (aiHostedInShell) void window.sheetsHost.openGlobalAi()
-            else setIsCopilotOpen(true)
-          }}
-          onCollapse={() => setIsCopilotOpen(false)}
-        />
+          <AiChatPanel
+            isOpen={isCopilotOpen}
+            hideRail={!aiSidebarEnabled}
+            hasContent={sheetHasContent}
+            chat={chat}
+            {...(historicChat !== undefined ? { historicChat } : {})}
+            attachments={attachments}
+            attachedSkills={attachedSkills}
+            onToggleSkill={onToggleSkill}
+            attachNotice={attachNotice}
+            onPickAttachments={onPickAttachments}
+            onAddAttachmentPaths={onAddAttachmentPaths}
+            onAddPastedImage={onAddPastedImage}
+            onRemoveAttachment={onRemoveAttachment}
+            prompt={prompt}
+            preview={preview}
+            aiBusy={aiBusy}
+            confirmCard={aiConfirmCard ?? null}
+            onConfirmAllow={onAiConfirmAllow}
+            onConfirmDeny={onAiConfirmDeny}
+            sessionUsage={sessionUsage}
+            onPromptChange={onPromptChange}
+            onSend={onSend}
+            onSendQueued={(text, atts) => {
+              if (aiBusy) return false
+              onSend(text, atts)
+              return true
+            }}
+            onStop={onStop}
+            onNewChat={onNewChat}
+            onUndo={onUndo}
+            scopeRange={aiScopeRange}
+            scopeColumns={aiScopeColumns}
+            scopeLocked={aiScopeLocked}
+            onScopeDismiss={onAiScopeDismiss}
+            onCitation={onAiCitation}
+            onExpand={() => {
+              if (aiHostedInShell) void window.sheetsHost.openGlobalAi()
+              else setIsCopilotOpen(true)
+            }}
+            onCollapse={() => setIsCopilotOpen(false)}
+          />
         )}
         <div className="sheet-main">
           <section className="workbook-area">

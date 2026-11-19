@@ -39,6 +39,19 @@ function FallbackDocIcon(): ReactElement {
   )
 }
 
+function AppMenuGlyph(): ReactElement {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M2.5 4h11M2.5 8h11M2.5 12h11"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 function DesktopGlyph(): ReactElement {
   return (
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -249,60 +262,92 @@ export function HomeTabs({
   onClose,
 }: HomeTabsProps): ReactElement {
   const { t } = useI18n()
+  const showAppMenu =
+    typeof navigator !== 'undefined' && !navigator.platform.toLowerCase().includes('mac')
   return (
     <div className="work-tabs" role="tablist" aria-label={t('workTabsAria')}>
-      <div className={`work-tab work-tab-desktop${desktopActive ? ' active' : ''}`}>
+      {showAppMenu && (
         <button
           type="button"
-          className="work-tab-main"
-          role="tab"
-          aria-selected={desktopActive}
-          title={desktopStrings(lang).navDesktop}
-          onClick={onShowDesktop}
+          className="work-tabs-menu-btn"
+          aria-label={t('appMenu')}
+          title={t('appMenu')}
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect()
+            const rawScale = Number.parseFloat(
+              getComputedStyle(document.documentElement).getPropertyValue('--ui-scale'),
+            )
+            const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1
+            void window.aiOfficeTabs?.showAppMenu?.(
+              Math.round(rect.left * scale),
+              Math.round(rect.bottom * scale),
+            )
+          }}
         >
-          <span className="work-tab-icon" aria-hidden="true">
-            <DesktopGlyph />
-          </span>
-          <span className="work-tab-title">{desktopStrings(lang).navDesktop}</span>
+          <AppMenuGlyph />
         </button>
-      </div>
-      {tabs.map((tab) => (
-        <div
-          key={tab.id}
-          className={`work-tab${tab.active ? ' active' : ''}${tab.detached ? ' detached' : ''}`}
-        >
+      )}
+      <div
+        className="work-tabs-scroll"
+        onWheel={(e) => {
+          if (e.deltaY !== 0 && e.currentTarget.scrollWidth > e.currentTarget.clientWidth) {
+            e.currentTarget.scrollLeft += e.deltaY
+          }
+        }}
+      >
+        <div className={`work-tab work-tab-desktop${desktopActive ? ' active' : ''}`}>
           <button
             type="button"
             className="work-tab-main"
             role="tab"
-            aria-selected={tab.active}
-            title={tab.detached ? `${tab.title} (${t('workTabDetached')})` : tab.title}
-            onClick={() => onActivate(tab.id)}
+            aria-selected={desktopActive}
+            title={desktopStrings(lang).navDesktop}
+            onClick={onShowDesktop}
           >
             <span className="work-tab-icon" aria-hidden="true">
-              {/* a browser tab shows the live page favicon once the page has one */}
-              {tab.faviconUrl ? (
-                <img className="work-tab-favicon" src={tab.faviconUrl} alt="" />
-              ) : (
-                (KIND_ICON[tab.kind] ?? <FallbackDocIcon />)
-              )}
+              <DesktopGlyph />
             </span>
-            <span className="work-tab-title">{tab.title}</span>
-            {tab.dirty && (
-              <span className="work-tab-dirty" title={t('workTabDirty')} aria-hidden="true" />
-            )}
-          </button>
-          <button
-            type="button"
-            className="work-tab-close"
-            aria-label={t('closeTab')}
-            title={t('closeTab')}
-            onClick={() => onClose(tab.id)}
-          >
-            ×
+            <span className="work-tab-title">{desktopStrings(lang).navDesktop}</span>
           </button>
         </div>
-      ))}
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={`work-tab${tab.active ? ' active' : ''}${tab.detached ? ' detached' : ''}`}
+          >
+            <button
+              type="button"
+              className="work-tab-main"
+              role="tab"
+              aria-selected={tab.active}
+              title={tab.detached ? `${tab.title} (${t('workTabDetached')})` : tab.title}
+              onClick={() => onActivate(tab.id)}
+            >
+              <span className="work-tab-icon" aria-hidden="true">
+                {/* a browser tab shows the live page favicon once the page has one */}
+                {tab.faviconUrl ? (
+                  <img className="work-tab-favicon" src={tab.faviconUrl} alt="" />
+                ) : (
+                  (KIND_ICON[tab.kind] ?? <FallbackDocIcon />)
+                )}
+              </span>
+              <span className="work-tab-title">{tab.title}</span>
+              {tab.dirty && (
+                <span className="work-tab-dirty" title={t('workTabDirty')} aria-hidden="true" />
+              )}
+            </button>
+            <button
+              type="button"
+              className="work-tab-close"
+              aria-label={t('closeTab')}
+              title={t('closeTab')}
+              onClick={() => onClose(tab.id)}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

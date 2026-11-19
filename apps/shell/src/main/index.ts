@@ -4185,9 +4185,13 @@ function installUiScale(): void {
   })
 }
 
+let desktopTitleBarDark = false
+
 function refreshTitleBarOverlay(): void {
   if (process.platform === 'darwin' || !shellWindow || shellWindow.isDestroyed()) return
-  shellWindow.setTitleBarOverlay(tabStripOverlay(nativeTheme.shouldUseDarkColors, currentUiScale))
+  shellWindow.setTitleBarOverlay(
+    tabStripOverlay(nativeTheme.shouldUseDarkColors || desktopTitleBarDark, currentUiScale),
+  )
 }
 
 // ── the shell window's lifecycle (creation/reveal/detach/pin/tear-off) ──
@@ -4219,7 +4223,10 @@ const shellWindowDeps: ShellWindowDeps = {
     shellWindow = win
   },
   onShellWindowClosed: (win, manager) => {
-    if (shellWindow === win) shellWindow = null
+    if (shellWindow === win) {
+      shellWindow = null
+      desktopTitleBarDark = false
+    }
     if (tabManager === manager) {
       tabManager = null
       setDockHost(null)
@@ -4855,6 +4862,15 @@ function registerHomeIpc(): void {
     nativeTheme.themeSource = theme
     refreshTitleBarOverlay()
     for (const wc of webContents.getAllWebContents()) wc.send('app:theme-changed', theme)
+  })
+
+  ipcMain.on(HOME_CHANNELS.titleBarDark, (event, dark: unknown) => {
+    if (!shellWindow || shellWindow.isDestroyed() || event.sender !== shellWindow.webContents)
+      return
+    const next = dark === true
+    if (next === desktopTitleBarDark) return
+    desktopTitleBarDark = next
+    refreshTitleBarOverlay()
   })
 
   ipcMain.handle(HOME_CHANNELS.getDocumentTheme, (): DocTheme => currentDocTheme())
@@ -7182,13 +7198,19 @@ app.whenReady().then(async () => {
   watchAiDock(APP_SETTINGS_PATH(), (dock) => {
     sendToShellRenderer(HOME_CHANNELS.aiDockChanged, dock)
     tabManager?.drawerOverlayWebContents()?.send(HOME_CHANNELS.aiDockChanged, dock)
-    // the docs tabs' renderers hear the same broadcast: hosted, each reserves
-    // (or releases) its own AI slot from it — the drawer then docks into the
-    // slot instead of floating over the window's right edge. Sheets too: the
-    // hosted slot must collapse when the drawer collapses, or it would keep
-    // an empty reservation behind
+    // All hosted editor tab renderers hear the same broadcast so each reserves
+    // or releases its own AI slot from it.
     for (const tab of tabManager?.list() ?? []) {
-      if (tab.kind !== 'docs' && tab.kind !== 'sheets') continue
+      if (
+        tab.kind !== 'docs' &&
+        tab.kind !== 'sheets' &&
+        tab.kind !== 'slides' &&
+        tab.kind !== 'pdf' &&
+        tab.kind !== 'markdown' &&
+        tab.kind !== 'html'
+      ) {
+        continue
+      }
       const wc = tabManager?.webContentsForTab(tab.id)
       if (wc && !wc.isDestroyed()) wc.send(HOME_CHANNELS.aiDockChanged, dock)
     }

@@ -108,6 +108,7 @@ import {
   aiPanelInitiallyOpen,
   rememberAiPanelOpen,
   useAiSidebarEnabled,
+  useHostedAiSlot,
 } from '@genoffice/ui'
 import type { ChartPresetDef, IconDef, SmartArtDef } from './insert-presets'
 import { GensparkMark, IconAiBeautify, IconAiFactCheck, IconAiImage } from './components/icons'
@@ -493,14 +494,18 @@ export function App() {
   useEffect(() => {
     let alive = true
     typeof window.slidesHost?.isHostedInShell === 'function' &&
-      window.slidesHost.isHostedInShell().then((hosted) => {
-        if (alive) setAiHostedInShell(hosted)
-      })
-      .catch(() => undefined)
+      window.slidesHost
+        .isHostedInShell()
+        .then((hosted) => {
+          if (alive) setAiHostedInShell(hosted)
+        })
+        .catch(() => undefined)
     return () => {
       alive = false
     }
   }, [])
+  const hostedSlot = useHostedAiSlot(aiHostedInShell, window.slidesHost)
+  const hostedDockOpen = aiHostedInShell && hostedSlot.dock !== null && !hostedSlot.dock.collapsed
   const [showFormat, setShowFormat] = useState(false)
   const [showBgFormat, setShowBgFormat] = useState(false)
   const [aiSettings, setAiSettings] = useState<AiSettings | null>(null)
@@ -3637,62 +3642,73 @@ export function App() {
       />
 
       <div className="app-main">
-        {slide && viewMode !== 'reading' && viewMode !== 'sorter' && (
-          <div
-            className={`ai-dock${showAi && aiSettings ? '' : ' collapsed'}${
-              !aiSidebarEnabled && !showAi ? ' ai-dock-off' : ''
-            }`}
-          >
-            {/* always mounted once settings load: collapse must not drop state or in-flight runs */}
-            {aiSettings && !aiHostedInShell ? (
-              <AiPanel
-                key={aiPanelKey}
-                slides={slides}
-                current={current}
-                selectedIds={selectedIds}
-                deckEmpty={deckEmpty}
-                images={images}
-                applySlide={applySlide}
-                applyDeck={applyDeck}
-                fitWidthPx={FIT_WIDTH}
-                settings={aiSettings}
-                preset={aiPreset}
-                open={showAi}
-                hideRail={!aiSidebarEnabled}
-                onExpand={toggleAi}
-                onCollapse={toggleAi}
-                onUndo={() => void undo()}
-                onPathChange={(p) => {
-                  setPath(p)
-                  setDirty(false)
-                }}
-                onBeforeRun={flushNotes}
-                currentFilePath={path}
-                editQueue={editQueue}
-                onQueueEditInstruction={(key, instruction) =>
-                  setEditQueue((prev) =>
-                    prev.map((it) => (it.key === key ? { ...it, instruction } : it)),
-                  )
-                }
-                onQueueRemove={(key) => setEditQueue((prev) => prev.filter((it) => it.key !== key))}
-                onQueueClear={() => setEditQueue([])}
-                onQueueFocus={focusQueueItem}
-                onQueueConsume={(keys) =>
-                  setEditQueue((prev) => prev.filter((it) => !keys.includes(it.key)))
-                }
-              />
-            ) : aiSidebarEnabled ? (
-              <button
-                className="ai-rail"
-                onClick={toggleAi}
-                data-tip={t('appAiRailExpand')}
-                aria-label={t('appAiRailExpand')}
-              >
-                <GensparkMark size={22} />
-              </button>
-            ) : null}
-          </div>
-        )}
+        {slide &&
+          viewMode !== 'reading' &&
+          viewMode !== 'sorter' &&
+          (aiHostedInShell ? (
+            <div
+              ref={hostedSlot.slotRef}
+              className="ai-dock ai-dock-hosted"
+              style={{ width: hostedDockOpen ? hostedSlot.width : 0 }}
+            />
+          ) : (
+            <div
+              className={`ai-dock${showAi && aiSettings ? '' : ' collapsed'}${
+                !aiSidebarEnabled && !showAi ? ' ai-dock-off' : ''
+              }`}
+            >
+              {/* always mounted once settings load: collapse must not drop state or in-flight runs */}
+              {aiSettings ? (
+                <AiPanel
+                  key={aiPanelKey}
+                  slides={slides}
+                  current={current}
+                  selectedIds={selectedIds}
+                  deckEmpty={deckEmpty}
+                  images={images}
+                  applySlide={applySlide}
+                  applyDeck={applyDeck}
+                  fitWidthPx={FIT_WIDTH}
+                  settings={aiSettings}
+                  preset={aiPreset}
+                  open={showAi}
+                  hideRail={!aiSidebarEnabled}
+                  onExpand={toggleAi}
+                  onCollapse={toggleAi}
+                  onUndo={() => void undo()}
+                  onPathChange={(p) => {
+                    setPath(p)
+                    setDirty(false)
+                  }}
+                  onBeforeRun={flushNotes}
+                  currentFilePath={path}
+                  editQueue={editQueue}
+                  onQueueEditInstruction={(key, instruction) =>
+                    setEditQueue((prev) =>
+                      prev.map((it) => (it.key === key ? { ...it, instruction } : it)),
+                    )
+                  }
+                  onQueueRemove={(key) =>
+                    setEditQueue((prev) => prev.filter((it) => it.key !== key))
+                  }
+                  onQueueClear={() => setEditQueue([])}
+                  onQueueFocus={focusQueueItem}
+                  onQueueConsume={(keys) =>
+                    setEditQueue((prev) => prev.filter((it) => !keys.includes(it.key)))
+                  }
+                />
+              ) : aiSidebarEnabled ? (
+                <button
+                  className="ai-rail"
+                  onClick={toggleAi}
+                  data-tip={t('appAiRailExpand')}
+                  aria-label={t('appAiRailExpand')}
+                >
+                  <GensparkMark size={22} />
+                </button>
+              ) : null}
+            </div>
+          ))}
         <div className="app-content">
           {missingFonts.length > 0 && (
             <div className="font-missing-banner">

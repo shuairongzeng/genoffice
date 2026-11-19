@@ -133,7 +133,20 @@ body.vib .home {
   /* the hover/secondary fills (the library's search box, row hovers): a
    * whisper of light, not the theme's light gray */
   --hover: rgb(255 255 255 / 7%);
+  --surface-subtle: rgb(255 255 255 / 8%);
+  --color-bg-page: rgb(255 255 255 / 6%);
+  --bg-hover: rgb(255 255 255 / 7%);
+  --text-secondary: rgb(242 242 245 / 78%);
+  --text-tertiary: rgb(242 242 245 / 45%);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
   color: var(--text);
+}
+/* Keep --surface and --border-strong dark-glass on .desktop-todo only so
+ * .ai-drawer-panel preserves its own --surface. */
+.home.desktop-mode[data-wallpaper-tone='dark'] .desktop-todo {
+  --surface: rgb(255 255 255 / 8%);
+  --border-strong: rgb(255 255 255 / 22%);
 }
 .home.desktop-mode[data-wallpaper-tone='dark'] .dock {
   background: color-mix(in srgb, rgb(var(--glass-bg)) 38%, transparent);
@@ -162,6 +175,15 @@ body.vib .home {
    the first tab clear of them, the way the logo band below them used to */
 body.mac .work-tabs {
   padding-left: 84px;
+}
+
+/* Windows/Linux caption buttons (titleBarOverlay) sit over the strip's top-right
+   corner; divide the WCO inset by --ui-scale because .app-frame zooms the strip */
+body.overlay-title-bar .work-tabs {
+  padding-right: calc(
+    10px + (100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)) /
+      var(--ui-scale, 1)
+  );
 }
 
 /* desktop mode: the strip is window chrome floating over the wallpaper, not
@@ -898,12 +920,47 @@ html.dock-view body {
   padding: 0 10px;
   background: var(--checkbox-bg);
   border-bottom: 1px solid var(--border-subtle);
+  overflow: hidden;
+  /* the strip's blank track is the window's drag surface, the retired native
+     strip's job; the tabs and menu button stay interactive (no-drag below) */
+  -webkit-app-region: drag;
+}
+
+.work-tabs-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.work-tabs-menu-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.work-tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
-  /* the strip's blank track is the window's drag surface, the retired native
-     strip's job; the tabs themselves stay interactive (no-drag below) */
-  -webkit-app-region: drag;
+  scrollbar-width: none;
+}
+
+.work-tabs-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 /* while a Home popover is open the chrome bands must deliver presses (drag
@@ -1211,7 +1268,8 @@ html.genoffice-popover-open .work-tabs {
  * -webkit-app-region: drag band: that would hand the press to the OS's
  * window-drag instead, moving the whole program window when the person
  * only meant to move the panel. */
-.ai-drawer-body .kb-ask-header button {
+.ai-drawer-body .kb-ask-header button,
+.ask-panel-entry .kb-ask-header button {
   -webkit-app-region: no-drag;
 }
 /* Windows/Linux draw the caption buttons (titleBarOverlay) over the window's

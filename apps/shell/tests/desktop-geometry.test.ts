@@ -111,8 +111,12 @@ describe('aiDockWidth', () => {
   })
 
   it('clamps the stored width into [min, max] before scaling, like the renderer drag does', () => {
-    expect(aiDockWidth({ width: 100, collapsed: false, petPos: null, panelPos: null })).toBe(AI_DOCK_WIDTH_MIN)
-    expect(aiDockWidth({ width: 2000, collapsed: false, petPos: null, panelPos: null })).toBe(AI_DOCK_WIDTH_MAX)
+    expect(aiDockWidth({ width: 100, collapsed: false, petPos: null, panelPos: null })).toBe(
+      AI_DOCK_WIDTH_MIN,
+    )
+    expect(aiDockWidth({ width: 2000, collapsed: false, petPos: null, panelPos: null })).toBe(
+      AI_DOCK_WIDTH_MAX,
+    )
     // the clamp is on the CSS width: a 400 px drawer at 150% legitimately spans 600
     expect(aiDockWidth({ width: 2000, collapsed: false, petPos: null }, 1.5)).toBe(
       AI_DOCK_WIDTH_MAX * 1.5,
@@ -260,7 +264,12 @@ describe('aiBubbleAnchor', () => {
 
 describe('normalizeAiDock', () => {
   it('falls back to the open-drawer default for anything unreadable', () => {
-    const fallback = { width: AI_DOCK_WIDTH_DEFAULT, collapsed: false, petPos: null, panelPos: null }
+    const fallback = {
+      width: AI_DOCK_WIDTH_DEFAULT,
+      collapsed: false,
+      petPos: null,
+      panelPos: null,
+    }
     expect(normalizeAiDock(undefined)).toEqual(fallback)
     expect(normalizeAiDock(null)).toEqual(fallback)
     expect(normalizeAiDock('400')).toEqual(fallback)
@@ -437,5 +446,20 @@ describe('dockOverlayBounds', () => {
       },
     )
     expect(junk.dock).toEqual(fallback.dock)
+  })
+})
+
+describe('floatingPanelBounds', () => {
+  it('keeps dragged floating panel top below desktop header height', async () => {
+    const { floatingPanelBounds } = await import('../src/shared/desktop-geometry')
+    const bounds = floatingPanelBounds(
+      { width: 1200, height: 800 },
+      {
+        scale: 1,
+        dock: { width: 400, collapsed: false, petPos: null, panelPos: { x: 200, y: 0 } },
+      },
+    )
+    expect(bounds.x).toBe(200)
+    expect(bounds.y).toBe(DESKTOP_HEADER_HEIGHT)
   })
 })

@@ -1324,6 +1324,8 @@ export interface HomeApi {
   getTheme(): Promise<UiTheme>
   /** switch + persist the UI theme; broadcasts 'app:theme-changed' to all web contents */
   setTheme(theme: UiTheme): Promise<void>
+  /** notify main whether the desktop surface currently renders a dark top bar */
+  setTitleBarDark?(dark: boolean): void
   /** current document page theme preference (genoffice#1811, persisted in userData/app-settings.json) */
   getDocumentTheme(): Promise<DocTheme>
   /** switch + persist the document page theme; broadcasts 'app:document-theme-changed' to all web contents */
@@ -1784,6 +1786,7 @@ export const HOME_CHANNELS = {
   setOnboardingSeen: 'home:set-onboarding-seen',
   getTheme: 'home:get-theme',
   setTheme: 'home:set-theme',
+  titleBarDark: 'home:title-bar-dark',
   getDocumentTheme: 'home:get-document-theme',
   setDocumentTheme: 'home:set-document-theme',
   getAutoSaveDefault: 'home:get-auto-save-default',

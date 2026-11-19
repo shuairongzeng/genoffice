@@ -667,6 +667,72 @@ describe('the embedded tab strip', () => {
     await act(async () => pushTabs('t1', { id: 't1', kind: 'docs', title: 'brief.docx' }))
     expect(container.querySelector('.work-tab-desktop')!.className).not.toContain('active')
   })
+
+  it('wraps tabs inside .work-tabs-scroll and invokes showAppMenu from the non-Mac menu button', async () => {
+    const platformSpy = vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32')
+    const showAppMenu = vi.fn(async () => undefined)
+    try {
+      document.body.classList.add('overlay-title-bar')
+      await unmountHome()
+      await mountHome(baseApi())
+      await act(async () => pushTabs('t1', { id: 't1', kind: 'docs', title: 'brief.docx' }))
+
+      const strip = container.querySelector('.work-tabs')!
+      const menuBtn = strip.querySelector<HTMLButtonElement>('.work-tabs-menu-btn')!
+      const scroll = strip.querySelector('.work-tabs-scroll')!
+      expect(menuBtn).not.toBeNull()
+      expect(menuBtn.type).toBe('button')
+      expect(menuBtn.classList.contains('work-tab')).toBe(false)
+      expect(menuBtn.getAttribute('aria-label')).toBe('Menu')
+      expect(menuBtn.getAttribute('title')).toBe('Menu')
+      expect(menuBtn.nextElementSibling).toBe(scroll)
+      expect(scroll.querySelector('.work-tab-desktop')).not.toBeNull()
+      expect(scroll.querySelectorAll('.work-tab')).toHaveLength(2)
+
+      window.aiOfficeTabs = {
+        showAppMenu,
+      } as unknown as Window['aiOfficeTabs']
+      Object.defineProperty(menuBtn, 'getBoundingClientRect', {
+        value: () => ({
+          left: 10,
+          top: 6,
+          right: 42,
+          bottom: 38,
+          width: 32,
+          height: 32,
+          x: 10,
+          y: 6,
+          toJSON: () => ({}),
+        }),
+      })
+
+      await click(menuBtn)
+      expect(showAppMenu).toHaveBeenCalledWith(10, 38)
+
+      document.documentElement.style.setProperty('--ui-scale', '1.5')
+      await click(menuBtn)
+      expect(showAppMenu).toHaveBeenLastCalledWith(15, 57)
+    } finally {
+      document.documentElement.style.removeProperty('--ui-scale')
+      document.body.classList.remove('overlay-title-bar')
+      window.aiOfficeTabs = undefined as unknown as Window['aiOfficeTabs']
+      platformSpy.mockRestore()
+    }
+  })
+
+  it('omits the app menu button on macOS while keeping .work-tabs-scroll', async () => {
+    const platformSpy = vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('MacIntel')
+    try {
+      await unmountHome()
+      await mountHome(baseApi())
+      expect(container.querySelector('.work-tabs-menu-btn')).toBeNull()
+      expect(
+        container.querySelector('.work-tabs .work-tabs-scroll .work-tab-desktop'),
+      ).not.toBeNull()
+    } finally {
+      platformSpy.mockRestore()
+    }
+  })
 })
 
 describe('the strip without the push channel', () => {

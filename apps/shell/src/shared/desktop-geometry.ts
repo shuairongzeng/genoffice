@@ -290,7 +290,13 @@ export function floatingPanelBounds(
   const chrome = { width: window.width / scale, height: window.height / scale }
   const card = { width: width / scale, height: height / scale }
   const fallback = { x: Math.max(0, chrome.width - card.width), y: AI_PANEL_FLOAT_MARGIN / scale }
-  const pos = clampPetPos(layout.dock.panelPos ?? fallback, chrome, card)
+  const clamped = clampPetPos(layout.dock.panelPos ?? fallback, chrome, card)
+  // Keep user-dragged floating panels below the shell top strip so header buttons stay clickable on Windows.
+  const minY =
+    layout.dock.panelPos == null
+      ? 0
+      : Math.min(DESKTOP_HEADER_HEIGHT, Math.max(0, Math.round(chrome.height - card.height)))
+  const pos = { x: clamped.x, y: Math.max(minY, clamped.y) }
   return {
     x: Math.round(pos.x * scale),
     y: Math.round(pos.y * scale),

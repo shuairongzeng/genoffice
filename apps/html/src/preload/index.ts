@@ -148,6 +148,53 @@ contextBridge.exposeInMainWorld('htmlApi', api)
 contextBridge.exposeInMainWorld('htmlSelection', {
   report: (text: string) => ipcRenderer.send('app:selection-changed', text),
 })
+// Shell hosting bridge: allow hosted tabs to summon the global AI drawer and reserve its slot
+contextBridge.exposeInMainWorld('htmlHost', {
+  isHostedInShell: async () => {
+    try {
+      return (await ipcRenderer.invoke('app:is-hosted-in-shell')) === true
+    } catch {
+      return false
+    }
+  },
+  openGlobalAi: async (question?: string) => {
+    try {
+      const opened = (await ipcRenderer.invoke('docs:open-global-ai')) === true
+      if (opened && typeof question === 'string' && question.trim()) {
+        await ipcRenderer.invoke('home:ask-forward', {
+          text: question,
+          seq: Date.now(),
+          origin: 'deep-link',
+        })
+      }
+    } catch {
+      // standalone dev: no handler, the app's own panel opens instead
+    }
+  },
+  getAiDockState: () => ipcRenderer.invoke('home:ai-dock-get'),
+  onAiDockChanged: (
+    handler: (state: {
+      width: number
+      collapsed: boolean
+      petPos: { x: number; y: number } | null
+    }) => void,
+  ) => {
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      state: { width: number; collapsed: boolean; petPos: { x: number; y: number } | null },
+    ) => handler(state)
+    ipcRenderer.on('home:ai-dock-changed', listener)
+    return () => ipcRenderer.removeListener('home:ai-dock-changed', listener)
+  },
+  reportAiSlotRect: (rect: { x: number; y: number; width: number; height: number }) => {
+    ipcRenderer.send('docs:ai-slot-rect', rect)
+  },
+  onAiSlotRectRequest: (handler: () => void) => {
+    const listener = () => handler()
+    ipcRenderer.on('docs:ai-slot-rect-request', listener)
+    return () => ipcRenderer.removeListener('docs:ai-slot-rect-request', listener)
+  },
+})
 contextBridge.exposeInMainWorld('projectApi', projectApi)
 
 // open documents dragged from the OS onto this tab as a new shell tab

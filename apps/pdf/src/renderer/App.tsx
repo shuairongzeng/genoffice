@@ -177,6 +177,7 @@ import {
   useDismissablePopover,
   useRibbonCollapse,
   useAiSidebarEnabled,
+  useHostedAiSlot,
 } from '@genoffice/ui'
 import { useI18n } from './i18n/locale'
 import { useAutosave } from './useAutosave'
@@ -431,7 +432,10 @@ export default function App() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
     const report = () => {
-      const text = (window.getSelection()?.toString() ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000)
+      const text = (window.getSelection()?.toString() ?? '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 2000)
       window.pdfSelection?.report?.(text)
     }
     const bump = () => {
@@ -489,14 +493,18 @@ export default function App() {
   useEffect(() => {
     let alive = true
     typeof window.pdfHost?.isHostedInShell === 'function' &&
-      window.pdfHost.isHostedInShell().then((hosted) => {
-        if (alive) setAiHostedInShell(hosted)
-      })
-      .catch(() => undefined)
+      window.pdfHost
+        .isHostedInShell()
+        .then((hosted) => {
+          if (alive) setAiHostedInShell(hosted)
+        })
+        .catch(() => undefined)
     return () => {
       alive = false
     }
   }, [])
+  const hostedSlot = useHostedAiSlot(aiHostedInShell, window.pdfHost)
+  const hostedDockOpen = aiHostedInShell && hostedSlot.dock !== null && !hostedSlot.dock.collapsed
   // the copilot toggle: hosted, the global drawer is the panel; standalone,
   // this app's own panel (with the permission picker) opens
   const toggleAi = (): void => {
@@ -8329,36 +8337,40 @@ export default function App() {
         }}
       />
       <div className="app-main">
-        {/* dock wrapper animates the width between panel and rail (docs-style 180ms ease);
-              the panel stays mounted while collapsed so the chat history survives */}
-        <div
-          className={`ai-dock${aiCollapsed ? ' collapsed' : ''}${
-            !aiSidebarEnabled && aiCollapsed ? ' ai-dock-off' : ''
-          }`}
-        >
-          {aiCollapsed && aiSidebarEnabled && (
-            <button
-              className="ai-rail"
-              data-tip={t('aiOpenAssistant')}
-              aria-label={t('aiOpenAssistant')}
-              onClick={toggleAi}
-            >
-              <GensparkMark size={22} />
-            </button>
-          )}
-          {/* hosted: the global drawer is the only AI face — this app's own
-              panel must not render a second one (no two AI panels at once) */}
-          {!aiHostedInShell && (
-          <AiPanel
-            api={aiApi}
-            filePath={filePath}
-            preset={aiPreset}
-            onCollapse={() => setAiCollapsed(true)}
-            onRunDone={() => void autoSaveAfterAiRun()}
-            onClearSelection={() => setAiSelection(null)}
+        {aiHostedInShell ? (
+          <div
+            ref={hostedSlot.slotRef}
+            className="ai-dock ai-dock-hosted"
+            style={{ width: hostedDockOpen ? hostedSlot.width : 0 }}
           />
-          )}
-        </div>
+        ) : (
+          /* dock wrapper animates the width between panel and rail (docs-style 180ms ease);
+                the panel stays mounted while collapsed so the chat history survives */
+          <div
+            className={`ai-dock${aiCollapsed ? ' collapsed' : ''}${
+              !aiSidebarEnabled && aiCollapsed ? ' ai-dock-off' : ''
+            }`}
+          >
+            {aiCollapsed && aiSidebarEnabled && (
+              <button
+                className="ai-rail"
+                data-tip={t('aiOpenAssistant')}
+                aria-label={t('aiOpenAssistant')}
+                onClick={toggleAi}
+              >
+                <GensparkMark size={22} />
+              </button>
+            )}
+            <AiPanel
+              api={aiApi}
+              filePath={filePath}
+              preset={aiPreset}
+              onCollapse={() => setAiCollapsed(true)}
+              onRunDone={() => void autoSaveAfterAiRun()}
+              onClearSelection={() => setAiSelection(null)}
+            />
+          </div>
+        )}
         <div className="app-content">
           {digitalSignatures.length > 0 && (
             <div className={`pdf-sig-banner ${overallSignatureStatus(digitalSignatures)}`}>

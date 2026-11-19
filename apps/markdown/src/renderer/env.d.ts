@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import type { ProjectApi } from '@genoffice/project-store'
+import type { HostedAiSlotBridge } from '@genoffice/ui'
 import type { MarkdownApi } from '../shared/ipc'
 
 declare global {
@@ -9,7 +10,7 @@ declare global {
     /** the editor's text selection reporter (main's selection-store.ts) */
     markdownSelection: { report: (text: string) => void }
     /** shell hosting + the shared permission posture (main's home-ipc) */
-    markdownHost: {
+    markdownHost: HostedAiSlotBridge & {
       isHostedInShell(): Promise<boolean>
       openGlobalAi(question?: string): Promise<void>
       getAiPermissions(): Promise<'auto' | 'smart' | 'paranoid'>

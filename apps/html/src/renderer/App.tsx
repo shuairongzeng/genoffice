@@ -10,6 +10,7 @@ import {
   aiPanelInitiallyOpen,
   rememberAiPanelOpen,
   useAiSidebarEnabled,
+  useHostedAiSlot,
 } from '@genoffice/ui'
 import {
   pollUntilReady,
@@ -150,6 +151,29 @@ export default function App() {
   const [aiOpen, setAiOpen] = useState(() => aiPanelInitiallyOpen('htmlapp.showAi'))
   // the sidebar switch is a soft hide; it closes the panel when it turns off
   const aiSidebarEnabled = useAiSidebarEnabled(setAiOpen)
+  const [aiHostedInShell, setAiHostedInShell] = useState(false)
+  useEffect(() => {
+    let alive = true
+    typeof window.htmlHost?.isHostedInShell === 'function' &&
+      window.htmlHost
+        .isHostedInShell()
+        .then((hosted) => {
+          if (alive) setAiHostedInShell(hosted)
+        })
+        .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
+  const toggleAi = (): void => {
+    if (aiHostedInShell) {
+      void window.htmlHost?.openGlobalAi()
+      return
+    }
+    setAiOpen((v) => !v)
+  }
+  const hostedSlot = useHostedAiSlot(aiHostedInShell, window.htmlHost)
+  const hostedDockOpen = aiHostedInShell && hostedSlot.dock !== null && !hostedSlot.dock.collapsed
   const [aiPreset, setAiPreset] = useState<AiPreset | null>(null)
   const [editQueue, setEditQueue] = useState<EditQueueItem[]>([])
   const [askMode, setAskMode] = useState<AskMode | null>(null)
@@ -206,7 +230,10 @@ export default function App() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
     const report = () => {
-      const text = (window.getSelection()?.toString() ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000)
+      const text = (window.getSelection()?.toString() ?? '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 2000)
       window.htmlSelection?.report?.(text)
     }
     const bump = () => {
@@ -1076,6 +1103,10 @@ export default function App() {
     setAskMode(null)
     if (!askTarget) return
     flushPending()
+    if (aiHostedInShell) {
+      void window.htmlHost?.openGlobalAi(buildSelectionInstruction(askTarget, instruction))
+      return
+    }
     setAiOpen(true)
     const scope: AiScopeQuoteData = {
       label: t('aiScopeElement', { tag: askTarget.tag }),
@@ -1741,13 +1772,17 @@ export default function App() {
         view={view}
         onView={setView}
         aiOpen={aiOpen}
-        onToggleAi={() => setAiOpen((v) => !v)}
+        onToggleAi={toggleAi}
         canInsert={canvasMode === 'edit'}
         onInsert={(kind, opts) => void insertElement(kind, opts)}
         onInsertSkeleton={insertSkeleton}
         canInsertSkeleton={canvasMode === 'edit' && isDocEmpty(textRef.current)}
         onAiPreset={(text) => {
           flushPending()
+          if (aiHostedInShell) {
+            void window.htmlHost?.openGlobalAi(text)
+            return
+          }
           setAiOpen(true)
           setAiPreset({ text, nonce: Date.now() })
         }}
@@ -1756,35 +1791,43 @@ export default function App() {
       />
 
       <div className="app-main">
-        <div
-          className={`ai-dock${aiOpen ? '' : ' collapsed'}${
-            !aiSidebarEnabled && !aiOpen ? ' ai-dock-off' : ''
-          }`}
-        >
-          {!aiOpen && aiSidebarEnabled && (
-            <button
-              className="ai-rail"
-              data-tip={t('aiOpenAssistant')}
-              aria-label={t('aiOpenAssistant')}
-              onClick={() => setAiOpen(true)}
-            >
-              <GensparkMark size={18} />
-            </button>
-          )}
-          {/* stays mounted while collapsed: an in-flight run, its snapshots and the loop context survive */}
-          <AiPanel
-            deps={aiDeps}
-            filePath={path}
-            preset={aiPreset}
-            editQueue={editQueue}
-            onQueueEditInstruction={queueUpdate}
-            onQueueRemove={queueRemove}
-            onQueueClear={() => setEditQueue([])}
-            onQueueFocus={queueFocus}
-            onQueueConsume={queueConsume}
-            onCollapse={() => setAiOpen(false)}
+        {aiHostedInShell ? (
+          <div
+            ref={hostedSlot.slotRef}
+            className="ai-dock ai-dock-hosted"
+            style={{ width: hostedDockOpen ? hostedSlot.width : 0 }}
           />
-        </div>
+        ) : (
+          <div
+            className={`ai-dock${aiOpen ? '' : ' collapsed'}${
+              !aiSidebarEnabled && !aiOpen ? ' ai-dock-off' : ''
+            }`}
+          >
+            {!aiOpen && aiSidebarEnabled && (
+              <button
+                className="ai-rail"
+                data-tip={t('aiOpenAssistant')}
+                aria-label={t('aiOpenAssistant')}
+                onClick={() => setAiOpen(true)}
+              >
+                <GensparkMark size={18} />
+              </button>
+            )}
+            {/* stays mounted while collapsed: an in-flight run, its snapshots and the loop context survive */}
+            <AiPanel
+              deps={aiDeps}
+              filePath={path}
+              preset={aiPreset}
+              editQueue={editQueue}
+              onQueueEditInstruction={queueUpdate}
+              onQueueRemove={queueRemove}
+              onQueueClear={() => setEditQueue([])}
+              onQueueFocus={queueFocus}
+              onQueueConsume={queueConsume}
+              onCollapse={() => setAiOpen(false)}
+            />
+          </div>
+        )}
         <div className="app-content">
           {diskNotice && (
             <div className="disk-notice" role="status">

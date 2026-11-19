@@ -32,6 +32,16 @@ import {
   type SleepPolicy,
 } from './tab-hibernation'
 
+/** Editor tabs whose hosted renderer reserves an AI sidebar slot and reports its rect. */
+const HOSTED_AI_SLOT_KINDS: ReadonlySet<TabKind> = new Set([
+  'docs',
+  'sheets',
+  'slides',
+  'pdf',
+  'markdown',
+  'html',
+])
+
 /** a tab lifted out of the strip with its live view: what "Open in New Window",
  *  tear-off and dock hand back and forth between the shell and a detached window */
 export interface DetachedTab {
@@ -534,7 +544,9 @@ export class TabManager {
       docActive: active !== undefined && active.kind !== 'home',
       suppressed: this.drawerOverlaySuppressed(),
       window: { width, height },
-      ...((active?.kind === 'docs' || active?.kind === 'sheets') && this.aiDock().collapsed === false
+      ...(active !== undefined &&
+      HOSTED_AI_SLOT_KINDS.has(active.kind) &&
+      this.aiDock().collapsed === false
         ? {
             // undefined (the key dropped) when no fresh report: the window's
             // right edge is the geometry then, exactly as before the slot
@@ -555,24 +567,24 @@ export class TabManager {
    * A hosted AI-slot report arrived over `docs:ai-slot-rect` from this
    * webContents: the rect is view-local (the renderer's viewport), so the
    * tab's view bounds — the geometry this manager itself set — convert it
-   * into window px. Only the ACTIVE hosted app's report counts (docs or
-   * sheets): a background tab's layout is not the surface the drawer docks
-   * into (and a detached editor, its view no longer a tab here, is dropped by
-   * the find itself — the overlay exists only while a shell tab is active). A
-   * fresh report always wins (the renderer's layout is the authority on where
-   * its slot sits), and the drawer refits immediately.
+   * into window px. Only the ACTIVE hosted app's report counts: a background
+   * tab's layout is not the surface the drawer docks into (and a detached
+   * editor, its view no longer a tab here, is dropped by the find itself —
+   * the overlay exists only while a shell tab is active). A fresh report
+   * always wins (the renderer's layout is the authority on where its slot
+   * sits), and the drawer refits immediately.
    */
   reportAiSlotRect(wc: WebContents, rect: SlotRectReport): void {
     if (this.shellWindow.isDestroyed() || wc.isDestroyed()) return
     const tab = this.tabs.find((t) => t.view && t.view.webContents.id === wc.id)
     if (!tab?.view) return
-    if (tab.id !== this.activeId || (tab.kind !== 'docs' && tab.kind !== 'sheets')) return
+    if (tab.id !== this.activeId || !HOSTED_AI_SLOT_KINDS.has(tab.kind)) return
     this.aiSlot.report(wc.id, tab.view.getBounds(), rect, this.uiScale())
     this.syncDrawerOverlay()
   }
 
   /**
-   * Ask the active docs tab's renderer for a fresh slot report
+   * Ask the active hosted editor tab's renderer for a fresh slot report
    * (`docs:ai-slot-rect-request`): activation and an interface-scale change
    * both invalidate what was measured before, and the request is what heals
    * the stale moment — the renderer re-measures and the report lands within
@@ -582,7 +594,7 @@ export class TabManager {
   requestAiSlotRect(): void {
     if (this.shellWindow.isDestroyed()) return
     const active = this.tabs.find((t) => t.id === this.activeId)
-    if (active?.kind !== 'docs' || !active.view) return
+    if (!active || !HOSTED_AI_SLOT_KINDS.has(active.kind) || !active.view) return
     const wc = active.view.webContents
     // guarded: a renderer without the channel (a stale app build) simply
     // gets no request — the tracker stays stale and the overlay falls back
@@ -984,7 +996,7 @@ export class TabManager {
     // right away, so the drawer's window-edge fallback lasts one round trip
     const previousWc = previous?.view?.webContents
     if (previousWc && previous.id !== id) this.aiSlot.markStale(previousWc.id)
-    if (target.kind === 'docs') this.requestAiSlotRect()
+    if (HOSTED_AI_SLOT_KINDS.has(target.kind)) this.requestAiSlotRect()
     if (target.view) this.installPaletteShortcut(target.view.webContents)
     if (appForKind(target.kind)?.open?.spare) this.scheduleSpareView(3000)
     else this.discardSpareView()

@@ -165,19 +165,26 @@ describe('endpointUrl', () => {
     )
   })
 
-  it('sends local excerpts only over https or a loopback host', () => {
+  it('sends local excerpts only over https or a local/private-network host', () => {
     for (const base of [
       'https://decider.example/v1/systemone',
       'http://127.0.0.1:8009/v1/systemone',
       'http://localhost:8010/v1/systemone',
       'http://[::1]:8010/v1/systemone',
+      'http://10.0.0.5:8009/v1/systemone',
+      'http://192.168.100.235:7000/v1/systemone',
+      'http://172.16.0.1:8009/v1/systemone',
+      'http://172.31.255.254:8009/v1/systemone',
+      'http://nas.local:8009/v1/systemone',
+      'http://[fd00::1]:8009/v1/systemone',
     ]) {
       expect(endpointUrl(opts({ endpoint: 'custom', customBaseUrl: base }))).toBe(base)
     }
     for (const base of [
       'http://decider.example/v1/systemone',
       'ftp://127.0.0.1/v1/systemone',
-      'http://10.0.0.5:8009/v1/systemone',
+      'http://172.32.0.1:8009/v1/systemone',
+      'http://8.8.8.8:8009/v1/systemone',
     ]) {
       expect(() => endpointUrl(opts({ endpoint: 'custom', customBaseUrl: base }))).toThrow(
         'insecure-url',

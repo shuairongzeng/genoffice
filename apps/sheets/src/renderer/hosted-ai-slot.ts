@@ -64,6 +64,18 @@ export function useHostedAiSlot(enabled: boolean): {
   shellAnsweredRef.current = dock !== null
 
   useEffect(() => {
+    const html = document.documentElement
+    if (!enabled) {
+      delete html.dataset.hostedInShell
+      return
+    }
+    html.dataset.hostedInShell = 'true'
+    return () => {
+      delete html.dataset.hostedInShell
+    }
+  }, [enabled])
+
+  useEffect(() => {
     if (!enabled) return
     const desktop = window.desktopApi
     if (typeof desktop?.getAiDockState !== 'function') return
@@ -89,6 +101,16 @@ export function useHostedAiSlot(enabled: boolean): {
     return true
   }, [])
 
+  /** measure the slot as it sits right now and hand the rect to the shell */
+  const report = useCallback((): void => {
+    if (refreshScale()) return
+    const node = nodeRef.current
+    const slotRect = window.sheetsSlotRect
+    if (!node || typeof slotRect?.report !== 'function') return
+    const rect = node.getBoundingClientRect()
+    slotRect.report({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
+  }, [refreshScale])
+
   // the scale can move under this renderer at any moment (the View menu's
   // write lands as a new inline --ui-scale on :root, from the main process),
   // and neither of the two signals that follow it is ordered against the
@@ -100,20 +122,27 @@ export function useHostedAiSlot(enabled: boolean): {
   // re-render) or reads the same value and does nothing.
   useEffect(() => {
     if (!enabled || typeof MutationObserver !== 'function') return
-    const observer = new MutationObserver(() => void refreshScale())
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
-    return () => observer.disconnect()
-  }, [enabled, refreshScale])
-
-  /** measure the slot as it sits right now and hand the rect to the shell */
-  const report = useCallback((): void => {
-    if (refreshScale()) return
-    const node = nodeRef.current
-    const slotRect = window.sheetsSlotRect
-    if (!node || typeof slotRect?.report !== 'function') return
-    const rect = node.getBoundingClientRect()
-    slotRect.report({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
-  }, [refreshScale])
+    let rafId = 0
+    const observer = new MutationObserver((records) => {
+      const styleMoved = refreshScale()
+      if (!styleMoved && records.some((r) => r.attributeName === 'data-ai-panel-side')) {
+        if (typeof requestAnimationFrame === 'function') {
+          cancelAnimationFrame(rafId)
+          rafId = requestAnimationFrame(() => report())
+        } else {
+          report()
+        }
+      }
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['style', 'data-ai-panel-side'],
+    })
+    return () => {
+      observer.disconnect()
+      if (rafId && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId)
+    }
+  }, [enabled, refreshScale, report])
 
   // main's re-measure request (activation, interface-scale change): the
   // stored rect is stale by construction then, and this answers it fresh.

@@ -1050,6 +1050,9 @@ const homeApi: HomeApi = {
       throw new Error('Invalid theme.')
     await ipcRenderer.invoke(HOME_CHANNELS.setTheme, theme)
   },
+  setTitleBarDark(dark) {
+    ipcRenderer.send(HOME_CHANNELS.titleBarDark, dark === true)
+  },
   async getDocumentTheme() {
     const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.getDocumentTheme)
     return result === 'dark' || result === 'light' ? result : 'follow'

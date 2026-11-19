@@ -189,6 +189,29 @@ contextBridge.exposeInMainWorld('pdfHost', {
     ipcRenderer.on('home:ai-permissions-changed', listener)
     return () => ipcRenderer.removeListener('home:ai-permissions-changed', listener)
   },
+  getAiDockState: () => ipcRenderer.invoke('home:ai-dock-get'),
+  onAiDockChanged: (
+    handler: (state: {
+      width: number
+      collapsed: boolean
+      petPos: { x: number; y: number } | null
+    }) => void,
+  ) => {
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      state: { width: number; collapsed: boolean; petPos: { x: number; y: number } | null },
+    ) => handler(state)
+    ipcRenderer.on('home:ai-dock-changed', listener)
+    return () => ipcRenderer.removeListener('home:ai-dock-changed', listener)
+  },
+  reportAiSlotRect: (rect: { x: number; y: number; width: number; height: number }) => {
+    ipcRenderer.send('docs:ai-slot-rect', rect)
+  },
+  onAiSlotRectRequest: (handler: () => void) => {
+    const listener = () => handler()
+    ipcRenderer.on('docs:ai-slot-rect-request', listener)
+    return () => ipcRenderer.removeListener('docs:ai-slot-rect-request', listener)
+  },
 })
 
 contextBridge.exposeInMainWorld('pdfApi', api)

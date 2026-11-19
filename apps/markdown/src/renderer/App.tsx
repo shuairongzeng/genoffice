@@ -11,6 +11,7 @@ import {
   rememberAiPanelOpen,
   useAutoSavePref,
   useAiSidebarEnabled,
+  useHostedAiSlot,
 } from '@genoffice/ui'
 import {
   pollUntilReady,
@@ -174,10 +175,12 @@ export default function App() {
   useEffect(() => {
     let alive = true
     typeof window.markdownHost?.isHostedInShell === 'function' &&
-      window.markdownHost.isHostedInShell().then((hosted) => {
-        if (alive) setAiHostedInShell(hosted)
-      })
-      .catch(() => undefined)
+      window.markdownHost
+        .isHostedInShell()
+        .then((hosted) => {
+          if (alive) setAiHostedInShell(hosted)
+        })
+        .catch(() => undefined)
     return () => {
       alive = false
     }
@@ -191,6 +194,8 @@ export default function App() {
     }
     setAiOpen((v) => !v)
   }
+  const hostedSlot = useHostedAiSlot(aiHostedInShell, window.markdownHost)
+  const hostedDockOpen = aiHostedInShell && hostedSlot.dock !== null && !hostedSlot.dock.collapsed
   const [aiPreset, setAiPreset] = useState<AiPreset | null>(null)
   const [editQueue, setEditQueue] = useState<EditQueueItem[]>([])
   const editQueueRef = useRef(editQueue)
@@ -228,7 +233,10 @@ export default function App() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
     const report = () => {
-      const text = (window.getSelection()?.toString() ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000)
+      const text = (window.getSelection()?.toString() ?? '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 2000)
       window.markdownSelection?.report?.(text)
     }
     const bump = () => {
@@ -1234,16 +1242,19 @@ export default function App() {
     current.view.dispatch(current.state.tr.setSelection(selection).scrollIntoView())
     current.view.focus()
   }, [])
-  const askSendNow = useCallback((text: string): void => {
-    // hosted: the preset goes to the global drawer (parked for Enter);
-    // standalone: this app's own panel opens and runs it
-    if (aiHostedInShell) {
-      void window.markdownHost.openGlobalAi(text)
-      return
-    }
-    setAiOpen(true)
-    setAiPreset((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
-  }, [aiHostedInShell])
+  const askSendNow = useCallback(
+    (text: string): void => {
+      // hosted: the preset goes to the global drawer (parked for Enter);
+      // standalone: this app's own panel opens and runs it
+      if (aiHostedInShell) {
+        void window.markdownHost.openGlobalAi(text)
+        return
+      }
+      setAiOpen(true)
+      setAiPreset((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
+    },
+    [aiHostedInShell],
+  )
 
   const aiDeps: MarkdownAiDeps = {
     getEditor: () => editorRef.current,
@@ -1346,6 +1357,10 @@ export default function App() {
         aiOpen={aiOpen}
         onToggleAi={toggleAi}
         onAiPreset={(text) => {
+          if (aiHostedInShell) {
+            void window.markdownHost.openGlobalAi(text)
+            return
+          }
           setAiOpen(true)
           setAiPreset((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
         }}
@@ -1357,38 +1372,48 @@ export default function App() {
       />
       {status === 'loading' && <div className="center-note">{t('loading')}</div>}
       <div className="app-main" style={status === 'ready' ? undefined : { display: 'none' }}>
-        <div
-          className={`ai-dock${aiOpen ? '' : ' collapsed'}${
-            !aiSidebarEnabled && !aiOpen ? ' ai-dock-off' : ''
-          }`}
-        >
-          {!aiOpen && aiSidebarEnabled && (
-            <button
-              className="ai-rail"
-              data-tip={t('aiOpenAssistant')}
-              aria-label={t('aiOpenAssistant')}
-              onClick={toggleAi}
-            >
-              <GensparkMark size={22} />
-            </button>
-          )}
-          {/* mounted only after the file is loaded so chat history resolves against the real path;
-              hosted: the global drawer is the only AI face — no second panel */}
-          {status === 'ready' && !aiHostedInShell && (
-            <AiPanel
-              deps={aiDeps}
-              filePath={filePath}
-              preset={aiPreset}
-              onCollapse={() => setAiOpen(false)}
-              editQueue={editQueue}
-              onQueueEditInstruction={queueUpdate}
-              onQueueRemove={queueRemove}
-              onQueueClear={queueClear}
-              onQueueFocus={queueFocus}
-              onQueueConsume={queueConsume}
+        {aiHostedInShell ? (
+          status === 'ready' ? (
+            <div
+              ref={hostedSlot.slotRef}
+              className="ai-dock ai-dock-hosted"
+              style={{ width: hostedDockOpen ? hostedSlot.width : 0 }}
             />
-          )}
-        </div>
+          ) : null
+        ) : (
+          <div
+            className={`ai-dock${aiOpen ? '' : ' collapsed'}${
+              !aiSidebarEnabled && !aiOpen ? ' ai-dock-off' : ''
+            }`}
+          >
+            {!aiOpen && aiSidebarEnabled && (
+              <button
+                className="ai-rail"
+                data-tip={t('aiOpenAssistant')}
+                aria-label={t('aiOpenAssistant')}
+                onClick={toggleAi}
+              >
+                <GensparkMark size={22} />
+              </button>
+            )}
+            {/* mounted only after the file is loaded so chat history resolves against the real path;
+                hosted: the global drawer is the only AI face — no second panel */}
+            {status === 'ready' && (
+              <AiPanel
+                deps={aiDeps}
+                filePath={filePath}
+                preset={aiPreset}
+                onCollapse={() => setAiOpen(false)}
+                editQueue={editQueue}
+                onQueueEditInstruction={queueUpdate}
+                onQueueRemove={queueRemove}
+                onQueueClear={queueClear}
+                onQueueFocus={queueFocus}
+                onQueueConsume={queueConsume}
+              />
+            )}
+          </div>
+        )}
         {outlineOpen && !sourceMode && (
           <OutlinePane
             items={outlineItems}

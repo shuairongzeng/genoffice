@@ -5,6 +5,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
   AI_CONNECT_TIMEOUT_MS,
+  AI_IDLE_TIMEOUT_MS,
   AiCreditsError,
   AiTimeoutError,
   isAiNetworkError,
@@ -15,24 +16,49 @@ import {
 } from '@genoffice/ai-provider'
 import { mapPiErrorEvent, streamViaPi, chatViaPi } from '../src/index'
 
+type MockProviderInput = {
+  id: string
+  baseUrl?: string
+  headers?: Record<string, string>
+  models: Array<Record<string, unknown>>
+  auth?: {
+    apiKey?: {
+      resolve: () => Promise<{ auth: { apiKey?: string } } | undefined>
+    }
+  }
+}
+
 // Scripted pi-side state: `events` is what the fake streamSimple yields; a
 // `{ type: 'hang' }` marker stalls until the request signal aborts, then ends
 // with the abort-shaped error event the real adapters emit.
 const pi = vi.hoisted(() => ({
   events: [] as Array<Record<string, unknown>>,
+  lastModel: undefined as Record<string, unknown> | undefined,
+  lastContext: undefined as { messages?: Array<Record<string, unknown>> } | undefined,
   lastOptions: undefined as { signal?: AbortSignal; maxTokens?: number } | undefined,
+  providers: new Map<string, MockProviderInput>(),
+  setProviderCalls: [] as MockProviderInput[],
+  createProviderCalls: [] as MockProviderInput[],
 }))
 
 vi.mock('@earendil-works/pi-ai', () => ({
   createModels: () => ({
-    getProvider: () => true,
-    setProvider: () => {},
-    streamSimple: (_model: unknown, _context: unknown, options: unknown) => {
+    getProvider: (id: string) => pi.providers.get(id),
+    setProvider: (provider: MockProviderInput) => {
+      pi.setProviderCalls.push(provider)
+      pi.providers.set(provider.id, provider)
+    },
+    streamSimple: (model: unknown, context: unknown, options: unknown) => {
+      pi.lastModel = model as Record<string, unknown>
+      pi.lastContext = context as { messages?: Array<Record<string, unknown>> }
       pi.lastOptions = options as { signal?: AbortSignal; maxTokens?: number }
       return fakePiStream(pi.lastOptions?.signal)
     },
   }),
-  createProvider: () => ({}),
+  createProvider: (input: MockProviderInput) => {
+    pi.createProviderCalls.push(input)
+    return input
+  },
 }))
 vi.mock('@earendil-works/pi-ai/api/anthropic-messages.lazy', () => ({
   anthropicMessagesApi: () => ({}),
@@ -77,6 +103,7 @@ const userTurn = [{ role: 'user', text: 'hi' }] as Parameters<typeof streamViaPi
 function makeCallbacks(): StreamCallbacks & { recorded: Record<string, unknown[]> } {
   const recorded: Record<string, unknown[]> = {
     delta: [],
+    reasoningDelta: [],
     toolCall: [],
     activity: [],
     usage: [],
@@ -86,7 +113,7 @@ function makeCallbacks(): StreamCallbacks & { recorded: Record<string, unknown[]
     onDelta: (t) => recorded.delta.push(t),
     onToolCall: (c) => recorded.toolCall.push(c),
     onActivity: () => recorded.activity.push(null),
-    onReasoningDelta: undefined,
+    onReasoningDelta: (t) => recorded.reasoningDelta.push(t),
     onUsage: (u) => recorded.usage.push(u),
     onStopReason: (r) => recorded.stopReason.push(r),
     signal: new AbortController().signal,
@@ -96,7 +123,12 @@ function makeCallbacks(): StreamCallbacks & { recorded: Record<string, unknown[]
 
 beforeEach(() => {
   pi.events = []
+  pi.lastModel = undefined
+  pi.lastContext = undefined
   pi.lastOptions = undefined
+  pi.providers.clear()
+  pi.setProviderCalls = []
+  pi.createProviderCalls = []
 })
 
 describe('onActivity mapping', () => {
@@ -286,5 +318,201 @@ describe('frozen codex protocol gap', () => {
     await expect(
       streamViaPi(codexSettings, 'sys', userTurn, [], 1024, makeCallbacks()),
     ).rejects.toThrow(/codex.*GENOFFICE_AI_BACKEND=legacy/)
+  })
+})
+
+describe('dynamic custom endpoint updates and compatibility', () => {
+  it('updates models.setProvider and auth on every call instead of caching the first provider', async () => {
+    pi.events = [{ type: 'done', reason: 'stop', message: {} }]
+    await streamViaPi(settings, 'sys', userTurn, [], 1024, makeCallbacks())
+
+    const qwenSettings = {
+      provider: 'custom',
+      providers: {
+        custom: {
+          baseUrl: 'http://192.168.100.235:7000/v1',
+          apiKey: '1234',
+          model: 'Qwen3.8-Flash-Next-4bit',
+          profile: {
+            headers: { 'X-Tenant': 'local-qwen' },
+          },
+        },
+      },
+    } as unknown as AiSettings
+
+    pi.events = [{ type: 'done', reason: 'stop', message: {} }]
+    await streamViaPi(qwenSettings, 'sys', userTurn, [], 1024, makeCallbacks())
+
+    expect(pi.createProviderCalls).toHaveLength(2)
+    expect(pi.setProviderCalls).toHaveLength(2)
+
+    const secondProvider = pi.providers.get('custom')!
+    expect(secondProvider.baseUrl).toBe('http://192.168.100.235:7000/v1')
+    expect(secondProvider.models[0]?.id).toBe('Qwen3.8-Flash-Next-4bit')
+    expect(secondProvider.models[0]?.headers).toEqual({ 'X-Tenant': 'local-qwen' })
+    await expect(secondProvider.auth?.apiKey?.resolve()).resolves.toEqual({
+      auth: { apiKey: '1234' },
+    })
+
+    expect(pi.lastModel?.baseUrl).toBe('http://192.168.100.235:7000/v1')
+    expect(pi.lastModel?.id).toBe('Qwen3.8-Flash-Next-4bit')
+    expect(pi.lastModel?.headers).toEqual({ 'X-Tenant': 'local-qwen' })
+    expect(pi.lastModel?.compat).toBeUndefined()
+  })
+
+  it('maps supported compat flags, model maxTokens ceiling, and endpoint protocol', async () => {
+    const compatSettings = {
+      provider: 'custom',
+      providers: {
+        custom: {
+          baseUrl: 'http://192.168.100.235:7000/v1',
+          apiKey: '1234',
+          model: 'Qwen3.8-Flash-Next-4bit',
+          profile: {
+            compat: { useMaxCompletionTokens: true, echoReasoning: true },
+            modelProfiles: [{ id: 'Qwen3.8-Flash-Next-4bit', maxTokens: 8192 }],
+          },
+        },
+      },
+    } as unknown as AiSettings
+
+    pi.events = [{ type: 'done', reason: 'stop', message: {} }]
+    await streamViaPi(compatSettings, 'sys', userTurn, [], 32768, makeCallbacks())
+
+    expect(pi.lastModel?.api).toBe('openai-completions')
+    expect(pi.lastModel?.compat).toEqual({
+      maxTokensField: 'max_completion_tokens',
+      requiresReasoningContentOnAssistantMessages: true,
+    })
+    expect(pi.lastOptions?.maxTokens).toBe(8192)
+
+    const anthropicCustom = {
+      provider: 'custom',
+      providers: {
+        custom: {
+          baseUrl: 'https://gw.example.com/v1',
+          apiKey: 'k',
+          model: 'claude-sonnet-5',
+          profile: { api: 'anthropic' },
+        },
+      },
+    } as unknown as AiSettings
+    pi.events = [{ type: 'done', reason: 'stop', message: {} }]
+    await streamViaPi(anthropicCustom, 'sys', userTurn, [], 2048, makeCallbacks())
+    expect(pi.lastModel?.api).toBe('anthropic-messages')
+  })
+
+  it('forwards thinking_delta to onReasoningDelta and echoes reasoning in multi-turn messages unless disabled', async () => {
+    pi.events = [
+      { type: 'start', partial: {} },
+      { type: 'thinking_delta', contentIndex: 0, delta: 'Step 1. ', partial: {} },
+      { type: 'thinking_delta', contentIndex: 0, delta: 'Step 2.', partial: {} },
+      { type: 'text_delta', contentIndex: 1, delta: 'Done.', partial: {} },
+      { type: 'done', reason: 'stop', message: {} },
+    ]
+    const cb = makeCallbacks()
+    const history: Parameters<typeof streamViaPi>[2] = [
+      { role: 'user', text: 'check' },
+      {
+        role: 'assistant',
+        text: '',
+        reasoning: 'prior thinking',
+        toolCalls: [{ id: 'tc1', name: 'read_file', input: { path: 'x.txt' } }],
+      },
+      { role: 'tool', results: [{ id: 'tc1', name: 'read_file', output: 'ok' }] },
+    ]
+    await streamViaPi(settings, 'sys', history, [], 1024, cb)
+
+    expect(cb.recorded.reasoningDelta).toEqual(['Step 1. ', 'Step 2.'])
+    expect(cb.recorded.delta).toEqual(['Done.'])
+    const assistantMsg = pi.lastContext?.messages?.find((m) => m.role === 'assistant') as {
+      api?: string
+      provider?: string
+      model?: string
+      content?: Array<{ type: string; thinking?: string; thinkingSignature?: string }>
+    }
+    expect(assistantMsg.provider).toBe('custom')
+    expect(assistantMsg.api).toBe('openai-completions')
+    expect(assistantMsg.model).toBe('test-model')
+    expect(assistantMsg.content?.[0]).toEqual({
+      type: 'thinking',
+      thinking: 'prior thinking',
+      thinkingSignature: 'reasoning_content',
+    })
+
+    const noEchoSettings = {
+      provider: 'custom',
+      providers: {
+        custom: {
+          baseUrl: 'http://127.0.0.1:9/v1',
+          apiKey: 'test-key',
+          model: 'test-model',
+          profile: { compat: { echoReasoning: false } },
+        },
+      },
+    } as unknown as AiSettings
+    pi.events = [{ type: 'done', reason: 'stop', message: {} }]
+    await streamViaPi(noEchoSettings, 'sys', history, [], 1024, makeCallbacks())
+    const mutedAssistant = pi.lastContext?.messages?.find((m) => m.role === 'assistant') as {
+      content?: Array<{ type: string }>
+    }
+    expect(mutedAssistant.content?.some((b) => b.type === 'thinking')).toBe(false)
+  })
+
+  it('honors endpoint.idleTimeoutMs after stream start (both longer and shorter than default)', async () => {
+    vi.useFakeTimers()
+    try {
+      const slowSettings = {
+        provider: 'custom',
+        providers: {
+          custom: {
+            baseUrl: 'http://192.168.100.235:7000/v1',
+            apiKey: '1234',
+            model: 'Qwen3.8-Flash-Next-4bit',
+            profile: { idleTimeoutMs: 250_000 },
+          },
+        },
+      } as unknown as AiSettings
+
+      pi.events = [{ type: 'start', partial: {} }, { type: 'hang' }]
+      let settled = false
+      const slowPromise = streamViaPi(slowSettings, 'sys', userTurn, [], 1024, makeCallbacks())
+      const slowExpectation = slowPromise.then(
+        () => {
+          settled = true
+        },
+        (err) => {
+          settled = true
+          throw err
+        },
+      )
+      const slowCheck = expect(slowExpectation).rejects.toBeInstanceOf(AiTimeoutError)
+
+      await vi.advanceTimersByTimeAsync(AI_IDLE_TIMEOUT_MS + 5_000)
+      expect(settled).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(70_000)
+      await slowCheck
+
+      const fastSettings = {
+        provider: 'custom',
+        providers: {
+          custom: {
+            baseUrl: 'http://192.168.100.235:7000/v1',
+            apiKey: '1234',
+            model: 'Qwen3.8-Flash-Next-4bit',
+            profile: { idleTimeoutMs: 5_000 },
+          },
+        },
+      } as unknown as AiSettings
+
+      pi.events = [{ type: 'start', partial: {} }, { type: 'hang' }]
+      const fastPromise = streamViaPi(fastSettings, 'sys', userTurn, [], 1024, makeCallbacks())
+      const fastCheck = expect(fastPromise).rejects.toBeInstanceOf(AiTimeoutError)
+      await vi.advanceTimersByTimeAsync(5_000)
+      await fastCheck
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

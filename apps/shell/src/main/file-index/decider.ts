@@ -14,6 +14,7 @@
 
 /** The endpoint list lives in the shared settings contract: this file used to
     keep its own copy of the union, and adding a route meant editing both. */
+import { isLocalOrPrivateHost } from '@genoffice/electron-utils/main-proxy'
 import { isCloudflareEndpoint, type DecisionEndpoint } from '../../shared/home-api'
 
 export interface DecisionCallOptions {
@@ -69,8 +70,6 @@ function cloudflareModelPath(opts: DecisionCallOptions): string {
 
 /** Workers AI takes the model in the URL path but only the bare Clef ids in the body. */
 const CLOUDFLARE_BODY_MODEL = /^(clef|clef-flash|clef-omni)$/
-/** a custom base URL may only be https, or http on this machine: the body carries local file text */
-const LOOPBACK_HOST = /^(127\.\d+\.\d+\.\d+|\[?::1\]?|localhost)(:\d+)?$/i
 
 /** Endpoints whose server runs on this machine and needs no API key. */
 export function isLocalEndpoint(endpoint: DecisionEndpoint): boolean {
@@ -96,8 +95,9 @@ export function endpointUrl(opts: DecisionCallOptions): string {
 }
 
 /**
- * Rejects a custom base URL that is not https, or http on this machine: the
- * request carries up to 20 local excerpts and should not cross a plain channel.
+ * Rejects a custom base URL that is not https, or http on a loopback or
+ * private/local-network host: the request carries up to 20 local excerpts and
+ * should not cross a public plaintext channel.
  */
 function assertCustomUrl(base: string): string {
   let u: URL
@@ -107,7 +107,7 @@ function assertCustomUrl(base: string): string {
     throw new Error('bad-url')
   }
   if (u.protocol === 'https:') return base
-  if (u.protocol === 'http:' && LOOPBACK_HOST.test(u.host)) return base
+  if (u.protocol === 'http:' && isLocalOrPrivateHost(u.hostname)) return base
   throw new Error('insecure-url')
 }
 

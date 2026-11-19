@@ -56,8 +56,12 @@ export function modelLacksVision(model: string): boolean {
  * multi-turn tool use, and DeepSeek V4 rejects tool turns without it. Gated
  * per model because other vendors may reject the unknown field. Hunyuan joins
  * them because hy4-preview ships deep thinking on by default, so its first
- * turn already carries `reasoning_content`.
+ * turn already carries `reasoning_content`. Qwen3 and Qwen3.8 thinking models
+ * also emit `reasoning_content` over OpenAI-compatible streams and need it
+ * preserved across multi-turn tool calls.
  */
 export function modelEchoesReasoning(model: string): boolean {
-  return /(^|\/)(minimax-m|deep-?seek-(v4|flash)|hy-?[34]([^\w]|$))/i.test(model)
+  return /(^|\/)(minimax-m|deep-?seek-(v4|flash)|hy-?[34]([^\w]|$)|qwen3([^\w]|$|\.\d))/i.test(
+    model,
+  )
 }

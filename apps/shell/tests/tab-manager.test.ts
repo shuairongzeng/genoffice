@@ -2018,7 +2018,7 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
     expect(docsView.webContents.send).toHaveBeenCalledWith('docs:ai-slot-rect-request')
   })
 
-  it('a browser tab carries the synthesized right strip; other non-docs tabs never a slot', () => {
+  it('a browser tab carries the synthesized right strip; non-editor tabs never carry a slot', () => {
     const { m, spy } = managerWithOverlay()
     const docs = m.openDocsTab()
     const docsView = createDocsView.mock.results.at(-1)!.value as FakeView
@@ -2029,10 +2029,32 @@ describe('the AI drawer overlay (W2: the drawer, or the pet, over an active docu
     // width through browserDrawerInset, and the drawer fills it)
     m.openBrowserTab()
     expect(lastState(spy).slot).toEqual({ x: 400, y: 44, width: 400, height: 556 })
-    // a pdf tab: no slot at all, the floating card is the shape
+    // an editor tab without a fresh slot report falls back until its rect lands
     m.openPdfTab('/tmp/scan.pdf')
     expect(lastState(spy).slot).toBeUndefined()
     void docs
+  })
+
+  it('markdown, slides, pdf, and html tabs request and report hosted AI slots', () => {
+    const { m, spy } = managerWithOverlay()
+    const cases: Array<{ open: () => string; factory: typeof createMarkdownView }> = [
+      { open: () => m.openMarkdownTab('/tmp/note.md'), factory: createMarkdownView },
+      { open: () => m.openSlidesTab('/tmp/deck.pptx'), factory: createSlidesView },
+      { open: () => m.openPdfTab('/tmp/doc.pdf'), factory: createPdfView },
+      { open: () => m.openHtmlTab('/tmp/page.html'), factory: createHtmlView },
+    ]
+    for (const { open, factory } of cases) {
+      open()
+      const view = lastCreatedView(factory)
+      expect(view.webContents.send).toHaveBeenCalledWith('docs:ai-slot-rect-request')
+      m.reportAiSlotRect(view.webContents as never, { x: 420, y: 80, width: 380, height: 470 })
+      expect(lastState(spy).slot).toEqual({
+        x: view.getBounds().x + 420,
+        y: view.getBounds().y + 80,
+        width: 380,
+        height: 470,
+      })
+    }
   })
 
   it('the browser strip tracks the drawer width and follows the collapsed state', () => {

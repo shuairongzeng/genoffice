@@ -7,6 +7,8 @@ import {
   type MutableModels,
   type Model,
   type Api,
+  type ProviderStreams,
+  type OpenAICompletionsCompat,
 } from '@earendil-works/pi-ai'
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy'
 import { googleGenerativeAIApi } from '@earendil-works/pi-ai/api/google-generative-ai.lazy'
@@ -18,13 +20,15 @@ import type {
   ToolCall,
   Message as PiMessage,
   TextContent,
+  ThinkingContent,
   ImageContent,
   ToolResultMessage,
 } from '@earendil-works/pi-ai'
 import type { AgentMessage, AgentToolDef } from '@genoffice/agent-core'
-import type { AiSettings, StreamCallbacks } from '@genoffice/ai-provider'
+import type { AiSettings, ResolvedEndpoint, StreamCallbacks } from '@genoffice/ai-provider'
 import {
   AI_CHAT_RESPONSE_TIMEOUT_MS,
+  DEFAULT_MAX_OUTPUT_TOKENS,
   activeProvider,
   getProviderAdapter,
   clampMaxOutputTokens,
@@ -38,14 +42,40 @@ import { endpointSupportsVision } from '@genoffice/ai-provider/browser'
 // ---------------------------------------------------------------------------
 
 let cachedModels: Models | undefined
+const cachedStreams = new Map<Api, ProviderStreams>()
 
 function modelsInstance(): Models {
   if (!cachedModels) cachedModels = createModels()
   return cachedModels
 }
 
-/** Map GenOffice provider config onto a pi Model for one request. */
-export function piModelFor(settings: AiSettings): Model<Api> {
+function apiStreamsFor(api: Api): ProviderStreams {
+  let streams = cachedStreams.get(api)
+  if (!streams) {
+    streams =
+      api === 'anthropic-messages'
+        ? anthropicMessagesApi()
+        : api === 'google-generative-ai'
+          ? googleGenerativeAIApi()
+          : openAICompletionsApi()
+    cachedStreams.set(api, streams)
+  }
+  return streams
+}
+
+function hasAuthHeader(headers?: Record<string, string>): boolean {
+  if (!headers) return false
+  return Object.entries(headers).some(([name, value]) => {
+    if (!value.trim()) return false
+    const lower = name.toLowerCase()
+    return lower === 'authorization' || lower === 'x-api-key' || lower === 'cf-aig-authorization'
+  })
+}
+
+function resolvePiModelAndEndpoint(settings: AiSettings): {
+  model: Model<Api>
+  endpoint: ResolvedEndpoint
+} {
   const providerId = activeProvider(settings)
   // Protocol gap frozen by the migration charter (principle 4): GenOffice's
   // codex provider speaks the local codex-app-server subprocess protocol; pi
@@ -64,7 +94,7 @@ export function piModelFor(settings: AiSettings): Model<Api> {
   // GenOffice custom endpoints and most providers talk OpenAI-compatible.
   // Anthropic/Gemini have dedicated pi protocols.
   let api: Api
-  switch (providerId) {
+  switch (endpoint.protocol) {
     case 'anthropic':
       api = 'anthropic-messages'
       break
@@ -75,43 +105,73 @@ export function piModelFor(settings: AiSettings): Model<Api> {
       api = 'openai-completions'
   }
 
+  const modelId = endpoint.model ?? config.model ?? ''
+  const compat: OpenAICompletionsCompat | undefined =
+    api === 'openai-completions' &&
+    (endpoint.useMaxCompletionTokens || endpoint.echoReasoning !== undefined)
+      ? {
+          ...(endpoint.useMaxCompletionTokens
+            ? { maxTokensField: 'max_completion_tokens' as const }
+            : {}),
+          ...(endpoint.echoReasoning !== undefined
+            ? { requiresReasoningContentOnAssistantMessages: endpoint.echoReasoning }
+            : {}),
+        }
+      : undefined
+
+  // Keep reasoning: false because streamViaPi calls streamSimple without
+  // options.reasoning; setting model.reasoning = true switches system->developer
+  // on custom OpenAI endpoints and sends thinking:disabled on DeepSeek/Z.ai/OpenRouter.
   const model: Model<Api> = {
-    id: endpoint.model ?? config.model ?? '',
-    name: endpoint.model ?? config.model ?? '',
+    id: modelId,
+    name: modelId,
     api,
     provider: providerId,
     baseUrl: endpoint.baseUrl,
     input: endpointSupportsVision(settings) ? ['text', 'image'] : ['text'],
+    reasoning: false,
+    contextWindow: 0,
+    maxTokens: endpoint.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  } as Model<Api>
-
-  // Register a minimal static-auth provider so Models.streamSimple can resolve
-  // credentials for any GenOffice provider id (custom endpoints included).
-  const models = modelsInstance() as MutableModels
-  if (!models.getProvider(providerId)) {
-    const streams =
-      api === 'anthropic-messages'
-        ? anthropicMessagesApi()
-        : api === 'google-generative-ai'
-          ? googleGenerativeAIApi()
-          : openAICompletionsApi()
-    models.setProvider(
-      createProvider({
-        id: providerId,
-        baseUrl: endpoint.baseUrl,
-        models: [model],
-        api: streams,
-        auth: {
-          apiKey: {
-            name: `${providerId} API key`,
-            resolve: async () => (config.apiKey ? { auth: { apiKey: config.apiKey } } : undefined),
-          },
-        },
-      }),
-    )
+  }
+  if (endpoint.headers) {
+    model.headers = endpoint.headers
+  }
+  if (compat) {
+    model.compat = compat as NonNullable<Model<Api>['compat']>
   }
 
-  return model
+  // Always update the registered provider so dynamic changes to custom
+  // endpoints (baseUrl, apiKey, headers, model, or protocol) take effect.
+  const models = modelsInstance() as MutableModels
+  const providerConfig: Parameters<typeof createProvider>[0] = {
+    id: providerId,
+    baseUrl: endpoint.baseUrl,
+    models: [model],
+    api: apiStreamsFor(api),
+    auth: {
+      apiKey: {
+        name: `${providerId} API key`,
+        resolve: async () =>
+          config.apiKey
+            ? { auth: { apiKey: config.apiKey } }
+            : hasAuthHeader(endpoint.headers)
+              ? { auth: {} }
+              : undefined,
+      },
+    },
+  }
+  if (endpoint.headers) {
+    providerConfig.headers = endpoint.headers
+  }
+  models.setProvider(createProvider(providerConfig))
+
+  return { model, endpoint }
+}
+
+/** Map GenOffice provider config onto a pi Model for one request. */
+export function piModelFor(settings: AiSettings): Model<Api> {
+  return resolvePiModelAndEndpoint(settings).model
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +192,10 @@ export function piTools(tools: AgentToolDef[]): PiTool[] {
 // AgentMessage[] → pi Message[]
 // ---------------------------------------------------------------------------
 
-export function piMessages(messages: AgentMessage[]): PiMessage[] {
+export function piMessages(
+  messages: AgentMessage[],
+  target?: { model: Model<Api>; echoReasoning?: boolean },
+): PiMessage[] {
   const out: PiMessage[] = []
   for (const m of messages) {
     if (m.role === 'user') {
@@ -143,7 +206,22 @@ export function piMessages(messages: AgentMessage[]): PiMessage[] {
       }
       out.push({ role: 'user', content } as PiMessage)
     } else if (m.role === 'assistant') {
-      const content: (TextContent | ToolCall)[] = []
+      const content: (TextContent | ThinkingContent | ToolCall)[] = []
+      // Only attach reasoning blocks when speaking OpenAI Completions so pi's
+      // transformMessages + convertMessages echo reasoning_content on multi-turn
+      // tool loops without sending synthetic reasoning signatures to Anthropic/Gemini.
+      const shouldEchoReasoning =
+        target?.model.api === 'openai-completions' &&
+        target.echoReasoning !== false &&
+        Boolean(m.reasoning?.trim()) &&
+        Boolean(m.text || m.toolCalls?.length)
+      if (shouldEchoReasoning) {
+        content.push({
+          type: 'thinking',
+          thinking: m.reasoning!,
+          thinkingSignature: 'reasoning_content',
+        })
+      }
       if (m.text) content.push({ type: 'text', text: m.text })
       for (const tc of m.toolCalls ?? []) {
         content.push({
@@ -153,7 +231,15 @@ export function piMessages(messages: AgentMessage[]): PiMessage[] {
           arguments: (tc.input ?? {}) as ToolCall['arguments'],
         })
       }
-      if (content.length) out.push({ role: 'assistant', content } as PiMessage)
+      if (content.length) {
+        out.push({
+          role: 'assistant',
+          content,
+          ...(target
+            ? { api: target.model.api, provider: target.model.provider, model: target.model.id }
+            : {}),
+        } as PiMessage)
+      }
     } else if (m.role === 'tool') {
       // GenOffice batches tool results per turn; pi expects one message per call.
       for (const r of m.results) {
@@ -230,12 +316,12 @@ export async function chatViaPi(
   user: string,
 ): Promise<{ ok: boolean; content?: string; error?: string }> {
   try {
-    const model = piModelFor(settings)
+    const { model, endpoint } = resolvePiModelAndEndpoint(settings)
     // Same budget chatForProvider gives a one-shot chat: a gateway may answer a
     // streaming request with one buffered body (then the whole generation
     // elapses before the first event), so the connect phase gets the long
-    // AI_CHAT_RESPONSE_TIMEOUT_MS and the idle phase the watchdog default.
-    const wd = createStreamWatchdog(undefined, AI_CHAT_RESPONSE_TIMEOUT_MS)
+    // AI_CHAT_RESPONSE_TIMEOUT_MS and the idle phase the endpoint/watchdog budget.
+    const wd = createStreamWatchdog(undefined, AI_CHAT_RESPONSE_TIMEOUT_MS, endpoint.idleTimeoutMs)
     let text = ''
     await wd.guard(async () => {
       const stream = modelsInstance().streamSimple(
@@ -270,10 +356,14 @@ export async function streamViaPi(
   maxTokens: number,
   cb: StreamCallbacks,
 ): Promise<void> {
-  const model = piModelFor(settings)
+  const { model, endpoint } = resolvePiModelAndEndpoint(settings)
+  const messageOpts: { model: Model<Api>; echoReasoning?: boolean } = { model }
+  if (endpoint.echoReasoning !== undefined) {
+    messageOpts.echoReasoning = endpoint.echoReasoning
+  }
   const context: Context = {
     systemPrompt: system,
-    messages: piMessages(messages),
+    messages: piMessages(messages, messageOpts),
     tools: piTools(tools),
   }
   // pi's own lifecycle knobs do not match GenOffice's watchdog budgets: pi maps
@@ -286,12 +376,17 @@ export async function streamViaPi(
   // watchdog to a re-armed idle budget in the first place. So keep the legacy
   // watchdog and align through pi's `signal` option instead: wd.signal aborts
   // pi's in-flight request, wd.guard surfaces the trip as AiTimeoutError.
-  const wd = createStreamWatchdog(cb.signal)
+  const wd = createStreamWatchdog(cb.signal, undefined, endpoint.idleTimeoutMs)
+  const clampedMaxTokens = clampMaxOutputTokens(maxTokens)
+  const effectiveMaxTokens =
+    endpoint.maxTokens !== undefined
+      ? Math.min(clampedMaxTokens, endpoint.maxTokens)
+      : clampedMaxTokens
 
   try {
     await wd.guard(async () => {
       const stream: AssistantMessageEventStream = modelsInstance().streamSimple(model, context, {
-        maxTokens: clampMaxOutputTokens(maxTokens),
+        maxTokens: effectiveMaxTokens,
         signal: wd.signal,
       })
 

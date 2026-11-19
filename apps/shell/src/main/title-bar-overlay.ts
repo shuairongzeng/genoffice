@@ -1,24 +1,26 @@
 import type { TitleBarOverlay } from 'electron'
 
-import { tabStripHeight } from '../shared/tab-drag-geometry'
+import { desktopHeaderHeight } from '../shared/desktop-geometry'
 
-/// Windows/Linux draw the caption buttons over the desktop's chrome
-/// (titleBarStyle 'hidden'); the overlay must match the band the Home
-/// renderer draws at the window's top-right — the workbench chrome the
-/// retired native strip's tabbar.css used to color #ebebeb (light) on
-/// #454746 ink.
+/// Windows/Linux draw the caption buttons over the workbench's embedded tab
+/// strip (titleBarStyle 'hidden'); a transparent overlay (`#00000000`) lets
+/// `.work-tabs` and its frosted glass backdrop flow seamlessly behind the
+/// window controls while `symbolColor` keeps the glyphs readable against each
+/// theme (`#f2f2f5` dark, `#454746` light).
 ///
-/// Its height has to follow the interface scale too (genoffice#1913): the
-/// chrome around it is `zoom`ed, so a 150% band is 60px tall and a 40px
-/// overlay would leave the caption buttons floating over the content.
+/// Its height follows the interface scale (genoffice#1913) and matches
+/// `.work-tabs` (44px at 100% scale via `desktopHeaderHeight(uiScale)`): the
+/// chrome around it is `zoom`ed, so a 150% band is 66px tall and an unscaled
+/// overlay would leave the caption buttons misaligned with the header strip.
 ///
-/// The overlay is only retired together with the window controls that live in
+/// The overlay is only used together with the window controls that live in
 /// it (min/max/close on Windows/Linux; the traffic lights are native macOS
 /// chrome) — the desktop owns the tab strip's visuals, never these buttons.
 
 export function tabStripOverlay(dark: boolean, uiScale = 1): TitleBarOverlay {
-  const height = tabStripHeight(uiScale)
-  return dark
-    ? { color: '#2a2a2a', symbolColor: '#e4e4e4', height }
-    : { color: '#ebebeb', symbolColor: '#454746', height }
+  return {
+    color: '#00000000',
+    symbolColor: dark ? '#f2f2f5' : '#454746',
+    height: desktopHeaderHeight(uiScale),
+  }
 }
