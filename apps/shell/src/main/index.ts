@@ -264,6 +264,7 @@ import { createCliRunner } from './mcp/cli-runner'
 import { DEFAULT_MCP_PORT } from './mcp/mcp-server'
 import { createDocsControl, installDocsBridge } from './mcp/docs-bridge'
 import { createSlidesControl } from './mcp/slides-bridge'
+import type { SlidesReadOptions } from './mcp/tools/slides-tools'
 import { createSheetsControl, installSheetsBridge } from './mcp/sheets-bridge'
 import { createOpenDocumentsControl, createOpenTargetResolver } from './mcp/open-documents-bridge'
 import { registerAppSkillIpc } from './mcp/app-skill-proxy'
@@ -6816,9 +6817,13 @@ app.whenReady().then(async () => {
     webContentsFor: (tabId) =>
       tabManager?.webContentsForTab(tabId) ?? detachedWebContentsFor(tabId),
     readers: {
-      docs: mcpAgentIo.docs?.read,
+      docs: (wc, payload) => mcpDocsControl.runCommand(wc.id, 'read_document', payload),
       sheets: (wc, payload) => mcpSheetsControl.runCommand(wc.id, 'read_sheet', payload),
-      slides: mcpAgentIo.slides?.read,
+      slides: (wc, payload) =>
+        mcpSlidesControl.readDeck(
+          wc.id,
+          Object.keys(payload).length > 0 ? (payload as SlidesReadOptions) : undefined,
+        ),
       pdf: (wc, payload) => pdfReadText(wc, payload as { start?: number; end?: number }),
       markdown: mcpAgentIo.markdown?.read,
       html: mcpAgentIo.html?.read,

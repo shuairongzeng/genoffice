@@ -1,10 +1,17 @@
 import { existsSync } from 'node:fs'
 import { extname, isAbsolute } from 'node:path'
 import { webContents } from 'electron'
-import { elementDurableId, slideDurableId, type SlideElement } from '@genoffice/pptx-engine'
+import {
+  elementDurableId,
+  getSlideNotes,
+  slideDurableId,
+  type ChartElement,
+  type Slide,
+  type SlideElement,
+} from '@genoffice/pptx-engine'
 import { applySessionTxn, saveSessionDeckTo } from '../../../../slides/src/main/slides-main'
 import { attachedIds, sessions, type Session } from '../../../../slides/src/main/session-state'
-import type { SlidesControl, SlidesTxnRequest } from './tools/slides-tools'
+import type { SlidesControl, SlidesReadOptions, SlidesTxnRequest } from './tools/slides-tools'
 
 /**
  * Shell-main half of the MCP → slides bridge.
@@ -19,10 +26,16 @@ import type { SlidesControl, SlidesTxnRequest } from './tools/slides-tools'
 
 const READY_TIMEOUT_MS = 20_000
 const EMU_PER_PX_96 = 9525
-/** per-text cap in read_deck, mirroring the CLI's describeDeck clipping */
-const MAX_TEXT_CHARS = 300
-/** table rows echoed per element (the CLI caps its own table output the same way) */
-const MAX_TABLE_ROWS = 3
+/** per-text cap in overview read_deck */
+const MAX_TEXT_CHARS = 800
+/** table rows echoed per element in overview mode */
+const MAX_TABLE_ROWS = 12
+/** speaker notes cap in overview mode */
+const MAX_NOTES_CHARS = 800
+/** overview chart data point preview cap per series */
+const MAX_CHART_POINTS = 24
+/** total serialized JSON budget when reading full slides by page range */
+const MAX_DETAIL_JSON_CHARS = 24_000
 
 function clip(text: string, max = MAX_TEXT_CHARS): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
@@ -61,7 +74,7 @@ function requireSession(wcId: number): Session {
  * instead of being passed off as an absolute position — an agent placing a
  * follow-up setTransform needs to know which frame it is addressing.
  */
-function elementInfo(el: SlideElement): Record<string, unknown> {
+function elementInfo(el: SlideElement, full = false): Record<string, unknown> {
   const t = el.transform?.offset ?? { x: 0, y: 0, cx: 0, cy: 0 }
   const info: Record<string, unknown> = {
     id: elementDurableId(el) ?? el.id,
@@ -74,15 +87,19 @@ function elementInfo(el: SlideElement): Record<string, unknown> {
   if (el.type === 'text' || el.type === 'shape') {
     const paragraphs = el.text?.paragraphs ?? []
     if (paragraphs.length) {
-      const full = paragraphs.map((p) => p.runs.map((r) => r.text).join('')).join('\n')
-      info.text = clip(full)
-      if (full.length > MAX_TEXT_CHARS) info.textTruncated = true
+      const fullText = paragraphs.map((p) => p.runs.map((r) => r.text).join('')).join('\n')
+      if (full || fullText.length <= MAX_TEXT_CHARS) {
+        info.text = fullText
+      } else {
+        info.text = clip(fullText, MAX_TEXT_CHARS)
+        info.textTruncated = true
+      }
     }
   } else if (el.type === 'table') {
     const rows = el.rows
     const totalRows = rows.length
-    const body = rows
-      .slice(0, MAX_TABLE_ROWS)
+    const rowSlice = full ? rows : rows.slice(0, MAX_TABLE_ROWS)
+    const body = rowSlice
       .map((row) =>
         row
           .map((cell) =>
@@ -91,36 +108,129 @@ function elementInfo(el: SlideElement): Record<string, unknown> {
           .join(' | '),
       )
       .join('\n')
-    info.text = clip(body)
-    if (totalRows > MAX_TABLE_ROWS) {
-      info.textTruncated = true
+    if (full) {
+      info.text = body
       info.rows = totalRows
+    } else {
+      info.text = clip(body, MAX_TEXT_CHARS)
+      if (totalRows > MAX_TABLE_ROWS || body.length > MAX_TEXT_CHARS) {
+        info.textTruncated = true
+        info.rows = totalRows
+      }
     }
+  } else if (el.type === 'chart') {
+    const chart = (el as ChartElement).chart
+    const catCount = chart.categories.length
+    const categories = full ? chart.categories : chart.categories.slice(0, MAX_CHART_POINTS)
+    let chartTruncated = !full && catCount > MAX_CHART_POINTS
+    const series = chart.series.map((s) => {
+      const vals = full ? s.values : s.values.slice(0, MAX_CHART_POINTS)
+      if (!full && s.values.length > MAX_CHART_POINTS) chartTruncated = true
+      return {
+        ...(s.name ? { name: s.name } : {}),
+        values: vals,
+      }
+    })
+    info.chartKind = chart.kind
+    info.categories = categories
+    info.series = series
+    if (chartTruncated) info.chartTruncated = true
   } else if (el.type === 'group') {
     // children are in the group's local frame: say so rather than implying
     // document-space coordinates
     info.children = el.children.map((child) => ({
-      ...elementInfo(child),
+      ...elementInfo(child, full),
       coordinates: 'local-to-group',
     }))
   }
   return info
 }
 
-function readDeckModel(session: Session): Record<string, unknown> {
+function serializeSlide(
+  session: Session,
+  slide: Slide,
+  index: number,
+  full: boolean,
+): Record<string, unknown> {
+  const archive = (session.opened as { archive?: Parameters<typeof getSlideNotes>[0] }).archive
+  const rawNotes = archive ? getSlideNotes(archive, slide.path) : ''
+  const entry: Record<string, unknown> = {
+    index,
+    id: slideDurableId(slide),
+    elements: slide.elements.map((el) => elementInfo(el, full)),
+  }
+  if (rawNotes) {
+    if (full || rawNotes.length <= MAX_NOTES_CHARS) {
+      entry.notes = rawNotes
+    } else {
+      entry.notes = clip(rawNotes, MAX_NOTES_CHARS)
+      entry.notesTruncated = true
+    }
+  }
+  return entry
+}
+
+export function readDeckModel(
+  session: Session,
+  options?: SlidesReadOptions,
+): Record<string, unknown> {
   const deck = session.opened.deck
-  return {
+  const totalSlides = deck.slides.length
+  const hasPageFilter =
+    options?.slideIndex !== undefined || options?.start !== undefined || options?.end !== undefined
+
+  const base = {
     emuPerPx: EMU_PER_PX_96,
-    note: 'x/y/w/h are EMU in slide space; elements inside a group use the group-local frame (marked coordinates:"local-to-group").',
+    note:
+      'x/y/w/h are EMU in slide space; elements inside a group use the group-local frame (marked coordinates:"local-to-group"). ' +
+      'Pass 0-based `slideIndex` or `start`/`end` to read full untruncated text, tables, charts, and speaker notes.',
     slideSize: {
       widthPx: Math.round(deck.size.cx / EMU_PER_PX_96),
       heightPx: Math.round(deck.size.cy / EMU_PER_PX_96),
     },
-    slides: deck.slides.map((slide, index) => ({
-      index,
-      id: slideDurableId(slide),
-      elements: slide.elements.map(elementInfo),
-    })),
+    totalSlides,
+  }
+
+  if (!hasPageFilter) {
+    return {
+      ...base,
+      slides: deck.slides.map((slide, index) => serializeSlide(session, slide, index, false)),
+    }
+  }
+
+  if (totalSlides === 0) {
+    return { ...base, slides: [] }
+  }
+
+  const start = options?.slideIndex ?? options?.start ?? 0
+  const rawEnd =
+    options?.slideIndex ?? options?.end ?? (options?.start !== undefined ? start : totalSlides - 1)
+  if (!Number.isInteger(start) || !Number.isInteger(rawEnd) || start < 0 || rawEnd < start || start >= totalSlides) {
+    throw new Error(`slide index out of range (valid: 0..${totalSlides - 1})`)
+  }
+  const end = Math.min(rawEnd, totalSlides - 1)
+  const slides: Record<string, unknown>[] = []
+  let approxChars = 0
+  let truncated = false
+  let nextSlideIndex: number | undefined
+
+  for (let i = start; i <= end; i += 1) {
+    const serialized = serializeSlide(session, deck.slides[i]!, i, true)
+    const size = JSON.stringify(serialized).length
+    if (slides.length > 0 && approxChars + size > MAX_DETAIL_JSON_CHARS) {
+      truncated = true
+      nextSlideIndex = i
+      break
+    }
+    slides.push(serialized)
+    approxChars += size
+  }
+
+  return {
+    ...base,
+    range: { start, end: nextSlideIndex !== undefined ? nextSlideIndex - 1 : end },
+    ...(truncated ? { truncated: true, nextSlideIndex } : {}),
+    slides,
   }
 }
 
@@ -170,7 +280,10 @@ export function createSlidesControl(deps: SlidesBridgeDeps): SlidesControl {
       const { slides: _renderTree, ...summary } = result
       return summary
     },
-    readDeck: async (wcId: number) => readDeckModel(requireSession(wcId)),
+    readDeck: async (wcId: number, options?: SlidesReadOptions) => {
+      const session = sessions.get(wcId) ?? (await waitSession(wcId))
+      return readDeckModel(session, options)
+    },
     saveDeck: async (wcId: number, filePath: string, overwrite: boolean) => {
       if (!isAbsolute(filePath)) throw new Error('path must be absolute')
       const ext = extname(filePath).toLowerCase()

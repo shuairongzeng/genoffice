@@ -246,4 +246,85 @@ describe('the IPC registration', () => {
       executeAppSkillRead(deps, 'pdf:read_pages', { document: 'tab-6', end: '2' }),
     ).rejects.toThrow(/positive integer/)
   })
+
+  it('forwards docs/slides read params, filters present windows, and paginates large markdown/html text', async () => {
+    const readDocs = vi.fn(async () => ({ text: 'block body' }))
+    const readSlides = vi.fn(async () => ({ slides: [] }))
+    const longText = `HEAD_${'A'.repeat(24_000)}_TAIL_998`
+    const shortText = 'Short plain notes'
+    const readMd = vi.fn(async (wc: WebContents) => (wc.id === 8 ? longText : shortText))
+    const readHtml = vi.fn(async () => '<html><body>ok</body></html>')
+    const windows: DesktopWindowInfo[] = [
+      { id: 'tab-2', kind: 'docs', title: 'doc.docx', active: false },
+      { id: 'tab-3', kind: 'slides', title: 'deck.pptx', active: false },
+      { id: 'tab-8', kind: 'markdown', title: 'big.log', active: false },
+      { id: 'tab-9', kind: 'markdown', title: 'short.txt', active: false },
+      { id: 'tab-10', kind: 'html', title: 'page.html', active: false },
+      { id: 'tab-11', kind: 'html', title: 'Present', active: true, present: true },
+    ]
+    const deps: AppSkillProxyDeps = {
+      listWindows: () => windows,
+      webContentsFor: (id) => contentsFor(Number(id.replace(/\D/g, ''))),
+      readers: { docs: readDocs, slides: readSlides, markdown: readMd, html: readHtml },
+    }
+
+    const manifest = buildAppSkillManifest(windows, deps.readers)
+    expect(manifest.windows.map((w) => w.id)).not.toContain('tab-11')
+
+    await executeAppSkillRead(deps, 'docs:read_document', {
+      document: 'tab-2',
+      startBlockIndex: 1,
+      endBlockIndex: 4,
+      offset: 0,
+    })
+    expect(readDocs).toHaveBeenCalledWith(expect.anything(), {
+      startBlockIndex: 1,
+      endBlockIndex: 4,
+      offset: 0,
+    })
+    await expect(
+      executeAppSkillRead(deps, 'docs:read_document', { document: 'tab-2', startBlockIndex: -1 }),
+    ).rejects.toThrow(/non-negative integer/)
+
+    await executeAppSkillRead(deps, 'slides:read_deck', {
+      document: 'tab-3',
+      slideIndex: 0,
+      start: 0,
+      end: 2,
+    })
+    expect(readSlides).toHaveBeenCalledWith(expect.anything(), { slideIndex: 0, start: 0, end: 2 })
+    await expect(
+      executeAppSkillRead(deps, 'slides:read_deck', { document: 'tab-3', start: -1 }),
+    ).rejects.toThrow(/non-negative integer/)
+
+    // default active html routes to editor tab-10 rather than active present tab-11,
+    // while an explicit present tab-11 id still routes through to htmlReadText redirection
+    const htmlRes = await executeAppSkillRead(deps, 'html:read_text', {})
+    expect(htmlRes.target.id).toBe('tab-10')
+    expect(htmlRes.result).toBe('<html><body>ok</body></html>')
+    const explicitPresentRes = await executeAppSkillRead(deps, 'html:read_text', {
+      document: 'tab-11',
+    })
+    expect(explicitPresentRes.target.id).toBe('tab-11')
+
+    // short markdown stays verbatim when no pagination is needed
+    const shortRes = await executeAppSkillRead(deps, 'markdown:read_text', { document: 'tab-9' })
+    expect(shortRes.result).toBe(shortText)
+
+    // oversized markdown slices at 24,000 chars and supports offset continuation to EOF
+    const chunk1 = await executeAppSkillRead(deps, 'markdown:read_text', { document: 'tab-8' })
+    expect(String(chunk1.result)).toContain('offset=24000')
+    expect(String(chunk1.result)).not.toContain('_TAIL_998')
+
+    const chunk2 = await executeAppSkillRead(deps, 'markdown:read_text', {
+      document: 'tab-8',
+      offset: 24_000,
+    })
+    expect(String(chunk2.result)).toContain('end of document')
+    expect(String(chunk2.result)).toContain('_TAIL_998')
+
+    await expect(
+      executeAppSkillRead(deps, 'markdown:read_text', { document: 'tab-8', offset: 999_999 }),
+    ).rejects.toThrow(/beyond the document length/)
+  })
 })

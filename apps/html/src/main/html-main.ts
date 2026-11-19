@@ -1098,6 +1098,14 @@ export function requestHtmlSave(contents: WebContents, mode: SaveMode): Promise<
  */
 export function htmlReadText(contents: WebContents): Promise<string> {
   if (contents.isDestroyed()) return Promise.reject(new Error('the document is no longer open'))
+  const ownerId = presentOwnerByWc.get(contents.id)
+  if (ownerId !== undefined) {
+    const owner = webContents.fromId(ownerId)
+    if (!owner || owner.isDestroyed()) {
+      return Promise.reject(new Error('the document is no longer open'))
+    }
+    return htmlReadText(owner)
+  }
   const wcId = contents.id
   const inFlight = readTextInFlight.get(wcId)
   if (inFlight) return inFlight

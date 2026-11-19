@@ -43,6 +43,8 @@ export interface DesktopWindowInfo {
   dormant?: boolean
   /** excluded from sleeping (tab context menu) */
   pinned?: boolean
+  /** chrome-free presentation mirror view (html Present tab): not an independent document */
+  present?: boolean
 }
 
 export interface DesktopControlDeps {
@@ -92,6 +94,7 @@ export function tabToWindowInfo(tab: TabSummary): DesktopWindowInfo {
     ...(tab.filePath ? { filePath: tab.filePath } : {}),
     ...(tab.dormant ? { dormant: true } : {}),
     ...(tab.pinned ? { pinned: true } : {}),
+    ...(tab.present ? { present: true } : {}),
   }
 }
 

@@ -340,13 +340,38 @@ function createDocxContentTools(deps: DocToolDeps, host: SessionHost): McpToolDe
     {
       name: 'read_document',
       description:
-        'Read the visible document as a block list: one "index|type|text" line per block, where the ' +
-        'index is what apply_ops and insert_content address. Long blocks are clipped for reading; ' +
-        'the list is an overview, not a lossless copy (use read_docx for full text).',
-      inputSchema: { document: documentField },
+        'Read the visible Word document. Without range arguments: returns the block list overview ' +
+        '("index|type|text" per block) together with the full HTML content preview (up to 16,000 ' +
+        'characters). Pass `startBlockIndex` / `endBlockIndex` / `offset` to read full blocks or ' +
+        'continue paginated content (up to 24,000 characters per call).',
+      inputSchema: {
+        document: documentField,
+        startBlockIndex: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('0-based first top-level block index to read (defaults to 0 when paginating)'),
+        endBlockIndex: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('0-based last top-level block index to read inclusive (clamped to the document end)'),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('character offset to continue reading a previous truncated result'),
+      },
       handler: async (args) => {
         const wc = await target(args.document)
-        return docs.runCommand(wc, 'read_document', {})
+        const payload: Record<string, unknown> = {}
+        if (args.startBlockIndex !== undefined) payload.startBlockIndex = args.startBlockIndex
+        if (args.endBlockIndex !== undefined) payload.endBlockIndex = args.endBlockIndex
+        if (args.offset !== undefined) payload.offset = args.offset
+        return docs.runCommand(wc, 'read_document', payload)
       },
     },
   ]

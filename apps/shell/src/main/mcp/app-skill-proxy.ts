@@ -85,10 +85,15 @@ const KIND_LABEL: Record<DocumentTabKind, string> = {
 }
 
 /** input keys forwarded to the family reader (validated); every tool also takes `document` */
+const DOCS_PAYLOAD_KEYS = ['startBlockIndex', 'endBlockIndex', 'offset'] as const
 const SHEETS_PAYLOAD_KEYS = ['range', 'addresses', 'sheet', 'sheetId'] as const
+const SLIDES_PAYLOAD_KEYS = ['slideIndex', 'start', 'end'] as const
 const PDF_PAYLOAD_KEYS = ['start', 'end'] as const
 /** mirrors the sheets read tool's own cap */
 const MAX_READ_ADDRESSES = 100
+/** default and upper bound for paginated markdown/html text slicing (chars) */
+const TEXT_PAGED_DEFAULT_CHARS = 24_000
+const TEXT_PAGED_MAX_CHARS = 48_000
 
 interface ToolSpec {
   kind: DocumentTabKind
@@ -104,11 +109,30 @@ const TOOL_SPECS: Partial<Record<DocumentTabKind, ToolSpec>> = {
     kind: 'docs',
     name: 'docs:read_document',
     description:
-      'Read a Word document the user has open in GenOffice. Returns a block list — one ' +
-      '"index|type|text" line per block (a reading overview; long blocks are clipped). ' +
+      'Read a Word document the user has open in GenOffice. Without range arguments: returns the ' +
+      'block list overview ("index|type|text" per block) plus the full HTML content preview ' +
+      '(up to 16,000 characters). Pass 0-based `startBlockIndex` / `endBlockIndex` / `offset` to ' +
+      'read full blocks or continue paginated content (up to 24,000 characters per call). ' +
       'Read-only: to modify this open document, switch to its tab if needed (shell:switch_tab) and call document_agent.',
-    inputSchema: { type: 'object', properties: { ...PROXIED_APP_DOCUMENT_FIELD } },
-    payloadKeys: [],
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...PROXIED_APP_DOCUMENT_FIELD,
+        startBlockIndex: {
+          type: 'integer',
+          description: '0-based first top-level block index to read (defaults to 0 when paginating)',
+        },
+        endBlockIndex: {
+          type: 'integer',
+          description: '0-based last top-level block index to read inclusive (clamped safely to the document end)',
+        },
+        offset: {
+          type: 'integer',
+          description: '0-based character offset to continue reading a truncated block/preview response',
+        },
+      },
+    },
+    payloadKeys: DOCS_PAYLOAD_KEYS,
   },
   sheets: {
     kind: 'sheets',
@@ -151,19 +175,52 @@ const TOOL_SPECS: Partial<Record<DocumentTabKind, ToolSpec>> = {
     kind: 'slides',
     name: 'slides:read_deck',
     description:
-      'Read the presentation the user has open in GenOffice: every slide with its elements ' +
-      '(ids, types, text, geometry in document-space EMU). ' +
+      'Read the presentation the user has open in GenOffice: slides with their elements ' +
+      '(ids, types, text, tables, charts, speaker notes, geometry in document-space EMU). ' +
+      'Without page arguments returns a deck overview; pass 0-based `slideIndex` or `start`/`end` ' +
+      'to read full untruncated text, tables, charts, and speaker notes for specific slides. ' +
       'Read-only: to modify this open deck, switch to its tab if needed (shell:switch_tab) and call document_agent.',
-    inputSchema: { type: 'object', properties: { ...PROXIED_APP_DOCUMENT_FIELD } },
-    payloadKeys: [],
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...PROXIED_APP_DOCUMENT_FIELD,
+        slideIndex: {
+          type: 'integer',
+          description: '0-based single slide index to read in full without element truncation',
+        },
+        start: {
+          type: 'integer',
+          description: '0-based start slide index to read in full inclusive',
+        },
+        end: {
+          type: 'integer',
+          description: '0-based end slide index inclusive (clamped to deck length)',
+        },
+      },
+    },
+    payloadKeys: SLIDES_PAYLOAD_KEYS,
   },
   markdown: {
     kind: 'markdown',
     name: 'markdown:read_text',
     description:
       'Read the markdown/plain-text content of a document the user has open in the GenOffice markdown/text editor. ' +
+      'Large documents slice at 24,000 characters by default; pass `offset` (0-based) and optional `maxChars` to paginate. ' +
       'Read-only: to modify this open document, switch to its tab if needed (shell:switch_tab) and call document_agent.',
-    inputSchema: { type: 'object', properties: { ...PROXIED_APP_DOCUMENT_FIELD } },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...PROXIED_APP_DOCUMENT_FIELD,
+        offset: {
+          type: 'integer',
+          description: '0-based starting character offset for large files (defaults to 0)',
+        },
+        maxChars: {
+          type: 'integer',
+          description: 'maximum characters to return in one chunk (default 24,000, max 48,000)',
+        },
+      },
+    },
     payloadKeys: [],
   },
   html: {
@@ -171,8 +228,22 @@ const TOOL_SPECS: Partial<Record<DocumentTabKind, ToolSpec>> = {
     name: 'html:read_text',
     description:
       'Read the HTML source text of a document the user has open in the GenOffice html editor. ' +
+      'Large documents slice at 24,000 characters by default; pass `offset` (0-based) and optional `maxChars` to paginate. ' +
       'Read-only: to modify this open document, switch to its tab if needed (shell:switch_tab) and call document_agent.',
-    inputSchema: { type: 'object', properties: { ...PROXIED_APP_DOCUMENT_FIELD } },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...PROXIED_APP_DOCUMENT_FIELD,
+        offset: {
+          type: 'integer',
+          description: '0-based starting character offset for large files (defaults to 0)',
+        },
+        maxChars: {
+          type: 'integer',
+          description: 'maximum characters to return in one chunk (default 24,000, max 48,000)',
+        },
+      },
+    },
     payloadKeys: [],
   },
   pdf: {
@@ -221,7 +292,9 @@ export function buildAppSkillManifest(
   windows: readonly DesktopWindowInfo[],
   readers: AppSkillProxyDeps['readers'],
 ): ProxiedAppManifest {
-  const docs = windows.filter((w) => DOCUMENT_KINDS.includes(w.kind as DocumentTabKind))
+  const docs = windows.filter(
+    (w) => !w.present && DOCUMENT_KINDS.includes(w.kind as DocumentTabKind),
+  )
   const openKinds = new Set(docs.map((w) => w.kind))
   const tools: ProxiedAppTool[] = []
   for (const kind of DOCUMENT_KINDS) {
@@ -298,8 +371,22 @@ function readPayload(spec: ToolSpec, input: Record<string, unknown>): Record<str
       continue
     }
     if (key === 'start' || key === 'end') {
-      if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-        throw new Error(`\`${key}\` must be a positive integer`)
+      const min = spec.kind === 'pdf' ? 1 : 0
+      const label = spec.kind === 'pdf' ? 'a positive integer' : 'a non-negative integer'
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < min) {
+        throw new Error(`\`${key}\` must be ${label}`)
+      }
+      payload[key] = value
+      continue
+    }
+    if (
+      key === 'startBlockIndex' ||
+      key === 'endBlockIndex' ||
+      key === 'offset' ||
+      key === 'slideIndex'
+    ) {
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+        throw new Error(`\`${key}\` must be a non-negative integer`)
       }
       payload[key] = value
       continue
@@ -308,6 +395,51 @@ function readPayload(spec: ToolSpec, input: Record<string, unknown>): Record<str
     payload[key] = value
   }
   return payload
+}
+
+function readTextSliceOptions(
+  input: Record<string, unknown>,
+): { offset: number; maxChars: number } {
+  const rawOffset = input.offset
+  let offset = 0
+  if (rawOffset !== undefined) {
+    if (typeof rawOffset !== 'number' || !Number.isInteger(rawOffset) || rawOffset < 0) {
+      throw new Error('`offset` must be a non-negative integer')
+    }
+    offset = rawOffset
+  }
+  const rawMax = input.maxChars
+  let maxChars = TEXT_PAGED_DEFAULT_CHARS
+  if (rawMax !== undefined) {
+    if (typeof rawMax !== 'number' || !Number.isInteger(rawMax) || rawMax < 1) {
+      throw new Error('`maxChars` must be a positive integer')
+    }
+    maxChars = Math.min(rawMax, TEXT_PAGED_MAX_CHARS)
+  }
+  return { offset, maxChars }
+}
+
+function sliceTextReadResult(raw: unknown, offset: number, maxChars: number): unknown {
+  const text =
+    typeof raw === 'string'
+      ? raw
+      : raw && typeof raw === 'object' && typeof (raw as { text?: unknown }).text === 'string'
+        ? (raw as { text: string }).text
+        : null
+  if (text === null) return raw
+  if (offset === 0 && text.length <= maxChars) return raw
+  if (offset > 0 && text.length > 0 && offset >= text.length) {
+    throw new Error(`offset ${offset} is beyond the document length (${text.length} characters)`)
+  }
+  if (text.length === 0) return raw
+  const slice = text.slice(offset, offset + maxChars)
+  const end = offset + slice.length
+  const more = end < text.length
+  return (
+    `characters ${offset}..${end} of ${text.length}` +
+    (more ? ` (truncated — call again with offset=${end} to continue)` : ' (end of document)') +
+    `\n\n${slice}`
+  )
 }
 
 /** one prefixed read call, routed to its window; the read-only surface behind `appskill:execute` */
@@ -330,14 +462,31 @@ export async function executeAppSkillRead(
     }
     throw new Error(`unknown app tool: ${tool}`)
   }
+  const textSliceOpts =
+    kind === 'markdown' || kind === 'html' ? readTextSliceOptions(input) : null
+  const validatedPayload = readPayload(spec, input)
   const document = typeof input.document === 'string' && input.document ? input.document : undefined
-  const windows = (await deps.listWindows()).filter((w) => w.kind === kind).map(windowOf)
-  const target = resolveReadTarget(windows, kind, document)
+  const rawKindWindows = (await deps.listWindows()).filter((w) => w.kind === kind)
+  const allKindWindows = rawKindWindows.map(windowOf)
+  const preferredWindows = rawKindWindows.filter((w) => !w.present).map(windowOf)
+  // Prefer non-Present editor windows when targeting implicitly, while still letting
+  // explicit active-tab ids (like an active HTML Present tab from shell context) route
+  // through to the family reader's owner-redirection fallback.
+  const target = document
+    ? resolveReadTarget(allKindWindows, kind, document)
+    : resolveReadTarget(
+        preferredWindows.length > 0 ? preferredWindows : allKindWindows,
+        kind,
+        undefined,
+      )
   const wc = deps.webContentsFor(target.id)
   if (!wc || wc.isDestroyed()) {
     throw new Error(`"${target.title}" is no longer open`)
   }
-  const result = await reader(wc, readPayload(spec, input))
+  const rawResult = await reader(wc, validatedPayload)
+  const result = textSliceOpts
+    ? sliceTextReadResult(rawResult, textSliceOpts.offset, textSliceOpts.maxChars)
+    : rawResult
   return {
     target: {
       id: target.id,

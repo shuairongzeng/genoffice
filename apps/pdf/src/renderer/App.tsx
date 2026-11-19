@@ -6727,6 +6727,7 @@ export default function App() {
 
   const headlessRefs = useRef({
     doc,
+    visList,
     filePath,
     aiApi,
     snapshot,
@@ -6739,6 +6740,7 @@ export default function App() {
   })
   headlessRefs.current = {
     doc,
+    visList,
     filePath,
     aiApi,
     snapshot,
@@ -6787,7 +6789,12 @@ export default function App() {
       if (!currentDoc) return
       void (async () => {
         try {
-          const total = currentDoc.numPages
+          const visible = headlessRefs.current.visList
+          const pageMap =
+            visible && visible.length > 0
+              ? visible
+              : Array.from({ length: currentDoc.numPages }, (_, i) => i)
+          const total = pageMap.length
           const rawStart = req.start ?? 1
           const rawEnd = req.end ?? rawStart + 9
           if (
@@ -6808,7 +6815,8 @@ export default function App() {
           const MAX_READ_TEXT_CHARS = 16_000
           let out = `Document: ${headlessRefs.current.baseName()} (${total} pages total; showing pages ${start}-${end})\n\n`
           for (let n = start; n <= end; n += 1) {
-            const page = await currentDoc.getPage(n)
+            const origIdx = pageMap[n - 1]!
+            const page = await currentDoc.getPage(origIdx + 1)
             const content = await page.getTextContent()
             let text = ''
             for (const item of content.items) {
@@ -6819,7 +6827,7 @@ export default function App() {
             }
             page.cleanup()
             if (isScannedText(text)) {
-              const ocr = headlessRefs.current.aiApi.ocrText(n - 1)
+              const ocr = headlessRefs.current.aiApi.ocrText(origIdx)
               if (ocr && ocr.trim()) {
                 text = `(recovered by OCR; may contain recognition errors)\n${ocr}`
               }

@@ -46,6 +46,13 @@ export interface SlidesTxnRequest {
   dryRun?: boolean
 }
 
+/** optional page filter for reading full content of specific slides (0-based indexes) */
+export interface SlidesReadOptions {
+  slideIndex?: number
+  start?: number
+  end?: number
+}
+
 /**
  * Visible-deck control implemented in the shell main process against the slides
  * main-process sessions (`slides-bridge.ts`).
@@ -55,8 +62,8 @@ export interface SlidesControl {
   openBlankTab: () => Promise<number>
   /** apply one transaction to the tab's session (history + journal + live render included) */
   runTxn: (wcId: number, req: SlidesTxnRequest) => Promise<unknown>
-  /** read the visible deck (slides/elements with ids and geometry) */
-  readDeck: (wcId: number) => Promise<unknown>
+  /** read the visible deck (overview by default, or untruncated slides when filtered) */
+  readDeck: (wcId: number, options?: SlidesReadOptions) => Promise<unknown>
   /** save the session's deck to an absolute path */
   saveDeck: (wcId: number, path: string, overwrite: boolean) => Promise<{ path: string }>
 }
@@ -165,11 +172,39 @@ function createDeckContentTools(deps: SlidesToolDeps, host: SessionHost): McpToo
     {
       name: 'read_deck',
       description:
-        'Read the visible presentation: every slide with its elements (ids, types, text, geometry) ' +
-        'so you can target follow-up edits. Element ids and slide indexes are what apply_slide_ops ' +
-        'addresses; geometry is document-space EMU (1 px = 9525 EMU on a standard 16:9 deck).',
-      inputSchema: { document: documentField },
-      handler: async (args) => slides.readDeck(await target(args.document)),
+        'Read the visible presentation: slides with their elements (ids, types, text, tables, ' +
+        'charts, speaker notes, geometry in document-space EMU). Without page arguments returns a ' +
+        'deck overview; pass 0-based `slideIndex` or `start`/`end` to read full untruncated text, ' +
+        'tables, charts, and speaker notes for specific slides.',
+      inputSchema: {
+        document: documentField,
+        slideIndex: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('0-based single slide index to read in full without truncation'),
+        start: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('0-based start slide index to read in full inclusive'),
+        end: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('0-based end slide index inclusive (clamped to deck length)'),
+      },
+      handler: async (args) => {
+        const wcId = await target(args.document)
+        const opts: SlidesReadOptions = {}
+        if (typeof args.slideIndex === 'number') opts.slideIndex = args.slideIndex
+        if (typeof args.start === 'number') opts.start = args.start
+        if (typeof args.end === 'number') opts.end = args.end
+        return Object.keys(opts).length > 0 ? slides.readDeck(wcId, opts) : slides.readDeck(wcId)
+      },
     },
     {
       name: 'apply_slide_ops',

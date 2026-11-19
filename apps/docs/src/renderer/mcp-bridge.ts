@@ -2,8 +2,10 @@ import type { Editor } from '@tiptap/react'
 import { BLANK_BULLET_NUM_ID, BLANK_ORDERED_NUM_ID } from '@genoffice/docx-engine'
 import type { McpCommandMessage, McpEditorCommand } from '../shared/ipc'
 import { executeTool, markDocSeen } from './ai/tools'
-import { findNumId, type NumIds } from './ai/protocol'
+import { findNumId, serializeRangeToHtml, type NumIds } from './ai/protocol'
 import { save, type FileActionContext } from './file-actions'
+
+const DOC_PREVIEW_FULL_MAX_CHARS = 16_000
 
 /**
  * MCP bridge (renderer half).
@@ -71,7 +73,21 @@ function clearAiChangedFlags(editor: Editor): void {
  * agent chasing a tool it cannot call. Rename the reference on the way out.
  */
 function mcpErrorText(output: string): string {
-  return output.replaceAll('get_document_context', 'read_document')
+  return output.replaceAll('get_document_context', 'read_document').replaceAll('read_blocks', 'read_document')
+}
+
+interface ReadDocumentInput {
+  startBlockIndex?: unknown
+  endBlockIndex?: unknown
+  offset?: unknown
+}
+
+function parseOptionalNonNegInt(value: unknown, field: string): number | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${field} must be a non-negative integer`)
+  }
+  return value
 }
 
 async function runCommand(
@@ -147,13 +163,64 @@ async function runCommand(
     }
 
     case 'read_document': {
+      const input = (payload ?? {}) as ReadDocumentInput
+      const startArg = parseOptionalNonNegInt(input.startBlockIndex, 'startBlockIndex')
+      const endArg = parseOptionalNonNegInt(input.endBlockIndex, 'endBlockIndex')
+      const offsetArg = parseOptionalNonNegInt(input.offset, 'offset')
+      const hasRangeArgs = startArg !== undefined || endArg !== undefined || offsetArg !== undefined
+      const childCount = editor.state.doc.childCount
+
+      if (hasRangeArgs) {
+        if (childCount === 0) return { text: '(document is empty)' }
+        const start = startArg ?? 0
+        const rawEnd = endArg ?? (startArg !== undefined ? start : childCount - 1)
+        if (start < 0 || start >= childCount || rawEnd < start) {
+          throw new Error(
+            `block index out of range (valid: 0..${childCount - 1}); ` +
+              'call read_document without range arguments for the current block list',
+          )
+        }
+        const end = Math.min(rawEnd, childCount - 1)
+        const outcome = await executeTool(
+          editor,
+          {
+            id: 'mcp',
+            name: 'read_blocks',
+            input: {
+              startBlockIndex: start,
+              endBlockIndex: end,
+              ...(offsetArg !== undefined ? { offset: offsetArg } : {}),
+            },
+          },
+          numIdsFor(ctx),
+        )
+        if (outcome.isError) throw new Error(mcpErrorText(outcome.output))
+        return { text: mcpErrorText(outcome.output) }
+      }
+
       const outcome = await executeTool(
         editor,
         { id: 'mcp', name: 'get_document_context', input: {} },
         numIdsFor(ctx),
       )
       if (outcome.isError) throw new Error(mcpErrorText(outcome.output))
-      return { text: outcome.output }
+      const overview = outcome.output
+      if (childCount === 0) return { text: overview }
+      const fullHtml = serializeRangeToHtml(editor, 0, childCount - 1)
+      if (!fullHtml) return { text: overview }
+      if (fullHtml.length <= DOC_PREVIEW_FULL_MAX_CHARS) {
+        return {
+          text: `${overview}\n\n## Full content (blocks 0-${childCount - 1})\n${fullHtml}`,
+        }
+      }
+      return {
+        text:
+          `${overview}\n\n## Content preview (blocks 0-${childCount - 1}, ` +
+          `characters 0..${DOC_PREVIEW_FULL_MAX_CHARS} of ${fullHtml.length})\n` +
+          `${fullHtml.slice(0, DOC_PREVIEW_FULL_MAX_CHARS)}\n` +
+          `…(truncated: ${fullHtml.length} characters in total, call read_document again with ` +
+          `offset=${DOC_PREVIEW_FULL_MAX_CHARS} or pass startBlockIndex/endBlockIndex to read specific blocks)`,
+      }
     }
 
     case 'save_document': {
