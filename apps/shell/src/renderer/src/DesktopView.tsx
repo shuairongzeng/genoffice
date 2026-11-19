@@ -238,6 +238,11 @@ export interface DesktopViewProps {
    */
   readonly dockPillRef?: { current: HTMLElement | null }
   /**
+   * Optional eligibility check run during drag-over so invalid/duplicate/full
+   * items do not open a false gap on the dock before release.
+   */
+  readonly canDockDrop?: (candidate: DockCustomCandidate) => boolean
+  /**
    * A dragged icon was released over the dock's pill: hand Home the
    * candidate (the desktop item's kind and target) with the release point
    * and the icon's visual footprint (the fly-in ghost's start), and read
@@ -267,6 +272,34 @@ const pointerIdOf = (event: PointerEvent | ReactPointerEvent): number =>
 
 const clampInt = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), Math.max(min, max))
+
+const DOCK_DROP_TOP_PAD_PX = 18
+const DOCK_DROP_BOTTOM_PAD_PX = 12
+const DOCK_HIDDEN_OFFSET_PX = 12
+
+const candidateForIcon = (icon: DesktopItem | undefined): DockCustomCandidate | null => {
+  if (!icon || icon.kind === 'widget' || (icon.kind !== 'app' && !icon.path)) return null
+  return { kind: icon.kind, target: icon.kind === 'app' ? icon.id : icon.path! }
+}
+
+/**
+ * Hit-test the dock pill for drag-over preview and drop release so both paths
+ * share identical geometry, with a forgiving vertical capture band and wakeup
+ * reach when `.dock-hidden` has slid the pill off-screen under auto-hide.
+ */
+function isPointOverDockPill(
+  pill: HTMLElement | null | undefined,
+  clientX: number,
+  clientY: number,
+): boolean {
+  if (!pill) return false
+  const rect = pill.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return false
+  const hidden = pill.classList?.contains('dock-hidden') === true
+  const top = rect.top - (hidden ? rect.height + DOCK_HIDDEN_OFFSET_PX : 0) - DOCK_DROP_TOP_PAD_PX
+  const bottom = rect.bottom + DOCK_DROP_BOTTOM_PAD_PX
+  return clientX >= rect.left && clientX <= rect.right && clientY >= top && clientY <= bottom
+}
 
 /** the file/folder name of a path, for the removal confirm dialog's list */
 const baseNameOf = (path: string): string => path.split(/[\\/]/).pop() ?? path
@@ -462,6 +495,7 @@ export function DesktopView({
   onRemoveFolderRoot,
   onNewFolder,
   dockPillRef,
+  canDockDrop,
   onDockDrop,
   onDockHover,
   backdropHost,
@@ -1156,8 +1190,26 @@ export function DesktopView({
    * drop, no grid snap, no error. Everything the handlers read at event
    * time rides this ref instead.
    */
-  const gestureRef = useRef({ dockPillRef, onDockDrop, onDockHover, showNotice, s, iconScale })
-  gestureRef.current = { dockPillRef, onDockDrop, onDockHover, showNotice, s, iconScale }
+  const gestureRef = useRef({
+    dockPillRef,
+    canDockDrop,
+    onDockDrop,
+    onDockHover,
+    freeLayout,
+    showNotice,
+    s,
+    iconScale,
+  })
+  gestureRef.current = {
+    dockPillRef,
+    canDockDrop,
+    onDockDrop,
+    onDockHover,
+    freeLayout,
+    showNotice,
+    s,
+    iconScale,
+  }
 
   /**
    * Commit a drop. A plain drag claims the snapped cell and swaps whoever
@@ -1240,15 +1292,14 @@ export function DesktopView({
       // pill, the host wants the pointer's x (the dock opens the gap the
       // drop would land in); off the pill, the gap closes. Read through the
       // gesture mirror — the channel's identity may churn per render
-      const { onDockHover: hover, dockPillRef: pillRef } = gestureRef.current
+      const { onDockHover: hover, dockPillRef: pillRef, canDockDrop: canDrop } = gestureRef.current
       if (hover) {
-        const pillRect = pillRef?.current?.getBoundingClientRect()
-        const over =
-          pillRect !== undefined &&
-          event.clientX >= pillRect.left &&
-          event.clientX <= pillRect.right &&
-          event.clientY >= pillRect.top &&
-          event.clientY <= pillRect.bottom
+        const groupDrag = d.group !== null && d.group.length >= 2
+        const candidate = groupDrag
+          ? null
+          : candidateForIcon(iconsRef.current.find((item) => item.id === d.id))
+        const eligible = candidate !== null && (!canDrop || canDrop(candidate))
+        const over = eligible && isPointOverDockPill(pillRef?.current, event.clientX, event.clientY)
         hover(over ? event.clientX : null)
       }
     }
@@ -1274,18 +1325,9 @@ export function DesktopView({
         iconScale: scale,
       } = gestureRef.current
       const pill = pillRef?.current
-      if (!pill || !drop) return false
-      const rect = pill.getBoundingClientRect()
-      if (
-        client.x < rect.left ||
-        client.x > rect.right ||
-        client.y < rect.top ||
-        client.y > rect.bottom
-      ) {
-        return false
-      }
-      const icon = iconsRef.current.find((candidate) => candidate.id === d.id)
-      if (!icon || icon.kind === 'widget' || (icon.kind !== 'app' && !icon.path)) return false
+      if (!pill || !drop || !isPointOverDockPill(pill, client.x, client.y)) return false
+      const candidate = candidateForIcon(iconsRef.current.find((item) => item.id === d.id))
+      if (!candidate) return false
       const at: DockGhostFrom = {
         x: client.x,
         y: client.y,
@@ -1293,8 +1335,7 @@ export function DesktopView({
         // ghost's start scale (the desktop tile, not the cell)
         size: Math.round(DESKTOP_TILE_BASE * scale),
       }
-      const status =
-        drop({ kind: icon.kind, target: icon.kind === 'app' ? icon.id : icon.path! }, at) ?? 'added'
+      const status = drop(candidate, at) ?? 'added'
       if (status === 'full') notice(strings.noticeDockFull)
       // a duplicate earns the same honesty: the icon springs back AND the
       // person hears why nothing changed (a silent refusal reads as a bug)
@@ -1314,7 +1355,7 @@ export function DesktopView({
           return
         }
         dropGuardRef.current = Date.now() + DROP_DBLCLICK_GUARD_MS
-        commitDrop(d.id, last.x, last.y, d.group)
+        if (gestureRef.current.freeLayout) commitDrop(d.id, last.x, last.y, d.group)
       }
       setPress(null)
       setDrag(null)
@@ -1452,9 +1493,13 @@ export function DesktopView({
       }
       setMenu(null)
       setSurfaceMenu(null)
-      // the read-only sort flows are look-don't-touch: a press selects, but
-      // never arms the drag machinery (Custom is the only draggable mode)
-      if (!freeLayout) return
+      // Read-only sort modes still allow single-icon drags toward the dock while
+      // leaving desktop grid reordering disabled (`finish` skips `commitDrop`).
+      const canDragToDock =
+        Boolean(dockPillRef?.current && onDockDrop) &&
+        (group === null || group.length < 2) &&
+        candidateForIcon(icon) !== null
+      if (!freeLayout && !canDragToDock) return
       const surface = surfaceRef.current
       if (!surface) return
       const rect = surface.getBoundingClientRect()
@@ -1468,7 +1513,7 @@ export function DesktopView({
         group,
       })
     },
-    [press, marquee, anchorId, selectedIds, freeLayout, cellsOf],
+    [press, marquee, anchorId, selectedIds, freeLayout, dockPillRef, onDockDrop, cellsOf],
   )
 
   const openIcon = useCallback((id: string) => {
@@ -2252,6 +2297,7 @@ export function DesktopView({
                   tabIndex={0}
                   aria-label={icon.title}
                   title={icon.kind === 'folder' ? (icon.path ?? icon.title) : icon.title}
+                  onDragStart={(event) => event.preventDefault()}
                   onPointerDown={(event) => onIconPointerDown(event, icon, pos)}
                   onDoubleClick={() => {
                     if (Date.now() < dropGuardRef.current) return
@@ -2303,7 +2349,14 @@ export function DesktopView({
               <div
                 className="desktop-icon desktop-icon-avatar"
                 role="presentation"
-                style={{ left: x, top: y }}
+                style={
+                  {
+                    left: x,
+                    top: y,
+                    ...labelStyle,
+                    '--desktop-icon-scale': String(iconScale),
+                  } as CSSProperties
+                }
               >
                 <div className="desktop-icon-item">
                   {renderTile(icon)}

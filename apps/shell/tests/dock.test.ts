@@ -1178,4 +1178,169 @@ describe('the drag-over insert preview (the gap that opens before the drop)', ()
     await flushFrames()
     expect(slotWidths().every((width) => width === '')).toBe(true)
   })
+
+  it('static baseline centers ignore DOM rect drift after the preview opens', async () => {
+    await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: 250 })
+    expect(onInsertPreview).toHaveBeenLastCalledWith(1)
+    // simulate the centered pill widening underneath by shifting every slot rect left
+    stubSlots([48, 48, 48, 48, 48, 48, 48], 20)
+    await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: 254 })
+    expect(onInsertPreview).toHaveBeenLastCalledWith(1)
+  })
+
+  it('spawns closing spacers when moving or leaving preview, respecting reducedMotion', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: 250 })
+      expect(container.querySelector('.dock')!.classList.contains('dock-drop-active')).toBe(true)
+      expect(container.querySelectorAll('.dock-slot-closing')).toHaveLength(0)
+
+      await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: 300 })
+      expect(container.querySelectorAll('.dock-slot-closing')).toHaveLength(1)
+      await act(async () => {
+        vi.advanceTimersByTime(230)
+      })
+      expect(container.querySelectorAll('.dock-slot-closing')).toHaveLength(0)
+
+      await rerenderDock({ groups: groups(), onInsertPreview, insertPreview: null })
+      expect(container.querySelector('.dock')!.classList.contains('dock-drop-active')).toBe(false)
+      expect(container.querySelectorAll('.dock-slot-closing')).toHaveLength(1)
+      await act(async () => {
+        vi.advanceTimersByTime(230)
+      })
+      expect(container.querySelectorAll('.dock-slot-closing')).toHaveLength(0)
+
+      await rerenderDock({
+        groups: groups(),
+        onInsertPreview,
+        insertPreview: 250,
+        reducedMotion: true,
+      })
+      await rerenderDock({
+        groups: groups(),
+        onInsertPreview,
+        insertPreview: null,
+        reducedMotion: true,
+      })
+      expect(container.querySelectorAll('.dock-slot-closing')).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('holds onInteractionChange active while drag-over preview is open', async () => {
+    const onInteractionChange = vi.fn()
+    await mountDock({ groups: groups(), onInteractionChange })
+    await rerenderDock({ groups: groups(), onInteractionChange, insertPreview: 250 })
+    expect(onInteractionChange).toHaveBeenLastCalledWith(true)
+    await rerenderDock({ groups: groups(), onInteractionChange, insertPreview: null })
+    expect(onInteractionChange).toHaveBeenLastCalledWith(false)
+  })
+})
+
+describe('symmetric centered FLIP and zero-rebound drop', () => {
+  const originalWidthDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')!
+  let dockWidth = 0
+  let lefts: Map<string, number>
+  let restoreLefts: () => void
+
+  beforeEach(() => {
+    const stub = stubRowLefts()
+    lefts = stub.lefts
+    restoreLefts = stub.restore
+    dockWidth = 144
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      get(this: HTMLElement): number {
+        return this.classList?.contains('dock')
+          ? dockWidth
+          : ((originalWidthDesc.get?.call(this) as number) ?? 0)
+      },
+      configurable: true,
+    })
+  })
+
+  afterEach(() => {
+    restoreLefts()
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', originalWidthDesc)
+  })
+
+  const slotOf = (id: string): HTMLElement =>
+    container.querySelector<HTMLElement>(`.dock-slot[data-item-id="${id}"]`)!
+
+  it('centered FLIP parts left and right halves symmetrically', async () => {
+    const items = threeItems()
+    lefts.set('slot:recent', 0)
+    lefts.set('slot:starred', 48)
+    lefts.set('slot:ask', 96)
+    await mountDock({ groups: [items] })
+
+    dockWidth = 192
+    const custom: DockItem = { id: 'custom', label: 'a.md', icon: icon(), onSelect: vi.fn() }
+    lefts.set('slot:recent', 0)
+    lefts.set('slot:custom', 48)
+    lefts.set('slot:starred', 96)
+    lefts.set('slot:ask', 144)
+    await rerenderDock({ groups: [[items[0]!, custom, items[1]!, items[2]!]] })
+
+    expect(slotOf('recent').style.transform).toBe('translateX(24px)')
+    expect(slotOf('starred').style.transform).toBe('translateX(-24px)')
+    expect(slotOf('ask').style.transform).toBe('translateX(-24px)')
+    expect(slotOf('custom').style.transform).toBe('')
+    expect(slotOf('custom').classList.contains('dock-slot-entering')).toBe(true)
+  })
+
+  it('dropping onto an expanded preview gap leaves neighbors still without rebound', async () => {
+    let now = 1000
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now)
+    try {
+      const g = (): readonly (readonly DockItem[])[] => [
+        [threeItems()[0]!],
+        [
+          { id: 'settings', label: 'Settings', icon: icon(), onSelect: vi.fn() },
+          { id: 'plugins', label: 'Plugins', icon: icon(), onSelect: vi.fn() },
+        ],
+        [threeItems()[2]!],
+      ]
+      dockWidth = 192
+      lefts.set('slot:recent', 0)
+      lefts.set('sep:1', 48)
+      lefts.set('slot:settings', 48)
+      lefts.set('slot:plugins', 96)
+      lefts.set('sep:2', 144)
+      lefts.set('slot:ask', 144)
+      await mountDock({ groups: g() })
+      stubSlots([48, 48, 48, 48])
+
+      await rerenderDock({ groups: g(), insertPreview: 220 })
+      now = 1250
+
+      dockWidth = 240
+      lefts.set('slot:recent', 0)
+      lefts.set('sep:1', 48)
+      lefts.set('slot:settings', 48)
+      lefts.set('slot:docs', 96)
+      lefts.set('slot:plugins', 144)
+      lefts.set('sep:2', 192)
+      lefts.set('slot:ask', 192)
+      const gAfter: readonly (readonly DockItem[])[] = [
+        [threeItems()[0]!],
+        [
+          { id: 'settings', label: 'Settings', icon: icon(), onSelect: vi.fn() },
+          { id: 'docs', label: 'Docs', icon: icon(), onSelect: vi.fn() },
+          { id: 'plugins', label: 'Plugins', icon: icon(), onSelect: vi.fn() },
+        ],
+        [threeItems()[2]!],
+      ]
+      await rerenderDock({ groups: gAfter, insertPreview: null })
+
+      expect(slotOf('recent').style.transform).toBe('')
+      expect(slotOf('settings').style.transform).toBe('')
+      expect(slotOf('plugins').style.transform).toBe('')
+      expect(slotOf('ask').style.transform).toBe('')
+      expect(slotOf('docs').classList.contains('dock-slot-entering')).toBe(true)
+      expect(container.querySelectorAll('.dock-slot-closing')).toHaveLength(0)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
 })

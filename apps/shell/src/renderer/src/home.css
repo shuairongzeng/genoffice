@@ -153,6 +153,10 @@ body.vib .home {
   border-color: var(--glass-border);
 }
 
+.home.desktop-mode[data-wallpaper-tone='dark'] .dock.dock-drop-active {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
 /* the desktop's context menus wear the same glass: an opaque white slab over
    the dark aurora reads as a flashlight — the icon menu (.desktop-icon-menu),
    the surface and multi menus (.desktop-menu) and the flyout submenu alike */
@@ -274,10 +278,14 @@ body.overlay-title-bar .work-tabs {
   --dock-tile-plugins: #f97316;
   --dock-tile-ask: #0f7fff;
   --dock-tile-cloud: #2563eb;
-  /* the auto-hide slide (设置 ▸ 自动隐藏程序坞): the root's only other
-   * transform is the centering translate, which the hidden state carries
-   * along */
-  transition: transform 0.25s ease;
+  /* the auto-hide slide (hide/reveal) and drop-target outline tint */
+  transition:
+    transform 0.25s ease,
+    border-color 0.16s ease;
+}
+
+.dock.dock-drop-active {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 /* Dark theme's glass: the same share (the surface token already carries the
@@ -578,29 +586,46 @@ html.dock-view body {
 }
 
 /* ── the drag-over insert preview (the gap that opens before the drop) ──
- * A spacer slot spliced into the launchers group at the previewed index
- * while a desktop icon is dragged over the pill: its width grows 0 → base
- * (~150ms ease-out), so the neighbors part live around the carried icon —
- * the row showing where the item would land, the way macOS does. The base
- * width IS the full slot, so the animation only describes the entry; when
- * the preview ends the node unmounts outright — on a drop the real slot
- * takes its place in the same commit (the spacer's width becomes the
- * item's, no double-wide beat), and on a leave the gap closing instantly
- * is the honest answer. Reduce motion opens the gap without animation
- * (the width stands at base).
+ * Spacer slots spliced into the launchers group at the hovered index.
+ * Dock.tsx drives explicit width and margin-inline transitions on both
+ * `.dock-slot-preview` (opening) and `.dock-slot-closing` (collapsing)
+ * so the centered glass pill expands and contracts in lockstep with
+ * neighboring icons. Reduce motion shows the full gap without animation.
  */
 .dock-slot-preview {
-  animation: dock-preview-open 150ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  flex-shrink: 0;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
-@keyframes dock-preview-open {
+.dock-slot-preview::before {
+  content: '';
+  box-sizing: border-box;
+  width: calc(100% - 8px);
+  height: calc(var(--dock-base) - 8px);
+  border-radius: var(--radius-12);
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  animation: dock-preview-badge 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.dock-slot-closing {
+  flex-shrink: 0;
+  height: var(--dock-base);
+  pointer-events: none;
+}
+
+@keyframes dock-preview-badge {
   from {
-    width: 0;
+    opacity: 0;
+    transform: scale(0.75);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dock-slot-preview {
+  .dock-slot-preview::before {
     animation: none;
   }
 }

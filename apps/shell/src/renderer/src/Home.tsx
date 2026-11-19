@@ -1184,13 +1184,26 @@ export function Home() {
   // nothing renders from it, and the drop handler reads it at event time
   // without re-creating itself (the gesture-stability lesson: the handler's
   // identity must never churn mid-drag).
+  const showDockRef = useRef<() => void>(() => {})
   const [dockInsertPreview, setDockInsertPreview] = useState<number | null>(null)
   const handleDockHover = useCallback((x: number | null) => {
+    if (x !== null) showDockRef.current()
     setDockInsertPreview((prev) => (prev === x ? prev : x))
   }, [])
   const dockInsertIndexRef = useRef<number | null>(null)
   const handleInsertPreview = useCallback((index: number | null) => {
     dockInsertIndexRef.current = index
+  }, [])
+
+  /** Predict whether a dragged desktop item can join the dock before opening a preview gap. */
+  const canDockDrop = useCallback((candidate: DockCustomCandidate): boolean => {
+    if (candidate.kind === 'app') {
+      const builtIn = `dock:${candidate.target.replace(/^app:/, '')}`
+      if (dockGroupsRef.current.some((group) => group.some((item) => item.id === builtIn))) {
+        return false
+      }
+    }
+    return addDockCustom(dockPrefsRef.current, candidate).status === 'added'
   }, [])
 
   /** a dragged-in icon's release over the pill: join it to the dock, read back what happened */
@@ -2331,6 +2344,7 @@ export function Home() {
     clearDockHideTimer()
     setDockShown(true)
   }, [clearDockHideTimer])
+  showDockRef.current = showDock
   const scheduleDockHide = useCallback(() => {
     // a pinned dock stays up whatever the pointer does
     if (dockPinnedRef.current) return
@@ -2641,6 +2655,7 @@ export function Home() {
               onRemoveFolderRoot={removeFolderRoot}
               onNewFolder={newFolderOnDesktop}
               dockPillRef={dockPillRef}
+              canDockDrop={canDockDrop}
               onDockDrop={handleDockDrop}
               onDockHover={handleDockHover}
               backdropHost={backdropHost}

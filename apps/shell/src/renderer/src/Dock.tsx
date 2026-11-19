@@ -190,6 +190,82 @@ export interface DockProps {
 
 /** the pointer travel that separates a drag from a click */
 const DOCK_DRAG_THRESHOLD_PX = 6
+/** open/close transition duration (ms) for drag-over insert preview spacers */
+const DOCK_PREVIEW_MS = 200
+/** macOS ease-out curve shared by preview spacers and parting slides */
+const DOCK_PREVIEW_EASE = 'cubic-bezier(0.22, 0.61, 0.36, 1)'
+/** flex gap between dock slots (`home.css` `.dock { gap: 3px }`) */
+const DOCK_SLOT_GAP_PX = 3
+
+interface ClosingSpacerSpec {
+  readonly id: number
+  /** launcher id right after the exited preview slot; null when trailing the group */
+  readonly beforeItemId: string | null
+  readonly startWidth: number
+  readonly baseSize: number
+}
+
+function easeOutQuad(progress: number): number {
+  const clamped = Math.min(1, Math.max(0, progress))
+  return 1 - (1 - clamped) * (1 - clamped)
+}
+
+/**
+ * Measure every tracked row child's horizontal coordinate relative to the
+ * pill's center axis (`offsetLeft - root.offsetWidth / 2`).
+ *
+ * Because `.dock` is centered via `left: 50%; transform: translateX(-50%)`,
+ * subtracting half the pill's layout width makes FLIP deltas split
+ * symmetrically left and right in real Chromium, while degrading to raw
+ * `offsetLeft` in jsdom where `root.offsetWidth === 0`.
+ */
+function measureRowPositions(
+  root: HTMLElement,
+  els: ReadonlyMap<string, HTMLElement>,
+): Map<string, number> {
+  const halfWidth = root.offsetWidth / 2
+  const positions = new Map<string, number>()
+  for (const [key, el] of els) positions.set(key, el.offsetLeft - halfWidth)
+  return positions
+}
+
+/**
+ * Collapsing spacer keeping the centered pill width synchronized while
+ * neighbors return inward after a drag-over preview leaves or switches slots.
+ * Rendered as a plain `<span>` without `.dock-slot` or `.dock-slot-preview`.
+ */
+function ClosingSpacer({
+  startWidth,
+  baseSize,
+}: {
+  readonly startWidth: number
+  readonly baseSize: number
+}): React.JSX.Element {
+  const spanRef = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const el = spanRef.current
+    if (!el) return
+    let cancelled = false
+    const startMargin = (-DOCK_SLOT_GAP_PX / 2) * (1 - Math.min(1, startWidth / baseSize))
+    el.style.transition = 'none'
+    el.style.width = `${startWidth}px`
+    el.style.marginInline = `${startMargin}px`
+    el.style.opacity = '1'
+    void el.offsetWidth
+    const frame = requestAnimationFrame(() => {
+      if (cancelled || !el.isConnected) return
+      el.style.transition = `width ${DOCK_PREVIEW_MS}ms ${DOCK_PREVIEW_EASE}, margin-inline ${DOCK_PREVIEW_MS}ms ${DOCK_PREVIEW_EASE}, opacity 140ms ease`
+      el.style.width = '0px'
+      el.style.marginInline = `${-DOCK_SLOT_GAP_PX / 2}px`
+      el.style.opacity = '0'
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(frame)
+    }
+  }, [startWidth, baseSize])
+  return <span className="dock-slot-closing" ref={spanRef} aria-hidden="true" />
+}
 
 /**
  * Snap every slot to rest: the inline widths and item transforms cleared,
@@ -221,20 +297,19 @@ export function Dock(props: DockProps): React.JSX.Element {
   // mid-session re-renders — and the gesture effect re-arms on [reducedMotion].
   // An explicit prop still wins outright: a host forcing the mode never
   // follows the OS.
-  const [reducedMotion, setReducedMotion] = useState(
-    () =>
-      props.reducedMotion ??
-      (typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        : false),
+  const [osReducedMotion, setOsReducedMotion] = useState(() =>
+    typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false,
   )
+  const reducedMotion = props.reducedMotion ?? osReducedMotion
 
   useEffect(() => {
     if (props.reducedMotion !== undefined) return
     if (typeof window.matchMedia !== 'function') return
     const query = window.matchMedia('(prefers-reduced-motion: reduce)')
     if (typeof query.addEventListener !== 'function') return
-    const onChange = (event: MediaQueryListEvent): void => setReducedMotion(event.matches)
+    const onChange = (event: MediaQueryListEvent): void => setOsReducedMotion(event.matches)
     query.addEventListener('change', onChange)
     return () => query.removeEventListener('change', onChange)
   }, [props.reducedMotion])
@@ -260,6 +335,8 @@ export function Dock(props: DockProps): React.JSX.Element {
   // committed drag, the host's persisted order changing) invalidates the
   // measured centers the same way a resize does
   const orderSignature = displayedIds.flat().join('|')
+  const displayedIdsRef = useRef(displayedIds)
+  displayedIdsRef.current = displayedIds
 
   // ── the parting FLIP: a composition change parts the row ──
   // The insert/remove half of the drop-into-dock moment: the row children
@@ -280,6 +357,24 @@ export function Dock(props: DockProps): React.JSX.Element {
   const rowLefts = useRef<Map<string, number> | null>(null)
   /** the signature the cached lefts describe */
   const rowSignature = useRef<string | null>(null)
+  const groupsKey = groupIds.map((group) => group.join(',')).join('|')
+  const prevGroupsKeyRef = useRef<string>(groupsKey)
+  const neighborTimersRef = useRef<Map<HTMLElement, ReturnType<typeof setTimeout>>>(new Map())
+  const clearNeighborSlides = useCallback((): void => {
+    for (const timer of neighborTimersRef.current.values()) clearTimeout(timer)
+    neighborTimersRef.current.clear()
+    const root = rootRef.current
+    if (!root) return
+    for (const slot of root.querySelectorAll<HTMLElement>('.dock-slot')) {
+      if (slot.classList.contains('dock-dragging')) continue
+      const item = slot.firstElementChild
+      if (item instanceof HTMLElement) {
+        item.style.transition = ''
+        item.style.transform = ''
+      }
+    }
+  }, [])
+
   const partingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** end any in-flight parting: jump to the settled layout, clear the styles */
   const endParting = useCallback((): void => {
@@ -287,6 +382,7 @@ export function Dock(props: DockProps): React.JSX.Element {
       clearTimeout(partingTimer.current)
       partingTimer.current = null
     }
+    clearNeighborSlides()
     const root = rootRef.current
     if (root) {
       for (const child of root.children) {
@@ -297,7 +393,7 @@ export function Dock(props: DockProps): React.JSX.Element {
       }
     }
     setParting((was) => (was ? false : was))
-  }, [])
+  }, [clearNeighborSlides])
   /** track one row child (ref callback) so the FLIP can measure it */
   const trackRowEl =
     (key: string) =>
@@ -305,20 +401,145 @@ export function Dock(props: DockProps): React.JSX.Element {
       if (el) rowEls.current.set(key, el)
       else rowEls.current.delete(key)
     }
+
+  // ── the drag-over insert preview state & refs ──
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null)
+  const insertPreview = props.insertPreview ?? null
+  const hasInsertPreview = insertPreview !== null
+  const onInsertPreview = props.onInsertPreview
+  const launchersCount = displayedIds[DOCK_LAUNCHERS_GROUP]?.length ?? 0
+  const effectivePreviewIndex =
+    insertPreview === null || previewIndex === null ? null : Math.min(previewIndex, launchersCount)
+  const [closingState, setClosingState] = useState<{
+    readonly orderSig: string
+    readonly items: readonly ClosingSpacerSpec[]
+  }>({ orderSig: orderSignature, items: [] })
+  const activeClosingSlots = closingState.orderSig === orderSignature ? closingState.items : []
+  const previewSlotRef = useRef<HTMLDivElement>(null)
+  const previewBaselineCentersRef = useRef<number[] | null>(null)
+  const previewBaselineOrderSigRef = useRef<string>(orderSignature)
+  const previewBaselineBaseSizeRef = useRef<number>(baseSize)
+  const prevEffectivePreviewRef = useRef<number | null>(null)
+  const prevPreviewOrderSigRef = useRef<string>(orderSignature)
+  const prevPreviewLaunchersRef = useRef<readonly string[]>(
+    displayedIds[DOCK_LAUNCHERS_GROUP] ?? [],
+  )
+  const previewOpenedAtRef = useRef<number>(0)
+  const closingSeqRef = useRef(0)
+  const closingTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
+
+  // Hook 1: capture static launcher centers once at drag-over entry so the
+  // centered pill expanding underneath does not feed back into index selection.
+  useLayoutEffect(() => {
+    if (
+      previewBaselineOrderSigRef.current !== orderSignature ||
+      previewBaselineBaseSizeRef.current !== baseSize
+    ) {
+      previewBaselineOrderSigRef.current = orderSignature
+      previewBaselineBaseSizeRef.current = baseSize
+      previewBaselineCentersRef.current = null
+    }
+    if (insertPreview === null) {
+      previewBaselineCentersRef.current = null
+      setPreviewIndex((was) => (was === null ? was : null))
+      onInsertPreview?.(null)
+      return
+    }
+    if (previewBaselineCentersRef.current === null) {
+      const root = rootRef.current
+      if (root) snapSlotsToRest(root)
+      const ids = displayedIdsRef.current[DOCK_LAUNCHERS_GROUP] ?? []
+      const centers: number[] = []
+      for (const id of ids) {
+        const el = rowEls.current.get(`slot:${id}`)
+        if (!el) continue
+        const rect = el.getBoundingClientRect()
+        centers.push(rect.left + rect.width / 2)
+      }
+      previewBaselineCentersRef.current = centers
+    }
+    const index = dockInsertIndex(previewBaselineCentersRef.current, insertPreview)
+    setPreviewIndex((was) => (was === index ? was : index))
+    onInsertPreview?.(index)
+  }, [insertPreview, orderSignature, baseSize, onInsertPreview])
+
+  useEffect(() => {
+    if (!hasInsertPreview) return
+    const onResize = (): void => {
+      previewBaselineCentersRef.current = null
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [hasInsertPreview])
+
+  // Hook 2: centered-axis FLIP for composition changes, zero-rebound drop
+  // handoff after an open preview spacer, and smooth neighbor slides during
+  // internal drag-to-reorder.
   useLayoutEffect(() => {
     const root = rootRef.current
     if (!root) return
-    // the fresh layout's lefts: offset metrics, immune to the transforms
-    // the previous parting may still be painting
-    const lefts = new Map<string, number>()
-    for (const [key, el] of rowEls.current) lefts.set(key, el.offsetLeft)
+    const prevGroupsKey = prevGroupsKeyRef.current
+    prevGroupsKeyRef.current = groupsKey
+
+    const lefts = measureRowPositions(root, rowEls.current)
     const prevLefts = rowLefts.current
     const prevSignature = rowSignature.current
+
+    // Do not overwrite the rest baseline while a preview/closing spacer shifts the row.
+    if (
+      prevSignature === orderSignature &&
+      (effectivePreviewIndex !== null || activeClosingSlots.length > 0)
+    ) {
+      return
+    }
+
     rowSignature.current = orderSignature
     rowLefts.current = lefts
-    // still rows: the first mount, an unchanged composition (a slider pass,
-    // an auto-hide flip), a drag in flight (its swaps are instant by
-    // design), reduced motion (the insert is instant)
+
+    const isInternalReorder =
+      prevSignature !== null &&
+      prevSignature !== orderSignature &&
+      prevGroupsKey === groupsKey &&
+      draggingId !== null &&
+      liveOrder !== null &&
+      !reducedMotion &&
+      prevLefts !== null
+
+    if (isInternalReorder) {
+      const plan = dockPartingPlan(prevLefts, lefts)
+      const frames: number[] = []
+      for (const [key, delta] of plan.deltas) {
+        if (key === `slot:${draggingId}`) continue
+        const slotEl = rowEls.current.get(key)
+        const itemEl = slotEl?.firstElementChild
+        if (!slotEl || !(itemEl instanceof HTMLElement)) continue
+        const prevTimer = neighborTimersRef.current.get(itemEl)
+        if (prevTimer) {
+          clearTimeout(prevTimer)
+          neighborTimersRef.current.delete(itemEl)
+        }
+        itemEl.style.transition = 'none'
+        itemEl.style.transform = `translateX(${delta}px)`
+        const frame = requestAnimationFrame(() => {
+          if (!itemEl.isConnected) return
+          itemEl.style.transition = `transform ${DOCK_PREVIEW_MS}ms ${DOCK_PREVIEW_EASE}`
+          itemEl.style.transform = ''
+        })
+        frames.push(frame)
+        const timer = setTimeout(() => {
+          neighborTimersRef.current.delete(itemEl)
+          if (!slotEl.classList.contains('dock-dragging')) {
+            itemEl.style.transition = ''
+            itemEl.style.transform = ''
+          }
+        }, DOCK_PREVIEW_MS + 40)
+        neighborTimersRef.current.set(itemEl, timer)
+      }
+      return () => {
+        for (const frame of frames) cancelAnimationFrame(frame)
+      }
+    }
+
     const settled =
       prevSignature === null ||
       prevSignature === orderSignature ||
@@ -330,7 +551,74 @@ export function Dock(props: DockProps): React.JSX.Element {
       endParting()
       return
     }
-    const plan = dockPartingPlan(prevLefts, lefts)
+
+    let planBefore: ReadonlyMap<string, number> = prevLefts
+    const prevPreview = prevEffectivePreviewRef.current
+    if (prevPreview !== null) {
+      // Compensate prevLefts by the space the active preview gap had opened so
+      // surrounding slots settle cleanly without springing back from rest.
+      const prevLaunchers = prevPreviewLaunchersRef.current
+      const rightKeys = new Set<string>()
+      for (let i = prevPreview; i < prevLaunchers.length; i += 1) {
+        rightKeys.add(`slot:${prevLaunchers[i]}`)
+      }
+      const currentIds = displayedIdsRef.current
+      for (let g = DOCK_LAUNCHERS_GROUP + 1; g < currentIds.length; g += 1) {
+        rightKeys.add(`sep:${g}`)
+        for (const id of currentIds[g] ?? []) rightKeys.add(`slot:${id}`)
+      }
+      let leftAnchor: string | null = null
+      for (let i = prevPreview - 1; i >= 0; i -= 1) {
+        const key = `slot:${prevLaunchers[i]}`
+        if (prevLefts.has(key) && lefts.has(key)) {
+          leftAnchor = key
+          break
+        }
+      }
+      if (
+        leftAnchor === null &&
+        prevLefts.has(`sep:${DOCK_LAUNCHERS_GROUP}`) &&
+        lefts.has(`sep:${DOCK_LAUNCHERS_GROUP}`)
+      ) {
+        leftAnchor = `sep:${DOCK_LAUNCHERS_GROUP}`
+      }
+      let rightAnchor: string | null = null
+      for (let i = prevPreview; i < prevLaunchers.length; i += 1) {
+        const key = `slot:${prevLaunchers[i]}`
+        if (prevLefts.has(key) && lefts.has(key)) {
+          rightAnchor = key
+          break
+        }
+      }
+      if (
+        rightAnchor === null &&
+        prevLefts.has(`sep:${DOCK_LAUNCHERS_GROUP + 1}`) &&
+        lefts.has(`sep:${DOCK_LAUNCHERS_GROUP + 1}`)
+      ) {
+        rightAnchor = `sep:${DOCK_LAUNCHERS_GROUP + 1}`
+      }
+      const fallbackStep = root.offsetWidth > 0 ? baseSize + DOCK_SLOT_GAP_PX : baseSize
+      let slotStep = fallbackStep
+      if (leftAnchor !== null && rightAnchor !== null) {
+        const beforeSpan = prevLefts.get(rightAnchor)! - prevLefts.get(leftAnchor)!
+        const afterSpan = lefts.get(rightAnchor)! - lefts.get(leftAnchor)!
+        const diff = afterSpan - beforeSpan
+        if (diff > 0) slotStep = diff
+      }
+      const elapsed = Math.max(0, performance.now() - previewOpenedAtRef.current)
+      const eased = easeOutQuad(elapsed / DOCK_PREVIEW_MS)
+      const extra = slotStep * eased
+      const centered = root.offsetWidth > 0
+      const leftShift = centered ? -extra / 2 : 0
+      const rightShift = centered ? extra / 2 : extra
+      const adjusted = new Map<string, number>()
+      for (const [key, value] of prevLefts) {
+        adjusted.set(key, value + (rightKeys.has(key) ? rightShift : leftShift))
+      }
+      planBefore = adjusted
+    }
+
+    const plan = dockPartingPlan(planBefore, lefts)
     if (plan.deltas.size === 0 && plan.entering.length === 0) {
       endParting()
       return
@@ -356,7 +644,7 @@ export function Dock(props: DockProps): React.JSX.Element {
       for (const key of plan.deltas.keys()) {
         const el = rowEls.current.get(key)
         if (!el) continue
-        el.style.transition = `transform ${DOCK_PARTING_MS}ms cubic-bezier(0.22, 0.61, 0.36, 1)`
+        el.style.transition = `transform ${DOCK_PARTING_MS}ms ${DOCK_PREVIEW_EASE}`
         el.style.transform = ''
       }
     })
@@ -364,42 +652,91 @@ export function Dock(props: DockProps): React.JSX.Element {
       cancelAnimationFrame(frame)
       endParting()
     }
-  }, [orderSignature, draggingId, liveOrder, reducedMotion, endParting])
+  }, [orderSignature, groupsKey, draggingId, liveOrder, reducedMotion, baseSize, endParting])
 
-  // ── the drag-over insert preview: the gap that opens before the drop ──
-  // While a desktop icon is dragged over the pill (the host feeds the
-  // pointer's x through `insertPreview`), a spacer slot opens in the
-  // launchers group at the index the pointer names — the width animation
-  // parts the neighbors live, the way macOS shows where the item would
-  // land. The index rides `onInsertPreview` back to the host so the
-  // eventual drop lands exactly at the previewed gap; the preview never
-  // crosses the group's separators (the math runs on the launchers' own
-  // centers only). The spacer is not a row child to the FLIP's eyes (no
-  // data-item-id, not tracked in rowEls): the display sequence's signature
-  // is unchanged, so no parting fires for the preview itself.
-  const [previewIndex, setPreviewIndex] = useState<number | null>(null)
-  const insertPreview = props.insertPreview ?? null
-  const onInsertPreview = props.onInsertPreview
+  // Hook 3: spawn a collapsing spacer when preview moves away or exits without
+  // a drop commit, and clear transient spacers on composition changes.
   useLayoutEffect(() => {
-    if (insertPreview === null) {
-      setPreviewIndex((was) => (was === null ? was : null))
-      onInsertPreview?.(null)
-      return
+    const prevPreview = prevEffectivePreviewRef.current
+    const prevOrderSig = prevPreviewOrderSigRef.current
+    const prevLaunchers = prevPreviewLaunchersRef.current
+    const nextLaunchers = displayedIdsRef.current[DOCK_LAUNCHERS_GROUP] ?? []
+
+    prevEffectivePreviewRef.current = effectivePreviewIndex
+    prevPreviewOrderSigRef.current = orderSignature
+    prevPreviewLaunchersRef.current = nextLaunchers
+
+    const compositionChanged = prevOrderSig !== orderSignature
+    if (compositionChanged) {
+      for (const timer of closingTimersRef.current.values()) clearTimeout(timer)
+      closingTimersRef.current.clear()
+      setClosingState((was) =>
+        was.items.length === 0 && was.orderSig === orderSignature
+          ? was
+          : { orderSig: orderSignature, items: [] },
+      )
+    } else if (!reducedMotion && prevPreview !== null && prevPreview !== effectivePreviewIndex) {
+      const elapsed = Math.max(0, performance.now() - previewOpenedAtRef.current)
+      const eased = easeOutQuad(elapsed / DOCK_PREVIEW_MS)
+      const startWidth = Math.max(1, Math.round(baseSize * eased))
+      const beforeItemId = prevLaunchers[prevPreview] ?? null
+      const id = ++closingSeqRef.current
+      const spec: ClosingSpacerSpec = { id, beforeItemId, startWidth, baseSize }
+      setClosingState((was) => ({
+        orderSig: orderSignature,
+        items: [...(was.orderSig === orderSignature ? was.items : []), spec],
+      }))
+      const timer = setTimeout(() => {
+        closingTimersRef.current.delete(id)
+        setClosingState((was) => {
+          if (was.orderSig !== orderSignature) return was
+          const remaining = was.items.filter((entry) => entry.id !== id)
+          return remaining.length === was.items.length
+            ? was
+            : { orderSig: orderSignature, items: remaining }
+        })
+      }, DOCK_PREVIEW_MS + 20)
+      closingTimersRef.current.set(id, timer)
     }
-    // the launchers group's slot centers, measured live: the fisheye stands
-    // down during a drag-over, so the slots rest at their true geometry
-    const ids = displayedIds[DOCK_LAUNCHERS_GROUP] ?? []
-    const centers: number[] = []
-    for (const id of ids) {
-      const el = rowEls.current.get(`slot:${id}`)
-      if (!el) continue
-      const rect = el.getBoundingClientRect()
-      centers.push(rect.left + rect.width / 2)
+
+    if (effectivePreviewIndex !== null && prevPreview !== effectivePreviewIndex) {
+      previewOpenedAtRef.current = performance.now()
     }
-    const index = dockInsertIndex(centers, insertPreview)
-    setPreviewIndex((was) => (was === index ? was : index))
-    onInsertPreview?.(index)
-  }, [insertPreview, displayedIds, onInsertPreview])
+  }, [effectivePreviewIndex, orderSignature, reducedMotion, baseSize])
+
+  // Hook 4: smoothly widen the active preview spacer so the frosted pill and
+  // both sides move outward in lockstep.
+  useLayoutEffect(() => {
+    if (effectivePreviewIndex === null || reducedMotion) return
+    const el = previewSlotRef.current
+    if (!el) return
+    let cancelled = false
+    el.style.transition = 'none'
+    el.style.width = '0px'
+    el.style.marginInline = `${-DOCK_SLOT_GAP_PX / 2}px`
+    void el.offsetWidth
+    const frame = requestAnimationFrame(() => {
+      if (cancelled || !el.isConnected) return
+      el.style.transition = `width ${DOCK_PREVIEW_MS}ms ${DOCK_PREVIEW_EASE}, margin-inline ${DOCK_PREVIEW_MS}ms ${DOCK_PREVIEW_EASE}`
+      el.style.width = ''
+      el.style.marginInline = ''
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(frame)
+    }
+  }, [effectivePreviewIndex, reducedMotion, baseSize])
+
+  useEffect(() => {
+    const closingTimers = closingTimersRef.current
+    const neighborTimers = neighborTimersRef.current
+    return () => {
+      for (const timer of closingTimers.values()) clearTimeout(timer)
+      closingTimers.clear()
+      for (const timer of neighborTimers.values()) clearTimeout(timer)
+      neighborTimers.clear()
+    }
+  }, [])
 
   // ── the context menu (right-click / Shift+F10 on a focused item) ──
   // anchored to the ITEM's own rect, not the pointer: the pointer's y is
@@ -443,11 +780,12 @@ export function Dock(props: DockProps): React.JSX.Element {
     el.style.left = `${left}px`
     el.style.top = `${top}px`
   }, [menu])
-  // one interaction signal covers both pin cases (menu open, drag active):
-  // the doc-mode entry holds its reveal while either runs. Destructured so
-  // the effect's dependency is the callback itself, not the props object
+  // one interaction signal covers all pin cases (menu open, drag active,
+  // desktop drag-over preview): the doc-mode/auto-hide entry holds its reveal
+  // while any runs. Destructured so the effect's dependency is the callback
+  // itself, not the props object
   const onInteractionChange = props.onInteractionChange
-  const interacting = menu !== null || draggingId !== null
+  const interacting = menu !== null || draggingId !== null || hasInsertPreview
   useEffect(() => {
     onInteractionChange?.(interacting)
     // the cleanup reports the end of every interaction, unmount included
@@ -468,7 +806,7 @@ export function Dock(props: DockProps): React.JSX.Element {
       props.magnify === false ||
       draggingId ||
       parting ||
-      insertPreview !== null
+      hasInsertPreview
     ) {
       return
     }
@@ -596,7 +934,7 @@ export function Dock(props: DockProps): React.JSX.Element {
       // listener left to collapse it
       snapSlotsToRest(root)
     }
-  }, [reducedMotion, props.magnify, draggingId, parting, insertPreview, orderSignature])
+  }, [reducedMotion, props.magnify, draggingId, parting, hasInsertPreview, orderSignature])
 
   // ── the drag layer (reorder within a group) ──
   // Pointer-only and threshold-gated, so an ordinary click never feels a
@@ -656,12 +994,16 @@ export function Dock(props: DockProps): React.JSX.Element {
       clearTimeout(dragIdleTimer.current)
       dragIdleTimer.current = null
     }
+    clearNeighborSlides()
     if (root) {
       root.classList.remove('dock-drag-live')
       for (const child of dragSlots()) {
         child.classList.remove('dock-dragging')
         const item = child.firstElementChild
-        if (item instanceof HTMLElement) item.style.transform = ''
+        if (item instanceof HTMLElement) {
+          item.style.transition = ''
+          item.style.transform = ''
+        }
       }
     }
     setDraggingId(null)
@@ -838,9 +1180,74 @@ export function Dock(props: DockProps): React.JSX.Element {
     [pillRef],
   )
 
+  const renderSlot = (item: DockItem): React.JSX.Element => (
+    <div
+      key={item.id}
+      className="dock-slot"
+      data-item-id={item.id}
+      ref={trackRowEl(`slot:${item.id}`)}
+      onPointerDown={(event) => onSlotPointerDown(event, item.id)}
+    >
+      <button
+        type="button"
+        className="dock-item"
+        data-tip={item.label}
+        aria-label={item.label}
+        aria-current={item.active ? 'true' : undefined}
+        aria-haspopup={item.menu ? 'menu' : undefined}
+        onClick={(event) => {
+          if (suppressedClick.current) {
+            suppressedClick.current = false
+            event.preventDefault()
+            return
+          }
+          item.onSelect()
+        }}
+        onContextMenu={
+          item.menu
+            ? (event) => {
+                event.preventDefault()
+                // the item's own rect anchors the menu (above it),
+                // and the keyboard contextmenu — which arrives with
+                // no pointer coordinates — falls back to the focused
+                // button's rect center; a real right-click steers
+                // the horizontal placement with its pointer x
+                const rect = event.currentTarget.getBoundingClientRect()
+                const keyboard = event.clientX === 0 && event.clientY === 0
+                setMenu({
+                  itemId: item.id,
+                  x: keyboard ? rect.left + rect.width / 2 : event.clientX,
+                  top: rect.top,
+                })
+              }
+            : undefined
+        }
+      >
+        {item.tile ? (
+          <span
+            className={[
+              'dock-tile',
+              `dock-tile-${item.tile}`,
+              props.bouncing === item.id && !reducedMotion ? 'dock-bouncing' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            {item.icon}
+          </span>
+        ) : (
+          item.icon
+        )}
+      </button>
+      {/* the dot rides the slot, not the button: the button carries the
+          magnification transform and the indicator must not grow */}
+      {(item.active || item.running) && <span className="dock-dot" aria-hidden="true" />}
+    </div>
+  )
+
   return (
     <div
-      className={`dock${props.hidden ? ' dock-hidden' : ''}`}
+      className={`dock${props.hidden ? ' dock-hidden' : ''}${effectivePreviewIndex !== null ? ' dock-drop-active' : ''}`}
       ref={rootRefCallback}
       role="toolbar"
       aria-label={props.ariaLabel}
@@ -855,17 +1262,52 @@ export function Dock(props: DockProps): React.JSX.Element {
       onPointerCancel={onRootPointerCancel}
     >
       {displayedGroups.map((group, groupIndex) => {
-        // the insert preview's spacer, spliced into the launchers group at
-        // the previewed index: its width animation parts the neighbors
-        // live. Not a slot to any layer's eyes — no id, no button, not
-        // tracked — and reduced motion sees it at full width with the
-        // entry animation off (home.css)
+        // the insert preview's spacer and closing spacers sit directly in
+        // the launchers flex row: their coordinated width transitions part
+        // or return both sides alongside the centered frosted pill.
         const previewAt =
-          groupIndex === DOCK_LAUNCHERS_GROUP && previewIndex !== null ? previewIndex : null
-        const members =
-          previewAt === null
-            ? group
-            : [...group.slice(0, previewAt), null, ...group.slice(previewAt)]
+          groupIndex === DOCK_LAUNCHERS_GROUP && effectivePreviewIndex !== null
+            ? effectivePreviewIndex
+            : null
+        let groupNodes: ReactNode
+        if (groupIndex === DOCK_LAUNCHERS_GROUP) {
+          const closingByBefore = new Map<string | null, ClosingSpacerSpec[]>()
+          for (const spec of activeClosingSlots) {
+            const list = closingByBefore.get(spec.beforeItemId)
+            if (list) list.push(spec)
+            else closingByBefore.set(spec.beforeItemId, [spec])
+          }
+          const nodes: ReactNode[] = []
+          for (let i = 0; i <= group.length; i += 1) {
+            const item = i < group.length ? group[i]! : null
+            const closingHere = closingByBefore.get(item ? item.id : null)
+            if (closingHere) {
+              for (const spec of closingHere) {
+                nodes.push(
+                  <ClosingSpacer
+                    key={`closing-${spec.id}`}
+                    startWidth={spec.startWidth}
+                    baseSize={spec.baseSize}
+                  />,
+                )
+              }
+            }
+            if (previewAt === i) {
+              nodes.push(
+                <div
+                  key={`dock-insert-preview-${previewAt}`}
+                  className="dock-slot dock-slot-preview"
+                  ref={previewSlotRef}
+                  aria-hidden="true"
+                />,
+              )
+            }
+            if (item) nodes.push(renderSlot(item))
+          }
+          groupNodes = nodes
+        } else {
+          groupNodes = group.map((item) => renderSlot(item))
+        }
         return (
           <Fragment key={groupIndex}>
             {groupIndex > 0 && (
@@ -876,80 +1318,7 @@ export function Dock(props: DockProps): React.JSX.Element {
                 ref={trackRowEl(`sep:${groupIndex}`)}
               />
             )}
-            {members.map((item) =>
-              item === null ? (
-                <div
-                  key="dock-insert-preview"
-                  className="dock-slot dock-slot-preview"
-                  aria-hidden="true"
-                />
-              ) : (
-                <div
-                  key={item.id}
-                  className="dock-slot"
-                  data-item-id={item.id}
-                  ref={trackRowEl(`slot:${item.id}`)}
-                  onPointerDown={(event) => onSlotPointerDown(event, item.id)}
-                >
-                  <button
-                    type="button"
-                    className="dock-item"
-                    data-tip={item.label}
-                    aria-label={item.label}
-                    aria-current={item.active ? 'true' : undefined}
-                    aria-haspopup={item.menu ? 'menu' : undefined}
-                    onClick={(event) => {
-                      if (suppressedClick.current) {
-                        suppressedClick.current = false
-                        event.preventDefault()
-                        return
-                      }
-                      item.onSelect()
-                    }}
-                    onContextMenu={
-                      item.menu
-                        ? (event) => {
-                            event.preventDefault()
-                            // the item's own rect anchors the menu (above it),
-                            // and the keyboard contextmenu — which arrives with
-                            // no pointer coordinates — falls back to the focused
-                            // button's rect center; a real right-click steers
-                            // the horizontal placement with its pointer x
-                            const rect = event.currentTarget.getBoundingClientRect()
-                            const keyboard = event.clientX === 0 && event.clientY === 0
-                            setMenu({
-                              itemId: item.id,
-                              x: keyboard ? rect.left + rect.width / 2 : event.clientX,
-                              top: rect.top,
-                            })
-                          }
-                        : undefined
-                    }
-                  >
-                    {item.tile ? (
-                      <span
-                        className={[
-                          'dock-tile',
-                          `dock-tile-${item.tile}`,
-                          props.bouncing === item.id && !reducedMotion ? 'dock-bouncing' : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                      >
-                        {item.icon}
-                      </span>
-                    ) : (
-                      item.icon
-                    )}
-                  </button>
-                  {/* the dot rides the slot, not the button: the button carries the
-                      magnification transform and the indicator must not grow */}
-                  {(item.active || item.running) && (
-                    <span className="dock-dot" aria-hidden="true" />
-                  )}
-                </div>
-              ),
-            )}
+            {groupNodes}
           </Fragment>
         )
       })}

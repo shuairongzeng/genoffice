@@ -1155,6 +1155,7 @@ describe('DesktopView — dropping icons onto the dock', () => {
 
   it('a group drag over the pill keeps the grid commit: the dock takes one item, not a selection', async () => {
     const drops: DockCustomCandidate[] = []
+    const hovers: Array<number | null> = []
     stored = { positions: { 'app:docs': cellPos(0, 0), 'app:sheets': cellPos(1, 0) } }
     await render('en', {
       dockPillRef: pill(),
@@ -1162,16 +1163,117 @@ describe('DesktopView — dropping icons onto the dock', () => {
         drops.push(item)
         return 'added'
       },
+      onDockHover: (x) => hovers.push(x),
     })
     await cmdClick('Docs')
     await cmdClick('Sheets')
     await dragTo('Docs', insidePill.x, insidePill.y)
     expect(drops).toEqual([])
+    expect(hovers.every((x) => x === null)).toBe(true)
     // the group translated onto the pill's cells as one write
     expect(posOf('Docs')).not.toEqual({ x: `${cellPos(0, 0).x}px`, y: `${cellPos(0, 0).y}px` })
     await tick()
     expect(saves).toHaveLength(1)
     expect(Object.keys(saves[0]!.positions)).toContain('app:sheets')
+  })
+
+  it('ineligible icons (canDockDrop returns false) keep onDockHover null over the pill', async () => {
+    const hovers: Array<number | null> = []
+    await render('en', {
+      dockPillRef: pill(),
+      canDockDrop: () => false,
+      onDockHover: (x) => hovers.push(x),
+      onDockDrop: () => 'duplicate',
+    })
+    const before = posXY('Settings')
+    await dragTo('Settings', insidePill.x, insidePill.y)
+    expect(hovers.every((x) => x === null)).toBe(true)
+    const notice = host.querySelector<HTMLElement>('.desktop-notice')
+    expect(notice?.textContent).toBe(DESKTOP_STRINGS.en.noticeDockDuplicate)
+    expect(posOf('Settings')).toEqual({ x: `${before.x}px`, y: `${before.y}px` })
+  })
+
+  it('portaled drag avatar preserves --desktop-icon-scale on document.body', async () => {
+    await render('en', { dockPillRef: pill(), onDockDrop: () => 'added' })
+    const before = posXY('Docs')
+    await act(async () => {
+      iconOf('Docs').dispatchEvent(
+        new MouseEvent('pointerdown', {
+          bubbles: true,
+          clientX: before.x,
+          clientY: before.y,
+          button: 0,
+        }),
+      )
+      await Promise.resolve()
+    })
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('pointermove', {
+          bubbles: true,
+          clientX: insidePill.x,
+          clientY: insidePill.y,
+        }),
+      )
+      await Promise.resolve()
+    })
+    const avatar = document.body.querySelector<HTMLElement>('.desktop-icon-avatar')
+    expect(avatar?.style.getPropertyValue('--desktop-icon-scale')).toBe('1')
+    await act(async () => {
+      window.dispatchEvent(
+        new MouseEvent('pointerup', {
+          bubbles: true,
+          clientX: insidePill.x,
+          clientY: insidePill.y,
+        }),
+      )
+      await Promise.resolve()
+    })
+  })
+
+  it('name sort allows single-icon drags onto the dock while keeping grid drops locked', async () => {
+    storedPrefs = { ...storedPrefs, sortMode: 'name' }
+    const drops: DockCustomCandidate[] = []
+    const hovers: Array<number | null> = []
+    await render('en', {
+      dockPillRef: pill(),
+      onDockDrop: (item) => {
+        drops.push(item)
+        return 'added'
+      },
+      onDockHover: (x) => hovers.push(x),
+    })
+    const before = posOf('Docs')
+    await dragTo('Docs', insidePill.x, insidePill.y)
+    expect(hovers).toContain(insidePill.x)
+    expect(drops).toEqual([{ kind: 'app', target: 'app:docs' }])
+    expect(saves).toEqual([])
+
+    await dragTo('Docs', cellPos(6, 4).x, cellPos(6, 4).y)
+    expect(posOf('Docs')).toEqual(before)
+    expect(saves).toEqual([])
+  })
+
+  it('file icons render non-draggable images and drop cleanly onto the dock in name sort', async () => {
+    storedPrefs = { ...storedPrefs, sortMode: 'name' }
+    recentFiles = [entry('/docs/alpha.docx', 'alpha.docx', 'docx')]
+    const drops: DockCustomCandidate[] = []
+    await render('en', {
+      dockPillRef: pill(),
+      onDockDrop: (item) => {
+        drops.push(item)
+        return 'added'
+      },
+    })
+    const itemEl = iconOf('alpha.docx')
+    const img = itemEl.querySelector('img')
+    expect(img?.getAttribute('draggable')).toBe('false')
+    const dragEv = new Event('dragstart', { bubbles: true, cancelable: true })
+    itemEl.dispatchEvent(dragEv)
+    expect(dragEv.defaultPrevented).toBe(true)
+
+    await dragTo('alpha.docx', insidePill.x, insidePill.y)
+    expect(drops).toEqual([{ kind: 'file', target: '/docs/alpha.docx' }])
   })
 })
 

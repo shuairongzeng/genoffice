@@ -590,6 +590,8 @@
   flex-shrink: 0;
   width: calc(64px * var(--desktop-icon-scale));
   height: calc(64px * var(--desktop-icon-scale));
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 /* hover: a 2px lift and a soft shadow under the tile */

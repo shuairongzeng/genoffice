@@ -26,7 +26,7 @@ const FILE_ICONS: Record<string, string> = {
 export function FileBadge({ ext, size }: { ext: string; size: number }) {
   const icon = FILE_ICONS[ext]
   if (icon) {
-    return <img src={icon} width={size} height={size} alt="" aria-hidden="true" />
+    return <img src={icon} width={size} height={size} alt="" aria-hidden="true" draggable={false} />
   }
   const label = ext ? ext[0].toUpperCase() : '?'
   return (
