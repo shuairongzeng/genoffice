@@ -4344,9 +4344,10 @@ html[dir='rtl'] .quick-title-row {
   white-space: nowrap;
   color: var(--text);
 }
-.kb-ask-library-button,
-.kb-ask-menu-button,
-.kb-ask-collapse-button {
+.kb-ask-header .kb-ask-library-button,
+.kb-ask-header .kb-ask-menu-button,
+.kb-ask-header .kb-ask-collapse-button,
+.kb-ask-header .ai-panel-side-button {
   border: 0;
   background: transparent;
   color: var(--text-muted);
@@ -4361,9 +4362,10 @@ html[dir='rtl'] .quick-title-row {
   flex-shrink: 0;
   padding: 0;
 }
-.kb-ask-library-button:hover,
-.kb-ask-menu-button:hover,
-.kb-ask-collapse-button:hover {
+.kb-ask-header .kb-ask-library-button:hover,
+.kb-ask-header .kb-ask-menu-button:hover,
+.kb-ask-header .kb-ask-collapse-button:hover,
+.kb-ask-header .ai-panel-side-button:hover {
   background: var(--hover);
   color: var(--text);
 }

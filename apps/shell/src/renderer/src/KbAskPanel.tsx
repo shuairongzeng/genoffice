@@ -70,6 +70,7 @@ import {
   AiConfirmCard,
   AiModelPicker,
   type AiModelPickerBridge,
+  AiPanelSideButton,
   AiPermissionModePicker,
   type AiPermissionModePickerBridge,
   AiSkillChips,
@@ -1408,6 +1409,7 @@ export function KbAskPanel({
     kind: string
     title: string
   } | null>(null)
+  const [activeTabKind, setActiveTabKind] = useState<string | null>(null)
   const docIdentityRef = useRef(docIdentity)
   docIdentityRef.current = docIdentity
   /** the doc-bound thread's path (null = the family root) */
@@ -1477,6 +1479,8 @@ export function KbAskPanel({
   const [surfaceSettled, setSurfaceSettled] = useState(false)
   const deriveDocIdentity = (): void => {
     const tabs = surfaceTabsRef.current
+    const activeKind = tabs?.find((t) => t.active)?.kind ?? null
+    setActiveTabKind((prev) => (prev === activeKind ? prev : activeKind))
     const active = tabs?.find(
       (t) =>
         t.active &&
@@ -3634,6 +3638,12 @@ export function KbAskPanel({
         const checkpointTimeline = collectDocCheckpoints(messages)
         const activeCheckpointCount = checkpointTimeline.filter((e) => !e.checkpoint.reverted).length
         const anyReverting = checkpointTimeline.some((e) => e.checkpoint.reverting)
+        const canSwitchSide =
+          surfaceRole === 'docked' &&
+          activeTabKind !== 'browser' &&
+          typeof window.aiOffice?.setAiPanelPrefs === 'function'
+        const collapseLeft =
+          surfaceRole === 'docked' && activeTabKind !== 'browser' && aiPrefs.side === 'left'
         return (
           <div
             className="kb-ask-header"
@@ -3810,6 +3820,12 @@ export function KbAskPanel({
                 </div>
               )}
             </div>
+            {canSwitchSide && (
+              <AiPanelSideButton
+                lang={lang}
+                onMove={(side) => window.aiOffice.setAiPanelPrefs({ side })}
+              />
+            )}
             {onCollapse && (
               <button
                 type="button"
@@ -3818,7 +3834,14 @@ export function KbAskPanel({
                 title={t('dockCollapse')}
                 onClick={onCollapse}
               >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                  style={collapseLeft ? { transform: 'scaleX(-1)' } : undefined}
+                >
                   <path
                     d="M6.2 3.4 10.8 8l-4.6 4.6"
                     stroke="currentColor"

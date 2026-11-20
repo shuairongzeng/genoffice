@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Lang } from '@genoffice/i18n'
 import {
@@ -6,8 +6,11 @@ import {
   normalizeAiPermissionMode,
   type AiPermissionMode,
 } from './ai-permission-mode'
+import { computePickerPopoverStyle } from './picker-popover-position'
 import { useDismissablePopover } from './popover-dismiss'
 import { AI_PERMISSION_MODE_STRINGS } from './strings-ai-permission'
+
+const PERM_POP_WIDTH = 300
 
 /** Each app's preload exposes these under its own namespace; the panel adapts them. */
 export interface AiPermissionModePickerBridge {
@@ -71,12 +74,25 @@ export function AiPermissionModePicker({
     inside: () => [chipRef.current, popRef.current],
   })
 
+  const updatePosition = useCallback(() => {
+    const rect = chipRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const vw = window.innerWidth || document.documentElement.clientWidth
+    const vh = window.innerHeight || document.documentElement.clientHeight
+    setPopStyle(
+      computePickerPopoverStyle(rect, { width: vw, height: vh }, { preferredWidth: PERM_POP_WIDTH }),
+    )
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    return () => window.removeEventListener('resize', updatePosition)
+  }, [open, updatePosition])
+
   const toggle = () => {
-    if (!open) {
-      const rect = chipRef.current?.getBoundingClientRect()
-      // the composer sits at the panel bottom: open upwards, pinned to the chip
-      if (rect) setPopStyle({ left: rect.left, bottom: window.innerHeight - rect.top + 6 })
-    }
+    if (!open) updatePosition()
     setOpen((v) => !v)
   }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useAiPanelPrefs } from './ai-panel-prefs-store'
 
 /** Persisted global AI drawer state (`app-settings.json` `aiDock`). */
 export interface HostedAiDockState {
@@ -43,6 +44,7 @@ export function useHostedAiSlot(
 } {
   const [dock, setDock] = useState<HostedAiDockState | null>(null)
   const [scale, setScale] = useState(readUiScale)
+  const { side } = useAiPanelPrefs()
   const scaleRef = useRef(scale)
   const nodeRef = useRef<HTMLDivElement | null>(null)
   const shellAnsweredRef = useRef(false)
@@ -140,7 +142,7 @@ export function useHostedAiSlot(
       observer?.disconnect()
       window.removeEventListener('resize', report)
     }
-  }, [enabled, dock, report, scale])
+  }, [enabled, dock, report, scale, side])
 
   const slotRef = useCallback(
     (node: HTMLDivElement | null) => {

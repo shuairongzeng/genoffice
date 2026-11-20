@@ -124,4 +124,45 @@ describe('AiPermissionModePicker', () => {
     })
     expect(host.querySelector('.ai-model-chip')).toBeNull()
   })
+
+  it('keeps the popover inside a narrow viewport and adapts on resize', async () => {
+    vi.stubGlobal('innerWidth', 340)
+    vi.stubGlobal('innerHeight', 640)
+    mount()
+    await act(async () => {
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+    const chip = host.querySelector<HTMLButtonElement>('.ai-model-chip')!
+    vi.spyOn(chip, 'getBoundingClientRect').mockReturnValue({
+      left: 180,
+      right: 260,
+      top: 600,
+      bottom: 624,
+      width: 80,
+      height: 24,
+      x: 180,
+      y: 600,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    act(() => chip.click())
+    const pop = document.body.querySelector<HTMLElement>('.ai-perm-pop')!
+    expect(pop).not.toBeNull()
+    const left = Number.parseFloat(pop.style.left)
+    const width = Number.parseFloat(pop.style.width)
+    expect(left).toBeGreaterThanOrEqual(8)
+    expect(width).toBeLessThanOrEqual(324)
+    expect(left + width).toBeLessThanOrEqual(332)
+
+    vi.stubGlobal('innerWidth', 260)
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'))
+    })
+    const resizedLeft = Number.parseFloat(pop.style.left)
+    const resizedWidth = Number.parseFloat(pop.style.width)
+    expect(resizedLeft).toBe(8)
+    expect(resizedWidth).toBe(244)
+    expect(resizedLeft + resizedWidth).toBe(252)
+    vi.unstubAllGlobals()
+  })
 })

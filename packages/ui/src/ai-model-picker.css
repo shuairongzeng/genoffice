@@ -68,9 +68,11 @@
 .ai-model-pop {
   position: fixed;
   z-index: 80;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  width: 260px;
+  width: min(260px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
   max-height: min(420px, 70vh);
   padding: 4px;
   background: var(--surface);
@@ -161,6 +163,8 @@
 .ai-perm-pop .ai-model-item {
   display: block;
   position: relative;
+  box-sizing: border-box;
+  white-space: normal;
   padding: 7px 26px 7px 10px;
 }
 
@@ -173,6 +177,8 @@
 .ai-perm-pop .ai-model-item-hint {
   display: block;
   margin-top: 3px;
+  white-space: normal;
+  overflow-wrap: anywhere;
   color: var(--text-dim);
   font-size: 11px;
   line-height: 1.45;
@@ -187,7 +193,8 @@
 /* the mode rows carry two lines each (name + hint), so the popover is a
  * little wider than the model list to keep the hints readable */
 .ai-perm-pop {
-  width: 300px;
+  width: min(300px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
 }
 
 /* ── narrow panels: the chips fold to their icons ──

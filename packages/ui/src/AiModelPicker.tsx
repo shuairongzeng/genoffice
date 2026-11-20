@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Lang } from '@genoffice/i18n'
 import type { AiSettings } from '@genoffice/ai-provider/browser'
@@ -8,9 +8,12 @@ import {
   withAiModelSelection,
   type AiModelPickerSelection,
 } from './ai-model-picker-options'
+import { computePickerPopoverStyle } from './picker-popover-position'
 import { ProviderLogo } from './provider-logos'
 import { useDismissablePopover } from './popover-dismiss'
 import { AI_MODEL_PICKER_STRINGS } from './strings-ai-model-picker'
+
+const MODEL_POP_WIDTH = 260
 
 /** Each app's preload exposes these under its own namespace; the panel adapts them. */
 export interface AiModelPickerBridge {
@@ -83,12 +86,29 @@ export function AiModelPicker({
     g.id === current?.provider && (g.id !== 'custom' || g.endpoint === current?.endpoint)
   const currentUsable = groups.some(sameGroup)
 
+  const updatePosition = useCallback(() => {
+    const rect = chipRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const vw = window.innerWidth || document.documentElement.clientWidth
+    const vh = window.innerHeight || document.documentElement.clientHeight
+    setPopStyle(
+      computePickerPopoverStyle(
+        rect,
+        { width: vw, height: vh },
+        { preferredWidth: MODEL_POP_WIDTH },
+      ),
+    )
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    return () => window.removeEventListener('resize', updatePosition)
+  }, [open, updatePosition])
+
   const toggle = () => {
-    if (!open) {
-      const rect = chipRef.current?.getBoundingClientRect()
-      // the composer sits at the panel bottom: open upwards, pinned to the chip
-      if (rect) setPopStyle({ left: rect.left, bottom: window.innerHeight - rect.top + 6 })
-    }
+    if (!open) updatePosition()
     setOpen((v) => !v)
   }
 

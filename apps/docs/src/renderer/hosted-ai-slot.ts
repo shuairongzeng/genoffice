@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useAiPanelPrefs } from '@genoffice/ui'
 import type { HostedAiDockState } from '../shared/ipc'
 
 /**
@@ -53,6 +54,7 @@ export function useHostedAiSlot(enabled: boolean): {
 } {
   const [dock, setDock] = useState<HostedAiDockState | null>(null)
   const [scale, setScale] = useState(readUiScale)
+  const { side } = useAiPanelPrefs()
   const scaleRef = useRef(scale)
   const nodeRef = useRef<HTMLDivElement | null>(null)
   /** set once the shell answered the drawer state — reports are armed only then */
@@ -170,7 +172,7 @@ export function useHostedAiSlot(enabled: boolean): {
       observer?.disconnect()
       window.removeEventListener('resize', report)
     }
-  }, [enabled, dock, report, scale])
+  }, [enabled, dock, report, scale, side])
 
   // a callback ref: the node arrives after the effects above ran once (the
   // slot mounts with the drawer state), so attach the observer when it lands.
