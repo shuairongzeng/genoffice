@@ -1,7 +1,10 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { BrowserWindow, nativeTheme, screen } from 'electron'
-import type { Rectangle } from 'electron'
+import { BrowserWindow, ipcMain, nativeTheme, screen } from 'electron'
+import type { IpcMainEvent, Rectangle } from 'electron'
+import type { BootTelemetry } from './boot-env'
+import { createSplashCoordinator, type SplashCoordinator } from './splash-state'
+import type { SplashHandle } from './splash-window'
 import { TabManager } from './tab-manager'
 import { installShellCloseGuard } from './window-close-guard'
 import { watchShellRendererCrash } from './shell-renderer-crash'
@@ -122,6 +125,61 @@ export interface ShellWindowDeps {
   /** consume the dock slot the strip reported for the current dock preview */
   takeLastDockIndex: () => number | undefined
   sendToShellRenderer: (channel: string, payload?: unknown) => void
+  /** active splash handle created during pre-core boot, cleared after reveal */
+  splash?: () => SplashHandle | null
+  clearSplash?: () => void
+  /** synchronous boot snapshot passed to the shell renderer via argv */
+  bootSnapshot?: () => {
+    lang: string
+    onboardingSeen: boolean
+    theme: 'light' | 'dark' | 'system'
+  }
+  /** invoked once after the main window has been revealed for the first time */
+  onFirstRevealed?: () => void
+  telemetry?: BootTelemetry
+}
+
+interface PendingHandoff {
+  coordinator: SplashCoordinator
+  wantsFocus: boolean
+}
+
+const pendingHandoffs = new WeakMap<BrowserWindow, PendingHandoff>()
+
+function fadeInWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  if (typeof win.setOpacity !== 'function') {
+    win.show()
+    return
+  }
+  try {
+    win.setOpacity(0)
+    win.show()
+    const steps = [0.25, 0.55, 0.82, 1]
+    let index = 0
+    const timer = setInterval(() => {
+      if (win.isDestroyed()) {
+        clearInterval(timer)
+        return
+      }
+      const next = steps[index++]
+      if (next === undefined) {
+        clearInterval(timer)
+        win.setOpacity(1)
+        return
+      }
+      win.setOpacity(next)
+      if (next >= 1) clearInterval(timer)
+    }, 24)
+    timer.unref?.()
+  } catch {
+    try {
+      win.setOpacity(1)
+    } catch {
+      // ignore if unsupported by the platform window manager
+    }
+    win.show()
+  }
 }
 
 export function createShellWindow(deps: ShellWindowDeps): void {
@@ -132,6 +190,12 @@ export function createShellWindow(deps: ShellWindowDeps): void {
     deps.appSettingsPath(),
     screen.getAllDisplays().map((display) => display.workArea),
   )
+  const shouldMaximize = Boolean(restored?.maximized)
+  const bootSnapshot = deps.bootSnapshot?.()
+  const bootArg = bootSnapshot
+    ? [`--genoffice-boot=${Buffer.from(JSON.stringify(bootSnapshot)).toString('base64url')}`]
+    : []
+
   const win = new BrowserWindow({
     width: restored?.width ?? SHELL_WINDOW_DEFAULT_WIDTH,
     height: restored?.height ?? SHELL_WINDOW_DEFAULT_HEIGHT,
@@ -141,6 +205,9 @@ export function createShellWindow(deps: ShellWindowDeps): void {
     minWidth: SHELL_WINDOW_MIN_WIDTH,
     minHeight: SHELL_WINDOW_MIN_HEIGHT,
     title: 'GenOffice',
+    // Keep hidden until ready-to-show and the renderer's initial paint commit
+    // so the user never sees an unstyled or blank white surface.
+    show: false,
     // Paint the theme's surface before the renderer's first frame so the window
     // does not flash white in dark mode. nativeTheme.themeSource is already set
     // from the saved theme in app.whenReady, before this window is created.
@@ -165,11 +232,12 @@ export function createShellWindow(deps: ShellWindowDeps): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      ...(bootArg.length > 0 ? { additionalArguments: bootArg } : {}),
     },
   })
-  // the stored rectangle is the normal-state one, so a maximized session
-  // reopens maximized instead of as a screen-sized ordinary window
-  if (restored?.maximized) win.maximize()
+  // Note: do NOT call win.maximize() while the window is still hidden — on
+  // Windows, maximize() immediately shows the unrendered window. It is applied
+  // inside revealMainWindow below right as the window becomes visible.
   deps.setShellWindow(win)
   nativeTheme.on('updated', deps.refreshTitleBarOverlay)
   win.once('closed', () => nativeTheme.off('updated', deps.refreshTitleBarOverlay))
@@ -288,7 +356,7 @@ export function createShellWindow(deps: ShellWindowDeps): void {
   // outlive the shell like any detached editor's
   win.on('close', () => detachPinnedWidgetsFromShell(win))
 
-  wireEditorHooks(win, manager, deps)
+  wireEditorHooks(win, manager, deps, shouldMaximize)
 }
 
 /**
@@ -297,7 +365,12 @@ export function createShellWindow(deps: ShellWindowDeps): void {
  * can outlive the shell window, so the hooks reach through `deps` for the
  * live manager rather than this closure's.
  */
-function wireEditorHooks(win: BrowserWindow, manager: TabManager, deps: ShellWindowDeps): void {
+function wireEditorHooks(
+  win: BrowserWindow,
+  manager: TabManager,
+  deps: ShellWindowDeps,
+  shouldMaximize: boolean,
+): void {
   // pushRecent-triggered docs menu rebuilds must not clobber the active tab's
   // menu; a focused detached docs window owns the menu just like an active tab
   setDocsMenuGate(
@@ -497,7 +570,96 @@ function wireEditorHooks(win: BrowserWindow, manager: TabManager, deps: ShellWin
   // painting that eats clicks (see shell-renderer-crash.ts)
   watchShellRendererCrash(win)
 
-  win.on('closed', () => deps.onShellWindowClosed(win, manager))
+  const activeSplash = deps.splash?.() ?? null
+  let firstPaintListener: ((event: IpcMainEvent) => void) | null = null
+  let revealedNotified = false
+  const notifyFirstRevealed = (): void => {
+    if (revealedNotified) return
+    revealedNotified = true
+    deps.onFirstRevealed?.()
+  }
+  const detachFirstPaint = (): void => {
+    if (firstPaintListener) {
+      ipcMain?.removeListener(HOME_CHANNELS.firstPaintReady, firstPaintListener)
+      firstPaintListener = null
+    }
+  }
+
+  const coordinator = createSplashCoordinator({
+    onStage: (stage) => activeSplash?.setStage(stage),
+    revealMainWindow: (reason) => {
+      const handoff = pendingHandoffs.get(win)
+      pendingHandoffs.delete(win)
+      detachFirstPaint()
+
+      if (win.isDestroyed()) {
+        activeSplash?.destroyImmediate()
+        deps.clearSplash?.()
+        deps.telemetry?.emitIfReady()
+        return
+      }
+
+      deps.telemetry?.mark('tShellRevealed')
+      deps.telemetry?.set('revealReason', reason)
+
+      if (shouldMaximize && !win.isMaximized()) {
+        win.maximize()
+      }
+
+      if (activeSplash) {
+        activeSplash.setStage('ready')
+        fadeInWindow(win)
+        if (handoff?.wantsFocus ?? true) win.focus()
+        void activeSplash
+          .closeWithFade()
+          .catch(() => activeSplash.destroyImmediate())
+          .finally(() => {
+            deps.clearSplash?.()
+            deps.telemetry?.mark('tSplashClosed')
+            deps.telemetry?.emitIfReady()
+          })
+      } else {
+        win.show()
+        if (handoff?.wantsFocus ?? true) win.focus()
+        deps.clearSplash?.()
+        deps.telemetry?.mark('tSplashClosed')
+        deps.telemetry?.emitIfReady()
+      }
+    },
+    onRevealed: () => {
+      notifyFirstRevealed()
+    },
+  })
+
+  pendingHandoffs.set(win, { coordinator, wantsFocus: true })
+
+  win.once('ready-to-show', () => {
+    deps.telemetry?.mark('tShellReadyToShow')
+    coordinator.markReadyToShow()
+  })
+
+  firstPaintListener = (event: IpcMainEvent) => {
+    if (!win.isDestroyed() && event.sender === win.webContents) {
+      deps.telemetry?.mark('tFirstPaintReady')
+      coordinator.markFirstPaint()
+    }
+  }
+  ipcMain?.on(HOME_CHANNELS.firstPaintReady, firstPaintListener)
+
+  win.webContents.once('did-fail-load', () => coordinator.forceReveal('did-fail-load'))
+  win.webContents.once('render-process-gone', () =>
+    coordinator.forceReveal('render-process-gone'),
+  )
+
+  win.on('closed', () => {
+    detachFirstPaint()
+    pendingHandoffs.delete(win)
+    coordinator.dispose()
+    activeSplash?.destroyImmediate()
+    deps.clearSplash?.()
+    notifyFirstRevealed()
+    deps.onShellWindowClosed(win, manager)
+  })
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -519,9 +681,17 @@ export function ensureTabManager(deps: ShellWindowDeps): TabManager {
 export function revealShellWindow(deps: ShellWindowDeps): void {
   if (!deps.getShellWindow()) createShellWindow(deps)
   const win = deps.getShellWindow()
-  if (win?.isMinimized()) win.restore()
-  win?.show()
-  win?.focus()
+  if (!win || win.isDestroyed()) return
+  const pending = pendingHandoffs.get(win)
+  if (pending) {
+    // Keep the window hidden until the initial paint handoff finishes,
+    // ensuring secondary launches never expose an unstyled white frame.
+    pending.wantsFocus = true
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
 }
 
 /** "Open in New Window": reparent the tab's live view into a detached editor

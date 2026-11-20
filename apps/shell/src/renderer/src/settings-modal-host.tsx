@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { AccountStatus } from '../../shared/home-api'
+import type { IntegrationsStatus } from '../../shared/integrations-api'
 import { useI18n } from './locale'
-import { SettingsModal } from './SettingsModal'
 import type { SettingsTarget } from './SettingsModal'
-import { skillUpdateDue } from './IntegrationsPane'
+
+const SettingsModal = lazy(() =>
+  import('./SettingsModal').then((m) => ({ default: m.SettingsModal })),
+)
+
+const skillUpdateDue = (s: IntegrationsStatus): boolean => s.agents.some((a) => a.state.older === true)
 
 // ── the settings modal's host ────────────────────────────
 // The retired sidebar's account entry owned the modal; the modal outlived it.
@@ -202,26 +207,28 @@ export function SettingsModalHost({
   return (
     <>
       {settingsOpen && (
-        <SettingsModal
-          status={status}
-          loggingOut={loggingOut}
-          loginWaiting={waiting}
-          loginUrl={authUrl}
-          urlCopied={urlCopied}
-          onOpenLoginUrl={openLoginUrl}
-          onCopyLoginUrl={copyLoginUrl}
-          onClose={() => setSettingsOpen(false)}
-          onSectionChange={onSectionChange}
-          onFileSearchChange={onFileSearchSettingsChange}
-          onLogin={() => {
-            setSettingsOpen(false)
-            startLogin()
-          }}
-          onLogout={doLogout}
-          skillUpdateDue={skillUpdate}
-          onSkillUpdateDue={setSkillUpdate}
-          target={target}
-        />
+        <Suspense fallback={null}>
+          <SettingsModal
+            status={status}
+            loggingOut={loggingOut}
+            loginWaiting={waiting}
+            loginUrl={authUrl}
+            urlCopied={urlCopied}
+            onOpenLoginUrl={openLoginUrl}
+            onCopyLoginUrl={copyLoginUrl}
+            onClose={() => setSettingsOpen(false)}
+            onSectionChange={onSectionChange}
+            onFileSearchChange={onFileSearchSettingsChange}
+            onLogin={() => {
+              setSettingsOpen(false)
+              startLogin()
+            }}
+            onLogout={doLogout}
+            skillUpdateDue={skillUpdate}
+            onSkillUpdateDue={setSkillUpdate}
+            target={target}
+          />
+        </Suspense>
       )}
       {!settingsOpen && waiting && authUrl && (
         <div className="login-hint login-hint-floating" role="status">

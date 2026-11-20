@@ -1,6 +1,4 @@
-import { execSync } from 'node:child_process'
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -125,6 +123,15 @@ import {
 import { clearCloudProjectsStore } from './cloud-projects'
 import { handleDroppedFiles } from './dropped-files'
 import { collectLaunchPaths } from './launch-paths'
+import {
+  configureUserDataPath,
+  createBootTelemetry,
+  devPidFilePath,
+  installStdioEpipeGuard,
+  reclaimDevSingleInstanceLock,
+  type BootTelemetry,
+} from './boot-env'
+import type { SplashHandle } from './splash-window'
 import {
   createShellWindow as createShellWindowIn,
   detachTabToWindow as detachTabToWindowIn,
@@ -374,48 +381,11 @@ import { isUpdateChannel, type UpdateChannel } from '../shared/update-api'
  * apps/sheets/out), so build those before running the shell.
  */
 
-// When the launcher (the CLI's export spawn, a terminal, a script) has gone away,
-// the inherited stdio pipes are closed and the next console.* or Node warning
-// write fails with EPIPE. Node's console drops its error listener before the
-// async failure fires, so without a persistent one Electron shows an
-// "Uncaught Exception: write EPIPE" dialog on quit.
-for (const stream of [process.stdout, process.stderr]) {
-  stream?.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code !== 'EPIPE') throw err
-  })
-}
+// Guard inherited stdio pipes against EPIPE when the spawning launcher closes early.
+installStdioEpipeGuard()
 
-// ANY unpacked run (`npm run shell`, `npm run dev`, `npx electron .`) must not
-// share the installed app's userData or single-instance lock — otherwise a dev
-// run silently quits and forwards its argv to the running installed GenOffice.
-// GENOFFICE_USER_DATA: test drivers point this at a scratch dir so an
-// automated instance can run alongside the dev instance (separate lock).
-if (!app.isPackaged) {
-  if (process.env.GENOFFICE_USER_DATA) {
-    app.setPath('userData', process.env.GENOFFICE_USER_DATA)
-  } else {
-    // The dev profile used to live in "GenOffice Dev"; the space breaks
-    // unquoted shell expansions, rsync targets and .desktop Exec= lines, and
-    // XDG config entries are single tokens (genoffice#1817). "GenOffice-Dev" keeps the
-    // family naming of the packaged profile ("GenOffice"). The old directory
-    // moves once — it sits on the same volume as appData, so the rename is
-    // atomic, and a concurrent dev instance keeps its open file handles.
-    const appData = app.getPath('appData')
-    const devDir = join(appData, 'GenOffice-Dev')
-    const oldDevDir = join(appData, 'GenOffice Dev')
-    let userData = devDir
-    if (existsSync(oldDevDir) && !existsSync(devDir)) {
-      try {
-        renameSync(oldDevDir, devDir)
-      } catch {
-        // another dev instance holds the directory: keep using the old one so
-        // the profile is not lost and the move is retried on the next launch
-        userData = oldDevDir
-      }
-    }
-    app.setPath('userData', userData)
-  }
-}
+// Isolate dev userData/lock from packaged installs and migrate legacy profiles once.
+configureUserDataPath()
 
 /**
  * `--headless-export <file> --to <format> --out <path> [--json]`: one document, no
@@ -427,14 +397,6 @@ const headlessArgv = parseHeadlessExportArgv(process.argv)
 if (headlessArgv.kind !== 'none') {
   setHeadlessMode(true)
   app.dock?.hide()
-}
-
-// The product rename from "AI Office" to GenOffice changed the userData path; migrate old user data once
-if (app.isPackaged) {
-  const oldDir = join(app.getPath('appData'), 'AI Office')
-  const newDir = app.getPath('userData')
-  const newEmpty = !existsSync(newDir) || readdirSync(newDir).length === 0
-  if (newEmpty && existsSync(oldDir)) cpSync(oldDir, newDir, { recursive: true })
 }
 
 // module build outputs: packaged builds carry them as extraResources
@@ -527,7 +489,7 @@ configureBrowserRuntime({
   rendererFile: join(BROWSER_OUT, 'renderer', 'index.html'),
 })
 // privileged-scheme registration is only legal before app ready
-registerPrivilegedSchemes()
+if (!app.isReady()) registerPrivilegedSchemes()
 
 // ---- UI language ----
 // Persisted in userData/app-settings.json so the editor modules can read the
@@ -4246,6 +4208,10 @@ function refreshTitleBarOverlay(): void {
   )
 }
 
+let activeSplash: SplashHandle | null = null
+let bootTelemetry: BootTelemetry = createBootTelemetry()
+let scheduleDeferredStartupTasks: () => void = () => {}
+
 // ── the shell window's lifecycle (creation/reveal/detach/pin/tear-off) ──
 // The implementation lives in window-lifecycle.ts; index.ts still owns the
 // shellWindow/tabManager singletons and hands them over through these deps.
@@ -4298,6 +4264,19 @@ const shellWindowDeps: ShellWindowDeps = {
     return index
   },
   sendToShellRenderer,
+  splash: () => activeSplash,
+  clearSplash: () => {
+    activeSplash = null
+  },
+  bootSnapshot: () => ({
+    lang: currentLang(),
+    onboardingSeen: readAppSettings(APP_SETTINGS_PATH()).onboardingSeen === true,
+    theme: currentTheme(),
+  }),
+  onFirstRevealed: () => scheduleDeferredStartupTasks(),
+  get telemetry() {
+    return bootTelemetry
+  },
 }
 
 const createShellWindow = () => createShellWindowIn(shellWindowDeps)
@@ -6301,7 +6280,7 @@ app.on('open-file', (event, filePath) => {
   openLaunchPaths([filePath])
 })
 
-app.on('second-instance', (_event, argv, _cwd, additionalData) => {
+function handleSecondInstanceArgs(argv: readonly string[], additionalData: unknown): void {
   // a genoffice:// launch on Windows/Linux arrives as a plain argv entry;
   // several protocol launches can queue up in one argv, all in order
   const links = deepLinksFromArgv(argv)
@@ -6314,6 +6293,10 @@ app.on('second-instance', (_event, argv, _cwd, additionalData) => {
   const paths = collectLaunchPaths(argv, additionalData)
   revealShellWindow()
   openLaunchPaths(paths)
+}
+
+app.on('second-instance', (_event, argv, _cwd, additionalData) => {
+  handleSecondInstanceArgs(argv, additionalData)
 })
 
 // macOS deep links arrive via open-url (possibly before ready; the listener
@@ -6678,7 +6661,7 @@ async function listDesktopWindows(): Promise<DesktopWindowInfo[]> {
 setSessionPathResolver(resolveSheetsSessionPath)
 
 /** Dev-only pid marker for the takeover below; scoped to userData like the lock itself. */
-const devPidFile = () => join(app.getPath('userData'), 'dev-instance.pid')
+const devPidFile = devPidFilePath
 
 /** Hidden-window exporters, one per editor module (HEADLESS_TARGETS says which formats each takes). */
 const headlessExporters: HeadlessExporters = {
@@ -6719,9 +6702,30 @@ async function runHeadlessExportEntry(
   app.exit(headlessExitCode(outcome))
 }
 
-app.whenReady().then(async () => {
-  // first scan waits for the windows to come up; later ones follow folder changes
-  setTimeout(() => ensureFileIndexer()?.refresh(), 4000)
+export interface ShellBootHandoff {
+  hasSingleInstanceLock: boolean
+  splash: SplashHandle | null
+  earlyOpenFiles: readonly string[]
+  earlyOpenUrls: readonly string[]
+  earlySecondInstances: ReadonlyArray<{
+    argv: readonly string[]
+    cwd: string
+    additionalData: unknown
+  }>
+  detachEarlyListeners: () => void
+  telemetry?: BootTelemetry
+}
+
+export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
+  if (handoff) {
+    handoff.detachEarlyListeners()
+    for (const filePath of handoff.earlyOpenFiles) {
+      if (!pendingLaunchPaths.includes(filePath)) pendingLaunchPaths.push(filePath)
+    }
+    activeSplash = handoff.splash
+    if (handoff.telemetry) bootTelemetry = handoff.telemetry
+  }
+
   installRendererProtocol({
     docs: join(DOCS_OUT, 'renderer'),
     sheets: join(SHEETS_OUT, 'renderer'),
@@ -6736,41 +6740,29 @@ app.whenReady().then(async () => {
   registerMediaProtocol()
   registerMediaIpc()
   if (headlessArgv.kind !== 'none') {
+    activeSplash?.destroyImmediate()
+    activeSplash = null
     await runHeadlessExportEntry(headlessArgv)
     return
   }
-  const lockData = () =>
-    pendingLaunchPaths.length > 0
-      ? { launchPath: pendingLaunchPaths[0], launchPaths: pendingLaunchPaths }
-      : {}
-  let hasLock = app.requestSingleInstanceLock(lockData())
-  if (!hasLock && !app.isPackaged) {
-    // Dev watch restart: electron-vite SIGTERMs the previous instance and spawns this
-    // one immediately. Chromium turns that SIGTERM into a graceful quit (Node's
-    // process.on('SIGTERM') never fires in the main process), and the quit can wedge
-    // in the close-confirmation flow — the zombie then keeps the single-instance lock,
-    // this instance quits, and electron-vite's on-close handler exits with it, killing
-    // the renderer dev server (blank shell window until a manual dev restart).
-    // The previous instance is doomed either way: kill it and take over the lock.
-    try {
-      const oldPid = Number(readFileSync(devPidFile(), 'utf-8').trim())
-      if (Number.isFinite(oldPid) && oldPid > 0 && oldPid !== process.pid) {
-        // pid-recycling guard: only kill if that pid is still an Electron process
-        const cmd = execSync(`ps -o command= -p ${oldPid}`).toString()
-        if (cmd.includes('Electron')) process.kill(oldPid, 'SIGKILL')
-      }
-    } catch {
-      // no previous instance recorded / already gone (ps exits non-zero)
+
+  if (!handoff?.hasSingleInstanceLock) {
+    const lockData = () =>
+      pendingLaunchPaths.length > 0
+        ? { launchPath: pendingLaunchPaths[0], launchPaths: pendingLaunchPaths }
+        : {}
+    let hasLock = app.requestSingleInstanceLock(lockData())
+    if (!hasLock && !app.isPackaged) {
+      hasLock = await reclaimDevSingleInstanceLock(() => app.requestSingleInstanceLock(lockData()))
     }
-    for (let i = 0; i < 20 && !hasLock; i++) {
-      await new Promise((r) => setTimeout(r, 150))
-      hasLock = app.requestSingleInstanceLock(lockData())
+    if (!hasLock) {
+      app.quit()
+      return
     }
   }
-  if (!hasLock) {
-    app.quit()
-    return
-  }
+
+  activeSplash?.setStage('workspace')
+
   // another GenOffice-family app re-logging in rotates the shared key; the
   // home page re-reads its account status. A logout that leaves only the
   // gsk CLI fallback key is not a login
@@ -6790,7 +6782,17 @@ app.whenReady().then(async () => {
     }
   }
 
-  proxyBootstrap = installMainProcessProxy()
+  let resolveProxyReady: (() => void) | null = null
+  let proxyStarted = false
+  proxyBootstrap = new Promise<void>((resolve) => {
+    resolveProxyReady = resolve
+  })
+  const ensureProxyStarted = (): void => {
+    if (proxyStarted) return
+    proxyStarted = true
+    void installMainProcessProxy().finally(() => resolveProxyReady?.())
+  }
+
   app.setAccessibilitySupportEnabled(true)
   // Settle the shared uiLang from saved settings BEFORE any tab renderer can
   // ask 'app:get-language': the editor handlers return the i18n module's
@@ -6822,11 +6824,6 @@ app.whenReady().then(async () => {
   } catch {
     // settings write failures must never block startup
   }
-  // off the startup path: a symlink / registry write nobody is waiting for
-  setTimeout(() => installCliLinkBestEffort(APP_SETTINGS_PATH()), 3000)
-  initAnalytics()
-  analytics.track('app_launch')
-  startSheetsCaptureServer()
   // Register the docs renderer bridge listeners before the MCP server can take
   // a visible-editing request.
   installDocsBridge()
@@ -7252,9 +7249,6 @@ app.whenReady().then(async () => {
     }),
     logFilePath: join(app.getPath('userData'), 'mcp-log.txt'),
   })
-  void startMcpFromSettings(currentMcpSettings()).catch((error) => {
-    console.error('[mcp] failed to start on boot:', error)
-  })
   installUiScale()
   // The desktop's AI drawer rides app-settings.json (`aiDock`, renderer-owned
   // writes): a change must re-fit the embedded document views even when no
@@ -7322,79 +7316,119 @@ app.whenReady().then(async () => {
     sendToShellRenderer(HOME_CHANNELS.aiPermissionsChanged, mode)
     tabManager?.drawerOverlayWebContents()?.send(HOME_CHANNELS.aiPermissionsChanged, mode)
   })
-  createShellWindow()
-  // deferred to ready: labels need currentLang(), which reads app.getLocale()
-  installBackToHomeItems()
-  installDockMenu()
+  let deferredScheduled = false
+  let deferredExecuted = false
+  const runDeferredStartupTasks = (): void => {
+    if (deferredExecuted) return
+    deferredExecuted = true
+    ensureProxyStarted()
+    initAnalytics()
+    analytics.track('app_launch')
+    startSheetsCaptureServer()
+    void startMcpFromSettings(currentMcpSettings()).catch((error) => {
+      console.error('[mcp] failed to start on boot:', error)
+    })
+    // deferred to ready: labels need currentLang(), which reads app.getLocale()
+    installBackToHomeItems()
+    installDockMenu()
+    initAutoUpdater(() => shellWindow, currentUpdateChannel())
+    // resource watchdog: a renderer that stays hot for minutes gets diagnostics
+    // recorded and the user an offer to close the document (headless exports
+    // are short-lived and unattended)
+    if (headlessArgv.kind === 'none') {
+      startRendererWatchdog({
+        describe: (wc) => tabManager?.describeWebContents(wc.id) ?? null,
+        parentWindow: (wc) => BrowserWindow.fromWebContents(wc) ?? shellWindow,
+        closeDocument: async (wc) => {
+          const id = tabManager?.tabIdForWebContents(wc.id)
+          if (id && tabManager) await tabManager.closeTab(id)
+          else BrowserWindow.fromWebContents(wc)?.close()
+        },
+        t: (key, params) => tm(key, params),
+      })
+    }
+    // last session's pinned widgets reopen onto the desktop (after the launch
+    // paths, so a pinned file the CLI also asked for is one tab, pinned once)
+    restoreDesktopPins()
+
+    const tabControl = controlHandler({
+      reveal: revealShellWindow,
+      openDocument: openDocumentPath,
+      activateTab: (id) => {
+        if (!activateDetached(id)) tabManager?.activateTab(id)
+      },
+      findTab: (path) => tabManager?.findTabByPath(path) ?? findDetachedTabByPath(path),
+    })
+    const desktopControl = desktopControlHandler(desktopControlDeps)
+    startControlServer(app.getPath('userData'), (req) =>
+      req.cmd === 'desktop' ? desktopControl(req) : tabControl(req),
+    ).then(
+      (server) => {
+        controlServer = server
+      },
+      (err: unknown) => console.warn('[control] not listening:', err),
+    )
+
+    systemPresence = installSystemPresence({
+      settingsPath: APP_SETTINGS_PATH,
+      lang: () => currentLang(),
+      // the brand icon through the same ?asset pipeline as the menu icons
+      // (hashed asset names break nativeImage's @2x sibling lookup, so the
+      // retina frame attaches by hand); template-rendered on macOS
+      trayIcon: () => {
+        const icon = loadMenuIcon(trayIcon1x, trayIcon2x)
+        if (process.platform === 'darwin') icon.setTemplateImage(true)
+        return icon
+      },
+      showMainWindow: summonHome,
+      summonPalette,
+      openAsk: (query) => deliverDeepLink(query ? { view: 'ask', query } : { view: 'ask' }),
+    })
+    registerDeepLinkClient()
+
+    // first index scan and CLI link registration run after the first paint settles
+    const indexTimer = setTimeout(() => ensureFileIndexer()?.refresh(), 4000)
+    indexTimer.unref?.()
+    const cliTimer = setTimeout(() => installCliLinkBestEffort(APP_SETTINGS_PATH()), 3000)
+    cliTimer.unref?.()
+  }
+
+  scheduleDeferredStartupTasks = () => {
+    if (deferredScheduled) return
+    deferredScheduled = true
+    setImmediate(runDeferredStartupTasks)
+  }
+
+  // Fallback timer ensures deferred services still initialize even if reveal takes longer.
+  const deferredFallback = setTimeout(scheduleDeferredStartupTasks, 1800)
+  deferredFallback.unref?.()
+
   setUpdateCheckInvoker(() => void checkForUpdatesNow())
   // every app's Settings entry (⌘, / Ctrl+,) lands on the shell's Settings view
   setSettingsInvoker(() => openSettingsView())
-  initAutoUpdater(() => shellWindow, currentUpdateChannel())
-  // resource watchdog: a renderer that stays hot for minutes gets diagnostics
-  // recorded and the user an offer to close the document (headless exports
-  // are short-lived and unattended)
-  if (headlessArgv.kind === 'none') {
-    startRendererWatchdog({
-      describe: (wc) => tabManager?.describeWebContents(wc.id) ?? null,
-      parentWindow: (wc) => BrowserWindow.fromWebContents(wc) ?? shellWindow,
-      closeDocument: async (wc) => {
-        const id = tabManager?.tabIdForWebContents(wc.id)
-        if (id && tabManager) await tabManager.closeTab(id)
-        else BrowserWindow.fromWebContents(wc)?.close()
-      },
-      t: (key, params) => tm(key, params),
-    })
-  }
+
+  createShellWindow()
+  bootTelemetry.mark('tShellCreated')
 
   openLaunchPaths(pendingLaunchPaths)
   pendingLaunchPaths = []
   for (const recoverAs of pendingUnsavedNewRecoveries()) void newSheetTab(recoverAs)
-  // last session's pinned widgets reopen onto the desktop (after the launch
-  // paths, so a pinned file the CLI also asked for is one tab, pinned once)
-  restoreDesktopPins()
-
-  const tabControl = controlHandler({
-    reveal: revealShellWindow,
-    openDocument: openDocumentPath,
-    activateTab: (id) => {
-      if (!activateDetached(id)) tabManager?.activateTab(id)
-    },
-    findTab: (path) => tabManager?.findTabByPath(path) ?? findDetachedTabByPath(path),
-  })
-  const desktopControl = desktopControlHandler(desktopControlDeps)
-  startControlServer(app.getPath('userData'), (req) =>
-    req.cmd === 'desktop' ? desktopControl(req) : tabControl(req),
-  ).then(
-    (server) => {
-      controlServer = server
-    },
-    (err: unknown) => console.warn('[control] not listening:', err),
-  )
 
   // a cold win/linux protocol launch carries its links in this process's argv
   for (const link of deepLinksFromArgv(process.argv)) {
     const payload = parseDeepLink(link)
     if (payload) deliverDeepLink(payload)
   }
+  for (const link of handoff?.earlyOpenUrls ?? []) {
+    const payload = parseDeepLink(link)
+    if (payload) deliverDeepLink(payload)
+  }
   // deliver anything that queued before app ready, in arrival order
   deepLinkRouter.flushPending()
 
-  systemPresence = installSystemPresence({
-    settingsPath: APP_SETTINGS_PATH,
-    lang: () => currentLang(),
-    // the brand icon through the same ?asset pipeline as the menu icons
-    // (hashed asset names break nativeImage's @2x sibling lookup, so the
-    // retina frame attaches by hand); template-rendered on macOS
-    trayIcon: () => {
-      const icon = loadMenuIcon(trayIcon1x, trayIcon2x)
-      if (process.platform === 'darwin') icon.setTemplateImage(true)
-      return icon
-    },
-    showMainWindow: summonHome,
-    summonPalette,
-    openAsk: (query) => deliverDeepLink(query ? { view: 'ask', query } : { view: 'ask' }),
-  })
-  registerDeepLinkClient()
+  for (const second of handoff?.earlySecondInstances ?? []) {
+    handleSecondInstanceArgs(second.argv, second.additionalData)
+  }
 
   // a failed hotkey registration is not permanent: whatever held the
   // accelerator may have quit since, so each time one of our windows gains
@@ -7406,7 +7440,15 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createShellWindow()
   })
-})
+}
+
+// Standalone fallback when index.ts is launched directly outside boot.ts.
+if (
+  !(globalThis as { __genofficeBootDriven?: boolean }).__genofficeBootDriven &&
+  !process.env.VITEST
+) {
+  void app.whenReady().then(() => bootShellCore())
+}
 
 app.on('window-all-closed', () => {
   // A headless export destroys its hidden window between documents; only

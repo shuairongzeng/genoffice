@@ -250,6 +250,12 @@ describe('Home ask intent — palette fallback', () => {
   it('the palette Ask AI row routes its query into the ask panel', async () => {
     expect(paletteHandler).not.toBeNull()
     await act(async () => paletteHandler!())
+    await vi.waitFor(async () => {
+      await act(async () => {
+        for (let i = 0; i < 6; i++) await Promise.resolve()
+      })
+      expect(container.querySelector<HTMLInputElement>('.cmd-input')).not.toBeNull()
+    })
     const input = container.querySelector<HTMLInputElement>('.cmd-input')
     expect(input).not.toBeNull()
     await act(async () => {

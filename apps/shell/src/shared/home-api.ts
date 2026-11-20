@@ -1375,6 +1375,14 @@ export interface HomeApi {
    *  extraction finished) — the search re-queries on it instead of polling
    *  while the index is busy */
   onIndexUpdated(handler: () => void): () => void
+  /** snapshot injected into the shell renderer's argv to eliminate startup IPC round trips */
+  bootSnapshot?: {
+    lang: UiLanguage
+    onboardingSeen: boolean
+    theme: UiTheme
+  }
+  /** signal to main that the renderer committed its initial paint frames */
+  signalFirstPaint?: () => void
   /** current UI language (persisted in userData/app-settings.json) */
   getLanguage(): Promise<UiLanguage>
   /** switch + persist the UI language; main rebuilds its menus to match */
@@ -1930,4 +1938,5 @@ export const HOME_CHANNELS = {
   mediaOpenSystem: 'media:open-system',
   mediaReadSnapshotRequest: 'media:read-snapshot-request',
   mediaReadSnapshotReply: 'media:read-snapshot-reply',
+  firstPaintReady: 'home:first-paint-ready',
 } as const

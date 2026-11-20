@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent } from 'react'
 import {
   AiDock,
@@ -55,9 +55,7 @@ import { fileCountLabel, visiblePageCount } from './counts'
 import { useI18n } from './locale'
 import type { StringKey } from './locale'
 import type { SettingsTarget } from './SettingsModal'
-import { TemplateGallery } from './TemplateGallery'
 import { TEMPLATE_GALLERY_STRINGS } from './template-gallery-strings'
-import { CommandPalette } from './CommandPalette'
 import { normalizeAskDeepLink, type AskQueryOrigin, type PendingAskQuery } from './ask-intent'
 import { DesktopView } from './DesktopView'
 import { DESKTOP_STRINGS } from './desktop-strings'
@@ -76,9 +74,18 @@ import { TodoCard } from './todo-card'
 import { bindRecentsChanged, onFilesChanged } from './file-events'
 import { aiSetupNeeded } from './ai-setup-state'
 import { SettingsModalHost } from './settings-modal-host'
-import { CloudProjectsView } from './CloudProjectsView'
-import { KbCenterView } from './KbCenterView'
 import { DropToOpenOverlay } from './DropToOpenOverlay'
+
+const TemplateGallery = lazy(() =>
+  import('./TemplateGallery').then((m) => ({ default: m.TemplateGallery })),
+)
+const CommandPalette = lazy(() =>
+  import('./CommandPalette').then((m) => ({ default: m.CommandPalette })),
+)
+const CloudProjectsView = lazy(() =>
+  import('./CloudProjectsView').then((m) => ({ default: m.CloudProjectsView })),
+)
+const KbCenterView = lazy(() => import('./KbCenterView').then((m) => ({ default: m.KbCenterView })))
 import { FolderPicker } from './FolderPicker'
 import { ConflictPrompt, GroupPicker } from './home-dialogs'
 import { FileRow, SubfolderRow, type FileRowActions } from './HomeFileRows'
@@ -2726,12 +2733,16 @@ export function Home() {
           ) : selectedFolder && rootOf(selectedFolder, roots)?.readable ? (
             renderFolderContent()
           ) : cloudMode ? (
-            <CloudProjectsView />
+            <Suspense fallback={null}>
+              <CloudProjectsView />
+            </Suspense>
           ) : surface === 'kb' ? (
-            <KbCenterView
-              lang={lang}
-              onOpenScopeSettings={() => openSettings({ section: 'general' })}
-            />
+            <Suspense fallback={null}>
+              <KbCenterView
+                lang={lang}
+                onOpenScopeSettings={() => openSettings({ section: 'general' })}
+              />
+            </Suspense>
           ) : (
             renderGlobalContent()
           )}
@@ -2867,22 +2878,26 @@ export function Home() {
 
       <DropToOpenOverlay />
       {templatesOpen && (
-        <TemplateGallery
-          lang={lang}
-          onClose={() => setTemplatesOpen(false)}
-          // the launch bounce's ready signal: the gallery's list round trip
-          // settled (loaded or failed — either way the tile stops bouncing)
-          onLoaded={() => bounce.settle('dock:templates')}
-        />
+        <Suspense fallback={null}>
+          <TemplateGallery
+            lang={lang}
+            onClose={() => setTemplatesOpen(false)}
+            // the launch bounce's ready signal: the gallery's list round trip
+            // settled (loaded or failed — either way the tile stops bouncing)
+            onLoaded={() => bounce.settle('dock:templates')}
+          />
+        </Suspense>
       )}
       {paletteOpen && (
-        <CommandPalette
-          lang={lang}
-          onClose={() => setPaletteOpen(false)}
-          onAskAi={submitAskQuery}
-          onOpenSettings={openSettings}
-          scope={paletteScope}
-        />
+        <Suspense fallback={null}>
+          <CommandPalette
+            lang={lang}
+            onClose={() => setPaletteOpen(false)}
+            onAskAi={submitAskQuery}
+            onOpenSettings={openSettings}
+            scope={paletteScope}
+          />
+        </Suspense>
       )}
     </div>
   )

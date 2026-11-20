@@ -1018,6 +1018,12 @@ describe('the chord treaty on Home (issue #56 P0 #3)', () => {
     // chord takes VS Code's meaning: the palette as a quick-open
     const event = await pressKey('p')
     expect(event.defaultPrevented).toBe(true)
+    await vi.waitFor(async () => {
+      await act(async () => {
+        for (let i = 0; i < 6; i++) await Promise.resolve()
+      })
+      expect(container.querySelector<HTMLInputElement>('.cmd-input')).not.toBeNull()
+    })
     const input = container.querySelector<HTMLInputElement>('.cmd-input')
     expect(input?.placeholder).toBe('Go to file…')
     // the document sources answer: the palette's own list carries the
@@ -1034,6 +1040,12 @@ describe('the chord treaty on Home (issue #56 P0 #3)', () => {
 
   it("the shell's Ctrl/Cmd+K summon opens the full palette and resets a files open", async () => {
     await pressKey('p')
+    await vi.waitFor(async () => {
+      await act(async () => {
+        for (let i = 0; i < 6; i++) await Promise.resolve()
+      })
+      expect(container.querySelector<HTMLInputElement>('.cmd-input')).not.toBeNull()
+    })
     expect(container.querySelector<HTMLInputElement>('.cmd-input')?.placeholder).toBe('Go to file…')
     // the summon (tab views, global hotkey, tray) is the full registry even
     // right after a quick-open: every open path stamps the scope it opened with

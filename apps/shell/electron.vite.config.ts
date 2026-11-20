@@ -11,7 +11,15 @@ export default defineConfig({
     build: {
       // electron-vite defaults build.minify to false
       minify: 'esbuild',
-      rollupOptions: { external: ['node:sqlite'] },
+      rollupOptions: {
+        input: { index: resolve(__dirname, 'src/main/boot.ts') },
+        external: ['node:sqlite'],
+        // Keep split chunks in out/main/ alongside index.js so existing
+        // join(__dirname, '../renderer/...') and '../preload/...' lookups resolve correctly.
+        output: {
+          chunkFileNames: '[name]-[hash].js',
+        },
+      },
       // pi packages are ESM-only; externalizing them makes the CJS main bundle
       // require() them at runtime and crash on startup
       externalizeDeps: {

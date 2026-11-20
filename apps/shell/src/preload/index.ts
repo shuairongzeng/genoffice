@@ -54,6 +54,7 @@ import type {
   SystemPresenceSettings,
   KbScope,
   UiLanguage,
+  UiTheme,
   FileSearchPage,
   FileSearchRerank,
   FileSearchSettings,
@@ -107,6 +108,34 @@ const UI_LANGUAGES: readonly UiLanguage[] = [
 function isUiLanguage(value: unknown): value is UiLanguage {
   return UI_LANGUAGES.includes(value as UiLanguage)
 }
+
+const BOOT_ARG_PREFIX = '--genoffice-boot='
+
+function readBootSnapshotFromArgv(
+  argv: readonly string[],
+): { lang: UiLanguage; onboardingSeen: boolean; theme: UiTheme } | undefined {
+  const arg = argv.find((entry) => entry.startsWith(BOOT_ARG_PREFIX))
+  if (!arg) return undefined
+  try {
+    const encoded = arg.slice(BOOT_ARG_PREFIX.length)
+    // Decode base64url safely in browser/sandbox preload without relying on Node Buffer globals.
+    const base64 = encoded.replaceAll('-', '+').replaceAll('_', '/')
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+    const raw = JSON.parse(atob(padded)) as {
+      lang?: unknown
+      onboardingSeen?: unknown
+      theme?: unknown
+    }
+    if (!isUiLanguage(raw.lang) || typeof raw.onboardingSeen !== 'boolean') return undefined
+    const theme = raw.theme === 'light' || raw.theme === 'dark' ? raw.theme : 'system'
+    return { lang: raw.lang, onboardingSeen: raw.onboardingSeen, theme }
+  } catch {
+    return undefined
+  }
+}
+
+const bootSnapshot = readBootSnapshotFromArgv(process.argv)
+let firstPaintSignaled = false
 
 const EMPTY_PAGE: RecentPage = { entries: [], total: 0, totalAll: 0 }
 
@@ -1385,6 +1414,12 @@ const homeApi: HomeApi = {
   },
   sendMediaReadSnapshotReply(reply: MediaSnapshotReply) {
     ipcRenderer.send(HOME_CHANNELS.mediaReadSnapshotReply, reply)
+  },
+  ...(bootSnapshot ? { bootSnapshot } : {}),
+  signalFirstPaint() {
+    if (firstPaintSignaled) return
+    firstPaintSignaled = true
+    ipcRenderer.send(HOME_CHANNELS.firstPaintReady)
   },
 }
 

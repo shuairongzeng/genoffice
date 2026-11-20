@@ -656,7 +656,7 @@ const config = {
   directories: {
     output: process.env.BUILD_DIR || 'release',
   },
-  files: ['out/**'],
+  files: ['out/**', '!**/*.map', '!**/*.d.ts'],
   extraResources: [
     {
       from: 'build/THIRD-PARTY-NOTICES.txt',

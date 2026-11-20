@@ -20,6 +20,8 @@
     "dist:linux": "npm run notices && electron-vite build && electron-builder --linux"
   },
   "devDependencies": {
+    "@earendil-works/pi-agent-core": "^1.4.0",
+    "@earendil-works/pi-ai": "^1.4.0",
     "@genoffice/agent-core": "*",
     "@genoffice/ai-provider": "*",
     "@genoffice/ai-search": "*",
@@ -54,7 +56,7 @@
   },
   "author": "GenOffice",
   "dependencies": {
-    "@earendil-works/pi-agent-core": "^1.4.0",
-    "@earendil-works/pi-ai": "^1.4.0"
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1"
   }
 }

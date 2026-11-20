@@ -178,8 +178,11 @@ describe('Home dock navigation', () => {
     expect(cta).toBeTruthy()
     expect(cta.textContent).toBe('Pick folders in Settings')
     await click(cta)
-    await act(async () => {
-      for (let i = 0; i < 6; i++) await Promise.resolve()
+    await vi.waitFor(async () => {
+      await act(async () => {
+        for (let i = 0; i < 6; i++) await Promise.resolve()
+      })
+      expect(container.querySelector('.set-nav-item.active')).not.toBeNull()
     })
     // the settings modal opened on the pane that holds the scope group, not
     // the account default or the AI panes
@@ -374,8 +377,11 @@ describe('the doc-mode dock nav (home:dock-nav)', () => {
   it('a templates intent opens the template gallery', async () => {
     await mountWithDockNav()
     await act(async () => dockNavHandler!({ kind: 'templates' }))
-    await act(async () => {
-      for (let i = 0; i < 6; i++) await Promise.resolve()
+    await vi.waitFor(async () => {
+      await act(async () => {
+        for (let i = 0; i < 6; i++) await Promise.resolve()
+      })
+      expect(container.querySelector('.tg-card')).toBeTruthy()
     })
     expect(container.querySelector('.tg-card')).toBeTruthy()
     expect(container.querySelector('.tg-card-title')?.textContent).toBe('Weekly report')
@@ -729,8 +735,11 @@ describe('the cloud launcher on the Home dock', () => {
     })
     expect(container.querySelectorAll('.dock-item')).toHaveLength(8)
     await act(async () => DESKTOP().click())
-    await act(async () => {
-      for (let i = 0; i < 6; i++) await Promise.resolve()
+    await vi.waitFor(async () => {
+      await act(async () => {
+        for (let i = 0; i < 6; i++) await Promise.resolve()
+      })
+      expect(container.querySelector('.cloud-rows, .proj-empty, .load-more')).toBeTruthy()
     })
     // the cloud surface took over the stage: its sync/cache bridge answers
     // and the view renders its body (the error card here — no network)
@@ -877,6 +886,12 @@ describe("the dock's dragged-in launchers (dockPrefs.customItems)", () => {
     await mountWithCustoms()
     await click(nav('Knowledge Base'))
     await flush()
+    await vi.waitFor(async () => {
+      await act(async () => {
+        for (let i = 0; i < 6; i++) await Promise.resolve()
+      })
+      expect(container.querySelector('.kb-center')).toBeTruthy()
+    })
     expect(container.querySelector('.kb-center')).toBeTruthy()
   })
 

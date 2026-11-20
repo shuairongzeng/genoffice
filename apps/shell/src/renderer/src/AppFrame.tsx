@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Home } from './Home'
-import { Onboarding } from './Onboarding'
-import { StarPromptCard } from './StarPromptCard'
+
+const Onboarding = lazy(() => import('./Onboarding').then((m) => ({ default: m.Onboarding })))
+const StarPromptCard = lazy(() =>
+  import('./StarPromptCard').then((m) => ({ default: m.StarPromptCard })),
+)
 
 interface AppFrameProps {
   /** resolved before first paint (main.tsx) so home never flashes under the overlay */
@@ -73,9 +76,15 @@ export function AppFrame({ initialOnboardingSeen }: AppFrameProps) {
       <Home />
       {/* editor WebContentsViews paint above ALL shell DOM, so the overlay only
        * renders while the home tab is active — it comes back when home does */}
-      {showOnboarding && homeActive && <Onboarding onDone={finishOnboarding} />}
+      {showOnboarding && homeActive && (
+        <Suspense fallback={null}>
+          <Onboarding onDone={finishOnboarding} />
+        </Suspense>
+      )}
       {starPromptDocOpens !== null && !showOnboarding && homeActive && (
-        <StarPromptCard docOpens={starPromptDocOpens} onClose={() => setStarPromptDocOpens(null)} />
+        <Suspense fallback={null}>
+          <StarPromptCard docOpens={starPromptDocOpens} onClose={() => setStarPromptDocOpens(null)} />
+        </Suspense>
       )}
     </div>
   )

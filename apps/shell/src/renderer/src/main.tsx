@@ -28,14 +28,46 @@ if (IS_MAC) document.body.classList.add('vib')
 // overlay the window's top-right; home.css keeps the dock head clear of them)
 document.body.classList.add(IS_MAC ? 'mac' : 'overlay-title-bar')
 
+const params = new URLSearchParams(location.search)
+const isHelp = params.get('mode') === 'help'
+const isMedia = params.get('view') === 'media'
+// The ask panel's standalone mount (?view=ask-panel): the panel alone, the
+// surface W2's native overlay view above documents loads. Like the manual,
+// it shares this boot (language, theme, panel prefs) but renders none of
+// the workbench around it.
+const isAskPanel = isAskPanelView()
+// The dock's standalone mount (?view=dock): the fisheye dock alone, the
+// surface the doc-mode native overlay loads above covering documents. Like
+// the ask panel it shares this boot but renders none of the workbench —
+// and deliberately runs no panel-entry logic: no prefs subscription, no
+// ready ping (the ask panel's buffered-message handshake is not this
+// surface's contract; its shape is main's state machine)
+const isDock = isDockView()
+
+const snap = !isHelp && !isMedia && !isAskPanel && !isDock ? window.aiOffice.bootSnapshot : undefined
+
+const bootPrefsPromise = snap
+  ? Promise.resolve([snap.lang, snap.onboardingSeen, snap.theme] as const)
+  : Promise.all([
+      window.aiOffice.getLanguage(),
+      // if the flag is unreadable, skip onboarding rather than block the home screen
+      window.aiOffice.onboardingSeen().catch(() => true),
+      window.aiOffice.getTheme().catch(() => 'system' as const),
+    ])
+
+function notifyFirstPaintReady(): void {
+  const signal = window.aiOffice.signalFirstPaint
+  if (!signal) return
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      signal()
+    })
+  })
+}
+
 // resolve the persisted language, first-run flag, and theme before first paint
 // so the UI never flashes (home showing briefly before the onboarding overlay)
-void Promise.all([
-  window.aiOffice.getLanguage(),
-  // if the flag is unreadable, skip onboarding rather than block the home screen
-  window.aiOffice.onboardingSeen().catch(() => true),
-  window.aiOffice.getTheme().catch(() => 'system' as const),
-]).then(async ([lang, onboardingSeen, theme]) => {
+void bootPrefsPromise.then(async ([lang, onboardingSeen, theme]) => {
   document.documentElement.lang = htmlLang(lang)
   document.documentElement.dir = htmlDir(lang)
   // apply theme attribute before first paint to avoid flash
@@ -53,28 +85,6 @@ void Promise.all([
     .then(applyAiPanelPrefs)
     .catch(() => undefined)
   window.aiOffice.onAiPanelPrefsChanged?.(applyAiPanelPrefs)
-  // The manual tab is the same bundle branched on ?mode=help: no onboarding,
-  // no home state, just the searchable topic browser (issue #1520).
-  //
-  // Split, though: this entry chunk is parsed on every launch whatever the tab
-  // is, and the screen plus its stylesheet are only ever wanted on the other
-  // one. A static import meant Home's first paint paid for a manual nobody had
-  // opened.
-  const params = new URLSearchParams(location.search)
-  const isHelp = params.get('mode') === 'help'
-  const isMedia = params.get('view') === 'media'
-  // The ask panel's standalone mount (?view=ask-panel): the panel alone, the
-  // surface W2's native overlay view above documents loads. Like the manual,
-  // it shares this boot (language, theme, panel prefs) but renders none of
-  // the workbench around it.
-  const isAskPanel = isAskPanelView()
-  // The dock's standalone mount (?view=dock): the fisheye dock alone, the
-  // surface the doc-mode native overlay loads above covering documents. Like
-  // the ask panel it shares this boot but renders none of the workbench —
-  // and deliberately runs no panel-entry logic: no prefs subscription, no
-  // ready ping (the ask panel's buffered-message handshake is not this
-  // surface's contract; its shape is main's state machine)
-  const isDock = isDockView()
   // fetch only the current language's dictionary before first paint; switching
   // later loads the new one before the re-render
   await loadStrings(lang)
@@ -105,4 +115,5 @@ void Promise.all([
       </LocaleProvider>
     </React.StrictMode>,
   )
+  notifyFirstPaintReady()
 })
