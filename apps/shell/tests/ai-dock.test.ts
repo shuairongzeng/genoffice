@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AI_DOCK_KEY, readAiDock, watchAiDock } from '../src/main/ai-dock'
 import { writeAppSetting, writeAppSettings } from '../src/main/app-settings'
-import { AI_DOCK_WIDTH_DEFAULT, type AiDockPrefs } from '../src/shared/desktop-geometry'
+import { AI_DOCK_WIDTH_DEFAULT, AI_DOCK_WIDTH_MAX, type AiDockPrefs } from '../src/shared/desktop-geometry'
 
 /**
  * The `aiDock` pref's main-process read path (src/main/ai-dock.ts): defaults
@@ -49,7 +49,12 @@ describe('readAiDock', () => {
       panelPos: null,
     })
     writeAppSettings(path, { [AI_DOCK_KEY]: { width: 9999, collapsed: false } })
-    expect(readAiDock(path)).toEqual({ width: 560, collapsed: false, petPos: null, panelPos: null })
+    expect(readAiDock(path)).toEqual({
+      width: AI_DOCK_WIDTH_MAX,
+      collapsed: false,
+      petPos: null,
+      panelPos: null,
+    })
   })
 
   it('rounds a stored pet position to whole pixels', () => {

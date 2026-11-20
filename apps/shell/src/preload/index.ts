@@ -892,6 +892,9 @@ const homeApi: HomeApi = {
   aiPanelDrag(report) {
     ipcRenderer.send(HOME_CHANNELS.askPanelDrag, report)
   },
+  aiPanelResize(report) {
+    return ipcRenderer.invoke(HOME_CHANNELS.askPanelResize, report)
+  },
   async aiPetMenu(request) {
     const action: unknown = await ipcRenderer.invoke(HOME_CHANNELS.aiPetMenu, request)
     return typeof action === 'string' && AI_PET_MENU_ACTIONS.includes(action as AiPetMenuAction)

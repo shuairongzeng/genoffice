@@ -6546,6 +6546,8 @@ registerHomeWorkbenchIpc({
   applyDrawerOverlayPanelDrag: (sender, report) => {
     tabManager?.applyDrawerOverlayPanelDrag(sender, report)
   },
+  applyDrawerOverlayPanelResize: (sender, report) =>
+    tabManager?.applyDrawerOverlayPanelResize(sender, report) ?? null,
   // the doc-mode dock overlay's state machine: the overlay checks the sender
   // and the strip/dock shape; the identity gate means a foreign renderer's
   // report is a no-op

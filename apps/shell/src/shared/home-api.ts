@@ -653,6 +653,18 @@ export interface AiPetDragReport {
   end?: boolean
 }
 
+/** Resize surface transition sent by the overlay panel while edge-dragging. */
+export interface AiPanelResizeReport {
+  readonly start?: boolean
+  readonly end?: boolean
+}
+
+/** Snapshot returned on resize start so the overlay can preview bounds across the full window. */
+export interface AiPanelResizeGeometry {
+  readonly panel: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
+  readonly window: { readonly width: number; readonly height: number }
+}
+
 export type AiPetMenuAction =
   | 'toggle'
   | 'feed'
@@ -948,6 +960,8 @@ export interface HomeApi {
    * persists it through the ordinary `home:ai-dock-set` write (panelPos).
    */
   aiPanelDrag?(report: AiPetDragReport): void
+  /** Requests a window-wide capture layer while edge-resizing the overlay panel. */
+  aiPanelResize?(report: AiPanelResizeReport): Promise<AiPanelResizeGeometry | null>
   /**
    * Native context menu popup for the overlay pet view (`home:ai-pet-menu`):
    * the transparent pet-only view is clamped to 68x62, so a DOM popup would
@@ -1800,6 +1814,8 @@ export const HOME_CHANNELS = {
    *  requests (start: grow the view window-wide for the gesture; end: re-fit
    *  the parked card) — the pet drag's contract for the expanded panel */
   askPanelDrag: 'home:ask-panel-drag',
+  /** renderer <-> main: window-wide capture transitions while edge-resizing the overlay panel */
+  askPanelResize: 'home:ask-panel-resize',
   /** renderer → main: native context menu for the overlay pet view */
   aiPetMenu: 'home:ai-pet-menu',
   /** renderer <-> main: read / persist the AI pet prefs (app-settings.json `aiPet`) */

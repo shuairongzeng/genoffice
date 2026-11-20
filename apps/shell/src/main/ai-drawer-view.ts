@@ -9,7 +9,7 @@ import {
   DRAWER_MORPH_CLOSE_MS,
   type AiDockPrefs,
 } from '../shared/desktop-geometry'
-import type { AiPetDragReport } from '../shared/home-api'
+import type { AiPanelResizeGeometry, AiPanelResizeReport, AiPetDragReport } from '../shared/home-api'
 import { applyUiScaleTo } from './ui-scale'
 
 /**
@@ -174,6 +174,15 @@ export interface AiDrawerOverlay {
    */
   applyPanelDragReport(sender: WebContents, report: AiPetDragReport): void
   /**
+   * Edge-resize surface transition (`home:ask-panel-resize`): expands the overlay
+   * window-wide for any open state (both docked slot and floating card) and returns
+   * the current panel & window bounds, or refits when `end` is reported.
+   */
+  applyPanelResizeReport(
+    sender: WebContents,
+    report: AiPanelResizeReport,
+  ): AiPanelResizeGeometry | null
+  /**
    * The overlay view's live webContents, or undefined while it is not
    * mounted (or already gone). The sender gates that must accept the panel
    * copy — browserskill:execute among them (browser-agent.ts) — read it.
@@ -229,6 +238,12 @@ export function createAiDrawerOverlay(
    * app's own panel while docked — flat against the app's layout — and back.
    */
   let embedded = false
+  /** Last non-capture bounds applied to the view, used as fallback during edge-resize start. */
+  let lastAppliedBounds: Rectangle | null = null
+  const setFitBounds = (live: WebContentsView, rect: Rectangle): void => {
+    lastAppliedBounds = rect
+    live.setBounds(rect)
+  }
   /** messages waiting for the panel's renderer to be ready (deliverToPanel) */
   const pendingPanelMessages: Array<{ channel: string; payload: unknown }> = []
   /**
@@ -416,7 +431,7 @@ export function createAiDrawerOverlay(
     if (shellWindow.isDestroyed()) return
     const { width, height } = shellWindow.getContentBounds()
     if (width <= 0 || height <= 0) return
-    live.setBounds(expandedBounds({ width, height }, lastLayout))
+    setFitBounds(live, expandedBounds({ width, height }, lastLayout))
   }
 
   /* ── the close morph's glide: the view TRAVELS to the pet ──
@@ -454,7 +469,7 @@ export function createAiDrawerOverlay(
       })
       if (t >= 1) {
         cancelMorphTween()
-        live.setBounds(target)
+        setFitBounds(live, target)
       }
     }, 16)
     // the tween never keeps the process alive
@@ -566,7 +581,7 @@ export function createAiDrawerOverlay(
         }
       } else {
         cancelMorphTween()
-        live.setBounds(target)
+        setFitBounds(live, target)
       }
       pushEmbedded(!nextPetMode && state.slot !== undefined)
       // the entry opts into `zoom: var(--ui-scale)` like the app frame, so
@@ -654,6 +669,31 @@ export function createAiDrawerOverlay(
         live.setBounds({ x: 0, y: 0, width, height })
       }
       if (report.end) refitAfterGesture()
+    },
+    applyPanelResizeReport(
+      sender: WebContents,
+      report: AiPanelResizeReport,
+    ): AiPanelResizeGeometry | null {
+      const live = view
+      if (!live || live.webContents.isDestroyed() || sender !== live.webContents) return null
+      if (shellWindow.isDestroyed()) return null
+      if (report.start) {
+        if (!shown || petMode) return null
+        const win = shellWindow.getContentBounds()
+        if (win.width <= 0 || win.height <= 0) return null
+        const current =
+          lastAppliedBounds ??
+          (typeof live.getBounds === 'function' ? live.getBounds() : null) ??
+          (lastLayout ? expandedBounds({ width: win.width, height: win.height }, lastLayout) : null)
+        if (!current) return null
+        live.setBounds({ x: 0, y: 0, width: win.width, height: win.height })
+        return {
+          panel: { x: current.x, y: current.y, width: current.width, height: current.height },
+          window: { width: win.width, height: win.height },
+        }
+      }
+      if (report.end) refitAfterGesture()
+      return null
     },
     panelWebContents(): WebContents | undefined {
       const wc = view?.webContents

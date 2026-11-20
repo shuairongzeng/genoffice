@@ -47,6 +47,12 @@ export interface SessionsCenterStrings {
   readonly freeChatLabel: string
   readonly libraryCurrentDocSection: string
   readonly libraryManageAll: string
+  readonly headerNewChat: string
+  readonly headerNewDocChat: string
+  readonly menuWidthSection: string
+  readonly widthCompact: string
+  readonly widthStandard: string
+  readonly widthWide: string
 }
 
 const ZH_STRINGS: SessionsCenterStrings = {
@@ -95,6 +101,12 @@ const ZH_STRINGS: SessionsCenterStrings = {
   freeChatLabel: '独立自由对话（未绑定具体文档）',
   libraryCurrentDocSection: '当前文档会话',
   libraryManageAll: '管理全部会话 ↗',
+  headerNewChat: '新建对话',
+  headerNewDocChat: '新建当前文档对话',
+  menuWidthSection: '面板宽度',
+  widthCompact: '紧凑',
+  widthStandard: '标准',
+  widthWide: '宽屏',
 }
 
 const ZH_TW_STRINGS: SessionsCenterStrings = {
@@ -143,6 +155,12 @@ const ZH_TW_STRINGS: SessionsCenterStrings = {
   freeChatLabel: '獨立自由對話（未綁定特定文件）',
   libraryCurrentDocSection: '目前文件會話',
   libraryManageAll: '管理全部會話 ↗',
+  headerNewChat: '新增對話',
+  headerNewDocChat: '新增目前文件對話',
+  menuWidthSection: '面板寬度',
+  widthCompact: '精簡',
+  widthStandard: '標準',
+  widthWide: '寬螢幕',
 }
 
 const EN_STRINGS: SessionsCenterStrings = {
@@ -191,6 +209,12 @@ const EN_STRINGS: SessionsCenterStrings = {
   freeChatLabel: 'Standalone conversation (not bound to a document)',
   libraryCurrentDocSection: 'Current document',
   libraryManageAll: 'Manage all sessions ↗',
+  headerNewChat: 'New chat',
+  headerNewDocChat: 'New chat for this document',
+  menuWidthSection: 'Panel width',
+  widthCompact: 'Compact',
+  widthStandard: 'Standard',
+  widthWide: 'Wide',
 }
 
 export const SESSIONS_CENTER_STRINGS: Record<Lang, SessionsCenterStrings> = {

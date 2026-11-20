@@ -662,8 +662,8 @@ describe('the dock prefs read', () => {
     const overlay = createAiDrawerOverlay(win as never)
     const dock: AiDockPrefs = { width: 2000, collapsed: false, petPos: null }
     overlay.sync(state({ dock }))
-    // 2000 clamps to AI_DOCK_WIDTH_MAX (560) like the renderer's own drag
-    expect(overlayView(win).bounds.at(-1)).toEqual({ x: 240, y: 48, width: 560, height: 504 })
+    // 2000 clamps to AI_DOCK_WIDTH_MAX (760) like the renderer's own drag
+    expect(overlayView(win).bounds.at(-1)).toEqual({ x: 40, y: 48, width: 760, height: 504 })
   })
 })
 
@@ -1117,5 +1117,55 @@ describe('load failures (P2: the failed panel URL)', () => {
     } finally {
       loadState.rejectNext = false
     }
+  })
+})
+
+describe('the panel edge-resize surface (home:ask-panel-resize -> applyPanelResizeReport)', () => {
+  it('expands docked and floating panels window-wide with snapshot geometry and refits on end', () => {
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    const slot = { x: 400, y: 44, width: 400, height: 556 }
+    overlay.sync(state({ slot }))
+    const view = overlayView(win)
+    overlay.markPanelReadyFor(view.webContents as never)
+    expect(view.bounds.at(-1)).toEqual(slot)
+
+    const snap = overlay.applyPanelResizeReport(view.webContents as never, { start: true })
+    expect(snap).toEqual({
+      panel: slot,
+      window: { width: 800, height: 600 },
+    })
+    expect(view.bounds.at(-1)).toEqual({ x: 0, y: 0, width: 800, height: 600 })
+
+    const updatedSlot = { x: 260, y: 44, width: 540, height: 556 }
+    overlay.sync(
+      state({
+        slot: updatedSlot,
+        dock: { width: 540, collapsed: false, petPos: null, panelPos: null },
+      }),
+    )
+    expect(overlay.applyPanelResizeReport(view.webContents as never, { end: true })).toBeNull()
+    expect(view.bounds.at(-1)).toEqual(updatedSlot)
+  })
+
+  it('expands floating card and ignores collapsed or foreign sender resize requests', () => {
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    overlay.sync(state())
+    const view = overlayView(win)
+    overlay.markPanelReadyFor(view.webContents as never)
+
+    expect(overlay.applyPanelResizeReport(otherWebContents() as never, { start: true })).toBeNull()
+    expect(view.bounds.at(-1)).toEqual({ x: 400, y: 48, width: 400, height: 504 })
+
+    const floatSnap = overlay.applyPanelResizeReport(view.webContents as never, { start: true })
+    expect(floatSnap).toEqual({
+      panel: { x: 400, y: 48, width: 400, height: 504 },
+      window: { width: 800, height: 600 },
+    })
+    expect(view.bounds.at(-1)).toEqual({ x: 0, y: 0, width: 800, height: 600 })
+
+    overlay.sync(
+      state({ dock: { width: 400, collapsed: true, petPos: { x: 100, y: 100 }, panelPos: null } }),
+    )
+    expect(overlay.applyPanelResizeReport(view.webContents as never, { start: true })).toBeNull()
   })
 })

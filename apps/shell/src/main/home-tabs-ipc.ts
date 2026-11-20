@@ -3,6 +3,8 @@ import type { MenuItemConstructorOptions, Rectangle, WebContents } from 'electro
 
 import { HOME_CHANNELS } from '../shared/home-api'
 import type {
+  AiPanelResizeGeometry,
+  AiPanelResizeReport,
   AiPetDragReport,
   AiPetMenuAction,
   AiPetMenuRequest,
@@ -256,6 +258,11 @@ export interface HomeWorkbenchIpcDeps {
   applyDrawerOverlayPetDrag: (sender: WebContents, report: AiPetDragReport) => void
   /** the floating overlay panel's header-drag surface reports (same contract, expanded state) */
   applyDrawerOverlayPanelDrag: (sender: WebContents, report: AiPetDragReport) => void
+  /** Handles edge-resize capture surface transitions for the expanded overlay panel. */
+  applyDrawerOverlayPanelResize?: (
+    sender: WebContents,
+    report: AiPanelResizeReport,
+  ) => AiPanelResizeGeometry | null
   /**
    * Route the doc-mode dock overlay's hot-edge report to the overlay: the
    * sender identity check and the strip/dock state machine both live there,
@@ -628,6 +635,11 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
     // gate differs (the expanded floating panel, not the pet-only view)
     const report = asPetDragReport(raw)
     if (report) deps.applyDrawerOverlayPanelDrag(event.sender, report)
+  })
+  ipcMain.handle(HOME_CHANNELS.askPanelResize, (event, raw: unknown) => {
+    const report = asPetDragReport(raw)
+    if (!report) return null
+    return deps.applyDrawerOverlayPanelResize?.(event.sender, report) ?? null
   })
   ipcMain.handle(HOME_CHANNELS.aiPetMenu, (event, raw: unknown) => {
     const req = asAiPetMenuRequest(raw)

@@ -132,6 +132,7 @@ import {
   type SessionTarget,
 } from './ask-session-binding'
 import { SESSIONS_CENTER_STRINGS } from './sessions-center-strings'
+import { AI_DOCK_WIDTH_PRESETS } from '../../shared/desktop-geometry'
 import { suggestForDocument, type DocSuggestion } from './doc-suggestions'
 import {
   browserAskEvidenceSuffix,
@@ -4180,6 +4181,23 @@ export function KbAskPanel({
           typeof window.aiOffice?.setAiPanelPrefs === 'function'
         const collapseLeft =
           surfaceRole === 'docked' && activeTabKind !== 'browser' && aiPrefs.side === 'left'
+        const handleQuickNewChat = (): void => {
+          setHeaderMenuOpen(false)
+          setHistoryOpen(false)
+          setLibraryOpen(false)
+          if (!busyRef.current && messagesRef.current.length === 0) {
+            composerRef.current?.focus()
+            return
+          }
+          void startThread().finally(() => {
+            composerRef.current?.focus()
+          })
+        }
+        const canResizePresets = typeof window.aiOffice?.setAiDock === 'function'
+        const newChatLabel =
+          effectiveDocPath || boundUnsavedTabId
+            ? scStrings.headerNewDocChat
+            : scStrings.headerNewChat
         return (
           <div
             className="kb-ask-header"
@@ -4206,6 +4224,23 @@ export function KbAskPanel({
             <div className="kb-ask-header-title" title={title}>
               {title}
             </div>
+            <button
+              type="button"
+              className="kb-ask-new-button"
+              data-testid="kb-ask-new-chat-btn"
+              aria-label={newChatLabel}
+              title={newChatLabel}
+              onClick={handleQuickNewChat}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path
+                  d="M8 3.2v9.6M3.2 8h9.6"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
             {checkpointTimeline.length > 0 && (
               <div className="kb-ask-history-wrap" ref={historyRef}>
                 <button
@@ -4365,6 +4400,33 @@ export function KbAskPanel({
                     >
                       {(SESSIONS_CENTER_STRINGS[lang] ?? SESSIONS_CENTER_STRINGS.en).libraryManageAll}
                     </button>
+                  )}
+                  {canResizePresets && (
+                    <div className="kb-ask-width-section">
+                      <span className="kb-ask-width-label">{scStrings.menuWidthSection}</span>
+                      <div className="kb-ask-width-presets">
+                        {(
+                          [
+                            [AI_DOCK_WIDTH_PRESETS.compact, scStrings.widthCompact],
+                            [AI_DOCK_WIDTH_PRESETS.standard, scStrings.widthStandard],
+                            [AI_DOCK_WIDTH_PRESETS.wide, scStrings.widthWide],
+                          ] as const
+                        ).map(([presetWidth, label]) => (
+                          <button
+                            key={presetWidth}
+                            type="button"
+                            role="menuitem"
+                            className="kb-ask-width-preset-btn"
+                            onClick={() => {
+                              setHeaderMenuOpen(false)
+                              void window.aiOffice?.setAiDock?.({ width: presetWidth }).catch(() => undefined)
+                            }}
+                          >
+                            {label} {presetWidth}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               )}

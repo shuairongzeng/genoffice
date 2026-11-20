@@ -26,6 +26,25 @@ function readUiScale(): number {
   return Number.isFinite(scale) && scale > 0 ? scale : 1
 }
 
+function readViewportWidth(): number {
+  return typeof window !== 'undefined' && Number.isFinite(window.innerWidth) && window.innerWidth > 0
+    ? window.innerWidth
+    : 0
+}
+
+/** Clamps hosted slot width so narrow windows retain at least 360 CSS px of editor room. */
+function clampSlotWidthPx(rawCssWidth: number, scale: number, viewportWidth: number): number {
+  if (!Number.isFinite(rawCssWidth) || rawCssWidth <= 0) return 0
+  const rawPx = Math.round(rawCssWidth * scale)
+  if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) return rawPx
+  const minPx = Math.round(320 * scale)
+  const absMaxPx = Math.round(760 * scale)
+  const ratioMaxPx = Math.round(viewportWidth * 0.6)
+  const contentMaxPx = Math.max(0, viewportWidth - 360)
+  const capPx = Math.max(minPx, Math.min(absMaxPx, ratioMaxPx, contentMaxPx))
+  return Math.min(rawPx, capPx)
+}
+
 /**
  * Reserve and track a hosted AI drawer slot inside an embedded editor app.
  *
@@ -44,6 +63,7 @@ export function useHostedAiSlot(
 } {
   const [dock, setDock] = useState<HostedAiDockState | null>(null)
   const [scale, setScale] = useState(readUiScale)
+  const [viewportWidth, setViewportWidth] = useState(readViewportWidth)
   const { side } = useAiPanelPrefs()
   const scaleRef = useRef(scale)
   const nodeRef = useRef<HTMLDivElement | null>(null)
@@ -137,10 +157,14 @@ export function useHostedAiSlot(
       observer.observe(node)
       if (node.parentElement) observer.observe(node.parentElement)
     }
-    window.addEventListener('resize', report)
+    const onWindowResize = (): void => {
+      setViewportWidth(readViewportWidth())
+      report()
+    }
+    window.addEventListener('resize', onWindowResize)
     return () => {
       observer?.disconnect()
-      window.removeEventListener('resize', report)
+      window.removeEventListener('resize', onWindowResize)
     }
   }, [enabled, dock, report, scale, side])
 
@@ -154,7 +178,7 @@ export function useHostedAiSlot(
 
   return {
     dock,
-    width: Math.round((dock?.width ?? 0) * scale),
+    width: clampSlotWidthPx(dock?.width ?? 0, scale, viewportWidth),
     slotRef,
   }
 }

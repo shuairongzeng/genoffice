@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { HomeApi, HomeTabsState } from '../src/shared/home-api'
 import { HOME_CHANNELS } from '../src/shared/home-api'
+import { AI_DOCK_WIDTH_MAX } from '../src/shared/desktop-geometry'
 
 /**
  * The preload's face of the desktop tab strip (src/preload/index.ts):
@@ -238,7 +239,7 @@ describe('getAiDock / setAiDock / homeContentRect', () => {
   it('normalizes whatever the main process answers, like the renderer does', async () => {
     electronMocks.invoke.mockResolvedValueOnce({ width: 9999, collapsed: 1 })
     expect(await homeApi.getAiDock()).toEqual({
-      width: 560,
+      width: AI_DOCK_WIDTH_MAX,
       collapsed: false,
       petPos: null,
       panelPos: null,

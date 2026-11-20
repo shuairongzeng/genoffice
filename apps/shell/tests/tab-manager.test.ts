@@ -225,6 +225,7 @@ import {
   DOCK_ITEM_COUNT,
   DOCK_SEPARATOR_COUNT,
   AI_DOCK_WIDTH_DEFAULT,
+  AI_DOCK_WIDTH_MAX,
   DESKTOP_HEADER_HEIGHT,
   normalizeAiDock,
   type AiDockPrefs,
@@ -898,7 +899,7 @@ describe('desktop content-area geometry (embedded document views)', () => {
     expect(view.setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: HEADER,
-      width: WINDOW_WIDTH - 560,
+      width: WINDOW_WIDTH - AI_DOCK_WIDTH_MAX,
       height: WINDOW_HEIGHT - HEADER,
     })
   })

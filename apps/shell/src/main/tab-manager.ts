@@ -10,7 +10,7 @@ import type { DockOverlay } from './dock-overlay-view'
 import type { AiDocContent } from '../../../docs/src/shared/ipc'
 import { rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
 import { HOME_CHANNELS } from '../shared/home-api'
-import type { AiPetDragReport } from '../shared/home-api'
+import type { AiPanelResizeGeometry, AiPanelResizeReport, AiPetDragReport } from '../shared/home-api'
 import type { DockHotEdgeReport } from '../shared/home-api'
 import {
   aiDockWidth,
@@ -512,6 +512,14 @@ export class TabManager {
    */
   applyDrawerOverlayPanelDrag(wc: WebContents, report: AiPetDragReport): void {
     this.drawerOverlay?.applyPanelDragReport(wc, report)
+  }
+
+  /** Forwards overlay panel edge-resize surface requests and returns current snapshot geometry. */
+  applyDrawerOverlayPanelResize(
+    wc: WebContents,
+    report: AiPanelResizeReport,
+  ): AiPanelResizeGeometry | null {
+    return this.drawerOverlay?.applyPanelResizeReport(wc, report) ?? null
   }
 
   /**

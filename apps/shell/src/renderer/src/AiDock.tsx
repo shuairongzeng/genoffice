@@ -329,11 +329,12 @@ export function AiDock({
       if (event.button !== 0 || draggingRef.current) return
       draggingRef.current = true
       const startX = event.clientX
+      const scale = chromeScale()
       const startWidth = width
       let next = startWidth
       let moved = false
       const onMove = (ev: PointerEvent) => {
-        const demanded = startWidth + (startX - ev.clientX)
+        const demanded = startWidth + (startX - ev.clientX) / scale
         const w = clampDockWidth(demanded)
         // past the maximum rail the pointer may be over a native layer: no
         // further moves and no release will arrive here, so the drag commits
@@ -350,6 +351,7 @@ export function AiDock({
         window.removeEventListener('pointerup', onUp)
         window.removeEventListener('pointercancel', onCancel)
         window.removeEventListener('blur', onCancel)
+        window.removeEventListener('keydown', onKeyDown, true)
         document.body.classList.remove('ai-drawer-resizing')
         draggingRef.current = false
         setDragWidth(null)
@@ -357,10 +359,18 @@ export function AiDock({
       }
       const onUp = () => finish(true)
       const onCancel = () => finish(false)
+      const onKeyDown = (ev: KeyboardEvent) => {
+        if (ev.key !== 'Escape') return
+        ev.preventDefault()
+        ev.stopPropagation()
+        ev.stopImmediatePropagation()
+        finish(false)
+      }
       window.addEventListener('pointermove', onMove)
       window.addEventListener('pointerup', onUp)
       window.addEventListener('pointercancel', onCancel)
       window.addEventListener('blur', onCancel)
+      window.addEventListener('keydown', onKeyDown, true)
       document.body.classList.add('ai-drawer-resizing')
     },
     [width],
@@ -834,6 +844,11 @@ export function AiDock({
           <div className="ai-drawer-body">
             <BubbleDragContext.Provider value={beginPetDrag}>{children}</BubbleDragContext.Provider>
           </div>
+          {dragWidth !== null && (
+            <div className="ai-resize-pill" role="status">
+              {dragWidth} px
+            </div>
+          )}
           {open && (
             <div
               className="ai-drawer-resize"

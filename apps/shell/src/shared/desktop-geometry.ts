@@ -80,7 +80,48 @@ export const DRAWER_MORPH_CLOSE_MS = 220
 /** Fallback drawer constants — must stay in sync with the renderer's AiDock.tsx */
 export const AI_DOCK_WIDTH_DEFAULT = 400
 export const AI_DOCK_WIDTH_MIN = 320
-export const AI_DOCK_WIDTH_MAX = 560
+export const AI_DOCK_WIDTH_MAX = 760
+export const AI_DOCK_MIN_CONTENT_WIDTH = 360
+export const AI_DOCK_MAX_WINDOW_RATIO = 0.6
+export const AI_DOCK_WIDTH_PRESETS = {
+  compact: 360,
+  standard: 440,
+  wide: 600,
+} as const
+
+/**
+ * Computes the effective upper bound (chrome CSS px) for the AI drawer width,
+ * preserving both the 60% max window ratio and at least 360 CSS px for content.
+ */
+export function effectiveAiDockMaxWidth(windowWidth?: number, scale = 1): number {
+  if (
+    typeof windowWidth !== 'number' ||
+    !Number.isFinite(windowWidth) ||
+    windowWidth <= 0 ||
+    !Number.isFinite(scale) ||
+    scale <= 0
+  ) {
+    return AI_DOCK_WIDTH_MAX
+  }
+  const cw = windowWidth / scale
+  return Math.max(
+    AI_DOCK_WIDTH_MIN,
+    Math.min(
+      AI_DOCK_WIDTH_MAX,
+      Math.round(cw * AI_DOCK_MAX_WINDOW_RATIO),
+      Math.round(cw - AI_DOCK_MIN_CONTENT_WIDTH),
+    ),
+  )
+}
+
+/**
+ * Clamps a requested drawer CSS width into [AI_DOCK_WIDTH_MIN, effectiveAiDockMaxWidth].
+ */
+export function clampAiDockWidth(width: number, windowWidth?: number, scale = 1): number {
+  const safeWidth = Number.isFinite(width) ? Math.round(width) : AI_DOCK_WIDTH_DEFAULT
+  const cap = effectiveAiDockMaxWidth(windowWidth, scale)
+  return Math.min(cap, Math.max(AI_DOCK_WIDTH_MIN, safeWidth))
+}
 
 /**
  * The drawer's footprint in window pixels: zero while closed (the pet floats

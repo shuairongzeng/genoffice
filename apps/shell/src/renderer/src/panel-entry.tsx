@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
-import type { HomeApi } from '../../shared/home-api'
+import { useAiPanelPrefs } from '@genoffice/ui'
+import type { AiDockPrefs, HomeApi } from '../../shared/home-api'
 import type { PendingAskQuery } from '../../shared/ask-forward'
 import {
   AI_DOCK_WIDTH_DEFAULT,
@@ -16,6 +17,11 @@ import {
   PET_SIZE,
   type AiPetPos,
 } from './AiDock'
+import {
+  computeResizedPanelBox,
+  resolveOverlayResizeEdges,
+  type PanelResizeEdge,
+} from './panel-resize'
 import {
   IDLE_PET_RUN_SNAPSHOT,
   useAiPetBehavior,
@@ -316,6 +322,24 @@ export function AskPanelEntry(): React.JSX.Element | null {
   // chrome reads as the app's own panel while docked — flat against the app's
   // layout — and as the floating drawer otherwise. Guarded: a stale preload
   // without the channel keeps the floating look, which is the safe default.
+  const aiPrefs = useAiPanelPrefs()
+  const [activeTabKind, setActiveTabKind] = useState<string | null>(null)
+  useEffect(() => {
+    const readActive = (): void => {
+      void window.aiOffice
+        ?.getSurfaceTabs?.()
+        .then((tabs) => {
+          const active = tabs?.find((tab) => tab.active)?.kind ?? null
+          setActiveTabKind(active)
+        })
+        .catch(() => undefined)
+    }
+    readActive()
+    const offTabs = window.aiOfficeTabs?.onChanged?.(readActive)
+    return () => {
+      offTabs?.()
+    }
+  }, [])
   const [embedded, setEmbedded] = useState(false)
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi> | undefined
@@ -455,6 +479,145 @@ export function AskPanelEntry(): React.JSX.Element | null {
     },
     [dock.collapsed, embedded],
   )
+  const [resizePreview, setResizePreview] = useState<{
+    box: { x: number; y: number; width: number; height: number }
+    cssWidth: number
+    edge: PanelResizeEdge
+    scale: number
+  } | null>(null)
+  const panelResizingRef = useRef(false)
+  const resetPanelWidth = useCallback((): void => {
+    const api = window.aiOffice as Partial<HomeApi> | undefined
+    if (typeof api?.setAiDock !== 'function') return
+    void api.setAiDock({ width: AI_DOCK_WIDTH_DEFAULT }).catch(() => undefined)
+  }, [])
+  const beginPanelResize = useCallback(
+    (edge: PanelResizeEdge, event: ReactPointerEvent<HTMLDivElement>): void => {
+      if (dock.collapsed || event.button !== 0 || panelResizingRef.current) return
+      const api = window.aiOffice as Partial<HomeApi> | undefined
+      const resizeSurface = api?.aiPanelResize
+      const setDock = api?.setAiDock
+      if (typeof resizeSurface !== 'function' || typeof setDock !== 'function') return
+      event.preventDefault()
+      event.stopPropagation()
+      panelResizingRef.current = true
+      const scale = chromeScale()
+      let latestClientX = event.clientX
+      let finished = false
+      let cancelled = false
+      let geo: {
+        panel: { x: number; y: number; width: number; height: number }
+        window: { width: number; height: number }
+      } | null = null
+      let lastResult: {
+        box: { x: number; y: number; width: number; height: number }
+        cssWidth: number
+      } | null = null
+      let settleTimer: ReturnType<typeof setTimeout> | null = null
+
+      const clearSettle = (): void => {
+        window.removeEventListener('resize', onSettle)
+        if (settleTimer !== null) {
+          clearTimeout(settleTimer)
+          settleTimer = null
+        }
+        setResizePreview(null)
+        document.documentElement.classList.remove('ask-panel-resize-surface')
+      }
+      const onSettle = (): void => {
+        if (!geo) return
+        if (window.innerWidth < geo.window.width - 2) clearSettle()
+      }
+      const detachListeners = (): void => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        window.removeEventListener('pointercancel', onCancel)
+        window.removeEventListener('blur', onCancel)
+        window.removeEventListener('keydown', onKeyDown, true)
+      }
+      const finish = (commit: boolean): void => {
+        if (finished) return
+        finished = true
+        detachListeners()
+        document.body.classList.remove('ai-drawer-resizing')
+        panelResizingRef.current = false
+        if (!commit) {
+          cancelled = true
+          clearSettle()
+          if (geo) void resizeSurface({ end: true }).catch(() => undefined)
+          return
+        }
+        if (lastResult && geo) {
+          const patch: Partial<AiDockPrefs> = { width: lastResult.cssWidth }
+          const pinnedRightEdge = geo.panel.x + geo.panel.width >= geo.window.width - 4
+          if (!embedded && !pinnedRightEdge && edge === 'left') {
+            patch.panelPos = {
+              x: Math.round(lastResult.box.x / scale),
+              y: Math.round(geo.panel.y / scale),
+            }
+          }
+          void setDock(patch).catch(() => undefined)
+        }
+        void resizeSurface({ end: true }).catch(() => undefined)
+        window.addEventListener('resize', onSettle)
+        settleTimer = setTimeout(clearSettle, 160)
+      }
+      const onMove = (ev: PointerEvent): void => {
+        latestClientX = ev.clientX
+        if (!geo) return
+        const next = computeResizedPanelBox({
+          edge,
+          clientX: latestClientX,
+          originPanel: geo.panel,
+          windowWidth: geo.window.width,
+          scale,
+        })
+        lastResult = next
+        setResizePreview({ ...next, edge, scale })
+      }
+      const onUp = (): void => finish(true)
+      const onCancel = (): void => finish(false)
+      const onKeyDown = (ev: KeyboardEvent): void => {
+        if (ev.key !== 'Escape') return
+        ev.preventDefault()
+        ev.stopPropagation()
+        ev.stopImmediatePropagation()
+        finish(false)
+      }
+
+      document.body.classList.add('ai-drawer-resizing')
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+      window.addEventListener('pointercancel', onCancel)
+      window.addEventListener('blur', onCancel)
+      window.addEventListener('keydown', onKeyDown, true)
+
+      void resizeSurface({ start: true })
+        .then((snapshot) => {
+          if (cancelled || finished || !snapshot) {
+            if (snapshot) void resizeSurface({ end: true }).catch(() => undefined)
+            finish(false)
+            return
+          }
+          geo = snapshot
+          document.documentElement.classList.add('ask-panel-resize-surface')
+          const initial = computeResizedPanelBox({
+            edge,
+            clientX: latestClientX,
+            originPanel: snapshot.panel,
+            windowWidth: snapshot.window.width,
+            scale,
+          })
+          lastResult = initial
+          setResizePreview({ ...initial, edge, scale })
+        })
+        .catch(() => finish(false))
+    },
+    [dock.collapsed, embedded],
+  )
+  const resizeEdges = dock.collapsed
+    ? []
+    : resolveOverlayResizeEdges({ embedded, side: aiPrefs.side, activeTabKind })
   useEffect(() => {
     // optional-chained whole: this view exists to explain a missing aiOffice
     // face, so the subscriptions must tolerate one too
@@ -518,26 +681,31 @@ export function AskPanelEntry(): React.JSX.Element | null {
         })
     }
   }
+  const activeBoxStyle = panelDragBox
+    ? {
+        inset: 'auto',
+        left: panelDragBox.x,
+        top: panelDragBox.y,
+        width: panelDragBox.width,
+        height: panelDragBox.height,
+      }
+    : resizePreview
+      ? {
+          inset: 'auto',
+          left: resizePreview.box.x / resizePreview.scale,
+          top: resizePreview.box.y / resizePreview.scale,
+          width: resizePreview.box.width / resizePreview.scale,
+          height: resizePreview.box.height / resizePreview.scale,
+        }
+      : undefined
   return (
     <div
       className={`ask-panel-entry${dock.collapsed ? ' ask-panel-pet-only' : ''}${
         embedded && !dock.collapsed ? ' ask-panel-embedded' : ''
-      }${panelDragBox ? ' ask-panel-dragging' : ''}`}
-      /* mid-drag the view is window-wide (the gesture's surface): the entry
-         re-parks itself under the pointer as a free box — its left/top are
-         the VIEW's frame (window px, the root is the unzoomed one), its
-         width/height the card's box at the press */
-      style={
-        panelDragBox
-          ? {
-              inset: 'auto',
-              left: panelDragBox.x,
-              top: panelDragBox.y,
-              width: panelDragBox.width,
-              height: panelDragBox.height,
-            }
-          : undefined
-      }
+      }${panelDragBox ? ' ask-panel-dragging' : ''}${
+        resizePreview ? ' ask-panel-resizing' : ''
+      }`}
+      style={activeBoxStyle}
     >
       {/* the panel stays mounted through the flips — closing only hides it,
           the same contract Home's drawer keeps (a streaming answer keeps
@@ -560,6 +728,24 @@ export function AskPanelEntry(): React.JSX.Element | null {
             : undefined
         }
       >
+        {!dock.collapsed &&
+          resizeEdges.map((edge) => (
+            <div
+              key={edge}
+              className={`ai-panel-edge-resizer edge-${edge}`}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={t('dockResize')}
+              title={t('dockResize')}
+              onPointerDown={(event) => beginPanelResize(edge, event)}
+              onDoubleClick={resetPanelWidth}
+            />
+          ))}
+        {resizePreview && (
+          <div className="ai-resize-pill" role="status">
+            {resizePreview.cssWidth} px
+          </div>
+        )}
         <KbAskPanel
           chatId={CHAT_ID}
           petId={petPrefs.petId}

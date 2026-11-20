@@ -9,6 +9,7 @@ import type { HomeTabsState } from '../src/shared/home-api'
 import type { OpenDocumentTab, TabSummary } from '../src/shared/tabs-api'
 import type { HomeWorkbenchIpcDeps } from '../src/main/home-tabs-ipc'
 import type { TabManager } from '../src/main/tab-manager'
+import { AI_DOCK_WIDTH_MAX } from '../src/shared/desktop-geometry'
 
 /**
  * The desktop tab strip's main-process side (src/main/home-tabs-ipc.ts): the
@@ -516,9 +517,14 @@ describe('registerHomeWorkbenchIpc', () => {
   it('merges, clamps and persists a drawer patch, answering the effective prefs', async () => {
     registerWorkbench()
     const effective = await invoke('home:ai-dock-set', { width: 9999, collapsed: true })
-    expect(effective).toEqual({ width: 560, collapsed: true, petPos: null, panelPos: null })
+    expect(effective).toEqual({
+      width: AI_DOCK_WIDTH_MAX,
+      collapsed: true,
+      petPos: null,
+      panelPos: null,
+    })
     expect(readAiDock(join(dir, 'app-settings.json'))).toEqual({
-      width: 560,
+      width: AI_DOCK_WIDTH_MAX,
       collapsed: true,
       petPos: null,
       panelPos: null,

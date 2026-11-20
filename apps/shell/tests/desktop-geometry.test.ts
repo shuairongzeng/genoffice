@@ -9,12 +9,14 @@ import {
   PET_SIZE,
   aiBubbleAnchor,
   aiDockWidth,
+  clampAiDockWidth,
   desktopHeaderHeight,
   documentContentBounds,
   drawerOverlayBounds,
   DOCK_ITEM_COUNT,
   DOCK_SEPARATOR_COUNT,
   dockOverlayBounds,
+  effectiveAiDockMaxWidth,
   normalizeAiDock,
   petOverlayBounds,
 } from '../src/shared/desktop-geometry'
@@ -461,5 +463,28 @@ describe('floatingPanelBounds', () => {
     )
     expect(bounds.x).toBe(200)
     expect(bounds.y).toBe(DESKTOP_HEADER_HEIGHT)
+  })
+})
+
+describe('effectiveAiDockMaxWidth & clampAiDockWidth', () => {
+  it('adapts panel ceiling to window width and UI scale while reserving 360px content room', () => {
+    expect(effectiveAiDockMaxWidth()).toBe(AI_DOCK_WIDTH_MAX)
+    expect(effectiveAiDockMaxWidth(1920, 1)).toBe(AI_DOCK_WIDTH_MAX)
+    expect(effectiveAiDockMaxWidth(1280, 1)).toBe(760)
+    expect(effectiveAiDockMaxWidth(1024, 1)).toBe(614)
+    expect(effectiveAiDockMaxWidth(720, 1)).toBe(360)
+    expect(effectiveAiDockMaxWidth(600, 1)).toBe(AI_DOCK_WIDTH_MIN)
+    // With 1.25 scale, 1280 window px = 1024 chrome CSS px -> 60% = 614 chrome px
+    expect(effectiveAiDockMaxWidth(1280, 1.25)).toBe(614)
+    // With 1.5 scale, 1440 window px = 960 chrome CSS px -> min(760, 576, 600) = 576
+    expect(effectiveAiDockMaxWidth(1440, 1.5)).toBe(576)
+  })
+
+  it('clamps requested widths between AI_DOCK_WIDTH_MIN and effective max', () => {
+    expect(clampAiDockWidth(200, 1440, 1)).toBe(AI_DOCK_WIDTH_MIN)
+    expect(clampAiDockWidth(680, 1440, 1)).toBe(680)
+    expect(clampAiDockWidth(900, 1440, 1)).toBe(AI_DOCK_WIDTH_MAX)
+    expect(clampAiDockWidth(680, 900, 1)).toBe(540)
+    expect(clampAiDockWidth(Number.NaN, 1440, 1)).toBe(AI_DOCK_WIDTH_DEFAULT)
   })
 })
