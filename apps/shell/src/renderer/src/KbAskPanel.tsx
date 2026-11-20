@@ -97,6 +97,8 @@ import type { ChatMessage, ChatMeta, ProjectApi, RunSummary } from '@genoffice/p
 import { useI18n } from './locale'
 import { MascotSvg, BubbleDragContext } from './AiDock'
 import type { AiPetActivity, AiPetRunSnapshot } from './ai-pet-state'
+import { DEFAULT_AI_PET_ID, type AiPetId } from '../../shared/ai-pet-prefs'
+import { petMetaFor } from './ai-pet-catalog'
 import { FileBadge } from './file-badge'
 import type { StringKey } from './strings'
 import { useConfirm } from './ConfirmDialog'
@@ -1086,6 +1088,7 @@ export function KbAskPanel({
   surfaceRole = 'home',
   mirror = false,
   onPetActivityChange,
+  petId = DEFAULT_AI_PET_ID,
 }: {
   /**
    * The transcript this mount owns (P0-1): project-store takes the id
@@ -1156,6 +1159,8 @@ export function KbAskPanel({
   mirror?: boolean
   /** Emits simplified live AI run activity & completed count for the floating pet */
   onPetActivityChange?: (state: AiPetRunSnapshot) => void
+  /** Active AI companion species for empty-thread greetings */
+  petId?: AiPetId
 }): React.JSX.Element {
   const { t, lang, dateLocale } = useI18n()
   /** the bubble drag: the host's prop wins; the dock's context (the pet's own
@@ -4162,10 +4167,10 @@ export function KbAskPanel({
               // corpus for itself
               <div className="kb-ask-hello">
                 <div className="kb-ask-hello-bird" aria-hidden="true">
-                  <MascotSvg decorative mood="hover" />
+                  <MascotSvg decorative mood="hover" petId={petId} />
                 </div>
                 <h3>{t('askHelloTitle')}</h3>
-                <p>{t('askHelloTagline')}</p>
+                <p>{t(petMetaFor(petId).helloKey)}</p>
                 <div className="kb-ask-suggestions" role="group" aria-label={t('askHelloTitle')}>
                   {FAMILY_SUGGESTIONS.map((suggestion) => (
                     <button

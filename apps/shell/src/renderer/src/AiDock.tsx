@@ -22,7 +22,15 @@ import {
 } from '../../shared/desktop-geometry'
 import { placeFolderMenu } from './folder-menu-position'
 import { MascotSvg } from './AiMascot'
-import { IDLE_PET_RUN_SNAPSHOT, useAiPetBehavior, type AiPetRunSnapshot } from './ai-pet-state'
+import {
+  IDLE_PET_RUN_SNAPSHOT,
+  useAiPetBehavior,
+  type AiPetInteractionKind,
+  type AiPetRunSnapshot,
+} from './ai-pet-state'
+import { petMetaFor } from './ai-pet-catalog'
+import { playPetSound } from './ai-pet-sound'
+import { normalizeAiPetPrefs, type AiPetPrefs } from '../../shared/ai-pet-prefs'
 import { useI18n } from './locale'
 
 /** the bubble's drag verb for the panel's header (the bubble hangs off the
@@ -241,6 +249,14 @@ export interface AiDockProps {
   onPetPosReset?: () => void
   /** Live AI pipeline state driving mascot moods */
   petRunState?: AiPetRunSnapshot
+  /** Active companion selection, bubble/sound toggles, and bond counts */
+  petPrefs?: AiPetPrefs
+  /** Fired when pointer rubbing or menu actions trigger a pet/feed/play reaction */
+  onPetInteract?: (kind: AiPetInteractionKind) => void
+  /** Cycle to the next companion pet from the context menu */
+  onNextPet?: () => void
+  /** Open Settings > AI Pets */
+  onOpenPetSettings?: () => void
   /** the panel itself, mounted by Home so it outlives the drawer's closing */
   children: ReactNode
 }
@@ -256,6 +272,10 @@ export function AiDock({
   onPetPosCommit,
   onPetPosReset,
   petRunState = IDLE_PET_RUN_SNAPSHOT,
+  petPrefs,
+  onPetInteract,
+  onNextPet,
+  onOpenPetSettings,
   children,
 }: AiDockProps): React.JSX.Element {
   const { t } = useI18n()
@@ -364,6 +384,16 @@ export function AiDock({
   const onPetPosCommitRef = useRef(onPetPosCommit)
   onPetPosCommitRef.current = onPetPosCommit
 
+  const resolvedPetPrefs = petPrefs ?? normalizeAiPetPrefs(undefined)
+  const petPrefsRef = useRef(resolvedPetPrefs)
+  petPrefsRef.current = resolvedPetPrefs
+  const onPetInteractRef = useRef(onPetInteract)
+  onPetInteractRef.current = onPetInteract
+  const onNextPetRef = useRef(onNextPet)
+  onNextPetRef.current = onNextPet
+  const onOpenPetSettingsRef = useRef(onOpenPetSettings)
+  onOpenPetSettingsRef.current = onOpenPetSettings
+
   const petBehavior = useAiPetBehavior({
     collapsed,
     dragging: isPetDragging,
@@ -371,6 +401,14 @@ export function AiDock({
     reducedMotion: aiMotionReduced(),
     petRef,
     windowGaze: true,
+    onInteract: (kind) => {
+      const current = petPrefsRef.current
+      playPetSound(current.petId, kind, {
+        enabled: current.sound,
+        reducedMotion: aiMotionReduced(),
+      })
+      onPetInteractRef.current?.(kind)
+    },
   })
   const petBehaviorRef = useRef(petBehavior)
   petBehaviorRef.current = petBehavior
@@ -613,6 +651,15 @@ export function AiDock({
    *  offscreen */
   const bubble = aiBubbleAnchor(shownPetPos, viewport, shownWidth)
 
+  const bubbleRight = Math.max(
+    12,
+    Math.min(viewport.width - 224, viewport.width - (shownPetPos.x + PET_SIZE.width)),
+  )
+  const bubbleBelow = shownPetPos.y < 52
+  const bubbleLineKey = petBehavior.activeBubble
+    ? petMetaFor(resolvedPetPrefs.petId).lineKeys[petBehavior.activeBubble]
+    : null
+
   return (
     <>
       <button
@@ -633,8 +680,24 @@ export function AiDock({
         onContextMenu={onPetContextMenu}
         onKeyDown={onPetKeyDown}
       >
-        <MascotSvg mood={petBehavior.mood} />
+        <MascotSvg mood={petBehavior.mood} petId={resolvedPetPrefs.petId} />
       </button>
+      {!open && !docActive && resolvedPetPrefs.bubbles && bubbleLineKey && (
+        <div
+          className={`ai-pet-bubble${bubbleBelow ? ' below' : ''}`}
+          role="status"
+          aria-live="polite"
+          data-pet={resolvedPetPrefs.petId}
+          style={{
+            right: bubbleRight,
+            ...(bubbleBelow
+              ? { top: shownPetPos.y + PET_SIZE.height + 8 }
+              : { bottom: Math.max(12, viewport.height - shownPetPos.y + 8) }),
+          }}
+        >
+          {t(bubbleLineKey)}
+        </div>
+      )}
       {petMenu &&
         createPortal(
           <div
@@ -656,6 +719,27 @@ export function AiDock({
             >
               {t(collapsed ? 'dockExpand' : 'dockCollapse')}
             </button>
+            <div className="ai-pet-menu-sep" role="separator" />
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setPetMenu(null)
+                petBehavior.triggerFeed()
+              }}
+            >
+              {t('petMenuFeed')}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setPetMenu(null)
+                petBehavior.triggerPlay()
+              }}
+            >
+              {t('petMenuPlay')}
+            </button>
             <button
               type="button"
               role="menuitem"
@@ -666,6 +750,32 @@ export function AiDock({
             >
               {t(petBehavior.isSleeping ? 'petMenuWake' : 'petMenuSleep')}
             </button>
+            <div className="ai-pet-menu-sep" role="separator" />
+            {onNextPet && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setPetMenu(null)
+                  petBehavior.wakeUp()
+                  onNextPetRef.current?.()
+                }}
+              >
+                {t('petMenuNextPet')}
+              </button>
+            )}
+            {onOpenPetSettings && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setPetMenu(null)
+                  onOpenPetSettingsRef.current?.()
+                }}
+              >
+                {t('petMenuSettings')}
+              </button>
+            )}
             <button
               type="button"
               role="menuitem"

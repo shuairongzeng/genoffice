@@ -1,0 +1,465 @@
+/* AI Pet Studio settings pane: preview stage, companion cards, and preference rows.
+ * All raw color values sit strictly on single-line CSS custom properties so the
+ * theme-color check passes for both light and dark modes. */
+
+.ai-pet-studio {
+  --pet-setting-stage-glow: rgb(56 189 248 / 12%);
+  --pet-setting-stage-pedestal: rgb(15 23 42 / 8%);
+  --pet-setting-bubble-shadow: 0 8px 20px rgb(15 23 42 / 10%);
+  --pet-setting-bond-stranger-bg: rgb(100 116 139 / 12%);
+  --pet-setting-bond-stranger-fg: #475569;
+  --pet-setting-bond-familiar-bg: rgb(14 165 233 / 14%);
+  --pet-setting-bond-familiar-fg: #0369a1;
+  --pet-setting-bond-partner-bg: rgb(245 158 11 / 16%);
+  --pet-setting-bond-partner-fg: #b45309;
+  --pet-setting-card-shadow: 0 4px 14px rgb(15 127 255 / 12%);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+[data-theme='dark'] .ai-pet-studio {
+  --pet-setting-stage-glow: rgb(56 189 248 / 16%);
+  --pet-setting-stage-pedestal: rgb(0 0 0 / 32%);
+  --pet-setting-bubble-shadow: 0 10px 24px rgb(0 0 0 / 45%);
+  --pet-setting-bond-stranger-bg: rgb(148 163 184 / 16%);
+  --pet-setting-bond-stranger-fg: #cbd5e1;
+  --pet-setting-bond-familiar-bg: rgb(56 189 248 / 18%);
+  --pet-setting-bond-familiar-fg: #7dd3fc;
+  --pet-setting-bond-partner-bg: rgb(251 191 36 / 18%);
+  --pet-setting-bond-partner-fg: #fcd34d;
+  --pet-setting-card-shadow: 0 4px 16px rgb(63 153 255 / 18%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) .ai-pet-studio {
+    --pet-setting-stage-glow: rgb(56 189 248 / 16%);
+    --pet-setting-stage-pedestal: rgb(0 0 0 / 32%);
+    --pet-setting-bubble-shadow: 0 10px 24px rgb(0 0 0 / 45%);
+    --pet-setting-bond-stranger-bg: rgb(148 163 184 / 16%);
+    --pet-setting-bond-stranger-fg: #cbd5e1;
+    --pet-setting-bond-familiar-bg: rgb(56 189 248 / 18%);
+    --pet-setting-bond-familiar-fg: #7dd3fc;
+    --pet-setting-bond-partner-bg: rgb(251 191 36 / 18%);
+    --pet-setting-bond-partner-fg: #fcd34d;
+    --pet-setting-card-shadow: 0 4px 16px rgb(63 153 255 / 18%);
+  }
+}
+
+.ai-pet-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-pet-header .set-pane-title {
+  margin-bottom: 0;
+}
+
+.ai-pet-pane-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* ── Top Interactive Preview Stage ── */
+
+.ai-pet-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 18% 36%, var(--pet-setting-stage-glow), transparent 60%),
+    var(--surface-subtle);
+}
+
+.ai-pet-stage-hero {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+}
+
+.ai-pet-stage-visual {
+  position: relative;
+  flex-shrink: 0;
+  width: 164px;
+  height: 152px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 8px;
+}
+
+.ai-pet-stage-pedestal {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  width: 96px;
+  height: 16px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: var(--pet-setting-stage-pedestal);
+  pointer-events: none;
+}
+
+.ai-pet-stage-pet {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 124px;
+  height: 112px;
+  padding: 0;
+  border: none;
+  border-radius: 20px;
+  background: transparent;
+  cursor: pointer;
+  touch-action: none;
+  transform: rotate(var(--pet-tilt, 0deg));
+  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ai-pet-stage-pet:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ai-pet-stage-pet .ai-mascot-svg {
+  width: 108px;
+  height: 96px;
+}
+
+.ai-pet-stage-bubble {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  z-index: 2;
+  transform: translateX(-50%);
+  max-width: 220px;
+  width: max-content;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: var(--pet-setting-bubble-shadow);
+  pointer-events: none;
+  animation: ai-pet-stage-bubble-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ai-pet-stage-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+@keyframes ai-pet-stage-bubble-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.ai-pet-stage-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-pet-stage-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-pet-stage-name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.ai-pet-bond-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  background: var(--pet-setting-bond-stranger-bg);
+  color: var(--pet-setting-bond-stranger-fg);
+}
+
+.ai-pet-bond-badge[data-bond-stage='familiar'] {
+  background: var(--pet-setting-bond-familiar-bg);
+  color: var(--pet-setting-bond-familiar-fg);
+}
+
+.ai-pet-bond-badge[data-bond-stage='partner'] {
+  background: var(--pet-setting-bond-partner-bg);
+  color: var(--pet-setting-bond-partner-fg);
+}
+
+.ai-pet-stage-tag {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.ai-pet-stage-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.ai-pet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ai-pet-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease,
+    transform 0.1s ease;
+}
+
+.ai-pet-action-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover, var(--border-strong));
+}
+
+.ai-pet-action-btn:active {
+  transform: scale(0.97);
+}
+
+.ai-pet-action-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Mood Preview Chips ── */
+
+.ai-pet-mood-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-pet-mood-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.ai-pet-mood-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.ai-pet-mood-chip[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft, var(--bg-hover));
+  color: var(--accent, var(--text-primary));
+}
+
+.ai-pet-mood-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ai-pet-stage-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+}
+
+/* ── Companion Selection Grid ── */
+
+.ai-pet-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-pet-section-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ai-pet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 10px;
+}
+
+.ai-pet-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.ai-pet-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover, var(--border-strong));
+}
+
+.ai-pet-card.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  box-shadow: var(--pet-setting-card-shadow);
+}
+
+.ai-pet-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ai-pet-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 2px;
+}
+
+.ai-pet-card-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 50px;
+}
+
+.ai-pet-card-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft, var(--bg-hover));
+  color: var(--accent, var(--text-primary));
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.ai-pet-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.ai-pet-card-tag {
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.ai-pet-card-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+}
+
+/* ── Preference Rows ── */
+
+.ai-pet-prefs-list {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 640px) {
+  .ai-pet-stage-hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ai-pet-stage-visual {
+    margin: 0 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-pet-stage-pet,
+  .ai-pet-stage-bubble,
+  .ai-pet-action-btn,
+  .ai-pet-mood-chip,
+  .ai-pet-card {
+    animation: none !important;
+    transition: none !important;
+  }
+}

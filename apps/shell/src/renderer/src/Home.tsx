@@ -1,7 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent } from 'react'
-import { AiDock, normalizeAiDockPrefs, readLocalAiDockPrefs, writeLocalAiDockPrefs } from './AiDock'
+import {
+  AiDock,
+  aiMotionReduced,
+  normalizeAiDockPrefs,
+  readLocalAiDockPrefs,
+  writeLocalAiDockPrefs,
+} from './AiDock'
 import { IDLE_PET_RUN_SNAPSHOT, type AiPetRunSnapshot } from './ai-pet-state'
+import {
+  AI_PET_IDS,
+  mergeAiPetPrefs,
+  normalizeAiPetPrefs,
+  type AiPetPrefs,
+  type AiPetPrefsPatch,
+} from '../../shared/ai-pet-prefs'
+import { playPetSound } from './ai-pet-sound'
 import {
   addDockCustom,
   type DockCustomPlace,
@@ -225,6 +239,53 @@ export function Home() {
       writeLocalAiDockPrefs(next)
     }
   }, [])
+
+  // ── the AI companion pet prefs (selected species, bubbles, sound, bond count) ──
+  const [petPrefs, setPetPrefs] = useState<AiPetPrefs>(() => normalizeAiPetPrefs(undefined))
+  const petPrefsRef = useRef(petPrefs)
+  petPrefsRef.current = petPrefs
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    if (typeof api.getAiPetPrefs !== 'function') return
+    let alive = true
+    void api
+      .getAiPetPrefs()
+      .then((prefs) => {
+        if (alive) setPetPrefs(normalizeAiPetPrefs(prefs))
+      })
+      .catch(() => undefined)
+    if (typeof api.onAiPetPrefsChanged === 'function') {
+      const off = api.onAiPetPrefsChanged((prefs) => setPetPrefs(normalizeAiPetPrefs(prefs)))
+      return () => {
+        alive = false
+        off()
+      }
+    }
+    return () => {
+      alive = false
+    }
+  }, [])
+  const commitPetPrefs = useCallback((patch: AiPetPrefsPatch) => {
+    setPetPrefs((prev) => {
+      const next = mergeAiPetPrefs(prev, patch)
+      petPrefsRef.current = next
+      return next
+    })
+    const api = window.aiOffice as Partial<HomeApi>
+    if (typeof api.setAiPetPrefs === 'function') {
+      void api.setAiPetPrefs(patch).catch(() => undefined)
+    }
+  }, [])
+  const cycleNextPet = useCallback(() => {
+    const current = petPrefsRef.current
+    const idx = AI_PET_IDS.indexOf(current.petId)
+    const nextId = AI_PET_IDS[(idx + 1) % AI_PET_IDS.length]
+    commitPetPrefs({ petId: nextId })
+    playPetSound(nextId, 'select', {
+      enabled: current.sound,
+      reducedMotion: aiMotionReduced(),
+    })
+  }, [commitPetPrefs])
 
   // ── the dock's own prefs (设置 ▸ 程序坞: magnify, icon size, strength,
   // auto-hide, item order). The aiDock pair's shape: read normalized on
@@ -2687,13 +2748,18 @@ export function Home() {
         petPos={dock.petPos}
         docActive={docTabActive}
         petRunState={petRunState}
+        petPrefs={petPrefs}
         onCollapse={() => applyDockPrefs({ collapsed: true })}
         onExpand={() => applyDockPrefs({ collapsed: false })}
         onWidthCommit={(width) => applyDockPrefs({ width })}
         onPetPosCommit={(petPos) => applyDockPrefs({ petPos })}
         onPetPosReset={() => applyDockPrefs({ petPos: null })}
+        onPetInteract={() => commitPetPrefs({ incrementInteraction: petPrefsRef.current.petId })}
+        onNextPet={cycleNextPet}
+        onOpenPetSettings={() => setSettingsRequest({ section: 'aiPet' })}
       >
         <KbAskPanel
+          petId={petPrefs.petId}
           onOpenPath={(path, text) =>
             void window.aiOffice.openPath(path, text ? { text } : undefined)
           }

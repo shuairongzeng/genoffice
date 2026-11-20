@@ -17,6 +17,7 @@ import type { RunEvent, RunSummary } from '@genoffice/project-store'
 import type { DesktopArrangeMode } from '@genoffice/cli/control-protocol'
 import type { AiDockPrefs } from './desktop-geometry'
 import type { DockCustomItem, DockOpenState, DockPrefs } from './dock-prefs'
+import type { AiPetBondStage, AiPetId, AiPetPrefs, AiPetPrefsPatch } from './ai-pet-prefs'
 import type { PendingAskQuery } from './ask-forward'
 import type {
   AttachmentInfo,
@@ -45,6 +46,12 @@ export type {
   DockOpenState,
   DockPrefs,
 } from './dock-prefs'
+export type {
+  AiPetBondStage,
+  AiPetId,
+  AiPetPrefs,
+  AiPetPrefsPatch,
+} from './ai-pet-prefs'
 export type {
   AgentTaskResult,
   AgentTaskStatus,
@@ -646,7 +653,14 @@ export interface AiPetDragReport {
   end?: boolean
 }
 
-export type AiPetMenuAction = 'toggle' | 'sleep' | 'reset'
+export type AiPetMenuAction =
+  | 'toggle'
+  | 'feed'
+  | 'play'
+  | 'sleep'
+  | 'next-pet'
+  | 'settings'
+  | 'reset'
 
 /** Native context menu request sent by the compact transparent overlay pet view */
 export interface AiPetMenuRequest {
@@ -656,6 +670,10 @@ export interface AiPetMenuRequest {
     readonly toggle: string
     readonly sleep: string
     readonly reset: string
+    readonly feed?: string
+    readonly play?: string
+    readonly nextPet?: string
+    readonly settings?: string
   }
 }
 
@@ -930,6 +948,14 @@ export interface HomeApi {
    * chosen action (or null when dismissed).
    */
   aiPetMenu?(request: AiPetMenuRequest): Promise<AiPetMenuAction | null>
+  /** Read the persisted AI pet preferences (`home:ai-pet-get`). */
+  getAiPetPrefs?(): Promise<AiPetPrefs>
+  /** Persist a partial patch or atomic interaction increment (`home:ai-pet-set`). */
+  setAiPetPrefs?(patch: AiPetPrefsPatch): Promise<AiPetPrefs>
+  /** Subscribe to cross-surface AI pet preference updates (`home:ai-pet-changed`). */
+  onAiPetPrefsChanged?(handler: (prefs: AiPetPrefs) => void): () => void
+  /** Open Settings directly on the AI Pets section (`home:open-ai-pet-settings`). */
+  openAiPetSettings?(): Promise<void>
   /**
    * Publish one of the Home loop's run events (or a message-list snapshot)
    * over `home:ask-run-event`: main relays it to every OTHER renderer, so a
@@ -1761,6 +1787,13 @@ export const HOME_CHANNELS = {
   askPanelDrag: 'home:ask-panel-drag',
   /** renderer → main: native context menu for the overlay pet view */
   aiPetMenu: 'home:ai-pet-menu',
+  /** renderer <-> main: read / persist the AI pet prefs (app-settings.json `aiPet`) */
+  aiPetGet: 'home:ai-pet-get',
+  aiPetSet: 'home:ai-pet-set',
+  /** main -> renderer: the AI pet prefs changed in app-settings.json */
+  aiPetChanged: 'home:ai-pet-changed',
+  /** renderer -> main: open the shell Settings modal on the AI Pets section */
+  openAiPetSettings: 'home:open-ai-pet-settings',
   /** renderer → main: the doc-mode dock overlay's hot-edge transitions —
    *  `enter` from the strip summons the dock (or cancels a pending hide),
    *  `leave` from the revealed dock arms the grace timer */

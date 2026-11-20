@@ -60,6 +60,7 @@ import { ProviderLogo } from './provider-logos'
 import { IntegrationsPane, skillUpdateDue } from './IntegrationsPane'
 import { FoundSkills } from './FoundSkills'
 import { PluginsPane } from './PluginsPane'
+import { AiPetSettingsPane } from './AiPetSettingsPane'
 import './settings.css'
 
 // ── Settings modal (opened from the account menu) ─────────
@@ -203,6 +204,7 @@ export type SectionId =
   | 'aiMedia'
   | 'general'
   | 'dock'
+  | 'aiPet'
   | 'integrations'
   | 'skills'
   | 'plugins'
@@ -214,6 +216,7 @@ export const SECTIONS: readonly { id: SectionId; labelKey: StringKey }[] = [
   { id: 'aiMedia', labelKey: 'setSecAiMedia' },
   { id: 'general', labelKey: 'setSecGeneral' },
   { id: 'dock', labelKey: 'setSecDock' },
+  { id: 'aiPet', labelKey: 'setSecAiPet' },
   { id: 'integrations', labelKey: 'setSecIntegrations' },
   { id: 'skills', labelKey: 'setSecSkills' },
   { id: 'plugins', labelKey: 'setSecPlugins' },
@@ -338,6 +341,22 @@ function SectionIcon({ id }: { id: SectionId }) {
           strokeWidth="1.8"
           strokeLinecap="round"
         />
+      </svg>
+    )
+  }
+  if (id === 'aiPet') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d="M5.1 12.6c-.9 0-1.5-.7-1.3-1.6.3-1.4 1.9-3.1 4.2-3.1s3.9 1.7 4.2 3.1c.2.9-.4 1.6-1.3 1.6-.9 0-1.7-.5-2.9-.5s-2 .5-2.9.5Z"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+        <circle cx="3.8" cy="6.7" r="1.1" fill="currentColor" />
+        <circle cx="6.5" cy="4.4" r="1.15" fill="currentColor" />
+        <circle cx="9.5" cy="4.4" r="1.15" fill="currentColor" />
+        <circle cx="12.2" cy="6.7" r="1.1" fill="currentColor" />
       </svg>
     )
   }
@@ -2890,6 +2909,7 @@ export function SettingsModal({
                 </div>
               </>
             )}
+            {section === 'aiPet' && <AiPetSettingsPane t={t} />}
             {section === 'integrations' && (
               <IntegrationsPane t={t} onStatus={(st) => onSkillUpdateDue?.(skillUpdateDue(st))} />
             )}

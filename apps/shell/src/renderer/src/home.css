@@ -6166,3 +6166,83 @@ button.kb-ask-card-name:hover {
   border-left: 2px solid var(--border-strong);
   padding-left: 10px;
 }
+
+/* ── Desktop AI pet speech bubble & context menu separator ── */
+.ai-pet-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+  opacity: 0.7;
+}
+
+.ai-pet-bubble {
+  --ai-pet-bubble-bg: rgb(255 255 255 / 92%);
+  --ai-pet-bubble-border: rgb(15 23 42 / 10%);
+  --ai-pet-bubble-fg: var(--text);
+  --ai-pet-bubble-shadow: 0 8px 22px rgb(15 23 42 / 14%);
+  position: fixed;
+  z-index: 46;
+  max-width: 210px;
+  padding: 6px 11px;
+  border-radius: 12px;
+  background: var(--ai-pet-bubble-bg);
+  border: 1px solid var(--ai-pet-bubble-border);
+  color: var(--ai-pet-bubble-fg);
+  box-shadow: var(--ai-pet-bubble-shadow);
+  backdrop-filter: blur(10px);
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  animation: ai-pet-bubble-in 0.18s ease-out both;
+}
+
+.ai-pet-bubble.below {
+  animation-name: ai-pet-bubble-in-below;
+}
+
+:root[data-theme='dark'] .ai-pet-bubble,
+[data-wallpaper-tone='dark'] .ai-pet-bubble {
+  --ai-pet-bubble-bg: rgb(24 30 42 / 90%);
+  --ai-pet-bubble-border: rgb(255 255 255 / 14%);
+  --ai-pet-bubble-shadow: 0 10px 24px rgb(0 0 0 / 36%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .ai-pet-bubble {
+    --ai-pet-bubble-bg: rgb(24 30 42 / 90%);
+    --ai-pet-bubble-border: rgb(255 255 255 / 14%);
+    --ai-pet-bubble-shadow: 0 10px 24px rgb(0 0 0 / 36%);
+  }
+}
+
+@keyframes ai-pet-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ai-pet-bubble-in-below {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-pet-bubble {
+    animation: none;
+  }
+}

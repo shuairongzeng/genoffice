@@ -1,5 +1,5 @@
 import { BrowserWindow, ipcMain, Menu, webContents } from 'electron'
-import type { Rectangle, WebContents } from 'electron'
+import type { MenuItemConstructorOptions, Rectangle, WebContents } from 'electron'
 
 import { HOME_CHANNELS } from '../shared/home-api'
 import type {
@@ -13,9 +13,11 @@ import type {
 } from '../shared/home-api'
 import type { OpenDocumentTab } from '../shared/tabs-api'
 import { normalizeAiDock } from '../shared/desktop-geometry'
+import { mergeAiPetPrefs } from '../shared/ai-pet-prefs'
 import { asDockCustomItem, asDockOpenState, normalizeDockPrefs } from '../shared/dock-prefs'
 import { normalizeForwardedAskQuery, type PendingAskQuery } from '../shared/ask-forward'
 import { readAiDock, AI_DOCK_KEY } from './ai-dock'
+import { AI_PET_KEY, readAiPetPrefs } from './ai-pet-prefs'
 import { DOCK_PREFS_KEY, readDockPrefs } from './dock-prefs'
 import { AI_PERMISSIONS_KEY, readAiPermissions } from './ai-permissions'
 import { asSessionAllowTool, type AiSessionAllows } from './ai-session-allows'
@@ -360,26 +362,36 @@ function asPetDragReport(value: unknown): AiPetDragReport | null {
   return { ...(start ? { start: true } : {}), ...(end ? { end: true } : {}) }
 }
 
+function optionalMenuLabel(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
 function asAiPetMenuRequest(value: unknown): AiPetMenuRequest | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Partial<AiPetMenuRequest>
   const labels = raw.labels
   if (!labels || typeof labels !== 'object') return null
-  const { toggle, sleep, reset } = labels as Partial<AiPetMenuRequest['labels']>
-  if (
-    typeof toggle !== 'string' ||
-    !toggle.trim() ||
-    typeof sleep !== 'string' ||
-    !sleep.trim() ||
-    typeof reset !== 'string' ||
-    !reset.trim()
-  ) {
-    return null
-  }
+  const parsed = labels as Partial<AiPetMenuRequest['labels']>
+  const toggle = optionalMenuLabel(parsed.toggle)
+  const sleep = optionalMenuLabel(parsed.sleep)
+  const reset = optionalMenuLabel(parsed.reset)
+  if (!toggle || !sleep || !reset) return null
+  const feed = optionalMenuLabel(parsed.feed)
+  const play = optionalMenuLabel(parsed.play)
+  const nextPet = optionalMenuLabel(parsed.nextPet)
+  const settings = optionalMenuLabel(parsed.settings)
   return {
     collapsed: raw.collapsed === true,
     sleeping: raw.sleeping === true,
-    labels: { toggle, sleep, reset },
+    labels: {
+      toggle,
+      sleep,
+      reset,
+      ...(feed ? { feed } : {}),
+      ...(play ? { play } : {}),
+      ...(nextPet ? { nextPet } : {}),
+      ...(settings ? { settings } : {}),
+    },
   }
 }
 
@@ -627,12 +639,28 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
         settled = true
         resolve(action)
       }
-      const menu = Menu.buildFromTemplate([
+      const template: MenuItemConstructorOptions[] = [
         { label: req.labels.toggle, click: () => done('toggle') },
-        { label: req.labels.sleep, click: () => done('sleep') },
-        { type: 'separator' },
-        { label: req.labels.reset, click: () => done('reset') },
-      ])
+      ]
+      const hasInteract = Boolean(req.labels.feed || req.labels.play)
+      const hasExtras = hasInteract || Boolean(req.labels.nextPet || req.labels.settings)
+      if (hasInteract) {
+        template.push({ type: 'separator' })
+        if (req.labels.feed) template.push({ label: req.labels.feed, click: () => done('feed') })
+        if (req.labels.play) template.push({ label: req.labels.play, click: () => done('play') })
+      }
+      if (hasExtras) {
+        template.push({ type: 'separator' })
+      }
+      template.push({ label: req.labels.sleep, click: () => done('sleep') })
+      if (req.labels.nextPet) {
+        template.push({ label: req.labels.nextPet, click: () => done('next-pet') })
+      }
+      if (req.labels.settings) {
+        template.push({ label: req.labels.settings, click: () => done('settings') })
+      }
+      template.push({ type: 'separator' }, { label: req.labels.reset, click: () => done('reset') })
+      const menu = Menu.buildFromTemplate(template)
       const win =
         BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined
       menu.popup({
@@ -641,6 +669,17 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
         callback: () => setImmediate(() => done(null)),
       })
     })
+  })
+  // AI pet preferences (`app-settings.json` under `aiPet`): read normalized,
+  // merge partial patches with atomic increment support, and persist so the
+  // main-process store watcher broadcasts updates to every surface.
+  ipcMain.handle(HOME_CHANNELS.aiPetGet, () => readAiPetPrefs(deps.appSettingsPath()))
+  ipcMain.handle(HOME_CHANNELS.aiPetSet, (_event, patch: unknown) => {
+    const path = deps.appSettingsPath()
+    const current = readAiPetPrefs(path)
+    const next = mergeAiPetPrefs(current, patch)
+    writeAppSetting(path, AI_PET_KEY, next)
+    return next
   })
 
   /* ── the loop's pub/sub backbone: Home's loop publishes run events, every

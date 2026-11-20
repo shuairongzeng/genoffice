@@ -105,6 +105,7 @@ import {
 } from '../src/main/home-tabs-ipc'
 import { createAiSessionAllows } from '../src/main/ai-session-allows'
 import { readAiPermissions } from '../src/main/ai-permissions'
+import { readAiPetPrefs } from '../src/main/ai-pet-prefs'
 import { readAiDock } from '../src/main/ai-dock'
 import { readDockPrefs } from '../src/main/dock-prefs'
 
@@ -734,6 +735,98 @@ describe('registerHomeWorkbenchIpc', () => {
     })
   })
 
+  describe('the AI pet prefs channels (home:ai-pet-get / home:ai-pet-set)', () => {
+    it('returns normalized defaults when absent and reads stored values back', async () => {
+      registerWorkbench()
+      expect(await invoke('home:ai-pet-get')).toEqual({
+        petId: 'bluebird',
+        bubbles: true,
+        sound: true,
+        interactions: {
+          bluebird: 0,
+          cat: 0,
+          robot: 0,
+          fox: 0,
+          panda: 0,
+        },
+      })
+    })
+
+    it('merges partial patches, atomically increments interactions, and persists to disk', async () => {
+      registerWorkbench()
+      const updated = await invoke('home:ai-pet-set', {
+        petId: 'cat',
+        bubbles: false,
+      })
+      expect(updated).toEqual({
+        petId: 'cat',
+        bubbles: false,
+        sound: true,
+        interactions: {
+          bluebird: 0,
+          cat: 0,
+          robot: 0,
+          fox: 0,
+          panda: 0,
+        },
+      })
+      expect(readAiPetPrefs(join(dir, 'app-settings.json'))).toEqual(updated)
+
+      const inc1 = await invoke('home:ai-pet-set', { incrementInteraction: 'cat' })
+      expect(inc1).toEqual({
+        petId: 'cat',
+        bubbles: false,
+        sound: true,
+        interactions: {
+          bluebird: 0,
+          cat: 1,
+          robot: 0,
+          fox: 0,
+          panda: 0,
+        },
+      })
+
+      const inc2 = await invoke('home:ai-pet-set', { incrementInteraction: 'cat' })
+      expect(inc2).toEqual({
+        petId: 'cat',
+        bubbles: false,
+        sound: true,
+        interactions: {
+          bluebird: 0,
+          cat: 2,
+          robot: 0,
+          fox: 0,
+          panda: 0,
+        },
+      })
+      expect(await invoke('home:ai-pet-get')).toEqual(inc2)
+    })
+
+    it('ignores invalid patch fields and clamps negative interaction counts', async () => {
+      registerWorkbench()
+      await invoke('home:ai-pet-set', { petId: 'fox', sound: false })
+      const effective = await invoke('home:ai-pet-set', {
+        petId: 'dragon',
+        sound: 'noisy',
+        interactions: { fox: -5, panda: 3.7 },
+        incrementInteraction: 'dragon',
+      })
+      expect(effective).toEqual({
+        petId: 'fox',
+        bubbles: true,
+        sound: false,
+        interactions: {
+          bluebird: 0,
+          cat: 0,
+          robot: 0,
+          fox: 0,
+          panda: 3,
+        },
+      })
+      expect(readAiPetPrefs(join(dir, 'app-settings.json'))).toEqual(effective)
+    })
+  })
+
   describe('the AI lineage channels (the doc-bound continuity seed)', () => {
     /** a throwaway in-memory lineage store the record/get pair shares */
     const lineageStore = () => {
@@ -1235,5 +1328,96 @@ describe('registerHomeWorkbenchIpc — the ask forward and the ready handshake (
       labels: { toggle: 'Expand', sleep: 'Wake', reset: 'Reset' },
     })
     expect(clicked).toBe('sleep')
+  })
+
+  it('builds extended pet menu actions for feed, play, next-pet, and settings', async () => {
+    const request = {
+      collapsed: true,
+      sleeping: false,
+      labels: {
+        toggle: 'Expand',
+        feed: 'Feed',
+        play: 'Play',
+        sleep: 'Nap',
+        nextPet: 'Switch Pet',
+        settings: 'Pet Settings',
+        reset: 'Reset',
+      },
+    }
+
+    menuMock.buildFromTemplate.mockClear()
+    const clickAt = async (index: number): Promise<unknown> => {
+      menuMock.popup.mockImplementationOnce(function (
+        this: { template: Array<{ click?: () => void }> },
+        opts?: { callback?: () => void },
+      ) {
+        this.template[index]?.click?.()
+        opts?.callback?.()
+      })
+      return invoke('home:ai-pet-menu', request)
+    }
+
+    expect(await clickAt(2)).toBe('feed')
+    const builtTpl = menuMock.buildFromTemplate.mock.calls[0]![0]
+    expect(builtTpl.map((item) => item.type ?? item.label)).toEqual([
+      'Expand',
+      'separator',
+      'Feed',
+      'Play',
+      'separator',
+      'Nap',
+      'Switch Pet',
+      'Pet Settings',
+      'separator',
+      'Reset',
+    ])
+
+    expect(await clickAt(3)).toBe('play')
+    expect(await clickAt(6)).toBe('next-pet')
+    expect(await clickAt(7)).toBe('settings')
+  })
+
+  it('omits empty or non-string optional pet menu labels without extra separators', async () => {
+    menuMock.buildFromTemplate.mockClear()
+    await invoke('home:ai-pet-menu', {
+      collapsed: false,
+      sleeping: false,
+      labels: {
+        toggle: 'Collapse',
+        feed: '   ',
+        play: 42,
+        nextPet: '',
+        settings: null,
+        sleep: 'Nap',
+        reset: 'Reset',
+      },
+    })
+    expect(menuMock.buildFromTemplate).toHaveBeenCalledTimes(1)
+    expect(menuMock.buildFromTemplate.mock.calls[0]![0].map((item) => item.type ?? item.label)).toEqual([
+      'Collapse',
+      'Nap',
+      'separator',
+      'Reset',
+    ])
+
+    menuMock.buildFromTemplate.mockClear()
+    await invoke('home:ai-pet-menu', {
+      collapsed: true,
+      sleeping: false,
+      labels: {
+        toggle: 'Expand',
+        sleep: 'Nap',
+        nextPet: 'Switch Pet',
+        reset: 'Reset',
+      },
+    })
+    expect(menuMock.buildFromTemplate.mock.calls[0]![0].map((item) => item.type ?? item.label)).toEqual([
+      'Expand',
+      'separator',
+      'Nap',
+      'Switch Pet',
+      'separator',
+      'Reset',
+    ])
   })
 })

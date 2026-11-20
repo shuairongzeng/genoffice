@@ -62,6 +62,7 @@ import type { ProjectApi } from '@genoffice/project-store'
 import { HOME_CHANNELS, HOME_TAB_KINDS } from '../shared/home-api'
 import { normalizeForwardedAskQuery, type PendingAskQuery } from '../shared/ask-forward'
 import { normalizeAiDock } from '../shared/desktop-geometry'
+import { normalizeAiPetPrefs } from '../shared/ai-pet-prefs'
 import { INTEGRATIONS_CHANNELS } from '../shared/integrations-api'
 import type {
   IntegrationsApi,
@@ -246,6 +247,16 @@ ipcRenderer.on(HOME_CHANNELS.helpTopic, (_event, topic: unknown) => {
   if (ipcRenderer.listenerCount(HOME_CHANNELS.helpTopic) > 1) return
   if (typeof topic === 'string') helpTopicPending = topic
 })
+
+const AI_PET_MENU_ACTIONS: readonly AiPetMenuAction[] = [
+  'toggle',
+  'feed',
+  'play',
+  'sleep',
+  'next-pet',
+  'settings',
+  'reset',
+]
 
 const homeApi: HomeApi = {
   async recents(query) {
@@ -854,7 +865,25 @@ const homeApi: HomeApi = {
   },
   async aiPetMenu(request) {
     const action: unknown = await ipcRenderer.invoke(HOME_CHANNELS.aiPetMenu, request)
-    return action === 'toggle' || action === 'sleep' || action === 'reset' ? action : null
+    return typeof action === 'string' && AI_PET_MENU_ACTIONS.includes(action as AiPetMenuAction)
+      ? (action as AiPetMenuAction)
+      : null
+  },
+  async getAiPetPrefs() {
+    return normalizeAiPetPrefs(await ipcRenderer.invoke(HOME_CHANNELS.aiPetGet))
+  },
+  async setAiPetPrefs(patch) {
+    return normalizeAiPetPrefs(await ipcRenderer.invoke(HOME_CHANNELS.aiPetSet, patch))
+  },
+  onAiPetPrefsChanged(handler) {
+    const listener = (_event: IpcRendererEvent, prefs: unknown): void => {
+      handler(normalizeAiPetPrefs(prefs))
+    }
+    ipcRenderer.on(HOME_CHANNELS.aiPetChanged, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.aiPetChanged, listener)
+  },
+  async openAiPetSettings() {
+    await ipcRenderer.invoke(HOME_CHANNELS.openAiPetSettings)
   },
   // the loop's pub/sub backbone: Home's loop publishes run events, the
   // mirror mounts subscribe — a closed mount never receives one

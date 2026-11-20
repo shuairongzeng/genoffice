@@ -307,6 +307,7 @@ import { TABS_CHANNELS } from '../shared/tabs-api'
 import { showErrorDialog } from './error-dialog'
 import { startRendererWatchdog } from './renderer-watchdog'
 import { watchAiDock, readAiDock, AI_DOCK_KEY } from './ai-dock'
+import { watchAiPetPrefs } from './ai-pet-prefs'
 import { readDockPrefs, watchDockPrefs } from './dock-prefs'
 import { createAiLineage, type AiLineageStore } from './ai-lineage'
 import { readAiPermissions, shouldAskBrowserPageAction, watchAiPermissions } from './ai-permissions'
@@ -6322,7 +6323,7 @@ installDeepLinkListener(deliverDeepLink)
 installNavigationGuard(app)
 installContextMenu(app, () => contextMenuLabels(currentLang()))
 registerAiIpc()
-const openHomeSettings = (section: 'aiModel' | 'skills'): void => {
+const openHomeSettings = (section: 'aiModel' | 'skills' | 'aiPet'): void => {
   const win = shellWindow
   if (!win || win.isDestroyed()) return
   // the request may come from a detached window or while the shell is minimized
@@ -6334,6 +6335,7 @@ const openHomeSettings = (section: 'aiModel' | 'skills'): void => {
 }
 ipcMain.handle('ai:open-model-settings', () => openHomeSettings('aiModel'))
 ipcMain.handle('ai:open-skills-settings', () => openHomeSettings('skills'))
+ipcMain.handle(HOME_CHANNELS.openAiPetSettings, () => openHomeSettings('aiPet'))
 registerProjectIpc()
 registerDocsIpc()
 registerHomeIpc()
@@ -7302,6 +7304,12 @@ app.whenReady().then(async () => {
     sendToShellRenderer(HOME_CHANNELS.dockPrefsChanged, prefs)
     tabManager?.dockOverlayWebContents()?.send(HOME_CHANNELS.dockPrefsChanged, prefs)
     tabManager?.layout()
+  })
+  // Broadcast AI pet preference updates (species, toggles, interaction counts)
+  // to both the shell renderer and the floating drawer overlay view.
+  watchAiPetPrefs(APP_SETTINGS_PATH(), (prefs) => {
+    sendToShellRenderer(HOME_CHANNELS.aiPetChanged, prefs)
+    tabManager?.drawerOverlayWebContents()?.send(HOME_CHANNELS.aiPetChanged, prefs)
   })
   // the AI panel's global permission mode, the same store-watch shape: a
   // write from either panel mount (the dropdown) settles in app-settings.json

@@ -15,13 +15,15 @@ export const IDLE_PET_RUN_SNAPSHOT: AiPetRunSnapshot = {
   completedSeq: 0,
 }
 
-/** all 12 visual moods supported by the Lively Bluebird mascot */
+/** all 14 visual moods supported by the AI pet mascots */
 export type AiPetMood =
   | 'idle'
   | 'curious'
   | 'sleepy'
   | 'hover'
   | 'petted'
+  | 'fed'
+  | 'playful'
   | 'dragging'
   | 'settle'
   | 'thinking'
@@ -29,6 +31,9 @@ export type AiPetMood =
   | 'unread-done'
   | 'attention'
   | 'error'
+
+/** tactile / nurturing user interactions available on the pet */
+export type AiPetInteractionKind = 'pet' | 'feed' | 'play'
 
 export interface AiPetGaze {
   readonly x: number
@@ -46,13 +51,31 @@ export const PET_CURIOUS_INTERVAL_MS = 14_000
 export const PET_CURIOUS_HOLD_MS = 2_400
 export const PET_SETTLE_MS = 420
 export const PET_PETTED_HOLD_MS = 1_100
+export const PET_FED_HOLD_MS = 1_400
+export const PET_PLAYFUL_HOLD_MS = 1_300
+export const PET_BUBBLE_HOLD_MS = 2_400
 export const PET_GAZE_RADIUS_PX = 260
 export const PET_DRAG_TILT_MAX_DEG = 16
+
+const INTERACTION_HOLD_MS: Record<AiPetInteractionKind, number> = {
+  pet: PET_PETTED_HOLD_MS,
+  feed: PET_FED_HOLD_MS,
+  play: PET_PLAYFUL_HOLD_MS,
+}
+
+function clearTimerRef(ref: { current: ReturnType<typeof setTimeout> | null }): void {
+  if (ref.current !== null) {
+    clearTimeout(ref.current)
+    ref.current = null
+  }
+}
 
 export interface ResolvePetMoodInput {
   readonly dragging: boolean
   readonly settling: boolean
   readonly activity: AiPetActivity
+  readonly fed?: boolean
+  readonly playful?: boolean
   readonly petted: boolean
   readonly unreadDone: boolean
   readonly hovered: boolean
@@ -63,7 +86,7 @@ export interface ResolvePetMoodInput {
 /**
  * Arbitrate the active mood strictly by interaction & AI priority:
  * dragging > settle > attention > working > thinking > error >
- * petted > unread-done > hover > sleepy > curious > idle.
+ * fed > playful > petted > unread-done > hover > sleepy > curious > idle.
  */
 export function resolvePetMood(input: ResolvePetMoodInput): AiPetMood {
   if (input.dragging) return 'dragging'
@@ -72,6 +95,8 @@ export function resolvePetMood(input: ResolvePetMoodInput): AiPetMood {
   if (input.activity === 'working') return 'working'
   if (input.activity === 'thinking') return 'thinking'
   if (input.activity === 'error') return 'error'
+  if (input.fed) return 'fed'
+  if (input.playful) return 'playful'
   if (input.petted) return 'petted'
   if (input.unreadDone) return 'unread-done'
   if (input.hovered) return 'hover'
@@ -169,12 +194,15 @@ export interface UseAiPetBehaviorOptions {
   readonly petRef: RefObject<HTMLElement | null>
   /** True on full-window surfaces (Home) where window pointermove tracks gaze anywhere */
   readonly windowGaze: boolean
+  /** Invoked whenever a pet/feed/play interaction triggers (click action or pointer rubbing) */
+  readonly onInteract?: (kind: AiPetInteractionKind) => void
 }
 
 export interface UseAiPetBehaviorResult {
   readonly mood: AiPetMood
   readonly isSleeping: boolean
   readonly settling: boolean
+  readonly activeBubble: AiPetInteractionKind | null
   readonly onPointerEnter: () => void
   readonly onPointerLeave: () => void
   readonly onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void
@@ -182,6 +210,9 @@ export interface UseAiPetBehaviorResult {
   readonly triggerSettle: () => void
   readonly toggleManualSleep: () => void
   readonly wakeUp: () => void
+  readonly triggerPet: () => void
+  readonly triggerFeed: () => void
+  readonly triggerPlay: () => void
 }
 
 /**
@@ -195,9 +226,11 @@ export function useAiPetBehavior({
   reducedMotion,
   petRef,
   windowGaze,
+  onInteract,
 }: UseAiPetBehaviorOptions): UseAiPetBehaviorResult {
   const [hovered, setHovered] = useState(false)
-  const [petted, setPetted] = useState(false)
+  const [activeInteraction, setActiveInteraction] = useState<AiPetInteractionKind | null>(null)
+  const [activeBubble, setActiveBubble] = useState<AiPetInteractionKind | null>(null)
   const [settling, setSettling] = useState(false)
   const [manualSleep, setManualSleep] = useState(false)
   const [autoSleep, setAutoSleep] = useState(false)
@@ -207,14 +240,46 @@ export function useAiPetBehavior({
   const prevCompletedSeqRef = useRef(runState.completedSeq)
   const pettingRef = useRef<PettingTracker>({ energy: 0, lastDx: 0, lastTs: 0 })
   const lastLocalPointerRef = useRef<{ x: number; y: number } | null>(null)
+  const onInteractRef = useRef(onInteract)
+  onInteractRef.current = onInteract
 
-  const pettedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const curiousHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const gazeTargetRef = useRef<AiPetGaze>({ x: 0, y: 0 })
   const tiltTargetRef = useRef(0)
   const rafRef = useRef<number | null>(null)
+
+  const clearInteractions = useCallback(() => {
+    clearTimerRef(interactionTimerRef)
+    clearTimerRef(bubbleTimerRef)
+    setActiveInteraction(null)
+    setActiveBubble(null)
+  }, [])
+
+  const triggerInteraction = useCallback((kind: AiPetInteractionKind) => {
+    setManualSleep(false)
+    setAutoSleep(false)
+    setCurious(false)
+
+    clearTimerRef(interactionTimerRef)
+    setActiveInteraction(kind)
+    interactionTimerRef.current = setTimeout(() => {
+      interactionTimerRef.current = null
+      setActiveInteraction(null)
+    }, INTERACTION_HOLD_MS[kind])
+
+    clearTimerRef(bubbleTimerRef)
+    setActiveBubble(kind)
+    bubbleTimerRef.current = setTimeout(() => {
+      bubbleTimerRef.current = null
+      setActiveBubble(null)
+    }, PET_BUBBLE_HOLD_MS)
+
+    onInteractRef.current?.(kind)
+  }, [])
 
   const flushStyles = useCallback(() => {
     rafRef.current = null
@@ -240,7 +305,7 @@ export function useAiPetBehavior({
     scheduleStyleFlush()
   }, [scheduleStyleFlush])
 
-  // Clear sleep/curious/unread states when the drawer expands
+  // Clear sleep/curious/unread/interaction states when the drawer expands
   useEffect(() => {
     if (collapsed) return
     setUnreadDone(false)
@@ -248,8 +313,8 @@ export function useAiPetBehavior({
     setManualSleep(false)
     setCurious(false)
     setHovered(false)
-    setPetted(false)
-  }, [collapsed])
+    clearInteractions()
+  }, [collapsed, clearInteractions])
 
   // Track completed background responses only while collapsed
   useEffect(() => {
@@ -261,7 +326,7 @@ export function useAiPetBehavior({
     }
   }, [runState.completedSeq, collapsed])
 
-  // Active AI work or unread completion wakes an auto-napping bird
+  // Active AI work or unread completion wakes an auto-napping pet
   useEffect(() => {
     if (runState.activity !== 'idle' || unreadDone) {
       setAutoSleep(false)
@@ -274,20 +339,17 @@ export function useAiPetBehavior({
     lastLocalPointerRef.current = null
     pettingRef.current = { energy: 0, lastDx: 0, lastTs: 0 }
     if (dragging) {
-      if (pettedTimerRef.current) {
-        clearTimeout(pettedTimerRef.current)
-        pettedTimerRef.current = null
-      }
-      setPetted(false)
+      clearInteractions()
       return
     }
     if (tiltTargetRef.current !== 0) {
       tiltTargetRef.current = 0
       scheduleStyleFlush()
     }
-  }, [dragging, scheduleStyleFlush])
+  }, [dragging, scheduleStyleFlush, clearInteractions])
 
   const sleeping = (manualSleep || autoSleep) && runState.activity === 'idle' && !unreadDone
+  const interacting = activeInteraction !== null
 
   // Auto-nap timer when collapsed and genuinely idle
   useEffect(() => {
@@ -297,6 +359,7 @@ export function useAiPetBehavior({
       runState.activity !== 'idle' ||
       hovered ||
       dragging ||
+      interacting ||
       unreadDone ||
       sleeping
     ) {
@@ -307,7 +370,16 @@ export function useAiPetBehavior({
       setCurious(false)
     }, PET_IDLE_SLEEP_MS)
     return () => clearTimeout(timer)
-  }, [collapsed, reducedMotion, runState.activity, hovered, dragging, unreadDone, sleeping])
+  }, [
+    collapsed,
+    reducedMotion,
+    runState.activity,
+    hovered,
+    dragging,
+    interacting,
+    unreadDone,
+    sleeping,
+  ])
 
   // Occasional curious head-tilt while awake and idle
   useEffect(() => {
@@ -318,7 +390,7 @@ export function useAiPetBehavior({
       hovered ||
       dragging ||
       sleeping ||
-      petted ||
+      interacting ||
       unreadDone ||
       settling
     ) {
@@ -327,7 +399,7 @@ export function useAiPetBehavior({
     }
     const interval = setInterval(() => {
       setCurious(true)
-      if (curiousHoldTimerRef.current) clearTimeout(curiousHoldTimerRef.current)
+      clearTimerRef(curiousHoldTimerRef)
       curiousHoldTimerRef.current = setTimeout(() => {
         curiousHoldTimerRef.current = null
         setCurious(false)
@@ -335,10 +407,7 @@ export function useAiPetBehavior({
     }, PET_CURIOUS_INTERVAL_MS)
     return () => {
       clearInterval(interval)
-      if (curiousHoldTimerRef.current) {
-        clearTimeout(curiousHoldTimerRef.current)
-        curiousHoldTimerRef.current = null
-      }
+      clearTimerRef(curiousHoldTimerRef)
     }
   }, [
     collapsed,
@@ -347,7 +416,7 @@ export function useAiPetBehavior({
     hovered,
     dragging,
     sleeping,
-    petted,
+    interacting,
     unreadDone,
     settling,
   ])
@@ -390,9 +459,10 @@ export function useAiPetBehavior({
   // Cleanup timers and rAF on unmount
   useEffect(
     () => () => {
-      if (pettedTimerRef.current) clearTimeout(pettedTimerRef.current)
-      if (settleTimerRef.current) clearTimeout(settleTimerRef.current)
-      if (curiousHoldTimerRef.current) clearTimeout(curiousHoldTimerRef.current)
+      clearTimerRef(interactionTimerRef)
+      clearTimerRef(bubbleTimerRef)
+      clearTimerRef(settleTimerRef)
+      clearTimerRef(curiousHoldTimerRef)
       if (rafRef.current !== null && typeof cancelAnimationFrame === 'function') {
         cancelAnimationFrame(rafRef.current)
       }
@@ -413,27 +483,27 @@ export function useAiPetBehavior({
       setAutoSleep(false)
       return
     }
-    if (pettedTimerRef.current) {
-      clearTimeout(pettedTimerRef.current)
-      pettedTimerRef.current = null
-    }
+    clearInteractions()
     lastLocalPointerRef.current = null
     pettingRef.current = { energy: 0, lastDx: 0, lastTs: 0 }
-    setPetted(false)
     setHovered(false)
     setAutoSleep(false)
     setManualSleep(true)
-  }, [manualSleep, autoSleep])
+  }, [manualSleep, autoSleep, clearInteractions])
 
   const triggerSettle = useCallback(() => {
     if (reducedMotion) return
     setSettling(true)
-    if (settleTimerRef.current) clearTimeout(settleTimerRef.current)
+    clearTimerRef(settleTimerRef)
     settleTimerRef.current = setTimeout(() => {
       settleTimerRef.current = null
       setSettling(false)
     }, PET_SETTLE_MS)
   }, [reducedMotion])
+
+  const triggerPet = useCallback(() => triggerInteraction('pet'), [triggerInteraction])
+  const triggerFeed = useCallback(() => triggerInteraction('feed'), [triggerInteraction])
+  const triggerPlay = useCallback(() => triggerInteraction('play'), [triggerInteraction])
 
   const onDragVelocity = useCallback(
     (velocityX: number) => {
@@ -486,24 +556,28 @@ export function useAiPetBehavior({
       )
       pettingRef.current = next
       if (triggered) {
-        setManualSleep(false)
-        setAutoSleep(false)
-        setPetted(true)
-        if (pettedTimerRef.current) clearTimeout(pettedTimerRef.current)
-        pettedTimerRef.current = setTimeout(() => {
-          pettedTimerRef.current = null
-          setPetted(false)
-        }, PET_PETTED_HOLD_MS)
+        triggerInteraction('pet')
       }
     },
-    [collapsed, dragging, windowGaze, reducedMotion, sleeping, petRef, scheduleStyleFlush],
+    [
+      collapsed,
+      dragging,
+      windowGaze,
+      reducedMotion,
+      sleeping,
+      petRef,
+      scheduleStyleFlush,
+      triggerInteraction,
+    ],
   )
 
   const mood = resolvePetMood({
     dragging,
     settling,
     activity: runState.activity,
-    petted,
+    fed: activeInteraction === 'feed',
+    playful: activeInteraction === 'play',
+    petted: activeInteraction === 'pet',
     unreadDone,
     hovered,
     sleeping,
@@ -514,6 +588,7 @@ export function useAiPetBehavior({
     mood,
     isSleeping: sleeping,
     settling,
+    activeBubble,
     onPointerEnter,
     onPointerLeave,
     onPointerMove,
@@ -521,5 +596,8 @@ export function useAiPetBehavior({
     triggerSettle,
     toggleManualSleep,
     wakeUp,
+    triggerPet,
+    triggerFeed,
+    triggerPlay,
   }
 }

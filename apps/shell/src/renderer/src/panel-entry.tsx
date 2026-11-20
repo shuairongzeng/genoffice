@@ -16,7 +16,20 @@ import {
   PET_SIZE,
   type AiPetPos,
 } from './AiDock'
-import { IDLE_PET_RUN_SNAPSHOT, useAiPetBehavior, type AiPetRunSnapshot } from './ai-pet-state'
+import {
+  IDLE_PET_RUN_SNAPSHOT,
+  useAiPetBehavior,
+  type AiPetInteractionKind,
+  type AiPetRunSnapshot,
+} from './ai-pet-state'
+import {
+  AI_PET_IDS,
+  mergeAiPetPrefs,
+  normalizeAiPetPrefs,
+  type AiPetPrefs,
+  type AiPetPrefsPatch,
+} from '../../shared/ai-pet-prefs'
+import { playPetSound } from './ai-pet-sound'
 import { useI18n } from './locale'
 import { KbAskPanel, CHAT_ID } from './KbAskPanel'
 
@@ -168,6 +181,51 @@ export function AskPanelEntry(): React.JSX.Element | null {
       setDock({ known: true, collapsed: prefs.collapsed, width: prefs.width }),
     )
   }, [])
+  const [petPrefs, setPetPrefs] = useState<AiPetPrefs>(() => normalizeAiPetPrefs(undefined))
+  const petPrefsRef = useRef(petPrefs)
+  petPrefsRef.current = petPrefs
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi> | undefined
+    if (typeof api?.getAiPetPrefs !== 'function') return
+    let alive = true
+    void api
+      .getAiPetPrefs()
+      .then((prefs) => {
+        if (alive) setPetPrefs(normalizeAiPetPrefs(prefs))
+      })
+      .catch(() => undefined)
+    if (typeof api.onAiPetPrefsChanged === 'function') {
+      const off = api.onAiPetPrefsChanged((prefs) => setPetPrefs(normalizeAiPetPrefs(prefs)))
+      return () => {
+        alive = false
+        off()
+      }
+    }
+    return () => {
+      alive = false
+    }
+  }, [])
+  const commitPetPrefs = useCallback((patch: AiPetPrefsPatch) => {
+    setPetPrefs((prev) => {
+      const next = mergeAiPetPrefs(prev, patch)
+      petPrefsRef.current = next
+      return next
+    })
+    const api = window.aiOffice as Partial<HomeApi> | undefined
+    if (typeof api?.setAiPetPrefs === 'function') {
+      void api.setAiPetPrefs(patch).catch(() => undefined)
+    }
+  }, [])
+  const cycleNextPet = useCallback(() => {
+    const current = petPrefsRef.current
+    const idx = AI_PET_IDS.indexOf(current.petId)
+    const nextId = AI_PET_IDS[(idx + 1) % AI_PET_IDS.length]
+    commitPetPrefs({ petId: nextId })
+    playPetSound(nextId, 'select', {
+      enabled: current.sound,
+      reducedMotion: aiMotionReduced(),
+    })
+  }, [commitPetPrefs])
   // pet-only and the not-yet-known boot paint nothing but the bird: html and
   // body must drop their backgrounds so the transparent view shows the
   // document straight through (the expanded root paints its own opaque panel)
@@ -504,6 +562,7 @@ export function AskPanelEntry(): React.JSX.Element | null {
       >
         <KbAskPanel
           chatId={CHAT_ID}
+          petId={petPrefs.petId}
           /* the pub/sub contract: this mount does NOT run its own AgentLoop or
              persist messages. Home's loop is the single executor and writer;
              this mount reads the same transcript and mirrors the run events
@@ -542,11 +601,20 @@ export function AskPanelEntry(): React.JSX.Element | null {
         collapsed={dock.collapsed}
         gulp={petGulp}
         runState={petRunState}
+        petPrefs={petPrefs}
         onToggle={toggle}
         onResetPos={() => {
           const api = window.aiOffice as Partial<HomeApi>
           if (typeof api.setAiDock === 'function') {
             void api.setAiDock({ petPos: null }).catch(() => undefined)
+          }
+        }}
+        onPetInteract={() => commitPetPrefs({ incrementInteraction: petPrefsRef.current.petId })}
+        onNextPet={cycleNextPet}
+        onOpenPetSettings={() => {
+          const api = window.aiOffice as Partial<HomeApi> | undefined
+          if (typeof api?.openAiPetSettings === 'function') {
+            void api.openAiPetSettings().catch(() => undefined)
           }
         }}
       />
@@ -628,15 +696,23 @@ function OverlayPet({
   collapsed,
   gulp,
   runState,
+  petPrefs,
   onToggle,
   onResetPos,
+  onPetInteract,
+  onNextPet,
+  onOpenPetSettings,
 }: {
   collapsed: boolean
-  /** the close morph landed: the satisfied munch plays on the bird */
+  /** the close morph landed: the satisfied munch plays on the pet */
   gulp: boolean
   runState: AiPetRunSnapshot
+  petPrefs?: AiPetPrefs
   onToggle: () => void
   onResetPos: () => void
+  onPetInteract?: (kind: AiPetInteractionKind) => void
+  onNextPet?: () => void
+  onOpenPetSettings?: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const petRef = useRef<HTMLButtonElement | null>(null)
@@ -648,6 +724,16 @@ function OverlayPet({
   /** the gesture's live pet position (chrome CSS px); null when the view's own bounds stand */
   const [dragPos, setDragPos] = useState<AiPetPos | null>(null)
 
+  const resolvedPetPrefs = petPrefs ?? normalizeAiPetPrefs(undefined)
+  const petPrefsRef = useRef(resolvedPetPrefs)
+  petPrefsRef.current = resolvedPetPrefs
+  const onPetInteractRef = useRef(onPetInteract)
+  onPetInteractRef.current = onPetInteract
+  const onNextPetRef = useRef(onNextPet)
+  onNextPetRef.current = onNextPet
+  const onOpenPetSettingsRef = useRef(onOpenPetSettings)
+  onOpenPetSettingsRef.current = onOpenPetSettings
+
   const petBehavior = useAiPetBehavior({
     collapsed,
     dragging: isDragging,
@@ -655,6 +741,14 @@ function OverlayPet({
     reducedMotion: aiMotionReduced(),
     petRef,
     windowGaze: false,
+    onInteract: (kind) => {
+      const current = petPrefsRef.current
+      playPetSound(current.petId, kind, {
+        enabled: current.sound,
+        reducedMotion: aiMotionReduced(),
+      })
+      onPetInteractRef.current?.(kind)
+    },
   })
   const petBehaviorRef = useRef(petBehavior)
   petBehaviorRef.current = petBehavior
@@ -795,7 +889,11 @@ function OverlayPet({
           sleeping,
           labels: {
             toggle: t(collapsed ? 'dockExpand' : 'dockCollapse'),
+            feed: t('petMenuFeed'),
+            play: t('petMenuPlay'),
             sleep: t(sleeping ? 'petMenuWake' : 'petMenuSleep'),
+            nextPet: t('petMenuNextPet'),
+            settings: t('petMenuSettings'),
             reset: t('petMenuResetPos'),
           },
         })
@@ -803,8 +901,17 @@ function OverlayPet({
       if (action === 'toggle') {
         petBehaviorRef.current.wakeUp()
         onToggle()
+      } else if (action === 'feed') {
+        petBehaviorRef.current.triggerFeed()
+      } else if (action === 'play') {
+        petBehaviorRef.current.triggerPlay()
       } else if (action === 'sleep') {
         petBehaviorRef.current.toggleManualSleep()
+      } else if (action === 'next-pet') {
+        petBehaviorRef.current.wakeUp()
+        onNextPetRef.current?.()
+      } else if (action === 'settings') {
+        onOpenPetSettingsRef.current?.()
       } else if (action === 'reset') {
         petBehaviorRef.current.wakeUp()
         onResetPos()
@@ -850,7 +957,8 @@ function OverlayPet({
       onContextMenu={(event) => void onContextMenu(event)}
       onKeyDown={onKeyDown}
     >
-      <MascotSvg mood={petBehavior.mood} />
+      {/* Keep overlay clean of text bubbles: the collapsed native view matches PET_SIZE (68x62). */}
+      <MascotSvg mood={petBehavior.mood} petId={resolvedPetPrefs.petId} />
     </button>
   )
 }

@@ -1,0 +1,914 @@
+/* Species palettes, secondary rig choreography, dark-mode contrast tuning,
+ * and fed/playful animations for all 5 AI companion mascots.
+ * All raw color values sit strictly on single-line CSS custom properties. */
+
+.ai-mascot-svg {
+  --pet-treat-berry-hi: #fb7185;
+  --pet-treat-berry-lo: #be123c;
+  --pet-treat-leaf: #22c55e;
+  --pet-treat-note: #38bdf8;
+  --pet-treat-fish-hi: #fde047;
+  --pet-treat-fish-lo: #d97706;
+  --pet-treat-bolt-hi: #a7f3d0;
+  --pet-treat-bolt-lo: #10b981;
+  --pet-treat-battery-frame: #64748b;
+  --pet-treat-battery-bg: #0f172a;
+  --pet-spark-gold: #fbbf24;
+  --pet-spark-pink: #f472b6;
+  --pet-spark-cyan: #22d3ee;
+  --pet-spark-mint: #34d399;
+  --pet-mouth-stroke: #475569;
+  --pet-tongue: #fb7185;
+}
+
+/* ── Cat ("Mochi" — Ginger Tabby) ── */
+
+.ai-mascot-svg[data-pet='cat'] {
+  --pet-cat-hi: #fed7aa;
+  --pet-cat-mid: #fb923c;
+  --pet-cat-lo: #c2410c;
+  --pet-cat-tail-tip: #fff7ed;
+  --pet-cat-stripe: rgb(154 52 18 / 65%);
+  --pet-cat-ear-inner: #fda4af;
+  --pet-cat-bib-hi: #fffbeb;
+  --pet-cat-bib-lo: #fde68a;
+  --pet-cat-nose: #fb7185;
+  --pet-cat-mouth: #7c2d12;
+  --pet-cat-whisker: rgb(124 45 18 / 55%);
+  --pet-cat-iris-hi: #34d399;
+  --pet-cat-iris-lo: #065f46;
+  --pet-cat-paw-pad: #fda4af;
+  --pet-cat-bubble: rgb(224 242 254 / 76%);
+  --pet-cat-bubble-stroke: rgb(125 211 252 / 90%);
+  --mascot-aura-a: #fb923c;
+  --mascot-aura-b: #fbbf24;
+  --mascot-blush-c: rgb(251 113 133 / 46%);
+}
+
+[data-theme='dark'] .ai-mascot-svg[data-pet='cat'],
+.home.desktop-mode[data-wallpaper-tone='dark'] .ai-mascot-svg[data-pet='cat'] {
+  --pet-cat-hi: #ffedd5;
+  --pet-cat-mid: #fb923c;
+  --pet-cat-lo: #ea580c;
+  --pet-cat-whisker: rgb(255 237 213 / 52%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) .ai-mascot-svg[data-pet='cat'] {
+    --pet-cat-hi: #ffedd5;
+    --pet-cat-mid: #fb923c;
+    --pet-cat-lo: #ea580c;
+    --pet-cat-whisker: rgb(255 237 213 / 52%);
+  }
+}
+
+.ai-pet-stop-cat-hi {
+  stop-color: var(--pet-cat-hi);
+}
+.ai-pet-stop-cat-mid {
+  stop-color: var(--pet-cat-mid);
+}
+.ai-pet-stop-cat-lo {
+  stop-color: var(--pet-cat-lo);
+}
+.ai-pet-stop-cat-bib-hi {
+  stop-color: var(--pet-cat-bib-hi);
+}
+.ai-pet-stop-cat-bib-lo {
+  stop-color: var(--pet-cat-bib-lo);
+}
+.ai-pet-stop-cat-iris-hi {
+  stop-color: var(--pet-cat-iris-hi);
+}
+.ai-pet-stop-cat-iris-lo {
+  stop-color: var(--pet-cat-iris-lo);
+}
+
+.ai-pet-cat-ear-l {
+  transform-box: fill-box;
+  transform-origin: 78% 85%;
+  animation: pet-ear-twitch-l 7.4s ease-in-out infinite;
+}
+
+.ai-pet-cat-ear-r {
+  transform-box: fill-box;
+  transform-origin: 22% 85%;
+  animation: pet-ear-twitch-r 7.4s ease-in-out infinite;
+}
+
+.ai-pet-cat-ear-inner {
+  fill: var(--pet-cat-ear-inner);
+}
+
+.ai-pet-cat-tail {
+  transform-box: fill-box;
+  transform-origin: 12% 88%;
+  animation: pet-tail-swish 3.8s ease-in-out infinite;
+}
+
+.ai-pet-cat-tail-tip {
+  fill: var(--pet-cat-tail-tip);
+}
+
+.ai-pet-cat-stripe {
+  stroke: var(--pet-cat-stripe);
+  fill: none;
+}
+
+.ai-pet-cat-nose {
+  fill: var(--pet-cat-nose);
+}
+
+.ai-pet-cat-mouth {
+  stroke: var(--pet-cat-mouth);
+  fill: none;
+}
+
+.ai-pet-cat-tongue {
+  fill: var(--pet-tongue);
+}
+
+.ai-pet-cat-whisker {
+  stroke: var(--pet-cat-whisker);
+  fill: none;
+}
+
+.ai-pet-cat-paw-pad {
+  fill: var(--pet-cat-paw-pad);
+}
+
+.ai-pet-cat-bubble {
+  fill: var(--pet-cat-bubble);
+  stroke: var(--pet-cat-bubble-stroke);
+  transform-box: fill-box;
+  transform-origin: 15% 75%;
+  animation: pet-sleep-bubble 4.6s ease-in-out infinite;
+}
+
+.ai-pet-cat-bubble-glint {
+  fill: var(--mascot-white);
+  opacity: 0.85;
+}
+
+/* ── Robot ("Byte" — Cyber Bot) ── */
+
+.ai-mascot-svg[data-pet='robot'] {
+  --pet-robot-hi: #f8fafc;
+  --pet-robot-mid: #cbd5e1;
+  --pet-robot-lo: #64748b;
+  --pet-robot-ear-hi: #64748b;
+  --pet-robot-ear-lo: #334155;
+  --pet-robot-visor-hi: #1e293b;
+  --pet-robot-visor-lo: #090d16;
+  --pet-robot-visor-stroke: rgb(148 163 184 / 45%);
+  --pet-robot-visor-glare: rgb(255 255 255 / 16%);
+  --pet-robot-led-hi: #67e8f9;
+  --pet-robot-led-lo: #06b6d4;
+  --pet-robot-led-glow: rgb(34 211 238 / 38%);
+  --pet-robot-antenna-hi: #a5f3fc;
+  --pet-robot-antenna-lo: #0284c7;
+  --pet-robot-antenna-stem: #475569;
+  --pet-robot-blush: rgb(244 114 182 / 72%);
+  --mascot-aura-a: #38bdf8;
+  --mascot-aura-b: #22d3ee;
+}
+
+[data-theme='dark'] .ai-mascot-svg[data-pet='robot'],
+.home.desktop-mode[data-wallpaper-tone='dark'] .ai-mascot-svg[data-pet='robot'] {
+  --pet-robot-hi: #ffffff;
+  --pet-robot-mid: #e2e8f0;
+  --pet-robot-lo: #94a3b8;
+  --pet-robot-visor-stroke: rgb(226 232 240 / 55%);
+  --pet-robot-antenna-stem: #94a3b8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) .ai-mascot-svg[data-pet='robot'] {
+    --pet-robot-hi: #ffffff;
+    --pet-robot-mid: #e2e8f0;
+    --pet-robot-lo: #94a3b8;
+    --pet-robot-visor-stroke: rgb(226 232 240 / 55%);
+    --pet-robot-antenna-stem: #94a3b8;
+  }
+}
+
+.ai-mascot-svg[data-pet='robot'][data-mood='working'],
+.ai-mascot-svg[data-pet='robot'][data-mood='fed'] {
+  --pet-robot-led-hi: #6ee7b7;
+  --pet-robot-led-lo: #10b981;
+  --pet-robot-led-glow: rgb(16 185 129 / 42%);
+  --pet-robot-antenna-hi: #a7f3d0;
+  --pet-robot-antenna-lo: #059669;
+}
+
+.ai-mascot-svg[data-pet='robot'][data-mood='attention'] {
+  --pet-robot-led-hi: #fde68a;
+  --pet-robot-led-lo: #f59e0b;
+  --pet-robot-led-glow: rgb(245 158 11 / 42%);
+  --pet-robot-antenna-hi: #fef08a;
+  --pet-robot-antenna-lo: #d97706;
+}
+
+.ai-mascot-svg[data-pet='robot'][data-mood='error'] {
+  --pet-robot-led-hi: #fca5a5;
+  --pet-robot-led-lo: #ef4444;
+  --pet-robot-led-glow: rgb(239 68 68 / 45%);
+  --pet-robot-antenna-hi: #fecaca;
+  --pet-robot-antenna-lo: #dc2626;
+}
+
+.ai-mascot-svg[data-pet='robot'][data-mood='sleepy'] {
+  --pet-robot-led-hi: #64748b;
+  --pet-robot-led-lo: #334155;
+  --pet-robot-led-glow: rgb(100 116 139 / 20%);
+  --pet-robot-antenna-hi: #94a3b8;
+  --pet-robot-antenna-lo: #475569;
+}
+
+.ai-mascot-svg[data-pet='robot'][data-mood='playful'],
+.ai-mascot-svg[data-pet='robot'][data-mood='petted'] {
+  --pet-robot-led-hi: #a5f3fc;
+  --pet-robot-led-lo: #38bdf8;
+  --pet-robot-led-glow: rgb(56 189 248 / 48%);
+  --pet-robot-antenna-hi: #fbcfe8;
+  --pet-robot-antenna-lo: #ec4899;
+}
+
+.ai-pet-stop-robot-hi {
+  stop-color: var(--pet-robot-hi);
+}
+.ai-pet-stop-robot-mid {
+  stop-color: var(--pet-robot-mid);
+}
+.ai-pet-stop-robot-lo {
+  stop-color: var(--pet-robot-lo);
+}
+.ai-pet-stop-robot-visor-hi {
+  stop-color: var(--pet-robot-visor-hi);
+}
+.ai-pet-stop-robot-visor-lo {
+  stop-color: var(--pet-robot-visor-lo);
+}
+.ai-pet-stop-robot-led-hi {
+  stop-color: var(--pet-robot-led-hi);
+}
+.ai-pet-stop-robot-led-lo {
+  stop-color: var(--pet-robot-led-lo);
+}
+.ai-pet-stop-robot-antenna-hi {
+  stop-color: var(--pet-robot-antenna-hi);
+}
+.ai-pet-stop-robot-antenna-lo {
+  stop-color: var(--pet-robot-antenna-lo);
+}
+
+.ai-pet-robot-antenna {
+  transform-box: fill-box;
+  transform-origin: 50% 95%;
+  animation: pet-antenna-sway 4.4s ease-in-out infinite;
+}
+
+.ai-pet-robot-antenna-stem {
+  stroke: var(--pet-robot-antenna-stem);
+  fill: none;
+}
+
+.ai-pet-robot-antenna-base {
+  fill: var(--pet-robot-ear-lo);
+}
+
+.ai-pet-robot-antenna-orb {
+  animation: pet-orb-pulse 2.6s ease-in-out infinite;
+}
+
+.ai-pet-robot-ear {
+  fill: var(--pet-robot-ear-lo);
+}
+
+.ai-pet-robot-arm-l {
+  transform-box: fill-box;
+  transform-origin: 90% 35%;
+}
+
+.ai-pet-robot-arm-r {
+  transform-box: fill-box;
+  transform-origin: 10% 35%;
+}
+
+.ai-pet-robot-visor {
+  stroke: var(--pet-robot-visor-stroke);
+}
+
+.ai-pet-robot-visor-glare {
+  fill: var(--pet-robot-visor-glare);
+}
+
+.ai-pet-robot-eye-glow {
+  fill: var(--pet-robot-led-glow);
+}
+
+.ai-pet-robot-eye-happy {
+  stroke: var(--pet-robot-led-hi);
+  fill: none;
+}
+
+.ai-pet-robot-eye-closed {
+  stroke: var(--pet-robot-led-hi);
+  fill: none;
+  opacity: 0.72;
+}
+
+.ai-pet-robot-brow {
+  stroke: var(--pet-robot-led-hi);
+  fill: none;
+}
+
+.ai-pet-robot-mouth {
+  stroke: var(--pet-robot-led-hi);
+  fill: none;
+}
+
+.ai-pet-robot-blush {
+  fill: var(--pet-robot-blush);
+}
+
+.ai-pet-robot-core {
+  animation: pet-orb-pulse 3s ease-in-out infinite;
+}
+
+/* ── Fox ("Vesper" — Russet Fox) ── */
+
+.ai-mascot-svg[data-pet='fox'] {
+  --pet-fox-hi: #fdba74;
+  --pet-fox-mid: #ea580c;
+  --pet-fox-lo: #9a3412;
+  --pet-fox-dark: #431407;
+  --pet-fox-cream-hi: #fffcf5;
+  --pet-fox-cream-lo: #fed7aa;
+  --pet-fox-ear-inner: #fecdd3;
+  --pet-fox-iris-hi: #fbbf24;
+  --pet-fox-iris-lo: #92400e;
+  --pet-fox-mouth: #431407;
+  --mascot-aura-a: #f97316;
+  --mascot-aura-b: #fbbf24;
+  --mascot-blush-c: rgb(251 113 133 / 44%);
+}
+
+[data-theme='dark'] .ai-mascot-svg[data-pet='fox'],
+.home.desktop-mode[data-wallpaper-tone='dark'] .ai-mascot-svg[data-pet='fox'] {
+  --pet-fox-hi: #fed7aa;
+  --pet-fox-mid: #f97316;
+  --pet-fox-lo: #c2410c;
+  --pet-fox-dark: #29120b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) .ai-mascot-svg[data-pet='fox'] {
+    --pet-fox-hi: #fed7aa;
+    --pet-fox-mid: #f97316;
+    --pet-fox-lo: #c2410c;
+    --pet-fox-dark: #29120b;
+  }
+}
+
+.ai-pet-stop-fox-hi {
+  stop-color: var(--pet-fox-hi);
+}
+.ai-pet-stop-fox-mid {
+  stop-color: var(--pet-fox-mid);
+}
+.ai-pet-stop-fox-lo {
+  stop-color: var(--pet-fox-lo);
+}
+.ai-pet-stop-fox-cream-hi {
+  stop-color: var(--pet-fox-cream-hi);
+}
+.ai-pet-stop-fox-cream-lo {
+  stop-color: var(--pet-fox-cream-lo);
+}
+.ai-pet-stop-fox-iris-hi {
+  stop-color: var(--pet-fox-iris-hi);
+}
+.ai-pet-stop-fox-iris-lo {
+  stop-color: var(--pet-fox-iris-lo);
+}
+
+.ai-pet-fox-ear-l {
+  transform-box: fill-box;
+  transform-origin: 75% 88%;
+  animation: pet-ear-twitch-l 6.8s ease-in-out infinite;
+}
+
+.ai-pet-fox-ear-r {
+  transform-box: fill-box;
+  transform-origin: 25% 88%;
+  animation: pet-ear-twitch-r 6.8s ease-in-out infinite;
+}
+
+.ai-pet-fox-ear-tip,
+.ai-pet-fox-paw,
+.ai-pet-fox-nose {
+  fill: var(--pet-fox-dark);
+}
+
+.ai-pet-fox-ear-inner {
+  fill: var(--pet-fox-ear-inner);
+}
+
+.ai-pet-fox-tail {
+  transform-box: fill-box;
+  transform-origin: 10% 88%;
+  animation: pet-tail-swish 3.4s ease-in-out infinite;
+}
+
+.ai-pet-fox-mouth {
+  stroke: var(--pet-fox-mouth);
+  fill: none;
+}
+
+.ai-pet-fox-tongue {
+  fill: var(--pet-tongue);
+}
+
+/* ── Panda ("Rollie" — Bamboo Panda) ── */
+
+.ai-mascot-svg[data-pet='panda'] {
+  --pet-panda-hi: #ffffff;
+  --pet-panda-mid: #f1f5f9;
+  --pet-panda-lo: #cbd5e1;
+  --pet-panda-dark-hi: #334155;
+  --pet-panda-dark-lo: #0f172a;
+  --pet-panda-paw-pad: #fda4af;
+  --pet-panda-iris-hi: #475569;
+  --pet-panda-iris-lo: #0f172a;
+  --pet-panda-bamboo-hi: #86efac;
+  --pet-panda-bamboo-lo: #16a34a;
+  --pet-panda-bamboo-node: #14532d;
+  --pet-panda-eye-light: #f8fafc;
+  --mascot-aura-a: #22c55e;
+  --mascot-aura-b: #86efac;
+  --mascot-blush-c: rgb(244 114 182 / 54%);
+}
+
+[data-theme='dark'] .ai-mascot-svg[data-pet='panda'],
+.home.desktop-mode[data-wallpaper-tone='dark'] .ai-mascot-svg[data-pet='panda'] {
+  --pet-panda-dark-hi: #475569;
+  --pet-panda-dark-lo: #1e293b;
+  --pet-panda-lo: #94a3b8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) .ai-mascot-svg[data-pet='panda'] {
+    --pet-panda-dark-hi: #475569;
+    --pet-panda-dark-lo: #1e293b;
+    --pet-panda-lo: #94a3b8;
+  }
+}
+
+.ai-pet-stop-panda-hi {
+  stop-color: var(--pet-panda-hi);
+}
+.ai-pet-stop-panda-mid {
+  stop-color: var(--pet-panda-mid);
+}
+.ai-pet-stop-panda-lo {
+  stop-color: var(--pet-panda-lo);
+}
+.ai-pet-stop-panda-dark-hi {
+  stop-color: var(--pet-panda-dark-hi);
+}
+.ai-pet-stop-panda-dark-lo {
+  stop-color: var(--pet-panda-dark-lo);
+}
+.ai-pet-stop-panda-iris-hi {
+  stop-color: var(--pet-panda-iris-hi);
+}
+.ai-pet-stop-panda-iris-lo {
+  stop-color: var(--pet-panda-iris-lo);
+}
+.ai-pet-stop-bamboo-hi {
+  stop-color: var(--pet-panda-bamboo-hi);
+}
+.ai-pet-stop-bamboo-lo {
+  stop-color: var(--pet-panda-bamboo-lo);
+}
+
+.ai-pet-panda-ear-l {
+  transform-box: fill-box;
+  transform-origin: 75% 75%;
+}
+
+.ai-pet-panda-ear-r {
+  transform-box: fill-box;
+  transform-origin: 25% 75%;
+}
+
+.ai-pet-panda-paw-pad {
+  fill: var(--pet-panda-paw-pad);
+}
+
+.ai-pet-panda-mouth {
+  stroke: var(--pet-panda-dark-lo);
+  fill: none;
+}
+
+.ai-pet-panda-tongue {
+  fill: var(--pet-tongue);
+}
+
+.ai-pet-panda-eye-closed,
+.ai-pet-panda-eye-happy,
+.ai-pet-panda-brow {
+  stroke: var(--pet-panda-eye-light);
+  fill: none;
+}
+
+.ai-pet-panda-bamboo {
+  transform-box: fill-box;
+  transform-origin: 15% 85%;
+  animation: pet-bamboo-sway 4.4s ease-in-out infinite;
+}
+
+.ai-pet-panda-bamboo-node {
+  stroke: var(--pet-panda-bamboo-node);
+  fill: none;
+}
+
+/* ── Shared Nurturing Particles (fed & playful) ── */
+
+.ai-pet-particles {
+  transform-box: fill-box;
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.ai-pet-particles-fed {
+  animation: pet-particle-float 1.8s ease-in-out infinite alternate;
+}
+
+.ai-pet-particles-playful {
+  animation: pet-sparkle-pop 1.25s ease-in-out infinite alternate;
+}
+
+.ai-pet-treat-berry {
+  fill: var(--pet-treat-berry-hi);
+  stroke: var(--pet-treat-berry-lo);
+  stroke-width: 0.7;
+}
+
+.ai-pet-treat-leaf {
+  fill: var(--pet-treat-leaf);
+}
+
+.ai-pet-treat-note {
+  stroke: var(--pet-treat-note);
+  fill: var(--pet-treat-note);
+}
+
+.ai-pet-treat-fish {
+  fill: var(--pet-treat-fish-hi);
+  stroke: var(--pet-treat-fish-lo);
+  stroke-width: 0.7;
+}
+
+.ai-pet-treat-heart {
+  fill: var(--pet-spark-pink);
+}
+
+.ai-pet-treat-bolt {
+  fill: var(--pet-treat-bolt-hi);
+  stroke: var(--pet-treat-bolt-lo);
+  stroke-width: 0.75;
+}
+
+.ai-pet-treat-battery-frame {
+  fill: var(--pet-treat-battery-bg);
+  stroke: var(--pet-treat-battery-frame);
+  stroke-width: 0.9;
+}
+
+.ai-pet-treat-battery-cap {
+  fill: var(--pet-treat-battery-frame);
+}
+
+.ai-pet-treat-battery-fill {
+  fill: var(--pet-treat-bolt-lo);
+}
+
+.ai-pet-spark-gold {
+  fill: var(--pet-spark-gold);
+}
+
+.ai-pet-spark-pink {
+  fill: var(--pet-spark-pink);
+}
+
+.ai-pet-spark-cyan {
+  fill: var(--pet-spark-cyan);
+}
+
+.ai-pet-spark-mint {
+  fill: var(--pet-spark-mint);
+}
+
+.ai-pet-yarn-ball {
+  fill: var(--pet-spark-pink);
+  stroke: var(--pet-treat-berry-lo);
+  stroke-width: 0.65;
+}
+
+.ai-pet-yarn-thread {
+  stroke: var(--mascot-white);
+  fill: none;
+  opacity: 0.72;
+}
+
+.ai-pet-bluebird-mouth {
+  fill: var(--pet-tongue);
+}
+
+/* ── Cross-Species Mood Choreography ── */
+
+.ai-mascot-svg[data-mood='fed'] .ai-mascot-body-rig {
+  animation: pet-fed-nibble 0.68s ease-in-out infinite alternate;
+}
+
+.ai-mascot-svg[data-mood='fed'] .ai-mascot-blush {
+  opacity: 0.9;
+}
+
+.ai-mascot-svg[data-mood='playful'] .ai-mascot-body-rig {
+  animation: pet-playful-dance 0.65s ease-in-out infinite alternate;
+}
+
+.ai-mascot-svg[data-mood='playful'] .ai-mascot-blush {
+  opacity: 0.85;
+}
+
+.ai-mascot-svg[data-mood='playful'] .ai-mascot-wing-left {
+  animation: mascot-flap-left 0.34s ease-in-out infinite alternate;
+}
+
+.ai-mascot-svg[data-mood='playful'] .ai-mascot-wing-right {
+  animation: mascot-flap-right 0.34s ease-in-out infinite alternate;
+}
+
+.ai-mascot-svg[data-mood='settle'] .ai-mascot-body-rig {
+  animation: pet-settle-bounce 0.42s cubic-bezier(0.22, 1.35, 0.36, 1) 1;
+}
+
+/* Hover & excited species responses */
+
+.ai-mascot-svg[data-mood='hover'] .ai-pet-cat-ear-l,
+.ai-mascot-svg[data-mood='playful'] .ai-pet-cat-ear-l,
+.ai-mascot-svg[data-mood='hover'] .ai-pet-fox-ear-l,
+.ai-mascot-svg[data-mood='playful'] .ai-pet-fox-ear-l,
+.ai-mascot-svg[data-mood='playful'] .ai-pet-panda-ear-l {
+  transform: rotate(-7deg);
+}
+
+.ai-mascot-svg[data-mood='hover'] .ai-pet-cat-ear-r,
+.ai-mascot-svg[data-mood='playful'] .ai-pet-cat-ear-r,
+.ai-mascot-svg[data-mood='hover'] .ai-pet-fox-ear-r,
+.ai-mascot-svg[data-mood='playful'] .ai-pet-fox-ear-r,
+.ai-mascot-svg[data-mood='playful'] .ai-pet-panda-ear-r {
+  transform: rotate(7deg);
+}
+
+.ai-mascot-svg[data-mood='curious'] .ai-pet-cat-ear-l,
+.ai-mascot-svg[data-mood='curious'] .ai-pet-fox-ear-l {
+  transform: rotate(-10deg);
+}
+
+.ai-mascot-svg[data-mood='curious'] .ai-pet-robot-antenna {
+  animation: pet-antenna-curious 2.4s ease-in-out forwards;
+}
+
+.ai-mascot-svg[data-mood='hover'] .ai-pet-cat-tail,
+.ai-mascot-svg[data-mood='petted'] .ai-pet-cat-tail,
+.ai-mascot-svg[data-mood='playful'] .ai-pet-cat-tail,
+.ai-mascot-svg[data-mood='working'] .ai-pet-cat-tail,
+.ai-mascot-svg[data-mood='hover'] .ai-pet-fox-tail,
+.ai-mascot-svg[data-mood='petted'] .ai-pet-fox-tail,
+.ai-mascot-svg[data-mood='playful'] .ai-pet-fox-tail,
+.ai-mascot-svg[data-mood='working'] .ai-pet-fox-tail {
+  animation-duration: 0.72s;
+}
+
+.ai-mascot-svg[data-mood='hover'][data-pet='cat'] .ai-mascot-pupil,
+.ai-mascot-svg[data-mood='playful'][data-pet='cat'] .ai-mascot-pupil {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scaleX(1.38);
+}
+
+.ai-mascot-svg[data-mood='working'] .ai-pet-robot-antenna-orb,
+.ai-mascot-svg[data-mood='thinking'] .ai-pet-robot-antenna-orb,
+.ai-mascot-svg[data-mood='playful'] .ai-pet-robot-antenna-orb {
+  animation-duration: 0.9s;
+}
+
+.ai-mascot-svg[data-mood='working'] .ai-pet-robot-arm-l,
+.ai-mascot-svg[data-mood='playful'] .ai-pet-robot-arm-l,
+.ai-mascot-svg[data-mood='dragging'] .ai-pet-robot-arm-l {
+  animation: mascot-flap-left 0.38s ease-in-out infinite alternate;
+}
+
+.ai-mascot-svg[data-mood='working'] .ai-pet-robot-arm-r,
+.ai-mascot-svg[data-mood='playful'] .ai-pet-robot-arm-r,
+.ai-mascot-svg[data-mood='dragging'] .ai-pet-robot-arm-r {
+  animation: mascot-flap-right 0.38s ease-in-out infinite alternate;
+}
+
+.ai-mascot-svg[data-mood='fed'] .ai-pet-panda-bamboo,
+.ai-mascot-svg[data-mood='playful'] .ai-pet-panda-bamboo {
+  animation: pet-bamboo-munch 0.65s ease-in-out infinite alternate;
+}
+
+.ai-mascot-svg[data-mood='playful'][data-pet='panda'] .ai-mascot-body-rig {
+  animation: pet-panda-roll 0.72s ease-in-out infinite alternate;
+}
+
+/* ── Keyframes ── */
+
+@keyframes pet-ear-twitch-l {
+  0%,
+  84%,
+  92%,
+  100% {
+    transform: rotate(0deg);
+  }
+  87% {
+    transform: rotate(-11deg);
+  }
+}
+
+@keyframes pet-ear-twitch-r {
+  0%,
+  88%,
+  96%,
+  100% {
+    transform: rotate(0deg);
+  }
+  91% {
+    transform: rotate(10deg);
+  }
+}
+
+@keyframes pet-tail-swish {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+
+@keyframes pet-sleep-bubble {
+  0%,
+  100% {
+    transform: scale(0.76);
+    opacity: 0.78;
+  }
+  55% {
+    transform: scale(1.12);
+    opacity: 0.96;
+  }
+}
+
+@keyframes pet-antenna-sway {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+
+@keyframes pet-antenna-curious {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25%,
+  75% {
+    transform: rotate(10deg);
+  }
+}
+
+@keyframes pet-orb-pulse {
+  0%,
+  100% {
+    opacity: 0.8;
+    filter: brightness(0.95);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(1.18);
+  }
+}
+
+@keyframes pet-bamboo-sway {
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(3.5deg);
+  }
+}
+
+@keyframes pet-bamboo-munch {
+  0% {
+    transform: rotate(-3deg) translateY(0);
+  }
+  100% {
+    transform: rotate(5deg) translateY(-1.2px);
+  }
+}
+
+@keyframes pet-fed-nibble {
+  0% {
+    transform: translateY(0) scale(1, 1);
+  }
+  100% {
+    transform: translateY(-1.6px) scale(1.028, 0.975);
+  }
+}
+
+@keyframes pet-playful-dance {
+  0% {
+    transform: translateY(0) rotate(-3.5deg);
+  }
+  100% {
+    transform: translateY(-2.4px) rotate(3.5deg);
+  }
+}
+
+@keyframes pet-panda-roll {
+  0% {
+    transform: translateY(0) rotate(-6deg);
+  }
+  100% {
+    transform: translateY(-1.8px) rotate(6deg);
+  }
+}
+
+@keyframes pet-settle-bounce {
+  0% {
+    transform: translateY(-3px) scale(0.95, 1.06);
+  }
+  50% {
+    transform: translateY(1px) scale(1.05, 0.94);
+  }
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+}
+
+@keyframes pet-particle-float {
+  0% {
+    transform: translateY(0.8px) scale(0.95);
+    opacity: 0.88;
+  }
+  100% {
+    transform: translateY(-1.6px) scale(1.05);
+    opacity: 1;
+  }
+}
+
+@keyframes pet-sparkle-pop {
+  0% {
+    transform: scale(0.9) rotate(-4deg);
+    opacity: 0.84;
+  }
+  100% {
+    transform: scale(1.08) rotate(4deg);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-pet-cat-ear-l,
+  .ai-pet-cat-ear-r,
+  .ai-pet-cat-tail,
+  .ai-pet-cat-bubble,
+  .ai-pet-robot-antenna,
+  .ai-pet-robot-antenna-orb,
+  .ai-pet-robot-arm-l,
+  .ai-pet-robot-arm-r,
+  .ai-pet-robot-core,
+  .ai-pet-fox-ear-l,
+  .ai-pet-fox-ear-r,
+  .ai-pet-fox-tail,
+  .ai-pet-panda-ear-l,
+  .ai-pet-panda-ear-r,
+  .ai-pet-panda-bamboo,
+  .ai-pet-particles,
+  .ai-pet-particles * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
