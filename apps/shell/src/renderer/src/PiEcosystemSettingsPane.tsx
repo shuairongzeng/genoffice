@@ -3,8 +3,11 @@ import { useI18n } from './locale'
 import type { TFunc } from './locale'
 import { useConfirm } from './ConfirmDialog'
 import {
+  GENOFFICE_PI_SYSTEM_PROMPT,
+  MAX_PI_SYSTEM_PROMPT_CHARS,
   mergePiAgentPrefs,
   normalizePiAgentPrefs,
+  normalizePiSystemPrompt,
   type PiAgentPrefs,
   type PiAgentPrefsPatch,
 } from '../../shared/pi-agent-prefs'
@@ -94,6 +97,7 @@ export function PiEcosystemSettingsPane({ t }: { t: TFunc }): React.JSX.Element 
 
   const [historianDraft, setHistorianDraft] = useState('')
   const [dreamerDraft, setDreamerDraft] = useState('')
+  const [promptDraft, setPromptDraft] = useState(GENOFFICE_PI_SYSTEM_PROMPT)
   const [packageInput, setPackageInput] = useState('')
   const [overview, setOverview] = useState<PiEcosystemOverview | null>(null)
   const [memories, setMemories] = useState<PiMagicMemoryEntry[]>([])
@@ -106,6 +110,7 @@ export function PiEcosystemSettingsPane({ t }: { t: TFunc }): React.JSX.Element 
   const syncModelDrafts = useCallback((next: PiAgentPrefs) => {
     setHistorianDraft(next.historianModel)
     setDreamerDraft(next.dreamerModel)
+    setPromptDraft(next.systemPrompt || GENOFFICE_PI_SYSTEM_PROMPT)
   }, [])
 
   const loadData = useCallback(async () => {
@@ -149,24 +154,26 @@ export function PiEcosystemSettingsPane({ t }: { t: TFunc }): React.JSX.Element 
   }, [loadData, syncModelDrafts])
 
   const commitPrefs = useCallback(
-    async (patch: PiAgentPrefsPatch) => {
+    async (patch: PiAgentPrefsPatch): Promise<boolean> => {
       const api = typeof window !== 'undefined' ? window.aiOffice : undefined
       hydratedOrMutatedRef.current = true
       const optimistic = mergePiAgentPrefs(prefsRef.current, patch)
       prefsRef.current = optimistic
       setPrefs(optimistic)
-      if (!api?.piAgentPrefsSet) return
+      if (!api?.piAgentPrefsSet) return true
       try {
         const persisted = normalizePiAgentPrefs(await api.piAgentPrefsSet(patch))
         prefsRef.current = persisted
         setPrefs(persisted)
         syncModelDrafts(persisted)
         await loadData()
+        return true
       } catch (err) {
         setBanner({
           kind: 'error',
           text: `${copy.actionFailedPrefix}: ${err instanceof Error ? err.message : String(err)}`,
         })
+        return false
       }
     },
     [copy.actionFailedPrefix, loadData, syncModelDrafts],
@@ -284,6 +291,34 @@ export function PiEcosystemSettingsPane({ t }: { t: TFunc }): React.JSX.Element 
     [memories, categoryFilter],
   )
   const diagItems = diagnostics?.items ?? overview?.diagnostics ?? []
+
+  const isCustomPrompt = prefs.systemPrompt.trim().length > 0
+  const normalizedPromptDraft = normalizePiSystemPrompt(promptDraft)
+  const hasPromptChanges = normalizedPromptDraft !== prefs.systemPrompt
+  const canResetPrompt =
+    isCustomPrompt || promptDraft.trim() !== GENOFFICE_PI_SYSTEM_PROMPT.trim()
+
+  const handleSavePrompt = () => {
+    void runAction(async () => {
+      const saved = await commitPrefs({ systemPrompt: promptDraft })
+      if (saved) {
+        setBanner({
+          kind: 'success',
+          text: normalizedPromptDraft ? copy.promptSavedMsg : copy.promptResetMsg,
+        })
+      }
+    })
+  }
+
+  const handleResetPrompt = () => {
+    void runAction(async () => {
+      const reset = await commitPrefs({ systemPrompt: '' })
+      if (reset) {
+        setPromptDraft(GENOFFICE_PI_SYSTEM_PROMPT)
+        setBanner({ kind: 'success', text: copy.promptResetMsg })
+      }
+    })
+  }
 
   return (
     <div className="pi-eco-pane" data-testid="pi-ecosystem-settings-pane">
@@ -561,6 +596,55 @@ export function PiEcosystemSettingsPane({ t }: { t: TFunc }): React.JSX.Element 
             void commitPrefs({ autoSearchHints: !prefsRef.current.autoSearchHints })
           }
         />
+      </section>
+
+      <section className="pi-eco-section" data-testid="pi-system-prompt-section">
+        <div className="pi-eco-section-head">
+          <h4 className="pi-eco-section-title">{copy.secSystemPromptTitle}</h4>
+          <div className="pi-eco-prompt-meta">
+            <span
+              className="pi-eco-prompt-badge"
+              data-custom={isCustomPrompt ? 'true' : 'false'}
+              data-testid="pi-system-prompt-badge"
+            >
+              {isCustomPrompt ? copy.systemPromptBadgeCustom : copy.systemPromptBadgeDefault}
+            </span>
+            <span className="pi-eco-prompt-count">
+              {promptDraft.length} / {MAX_PI_SYSTEM_PROMPT_CHARS}
+            </span>
+          </div>
+        </div>
+        <div className="set-field-desc">{copy.systemPromptDesc}</div>
+        <textarea
+          className="pi-eco-prompt-textarea"
+          data-testid="pi-system-prompt-textarea"
+          aria-label={copy.secSystemPromptTitle}
+          value={promptDraft}
+          maxLength={MAX_PI_SYSTEM_PROMPT_CHARS}
+          placeholder={copy.systemPromptPlaceholder}
+          disabled={busy}
+          onChange={(e) => setPromptDraft(e.target.value)}
+        />
+        <div className="pi-eco-prompt-actions">
+          <button
+            type="button"
+            className="set-btn primary"
+            data-testid="pi-system-prompt-save"
+            disabled={busy || !hasPromptChanges}
+            onClick={handleSavePrompt}
+          >
+            {copy.savePromptBtn}
+          </button>
+          <button
+            type="button"
+            className="set-btn"
+            data-testid="pi-system-prompt-reset"
+            disabled={busy || !canResetPrompt}
+            onClick={handleResetPrompt}
+          >
+            {copy.resetPromptBtn}
+          </button>
+        </div>
       </section>
 
       <section className="pi-eco-section">

@@ -10,6 +10,27 @@ export type PiAgentEngine = 'pi' | 'legacy'
 export type MagicContextStorageMode = 'isolated' | 'shared'
 export type MagicContextEmbeddingMode = 'off' | 'local'
 
+export const MAX_PI_SYSTEM_PROMPT_CHARS = 16_000
+
+/**
+ * Default Pi Agent system preamble tailored for GenOffice's desktop office and
+ * productivity suite, replacing Pi's built-in coding-CLI preamble and SDK docs.
+ */
+export const GENOFFICE_PI_SYSTEM_PROMPT = [
+  'You are GenOffice AI Assistant, an intelligent office and productivity assistant built into the GenOffice desktop suite.',
+  'Help users read, draft, edit, organize, and analyze documents (Word, Excel spreadsheets, PowerPoint presentations, PDFs, Markdown, HTML, and media), search their local knowledge base and attachments, use the built-in browser, and manage desktop workspace tasks.',
+  '',
+  '## Core behavior & tool routing',
+  "- Reply in the user's language, stay concise and grounded in observed tool outputs and context, and never invent file paths, document content, or unverified actions.",
+  '- Prefer GenOffice workbench tools for office and desktop tasks in this order:',
+  '  1. Open editor documents & media: use `docs:read_document`, `sheets:read_sheet`, `slides:read_deck`, `markdown:read_text`, `html:read_text`, `pdf:read_pages`, `media:read_media`, or `media:analyze_media` to inspect live open tabs (including unsaved edits). To edit an open document safely with undo checkpoints, use `shell:switch_tab` (if needed) + `document_agent` rather than raw filesystem tools.',
+  '  2. Local knowledge base & attachments: use `search_knowledge_base` / `read_knowledge_file` (keeping exact `[name](filenav://...)` citation links) and `read_attachment`.',
+  '  3. Creating or converting files: use `create_document` or `run_genoffice` (call `load_guide` first when rich Office formatting is needed).',
+  '  4. Web pages & desktop tabs: use `browser:*` and `shell:*`.',
+  '  5. Filesystem, shell commands (`read`/`edit`/`write`/`bash`/`powershell`), and installed community `<skills>`: use on demand when the task calls for local scripting, file manipulation, or a loaded skill.',
+  '- Never expose internal runtime wrappers or markup (such as `<workbench_context>`, `<magic_context>`, `<session-history>`, `<project-memory>`, `<project-docs>`, or `§N§` ordinal tags) in your answers, and do not describe yourself as a coding CLI.',
+].join('\n')
+
 export interface PiAgentPrefs {
   readonly engine: PiAgentEngine
   readonly magicContextEnabled: boolean
@@ -25,6 +46,8 @@ export interface PiAgentPrefs {
   readonly enablePiWriteTools: boolean
   readonly temporalAwareness: boolean
   readonly autoSearchHints: boolean
+  /** Custom system prompt override; empty string falls back to GENOFFICE_PI_SYSTEM_PROMPT. */
+  readonly systemPrompt: string
 }
 
 export type PiAgentPrefsPatch = Partial<PiAgentPrefs>
@@ -41,6 +64,7 @@ export const DEFAULT_PI_AGENT_PREFS: PiAgentPrefs = {
   enablePiWriteTools: true,
   temporalAwareness: true,
   autoSearchHints: true,
+  systemPrompt: '',
 }
 
 function normalizeEngine(value: unknown): PiAgentEngine {
@@ -59,6 +83,16 @@ function normalizeModelRef(value: unknown): string {
   return typeof value === 'string' ? value.trim().slice(0, 200) : ''
 }
 
+/** Normalize user-configured system prompt, collapsing blank or default text to empty string. */
+export function normalizePiSystemPrompt(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.replace(/\r\n/g, '\n').trim().slice(0, MAX_PI_SYSTEM_PROMPT_CHARS)
+  if (!trimmed || trimmed === GENOFFICE_PI_SYSTEM_PROMPT.trim()) {
+    return ''
+  }
+  return trimmed
+}
+
 /** Normalize raw `piAgent` settings into a safe, complete `PiAgentPrefs` object. */
 export function normalizePiAgentPrefs(value: unknown): PiAgentPrefs {
   const raw = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>
@@ -74,6 +108,7 @@ export function normalizePiAgentPrefs(value: unknown): PiAgentPrefs {
     enablePiWriteTools: raw.enablePiWriteTools !== false,
     temporalAwareness: raw.temporalAwareness !== false,
     autoSearchHints: raw.autoSearchHints !== false,
+    systemPrompt: normalizePiSystemPrompt(raw.systemPrompt),
   }
 }
 
@@ -119,6 +154,9 @@ export function mergePiAgentPrefs(current: PiAgentPrefs, rawPatch: unknown): PiA
       typeof patch.autoSearchHints === 'boolean'
         ? patch.autoSearchHints
         : current.autoSearchHints,
+    systemPrompt: Object.hasOwn(patch, 'systemPrompt')
+      ? normalizePiSystemPrompt(patch.systemPrompt)
+      : current.systemPrompt,
   }
 }
 
@@ -134,6 +172,7 @@ export function samePiAgentPrefs(a: PiAgentPrefs, b: PiAgentPrefs): boolean {
     a.enablePiReadTools === b.enablePiReadTools &&
     a.enablePiWriteTools === b.enablePiWriteTools &&
     a.temporalAwareness === b.temporalAwareness &&
-    a.autoSearchHints === b.autoSearchHints
+    a.autoSearchHints === b.autoSearchHints &&
+    a.systemPrompt === b.systemPrompt
   )
 }

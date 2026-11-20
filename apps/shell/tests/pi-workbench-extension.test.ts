@@ -118,12 +118,21 @@ describe('genoffice-workbench-extension', () => {
     }
 
     expect(beforeAgentStart).not.toBeNull()
-    const res1 = beforeAgentStart!(
+    const sections1: Record<string, string> = {}
+    const structuredRes1 = beforeAgentStart!(
+      { systemPrompt: 'BASE_PROMPT', systemPromptOptions: { sections: sections1 } },
+      { sessionManager: { getSessionId: () => 'pi-1' } },
+    )
+    expect(structuredRes1).toBeUndefined()
+    expect(sections1.genoffice_workbench).toBe(STATIC_WORKBENCH_SYSTEM_PROMPT)
+
+    // Also preserve fallback behavior when a caller invokes before_agent_start without sections.
+    const fallbackRes1 = beforeAgentStart!(
       { systemPrompt: 'BASE_PROMPT', systemPromptOptions: {} },
       { sessionManager: { getSessionId: () => 'pi-1' } },
     )
 
-    // Populate rich per-turn dynamic state and verify systemPrompt remains byte-identical.
+    // Populate rich per-turn dynamic state and verify sections/systemPrompt remain byte-identical.
     const turnPrepared = await prepareTurnWorkbenchState(workbench, coord, {
       sessionKey: 'sess-1',
       projectId: 'proj-1',
@@ -135,12 +144,20 @@ describe('genoffice-workbench-extension', () => {
     })
     coord.bindPiSession('pi-1', turnPrepared.state)
 
-    const res2 = beforeAgentStart!(
+    const sections2: Record<string, string> = {}
+    const structuredRes2 = beforeAgentStart!(
+      { systemPrompt: 'BASE_PROMPT', systemPromptOptions: { sections: sections2 } },
+      { sessionManager: { getSessionId: () => 'pi-1' } },
+    )
+    expect(structuredRes2).toBeUndefined()
+    expect(sections2.genoffice_workbench).toBe(sections1.genoffice_workbench)
+
+    const fallbackRes2 = beforeAgentStart!(
       { systemPrompt: 'BASE_PROMPT', systemPromptOptions: {} },
       { sessionManager: { getSessionId: () => 'pi-1' } },
     )
-    expect(res1.systemPrompt).toBe(res2.systemPrompt)
-    expect(res1.systemPrompt).toContain(STATIC_WORKBENCH_SYSTEM_PROMPT)
+    expect(fallbackRes1.systemPrompt).toBe(fallbackRes2.systemPrompt)
+    expect(fallbackRes1.systemPrompt).toContain(STATIC_WORKBENCH_SYSTEM_PROMPT)
 
     // Dynamic context goes ONLY into outbound user message prefix.
     expect(turnPrepared.outboundPrompt).toContain('<workbench_context>')

@@ -6,7 +6,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import {
@@ -24,6 +24,7 @@ import type {
   AgentSessionEvent,
   ExtensionCommandContextActions,
   SessionManager,
+  SettingsManager,
 } from '@earendil-works/pi-coding-agent'
 import type { AiPermissionMode } from '@genoffice/ui/ai-permission-mode'
 
@@ -47,10 +48,12 @@ import {
   type ConfirmPromptResponse,
 } from './genoffice-permission-extension'
 import {
+  GENOFFICE_PI_SYSTEM_PROMPT,
   createGenofficeWorkbenchExtension,
   createWorkbenchExtensionCoord,
   prepareTurnWorkbenchState,
   type GenofficeToolResultDetails,
+  type WorkbenchExtensionCoord,
   type WorkbenchTurnRuntimeState,
 } from './genoffice-workbench-extension'
 import { resolvePiRuntimePaths, type PiRuntimePaths } from './pi-agent-paths'
@@ -160,6 +163,49 @@ export function createOrdinalPrefixStripper(): OrdinalPrefixStripper {
   }
 }
 
+export { GENOFFICE_PI_SYSTEM_PROMPT }
+
+/**
+ * Resolve the base Pi system preamble following explicit precedence:
+ * 1) user-configured prompt in Settings,
+ * 2) user-supplied `SYSTEM.md` override on disk,
+ * 3) GenOffice's built-in desktop assistant prompt.
+ */
+export function resolveGenofficeSystemPrompt(
+  base: string | undefined,
+  configuredPrompt?: string,
+): string {
+  const configured = typeof configuredPrompt === 'string' ? configuredPrompt.trim() : ''
+  if (configured.length > 0) {
+    return configured
+  }
+  if (typeof base === 'string' && base.trim().length > 0) {
+    return base
+  }
+  return GENOFFICE_PI_SYSTEM_PROMPT
+}
+
+/**
+ * Filter Pi-discovered context files (`AGENTS.md` / `CLAUDE.md`) down to those
+ * living inside GenOffice's dedicated `agentDir`, blocking repository ancestor
+ * instructions from leaking into the office assistant prompt.
+ */
+export function filterAgentContextFiles<T extends { path: string }>(
+  files: readonly T[],
+  agentDir: string,
+): T[] {
+  const normalize = (p: string): string => {
+    const resolved = resolve(p)
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+  }
+  const root = normalize(agentDir)
+  const prefix = root.endsWith(sep) ? root : `${root}${sep}`
+  return files.filter((file) => {
+    const target = normalize(file.path)
+    return target === root || target.startsWith(prefix)
+  })
+}
+
 export function buildExcludeBuiltinTools(prefs: Pick<PiAgentPrefs, 'enablePiReadTools' | 'enablePiWriteTools'>): string[] {
   const excluded: string[] = []
   if (!prefs.enablePiReadTools) {
@@ -203,6 +249,28 @@ export function messageUsageDelta(usage: { input?: number; output?: number }): {
     inputTokens: usage.input ?? 0,
     outputTokens: usage.output ?? 0,
   }
+}
+
+export interface PiTextAccumState {
+  currentMsgCleanText: string
+  accumulatedCleanText: string
+  textNeedsBreak: boolean
+}
+
+/**
+ * Append cleaned text from one assistant message chunk, maintaining both the
+ * cross-turn transcript (`accumulatedCleanText` for persistence) and the
+ * per-message stream text (`currentMsgCleanText` broadcast as `text` events).
+ */
+export function appendPiCleanText(state: PiTextAccumState, chunk: string): string {
+  if (!chunk) return state.currentMsgCleanText
+  if (state.textNeedsBreak && !state.accumulatedCleanText.endsWith('\n\n')) {
+    state.accumulatedCleanText += state.accumulatedCleanText.endsWith('\n') ? '\n' : '\n\n'
+  }
+  state.textNeedsBreak = false
+  state.currentMsgCleanText += chunk
+  state.accumulatedCleanText += chunk
+  return state.currentMsgCleanText
 }
 
 export class SessionMapStore {
@@ -373,6 +441,7 @@ function prefsReloadKey(prefs: PiAgentPrefs, storageMode: string): string {
     prefs.embeddingMode,
     prefs.historianModel,
     prefs.dreamerModel,
+    prefs.systemPrompt,
   ])
 }
 
@@ -508,6 +577,48 @@ export class PiAgentRuntimeManager {
     }
   }
 
+  private createResourceLoader(opts: {
+    sdk: typeof import('@earendil-works/pi-coding-agent')
+    paths: PiRuntimePaths
+    prefs: PiAgentPrefs
+    cwd: string
+    settingsManager: SettingsManager
+    coord: WorkbenchExtensionCoord
+    getToolAnnotations?: Parameters<typeof createGenofficePermissionExtension>[1]
+  }) {
+    const { sdk, paths, prefs, cwd, settingsManager, coord, getToolAnnotations } = opts
+    return new sdk.DefaultResourceLoader({
+      cwd,
+      agentDir: paths.agentDir,
+      settingsManager,
+      additionalExtensionPaths: prefs.magicContextEnabled ? [paths.magicContextEntry] : [],
+      additionalSkillPaths: resolveBundledSkillDirs({
+        userDataDir: this.deps.userDataDir,
+        isPackaged: this.deps.isPackaged,
+        resourcesPath: this.deps.resourcesPath,
+        appRoot: this.deps.appRoot,
+      }),
+      extensionFactories: [
+        createGenofficeWorkbenchExtension(this.deps.workbench, coord),
+        createGenofficePermissionExtension(
+          {
+            getPermissionMode: this.deps.getPermissionMode,
+            sessionAllows: this.deps.sessionAllows,
+            workbench: this.deps.workbench,
+            coord,
+            requestConfirm: (req) => this.requestPanelConfirm(req),
+          },
+          getToolAnnotations,
+        ),
+      ],
+      systemPromptOverride: (base) => resolveGenofficeSystemPrompt(base, prefs.systemPrompt),
+      agentsFilesOverride: ({ agentsFiles }) => ({
+        agentsFiles: filterAgentContextFiles(agentsFiles, paths.agentDir),
+      }),
+      noThemes: true,
+    })
+  }
+
   async listCommands(): Promise<PiAgentCommandInfo[]> {
     if (this.cachedCommands.length > 0) return [...this.cachedCommands]
     try {
@@ -518,28 +629,13 @@ export class PiAgentRuntimeManager {
         projectTrusted: true,
       })
       const coord = createWorkbenchExtensionCoord()
-      const loader = new sdk.DefaultResourceLoader({
+      const loader = this.createResourceLoader({
+        sdk,
+        paths,
+        prefs,
         cwd,
-        agentDir: paths.agentDir,
         settingsManager,
-        additionalExtensionPaths: prefs.magicContextEnabled ? [paths.magicContextEntry] : [],
-        additionalSkillPaths: resolveBundledSkillDirs({
-          userDataDir: this.deps.userDataDir,
-          isPackaged: this.deps.isPackaged,
-          resourcesPath: this.deps.resourcesPath,
-          appRoot: this.deps.appRoot,
-        }),
-        extensionFactories: [
-          createGenofficeWorkbenchExtension(this.deps.workbench, coord),
-          createGenofficePermissionExtension({
-            getPermissionMode: this.deps.getPermissionMode,
-            sessionAllows: this.deps.sessionAllows,
-            workbench: this.deps.workbench,
-            coord,
-            requestConfirm: (req) => this.requestPanelConfirm(req),
-          }),
-        ],
-        noThemes: true,
+        coord,
       })
       await loader.reload()
       for (const sk of loader.getSkills().skills) {
@@ -642,31 +738,15 @@ export class PiAgentRuntimeManager {
     const coord = createWorkbenchExtensionCoord()
     let sessionRef: AgentSession | null = null
 
-    const loader = new sdk.DefaultResourceLoader({
+    const loader = this.createResourceLoader({
+      sdk,
+      paths,
+      prefs,
       cwd,
-      agentDir: paths.agentDir,
       settingsManager,
-      additionalExtensionPaths: prefs.magicContextEnabled ? [paths.magicContextEntry] : [],
-      additionalSkillPaths: resolveBundledSkillDirs({
-        userDataDir: this.deps.userDataDir,
-        isPackaged: this.deps.isPackaged,
-        resourcesPath: this.deps.resourcesPath,
-        appRoot: this.deps.appRoot,
-      }),
-      extensionFactories: [
-        createGenofficeWorkbenchExtension(this.deps.workbench, coord),
-        createGenofficePermissionExtension(
-          {
-            getPermissionMode: this.deps.getPermissionMode,
-            sessionAllows: this.deps.sessionAllows,
-            workbench: this.deps.workbench,
-            coord,
-            requestConfirm: (confirmReq) => this.requestPanelConfirm(confirmReq),
-          },
-          (toolName) => sessionRef?.extensionRunner.getToolDefinition(toolName)?.annotations,
-        ),
-      ],
-      noThemes: true,
+      coord,
+      getToolAnnotations: (toolName) =>
+        sessionRef?.extensionRunner.getToolDefinition(toolName)?.annotations,
     })
     await loader.reload()
     for (const sk of loader.getSkills().skills) {
@@ -878,16 +958,11 @@ export class PiAgentRuntimeManager {
             run.rawTextChunks.push(ame.delta)
             const filtered = run.stripper.push(ame.delta)
             if (filtered) {
-              if (run.textNeedsBreak && !run.accumulatedCleanText.endsWith('\n\n')) {
-                run.accumulatedCleanText += run.accumulatedCleanText.endsWith('\n') ? '\n' : '\n\n'
-              }
-              run.textNeedsBreak = false
-              run.currentMsgCleanText += filtered
-              run.accumulatedCleanText += filtered
+              const turnText = appendPiCleanText(run, filtered)
               broadcastAskRunEventFromMain({
                 type: 'text',
                 sessionKey,
-                payload: run.accumulatedCleanText,
+                payload: turnText,
               })
             }
           } else if (ame.type === 'thinking_delta' && ame.delta) {
@@ -980,12 +1055,7 @@ export class PiAgentRuntimeManager {
             }
             const flushed = run.stripper.flush()
             if (flushed) {
-              if (run.textNeedsBreak && !run.accumulatedCleanText.endsWith('\n\n')) {
-                run.accumulatedCleanText += run.accumulatedCleanText.endsWith('\n') ? '\n' : '\n\n'
-              }
-              run.textNeedsBreak = false
-              run.currentMsgCleanText += flushed
-              run.accumulatedCleanText += flushed
+              appendPiCleanText(run, flushed)
             }
             const finalRaw =
               msg.content
@@ -995,22 +1065,16 @@ export class PiAgentRuntimeManager {
             if (!run.currentMsgCleanText && finalRaw) {
               const cleaned = stripOrdinalPrefix(finalRaw)
               if (cleaned) {
-                if (run.textNeedsBreak && !run.accumulatedCleanText.endsWith('\n\n')) {
-                  run.accumulatedCleanText += run.accumulatedCleanText.endsWith('\n')
-                    ? '\n'
-                    : '\n\n'
-                }
-                run.textNeedsBreak = false
-                run.currentMsgCleanText = cleaned
-                run.accumulatedCleanText += cleaned
+                appendPiCleanText(run, cleaned)
               }
             }
+            run.currentMsgCleanText = stripOrdinalPrefix(run.currentMsgCleanText)
             run.accumulatedCleanText = stripOrdinalPrefix(run.accumulatedCleanText)
-            if (run.accumulatedCleanText) {
+            if (run.currentMsgCleanText) {
               broadcastAskRunEventFromMain({
                 type: 'text',
                 sessionKey,
-                payload: run.accumulatedCleanText,
+                payload: run.currentMsgCleanText,
               })
             }
             if (msg.stopReason === 'error' && msg.errorMessage) {

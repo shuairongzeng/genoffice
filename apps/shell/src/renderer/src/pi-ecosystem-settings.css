@@ -289,3 +289,61 @@
   font: inherit;
   font-size: 12.5px;
 }
+
+.pi-eco-prompt-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pi-eco-prompt-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-6);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pi-eco-prompt-badge[data-custom='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pi-eco-prompt-count {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pi-eco-prompt-textarea {
+  width: 100%;
+  min-height: 180px;
+  max-height: 360px;
+  padding: 10px 12px;
+  border-radius: var(--radius-8);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  resize: vertical;
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast);
+}
+
+.pi-eco-prompt-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.pi-eco-prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

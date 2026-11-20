@@ -79,6 +79,7 @@ import {
 } from '@genoffice/agent-core'
 import { readFile } from 'node:fs/promises'
 import type { PiDocCheckpoint } from '../../shared/pi-agent-api'
+import { GENOFFICE_PI_SYSTEM_PROMPT } from '../../shared/pi-agent-prefs'
 import { STATIC_PROXIED_APP_TOOLS } from '../mcp/app-skill-catalog'
 import type { WorkbenchToolsService } from '../workbench-tools-service'
 
@@ -506,6 +507,8 @@ function buildExecutableWorkbenchSkill(
   ])
 }
 
+export { GENOFFICE_PI_SYSTEM_PROMPT }
+
 /**
  * Snapshot static tool schemas and static system guidance once so Pi's system
  * prompt stays byte-identical across turns (preserving Magic Context M0 cache).
@@ -691,6 +694,12 @@ export function createGenofficeWorkbenchExtension(
   return (pi: ExtensionAPI) => {
     pi.on('before_agent_start', (event) => {
       if (!STATIC_WORKBENCH_SYSTEM_PROMPT.trim()) return undefined
+      const sections = (event as { systemPromptOptions?: { sections?: Record<string, string> } })
+        .systemPromptOptions?.sections
+      if (sections) {
+        sections.genoffice_workbench = STATIC_WORKBENCH_SYSTEM_PROMPT
+        return undefined
+      }
       return {
         systemPrompt: event.systemPrompt
           ? `${event.systemPrompt}\n\n${STATIC_WORKBENCH_SYSTEM_PROMPT}`

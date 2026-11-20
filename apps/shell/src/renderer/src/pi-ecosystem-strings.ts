@@ -39,6 +39,15 @@ export interface PiEcosystemStrings {
   readonly temporalDesc: string
   readonly autoHintsLabel: string
   readonly autoHintsDesc: string
+  readonly secSystemPromptTitle: string
+  readonly systemPromptDesc: string
+  readonly systemPromptBadgeDefault: string
+  readonly systemPromptBadgeCustom: string
+  readonly systemPromptPlaceholder: string
+  readonly savePromptBtn: string
+  readonly resetPromptBtn: string
+  readonly promptSavedMsg: string
+  readonly promptResetMsg: string
   readonly secPackagesTitle: string
   readonly packagesDesc: string
   readonly packagePlaceholder: string
@@ -130,6 +139,16 @@ const EN_STRINGS: PiEcosystemStrings = {
   temporalDesc: 'Inject relative timestamps when Magic Context retrieves past episodes.',
   autoHintsLabel: 'Auto Search Hints',
   autoHintsDesc: 'Attach Magic Context memory retrieval hints when relevant context exists.',
+  secSystemPromptTitle: 'System Prompt',
+  systemPromptDesc:
+    'Customize the core instruction prompt used by the AI assistant across both Pi and Legacy engines. Clear or reset to restore the built-in GenOffice office assistant prompt; changes reload automatically.',
+  systemPromptBadgeDefault: 'Built-in Default',
+  systemPromptBadgeCustom: 'Customized',
+  systemPromptPlaceholder: 'Enter custom system prompt instructions for the AI assistant...',
+  savePromptBtn: 'Save Prompt',
+  resetPromptBtn: 'Reset to Default',
+  promptSavedMsg: 'System prompt saved and applied.',
+  promptResetMsg: 'Restored built-in default system prompt.',
   secPackagesTitle: 'Pi Community Packages',
   packagesDesc:
     'Install Pi packages via npm spec, git URL, or local directory path (e.g. npm:pi-web-access).',
@@ -217,6 +236,16 @@ const ZH_STRINGS: PiEcosystemStrings = {
   temporalDesc: '在 Magic Context 召回历史记忆时附带相对时间线索。',
   autoHintsLabel: '自动检索提示',
   autoHintsDesc: '检测到相关历史线索时自动提示 Magic Context 记忆引用。',
+  secSystemPromptTitle: 'AI 系统提示词',
+  systemPromptDesc:
+    '统一配置 AI 助手的核心系统提示词（同时对 Pi 与传统引擎生效）。保存后自动热重载，下一轮对话立即生效；清空或恢复默认即可回退为 GenOffice 内置办公提示词。',
+  systemPromptBadgeDefault: '内置默认',
+  systemPromptBadgeCustom: '已自定义',
+  systemPromptPlaceholder: '输入自定义系统提示词（角色定位、回答规范、工作偏好等）…',
+  savePromptBtn: '保存提示词',
+  resetPromptBtn: '恢复默认',
+  promptSavedMsg: '系统提示词已保存并生效。',
+  promptResetMsg: '已恢复为内置默认系统提示词。',
   secPackagesTitle: 'Pi 社区扩展包管理',
   packagesDesc: '通过 npm 包名、git 地址或本地路径安装 Pi 扩展包（如 npm:pi-web-access）。',
   packagePlaceholder: 'npm:<包名> 或 git:<地址> 或 /本地路径',
@@ -302,6 +331,16 @@ const ZH_TW_STRINGS: PiEcosystemStrings = {
   temporalDesc: '在 Magic Context 召回歷史記憶時附帶相對時間線索。',
   autoHintsLabel: '自動檢索提示',
   autoHintsDesc: '偵測到相關歷史線索時自動提示 Magic Context 記憶參照。',
+  secSystemPromptTitle: 'AI 系統提示詞',
+  systemPromptDesc:
+    '統一設定 AI 助手的核心系統提示詞（同時對 Pi 與傳統引擎生效）。儲存後自動熱重載，下一輪對話立即生效；清空或還原預設即可恢復為 GenOffice 內建辦公提示詞。',
+  systemPromptBadgeDefault: '內建預設',
+  systemPromptBadgeCustom: '已自訂',
+  systemPromptPlaceholder: '輸入自訂系統提示詞（角色定位、回答規範、工作偏好等）…',
+  savePromptBtn: '儲存提示詞',
+  resetPromptBtn: '還原預設',
+  promptSavedMsg: '系統提示詞已儲存並生效。',
+  promptResetMsg: '已還原為內建預設系統提示詞。',
   secPackagesTitle: 'Pi 社群擴充套件管理',
   packagesDesc: '透過 npm 套件名稱、git 位址或本機路徑安裝 Pi 擴充套件（如 npm:pi-web-access）。',
   packagePlaceholder: 'npm:<套件> 或 git:<網址> 或 /本機路徑',

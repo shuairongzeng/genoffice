@@ -1,4 +1,4 @@
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AGENT_DOCUMENT_KINDS,
   AgentLoop,
@@ -143,6 +143,19 @@ import {
 } from './ask-browser'
 import { artifactFromCall, retryInstruction, settleArtifact, type Artifact } from './ask-artifacts'
 import { finishAskToolActivity, startAskToolActivity, type AskToolActivity } from './ask-activity'
+import {
+  appendReasoningStep,
+  appendTextStep,
+  deriveCombinedText,
+  formatThinkingDuration,
+  hydrateTimelineSteps,
+  recordToolFinishedStep,
+  recordToolStartStep,
+  resolveTimelineSteps,
+  sealStreamingSteps,
+  thinkingPreviewLine,
+  type AskTimelineStep,
+} from './ask-timeline'
 import {
   appendToolNote,
   toolNoteDetail,
@@ -369,25 +382,53 @@ function suggestionPromptKey(suggestion: DocSuggestion): StringKey | null {
   }
 }
 
-/** Collapsible thinking block for one answer: open while the run streams,
- * collapsed afterwards; a manual toggle wins over the live default */
-function KbThinkingBlock({ text, live, label }: { text: string; live: boolean; label: string }) {
+/** Collapsible thinking block for one step: open while the step streams,
+ * collapsed automatically once sealed; a manual toggle wins over the live default */
+function KbThinkingBlock({
+  text,
+  live,
+  label,
+  startedAt,
+  endedAt,
+}: {
+  text: string
+  live: boolean
+  label: string
+  startedAt?: number
+  endedAt?: number
+}) {
   const [open, setOpen] = useState(live)
+  const userToggledRef = useRef(false)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
-    if (live) setOpen(true)
+    if (!userToggledRef.current) setOpen(live)
   }, [live])
   useEffect(() => {
     if (!live || !open || !bodyRef.current) return
     bodyRef.current.scrollTop = bodyRef.current.scrollHeight
   }, [text, live, open])
+  const preview = !open ? thinkingPreviewLine(text) : ''
+  const duration = !live ? formatThinkingDuration(startedAt, endedAt) : null
   return (
     <details
-      className="kb-ask-thinking"
+      className={`kb-ask-thinking${live ? ' kb-ask-thinking-live' : ''}`}
       open={open}
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >
-      <summary>{label}</summary>
+      <summary
+        onClick={() => {
+          userToggledRef.current = true
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            userToggledRef.current = true
+          }
+        }}
+      >
+        <span className="kb-ask-thinking-label">{label}</span>
+        {preview && <span className="kb-ask-thinking-preview">{preview}</span>}
+        {duration && <span className="kb-ask-thinking-duration">{duration}</span>}
+      </summary>
       <div className="kb-ask-thinking-text" ref={bodyRef}>
         {text}
       </div>
@@ -452,6 +493,8 @@ interface AskMessage {
   role: 'user' | 'assistant'
   text: string
   toolNotes: ToolNote[]
+  /** chronological execution steps (thinking / tool / text); live & mirror state */
+  steps?: AskTimelineStep[]
   /** individual tool calls and their outcomes (live/mirror state; not persisted) */
   activities?: AskToolActivity[]
   /** the files this answer set out to build, with their progress (task card) */
@@ -918,34 +961,102 @@ const AskMessageRow = memo(function AskMessageRow({
   const held = m.role === 'assistant' && m.streaming && !showStreaming
   const hasText = m.text.trim().length > 0
   const awaitingConfirm = isLast && confirmCard?.outcome === 'awaiting'
+  const activityMap = useMemo(
+    () => new Map((m.activities ?? []).map((activity) => [activity.id, activity])),
+    [m.activities],
+  )
+  const timelineSteps = m.role === 'assistant' ? resolveTimelineSteps(m) : []
+  let lastTextStepIndex = -1
+  for (let i = timelineSteps.length - 1; i >= 0; i--) {
+    const step = timelineSteps[i]!
+    if (step.kind === 'text' && step.text.trim().length > 0) {
+      lastTextStepIndex = i
+      break
+    }
+  }
+  let subAgentRendered = false
+  const subAgentNode =
+    m.role === 'assistant' && m.subAgent ? (
+      <div className="kb-ask-subagent" role="status">
+        <span className="kb-ask-subagent-label">{t(docAgentLabelKey(m.subAgent.docKind))}</span>
+        <span className="kb-ask-subagent-status">
+          {t(DOC_AGENT_STATUS_LABEL[m.subAgent.kind])}
+          <span className="kb-ask-subagent-dots" aria-hidden="true">
+            …
+          </span>
+        </span>
+      </div>
+    ) : null
+
+  const timelineNodes =
+    m.role === 'assistant'
+      ? timelineSteps.flatMap((step, i) => {
+          if (step.kind === 'thinking') {
+            if (!showThinking || !step.text) return []
+            return [
+              <KbThinkingBlock
+                key={step.id}
+                text={step.text}
+                live={m.streaming === true && step.streaming}
+                label={t('setAiShowThinking')}
+                startedAt={step.startedAt}
+                endedAt={step.endedAt}
+              />,
+            ]
+          }
+          if (step.kind === 'tool') {
+            if (!showToolCalls) return []
+            const activity = activityMap.get(step.activityId)
+            if (!activity) return []
+            const attachSubAgent =
+              subAgentNode !== null &&
+              !subAgentRendered &&
+              activity.status === 'running' &&
+              activity.name === DOCUMENT_AGENT_TOOL
+            if (attachSubAgent) subAgentRendered = true
+            return [
+              <Fragment key={step.id}>
+                <KbToolActivityCard
+                  activity={activity}
+                  label={t(TOOL_NOTE_LABEL[toolNoteKind(activity.call)])}
+                  detail={activity.detail ?? toolNoteDetail(activity.call)}
+                />
+                {attachSubAgent && subAgentNode}
+              </Fragment>,
+            ]
+          }
+          if (held || step.text.trim().length === 0) return []
+          const isFinalAnswer =
+            i === lastTextStepIndex &&
+            !timelineSteps.slice(i + 1).some((later) => later.kind !== 'text')
+          return [
+            <div
+              key={step.id}
+              className={isFinalAnswer ? 'kb-ask-step-answer' : 'kb-ask-step-note'}
+            >
+              <Markdown text={step.text} navs={navs} />
+            </div>,
+          ]
+        })
+      : []
+
+  const showLegacyToolNotes =
+    m.role === 'assistant' &&
+    showToolCalls &&
+    (m.activities?.length ?? 0) === 0 &&
+    m.toolNotes.length > 0
+  const hasVisibleContent =
+    timelineNodes.length > 0 || showLegacyToolNotes || subAgentNode !== null || m.artifacts.length > 0
+
   return (
     <div className={`kb-ask-msg kb-ask-${m.role}${m.isError ? ' kb-ask-error' : ''}`}>
       {m.role === 'user' && m.attachments && <AskAttachments items={m.attachments} />}
       {m.role === 'user' && m.skills && <AiSkillChips lang={lang} names={m.skills} />}
-      {m.role === 'assistant' && isLast && confirmCard && (
-        <AiConfirmCard
-          // session-worded: this panel's always-allow lands in the MAIN-side
-          // app-session set (both mounts, every thread, the whole app run),
-          // and the button's words say exactly that
-          labels={aiSessionConfirmLabels(lang)}
-          card={confirmCard}
-          onAllow={onAllow}
-          onAllowSession={onAllowSession}
-          onDeny={onDeny}
-        />
+      {m.role === 'user' && hasText && m.text}
+      {m.role === 'assistant' && timelineNodes.length > 0 && (
+        <div className="kb-ask-timeline">{timelineNodes}</div>
       )}
-      {m.role === 'assistant' && showToolCalls && (m.activities?.length ?? 0) > 0 ? (
-        <div className="kb-ask-activities">
-          {m.activities!.map((activity) => (
-            <KbToolActivityCard
-              key={activity.id}
-              activity={activity}
-              label={t(TOOL_NOTE_LABEL[toolNoteKind(activity.call)])}
-              detail={activity.detail ?? toolNoteDetail(activity.call)}
-            />
-          ))}
-        </div>
-      ) : m.role === 'assistant' && showToolCalls && m.toolNotes.length > 0 ? (
+      {showLegacyToolNotes && (
         <div className="kb-ask-tools">
           {m.toolNotes.map((note, j) => (
             <span key={j} className="kb-ask-tool-note">
@@ -957,17 +1068,19 @@ const AskMessageRow = memo(function AskMessageRow({
             </span>
           ))}
         </div>
-      ) : null}
-      {m.role === 'assistant' && m.subAgent && (
-        <div className="kb-ask-subagent" role="status">
-          <span className="kb-ask-subagent-label">{t(docAgentLabelKey(m.subAgent.docKind))}</span>
-          <span className="kb-ask-subagent-status">
-            {t(DOC_AGENT_STATUS_LABEL[m.subAgent.kind])}
-            <span className="kb-ask-subagent-dots" aria-hidden="true">
-              …
-            </span>
-          </span>
-        </div>
+      )}
+      {m.role === 'assistant' && subAgentNode !== null && !subAgentRendered && subAgentNode}
+      {m.role === 'assistant' && isLast && confirmCard && (
+        <AiConfirmCard
+          // session-worded: this panel's always-allow lands in the MAIN-side
+          // app-session set (both mounts, every thread, the whole app run),
+          // and the button's words say exactly that
+          labels={aiSessionConfirmLabels(lang)}
+          card={confirmCard}
+          onAllow={onAllow}
+          onAllowSession={onAllowSession}
+          onDeny={onDeny}
+        />
       )}
       {m.role === 'assistant' && m.artifacts.length > 0 && (
         <div className="kb-ask-card" role="list">
@@ -1014,29 +1127,17 @@ const AskMessageRow = memo(function AskMessageRow({
           ))}
         </div>
       )}
-      {m.role === 'assistant' && showThinking && m.reasoning && (
-        <KbThinkingBlock
-          text={m.reasoning}
-          live={m.streaming === true}
-          label={t('setAiShowThinking')}
-        />
-      )}
       {held ? (
         <AiTypingIndicator label={t('askHintBusy')} />
-      ) : hasText ? (
-        m.role === 'assistant' ? (
-          <Markdown text={m.text} navs={navs} />
+      ) : m.role === 'assistant' && m.streaming && !awaitingConfirm ? (
+        hasVisibleContent ? (
+          <div className="kb-ask-live-status">
+            <AiTypingIndicator label={t('askHintBusy')} />
+          </div>
         ) : (
-          m.text
-        )
-      ) : m.streaming && !awaitingConfirm ? (
-        <AiTypingIndicator label={t('askHintBusy')} />
-      ) : null}
-      {m.role === 'assistant' && !held && hasText && m.streaming && !awaitingConfirm && (
-        <div className="kb-ask-live-status">
           <AiTypingIndicator label={t('askHintBusy')} />
-        </div>
-      )}
+        )
+      ) : null}
       {m.role === 'assistant' && m.error && (
         <div className="kb-ask-error-banner" role="alert">
           {m.error}
@@ -1880,8 +1981,12 @@ export function KbAskPanel({
         return
       }
       if (text.trim().length === 0) return
-      if (activeRunRef.current) activeRunRef.current.accText = text
-      patchLast({ text })
+      patchLast((last) => {
+        const steps = appendTextStep(hydrateTimelineSteps(last), text, Date.now())
+        const combined = deriveCombinedText(steps, text)
+        if (activeRunRef.current) activeRunRef.current.accText = combined
+        return { steps, text: combined }
+      })
     },
     onReasoning: (text: string) => {
       if (isActiveRunDetached()) return
@@ -1896,7 +2001,10 @@ export function KbAskPanel({
       }
       reasoningNeedsBreakRef.current = false
       runReasoningRef.current += text
-      patchLast({ reasoning: runReasoningRef.current })
+      patchLast((last) => ({
+        reasoning: runReasoningRef.current,
+        steps: appendReasoningStep(hydrateTimelineSteps(last), text, Date.now()),
+      }))
     },
     onToolExecuted: ({ call, execution }: { call: AgentToolCall; execution: ToolExecution }) => {
       if (isActiveRunDetached()) return
@@ -1916,6 +2024,7 @@ export function KbAskPanel({
         (last) => ({
           activities: finishAskToolActivity(last.activities ?? [], call, execution),
           artifacts: settleArtifact(last.artifacts, call, execution),
+          steps: recordToolFinishedStep(hydrateTimelineSteps(last), call.id, Date.now()),
           // the sub-agent's live line ends with the call that carried it
           ...(call.name === DOCUMENT_AGENT_TOOL ? { subAgent: undefined } : {}),
         }),
@@ -1966,6 +2075,7 @@ export function KbAskPanel({
             detail,
             count: 1,
           }),
+          steps: recordToolStartStep(hydrateTimelineSteps(last), call.id, Date.now()),
         }),
         { sync: true },
       )
@@ -1990,8 +2100,13 @@ export function KbAskPanel({
       patchLast(
         (last) => {
           const hasText = last.text.trim().length > 0
+          const sealed = sealStreamingSteps(hydrateTimelineSteps(last), Date.now())
+          const nextSteps = hasText
+            ? sealed
+            : sealStreamingSteps(appendTextStep(sealed, errorText, Date.now()), Date.now())
           return {
             text: hasText ? last.text : errorText,
+            steps: nextSteps,
             streaming: false,
             isError: !hasText,
             error: hasText ? errorText : undefined,
@@ -2015,6 +2130,7 @@ export function KbAskPanel({
           role: 'assistant',
           text: '',
           toolNotes: [],
+          steps: [],
           activities: [],
           artifacts: [],
           streaming: true,
@@ -3422,6 +3538,10 @@ export function KbAskPanel({
           getSettings: () => settingsRef.current as AiSettings,
           unknownErrorText: () => t('askUnknownError'),
         }),
+        systemSuffix: () => {
+          const custom = piPrefsRef.current.systemPrompt.trim()
+          return custom ? `\n\n${custom}` : ''
+        },
         // the paranoid posture's gate: while the mode answers here, EVERY tool
         // call reaches confirmTool (the gate itself classifies reads and
         // resolves them without a card). A getter read per call, so a mid-
@@ -3711,7 +3831,13 @@ export function KbAskPanel({
     }
     // sync: the finish must repaint now, not on the next frame — Stop and
     // onDone land in the same tick, and busy turns false in the same breath
-    patchLast({ streaming: false }, { sync: true })
+    patchLast(
+      (last) => ({
+        streaming: false,
+        ...(last.steps ? { steps: sealStreamingSteps(last.steps, Date.now()) } : {}),
+      }),
+      { sync: true },
+    )
     updateBusy(false)
     // the finished turn is also the snapshot the mirrors settle to
     if (!mirror) publishSnapshot()
@@ -4071,6 +4197,7 @@ export function KbAskPanel({
           role: 'assistant',
           text: '',
           toolNotes: [],
+          steps: [],
           activities: [],
           artifacts: [],
           streaming: true,
@@ -4125,7 +4252,20 @@ export function KbAskPanel({
         if (result.commandHandled && result.commandOutput) {
           const tail = messagesRef.current[messagesRef.current.length - 1]
           if (tail?.role === 'assistant' && tail.text.trim().length === 0) {
-            patchLast({ text: result.commandOutput, streaming: false }, { sync: true })
+            patchLast(
+              (last) => {
+                const steps = sealStreamingSteps(
+                  appendTextStep(hydrateTimelineSteps(last), result.commandOutput!, Date.now()),
+                  Date.now(),
+                )
+                return {
+                  steps,
+                  text: deriveCombinedText(steps, result.commandOutput!),
+                  streaming: false,
+                }
+              },
+              { sync: true },
+            )
           }
         }
         const settled = messagesRef.current[messagesRef.current.length - 1]
@@ -4257,6 +4397,7 @@ export function KbAskPanel({
         role: 'assistant',
         text: '',
         toolNotes: [],
+        steps: [],
         activities: [],
         artifacts: [],
         streaming: true,

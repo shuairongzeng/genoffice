@@ -14,8 +14,11 @@ import {
 import { getPiEcosystemStrings } from '../src/renderer/src/pi-ecosystem-strings'
 import {
   DEFAULT_PI_AGENT_PREFS,
+  GENOFFICE_PI_SYSTEM_PROMPT,
+  MAX_PI_SYSTEM_PROMPT_CHARS,
   mergePiAgentPrefs,
   normalizePiAgentPrefs,
+  normalizePiSystemPrompt,
   type PiAgentPrefs,
 } from '../src/shared/pi-agent-prefs'
 import type { PiEcosystemOverview, PiMagicMemoryEntry } from '../src/shared/pi-agent-api'
@@ -112,6 +115,14 @@ describe('pi-ecosystem-settings-pane helpers & component', () => {
     expect(merged.engine).toBe('pi')
     expect(merged.magicContextStorageMode).toBe('shared')
     expect(merged.dreamerEnabled).toBe(true)
+
+    expect(DEFAULT_PI_AGENT_PREFS.systemPrompt).toBe('')
+    expect(normalizePiSystemPrompt('   \r\n ')).toBe('')
+    expect(normalizePiSystemPrompt(GENOFFICE_PI_SYSTEM_PROMPT)).toBe('')
+    expect(normalizePiSystemPrompt('  Custom line 1\r\nLine 2  ')).toBe('Custom line 1\nLine 2')
+    expect(normalizePiSystemPrompt('x'.repeat(MAX_PI_SYSTEM_PROMPT_CHARS + 50))).toHaveLength(
+      MAX_PI_SYSTEM_PROMPT_CHARS,
+    )
   })
 
   it('renders PiEcosystemSettingsPane, commits engine toggles, installs packages, and runs diagnostics', async () => {
@@ -243,5 +254,49 @@ describe('pi-ecosystem-settings-pane helpers & component', () => {
     })
     expect(piAgentRunDiagnostics).toHaveBeenCalledTimes(1)
     expect(container.textContent).toContain('Subagent Shim')
+
+    // System prompt customization: prefilled default -> edit & save -> reset to default.
+    const promptTextarea = container.querySelector<HTMLTextAreaElement>(
+      '[data-testid="pi-system-prompt-textarea"]',
+    )
+    const promptBadge = container.querySelector('[data-testid="pi-system-prompt-badge"]')
+    const savePromptBtn = container.querySelector<HTMLButtonElement>(
+      '[data-testid="pi-system-prompt-save"]',
+    )
+    const resetPromptBtn = container.querySelector<HTMLButtonElement>(
+      '[data-testid="pi-system-prompt-reset"]',
+    )
+    expect(promptTextarea).not.toBeNull()
+    expect(promptTextarea!.value).toBe(GENOFFICE_PI_SYSTEM_PROMPT)
+    expect(promptBadge?.getAttribute('data-custom')).toBe('false')
+    expect(savePromptBtn?.disabled).toBe(true)
+    expect(resetPromptBtn?.disabled).toBe(true)
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+      setter?.call(promptTextarea, 'Custom executive assistant instructions')
+      promptTextarea!.dispatchEvent(new Event('input', { bubbles: true }))
+      promptTextarea!.dispatchEvent(new Event('change', { bubbles: true }))
+      await flushMicrotasks()
+    })
+    expect(savePromptBtn?.disabled).toBe(false)
+
+    await act(async () => {
+      savePromptBtn!.click()
+      await flushMicrotasks()
+    })
+    expect(piAgentPrefsSet).toHaveBeenCalledWith({
+      systemPrompt: 'Custom executive assistant instructions',
+    })
+    expect(promptBadge?.getAttribute('data-custom')).toBe('true')
+    expect(resetPromptBtn?.disabled).toBe(false)
+
+    await act(async () => {
+      resetPromptBtn!.click()
+      await flushMicrotasks()
+    })
+    expect(piAgentPrefsSet).toHaveBeenCalledWith({ systemPrompt: '' })
+    expect(promptBadge?.getAttribute('data-custom')).toBe('false')
+    expect(promptTextarea!.value).toBe(GENOFFICE_PI_SYSTEM_PROMPT)
   })
 })
