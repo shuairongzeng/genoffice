@@ -94,7 +94,13 @@ import {
 import type { AiSettings } from '@genoffice/ai-provider'
 import type { Lang } from '@genoffice/i18n'
 import { activeProvider } from '@genoffice/ai-provider/browser'
-import type { ChatMessage, ChatMeta, ProjectApi, RunSummary } from '@genoffice/project-store'
+import type {
+  ChatMessage,
+  ChatMeta,
+  GlobalChatMeta,
+  ProjectApi,
+  RunSummary,
+} from '@genoffice/project-store'
 import { useI18n } from './locale'
 import { MascotSvg, BubbleDragContext } from './AiDock'
 import type { AiPetActivity, AiPetRunSnapshot } from './ai-pet-state'
@@ -113,6 +119,19 @@ import type {
 } from '../../shared/home-api'
 import { AskAttachments } from './AskAttachments'
 import { planPendingAskQuery, type PendingAskQuery } from './ask-intent'
+import {
+  deriveActiveTabBinding,
+  docExtraChatId,
+  filterCurrentDocThreads,
+  planThreadClaim,
+  sameDocPath,
+  sessionKeyOf,
+  shouldAcceptMirrorEvent,
+  unsavedTabChatId,
+  type ActiveTabBinding,
+  type SessionTarget,
+} from './ask-session-binding'
+import { SESSIONS_CENTER_STRINGS } from './sessions-center-strings'
 import { suggestForDocument, type DocSuggestion } from './doc-suggestions'
 import {
   browserAskEvidenceSuffix,
@@ -487,6 +506,7 @@ const docNameOf = (path: string): string => path.split(/[\\/]/).pop() ?? path
 /** one library row: everything the row renders, derived once (pure) */
 export interface LibraryThread {
   readonly chatId: string
+  readonly projectId?: string
   /**
    * The honest label: the rename's title override first, then — for a
    * doc-bound thread — the document's own name, then the first question,
@@ -495,9 +515,12 @@ export interface LibraryThread {
   readonly label: string
   readonly updatedAt: string
   readonly approxCount: number
+  readonly messageCount?: number
   readonly pinned: boolean
+  readonly hasCustomTitle?: boolean
   /** the document this thread follows (the 跟着文档走 section's rows) */
   readonly docPath?: string
+  readonly docExists?: boolean
 }
 
 /**
@@ -527,6 +550,7 @@ export function libraryThreads(
     )
     .map((meta) => ({
       chatId: meta.chatId,
+      ...(meta.projectId === undefined ? {} : { projectId: meta.projectId }),
       label:
         meta.title ??
         (meta.docPath !== undefined
@@ -534,8 +558,47 @@ export function libraryThreads(
           : meta.firstQuestion?.replace(/\s+/g, ' ').trim().slice(0, 60) || meta.chatId),
       updatedAt: meta.updatedAt,
       approxCount: meta.approxCount,
+      ...(meta.messageCount === undefined ? {} : { messageCount: meta.messageCount }),
       pinned: meta.pinned === true,
+      ...(meta.title !== undefined && meta.title.trim() !== '' ? { hasCustomTitle: true } : {}),
       ...(meta.docPath === undefined ? {} : { docPath: meta.docPath }),
+      ...(meta.docExists === undefined ? {} : { docExists: meta.docExists }),
+    }))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  return {
+    pinned: rows.filter((row) => row.pinned),
+    docs: rows.filter((row) => !row.pinned && row.docPath !== undefined),
+    other: rows.filter((row) => !row.pinned && row.docPath === undefined),
+  }
+}
+
+function globalMetasToLibrarySections(
+  metas: readonly GlobalChatMeta[],
+  familyRoot: string,
+): { pinned: LibraryThread[]; docs: LibraryThread[]; other: LibraryThread[] } {
+  const rows: LibraryThread[] = metas
+    .filter(
+      (meta) =>
+        meta.docPath !== undefined ||
+        meta.chatId === familyRoot ||
+        meta.chatId.startsWith(`${familyRoot}-`) ||
+        meta.chatId.startsWith('tab-'),
+    )
+    .map((meta) => ({
+      chatId: meta.chatId,
+      projectId: meta.projectId,
+      label:
+        meta.title ??
+        (meta.docPath !== undefined
+          ? docNameOf(meta.docPath)
+          : meta.firstQuestion?.replace(/\s+/g, ' ').trim().slice(0, 60) || meta.chatId),
+      updatedAt: meta.updatedAt,
+      approxCount: meta.approxCount,
+      messageCount: meta.messageCount,
+      pinned: meta.pinned === true,
+      ...(meta.title !== undefined && meta.title.trim() !== '' ? { hasCustomTitle: true } : {}),
+      ...(meta.docPath === undefined ? {} : { docPath: meta.docPath }),
+      ...(meta.docExists === undefined ? {} : { docExists: meta.docExists }),
     }))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   return {
@@ -1085,6 +1148,9 @@ export function KbAskPanel({
   onEscapeCollapse,
   onCollapse,
   onOpenKbCenter,
+  onOpenSessionsCenter,
+  requestedSession,
+  onRequestedSessionConsumed,
   onBubbleDragStart,
   surfaceRole = 'home',
   mirror = false,
@@ -1132,6 +1198,11 @@ export function KbAskPanel({
    * shows the corpus count alone.
    */
   onOpenKbCenter?: () => void
+  /** Opens the global AI Sessions center view from the library footer/menu. */
+  onOpenSessionsCenter?: () => void
+  /** Explicit session jump requested from the AI Sessions center. */
+  requestedSession?: (SessionTarget & { readonly seq: number }) | null
+  onRequestedSessionConsumed?: () => void
   /**
    * Which mount's copy this panel is (the surface context's visibility line
    * differs): 'home' — the docked drawer beside the Home desktop — or
@@ -1313,8 +1384,10 @@ export function KbAskPanel({
   const [remoteConfirmCard, setRemoteConfirmCard] = useState<ToolConfirmCard | null>(null)
   useEffect(() => {
     if (mirror) return
+    const key = currentSessionKeyRef.current ?? undefined
     window.aiOffice?.askRunEvent?.({
       type: 'confirm-state',
+      ...(key ? { sessionKey: key } : {}),
       payload: {
         pending: confirm.card?.outcome === 'awaiting',
         card: confirm.card,
@@ -1416,8 +1489,29 @@ export function KbAskPanel({
   const docPath = docIdentity?.path ?? null
   /** thread path pinned while a run is active so opening a browser tab mid-run never tears down the loop */
   const [boundDocPath, setBoundDocPath] = useState<string | null>(null)
-  /** the previous pass's boundDocPath: the switch watcher's edge detector */
-  const prevDocPathRef = useRef<string | null>(null)
+  /** Active bindable tab identity (includes unsaved new documents keyed by tabId). */
+  const [activeTabBinding, setActiveTabBinding] = useState<ActiveTabBinding | null>(null)
+  const activeTabBindingRef = useRef<ActiveTabBinding | null>(null)
+  const [boundUnsavedTabId, setBoundUnsavedTabId] = useState<string | null>(null)
+  /** Explicit session selection (thread switch, new thread in doc, or sessions center jump). */
+  const [explicitTarget, setExplicitTarget] = useState<SessionTarget | null>(null)
+  const explicitTargetRef = useRef<SessionTarget | null>(null)
+  explicitTargetRef.current = explicitTarget
+  const requestedDocLockRef = useRef<SessionTarget | null>(null)
+  const tabLastPathRef = useRef(new Map<string, string | null>())
+  const pendingRebindPromiseRef = useRef<Promise<unknown> | null>(null)
+  const preserveMessagesForRebindRef = useRef<{ fromChatId: string; toDocPath: string } | null>(
+    null,
+  )
+  const currentSessionKeyRef = useRef<string | null>(null)
+  const activeRunRef = useRef<{
+    sessionKey: string
+    ids: { projectId: string; chatId: string }
+    docPath: string | null
+    accText: string
+  } | null>(null)
+  /** Tracks the last claimed identity key to trigger teardown cleanly on switch. */
+  const prevThreadKeyRef = useRef<string | null>(null)
   /** whether the claim effect has run once: the first claim has no thread to leave */
   const hasClaimedRef = useRef(false)
   /**
@@ -1481,21 +1575,92 @@ export function KbAskPanel({
     const tabs = surfaceTabsRef.current
     const activeKind = tabs?.find((t) => t.active)?.kind ?? null
     setActiveTabKind((prev) => (prev === activeKind ? prev : activeKind))
-    const active = tabs?.find(
-      (t) =>
-        t.active &&
-        (AGENT_DOCUMENT_KINDS.has(t.kind) || t.kind === 'media') &&
-        t.filePath !== undefined &&
-        t.filePath !== '',
-    )
-    const next = active
-      ? { path: active.filePath as string, kind: active.kind, title: active.title }
-      : null
-    setDocIdentity((prev) => (prev?.path === next?.path ? prev : next))
-    if (!busyRef.current && !loopRef.current?.busy) {
-      const nextPath = next?.path ?? null
-      setBoundDocPath((prev) => (prev === nextPath ? prev : nextPath))
+    const nextBinding = deriveActiveTabBinding(tabs)
+    const nextSaved =
+      nextBinding && nextBinding.filePath !== null
+        ? { path: nextBinding.filePath, kind: nextBinding.kind, title: nextBinding.title }
+        : null
+    setDocIdentity((prev) => (prev?.path === nextSaved?.path ? prev : nextSaved))
+
+    // Detect an unsaved draft tab acquiring a file path for the first time and rebind its history.
+    if (nextBinding && nextBinding.filePath !== null) {
+      const prevTabPath = tabLastPathRef.current.get(nextBinding.tabId)
+      if (prevTabPath === null) {
+        const tempChatId = unsavedTabChatId(nextBinding.tabId)
+        const currentIds = chatIdsRef.current
+        const fromProjectId =
+          currentIds && currentIds.chatId === tempChatId ? currentIds.projectId : 'default'
+        if (currentIds && currentIds.chatId === tempChatId) {
+          preserveMessagesForRebindRef.current = {
+            fromChatId: tempChatId,
+            toDocPath: nextBinding.filePath,
+          }
+        }
+        const rebindCall = window.projectApi?.rebindChat?.({
+          projectId: fromProjectId,
+          tempChatId,
+          newFilePath: nextBinding.filePath,
+        })
+        if (rebindCall) {
+          pendingRebindPromiseRef.current = rebindCall.catch(() => undefined)
+        }
+      }
     }
+    if (nextBinding) {
+      tabLastPathRef.current.set(nextBinding.tabId, nextBinding.filePath)
+    }
+
+    const isBusy = busyRef.current || Boolean(loopRef.current?.busy)
+    // Keep non-document active runs (e.g. browser/home) pinned until the run settles.
+    if (!mirror && isBusy && nextBinding === null && activeTabBindingRef.current !== null) {
+      return
+    }
+    if (!mirror && isBusy && activeTabBindingRef.current !== null) {
+      const sameSavedUpgrade =
+        nextBinding !== null &&
+        nextBinding.tabId === activeTabBindingRef.current.tabId &&
+        activeTabBindingRef.current.filePath === null &&
+        nextBinding.filePath !== null
+      if (!sameSavedUpgrade) return
+    }
+
+    const prevBinding = activeTabBindingRef.current
+    const prevKey = prevBinding ? `${prevBinding.tabId}:${prevBinding.filePath ?? ''}` : null
+    const nextKey = nextBinding ? `${nextBinding.tabId}:${nextBinding.filePath ?? ''}` : null
+    if (prevKey !== nextKey) {
+      const upgradedSameTab =
+        prevBinding !== null &&
+        nextBinding !== null &&
+        prevBinding.tabId === nextBinding.tabId &&
+        prevBinding.filePath === null &&
+        nextBinding.filePath !== null
+      if (upgradedSameTab) {
+        // Explicit target for a temp thread cannot outlive a saved path upgrade unless locked.
+        if (explicitTargetRef.current && explicitTargetRef.current.docPath == null) {
+          explicitTargetRef.current = null
+          setExplicitTarget(null)
+        }
+      } else {
+        const lock = requestedDocLockRef.current
+        if (lock && nextBinding?.filePath && sameDocPath(nextBinding.filePath, lock.docPath)) {
+          explicitTargetRef.current = lock
+          setExplicitTarget(lock)
+          requestedDocLockRef.current = null
+        } else if (explicitTargetRef.current !== null) {
+          if (lock === null) {
+            explicitTargetRef.current = null
+            setExplicitTarget(null)
+          }
+        }
+      }
+    }
+
+    activeTabBindingRef.current = nextBinding
+    setActiveTabBinding(nextBinding)
+    const nextPath = nextBinding?.filePath ?? null
+    setBoundDocPath((prev) => (prev === nextPath ? prev : nextPath))
+    const nextUnsavedId = nextBinding && nextBinding.filePath === null ? nextBinding.tabId : null
+    setBoundUnsavedTabId((prev) => (prev === nextUnsavedId ? prev : nextUnsavedId))
   }
   // the lineage query rides the doc binding: activation and every switch
   // re-ask for the document's AI origin (a record landing between tabs is
@@ -1619,6 +1784,8 @@ export function KbAskPanel({
    *  mid-run mount pulls instead of starting blank) */
   function publishSnapshot(): void {
     if (mirror) return
+    const key = currentSessionKeyRef.current ?? undefined
+    const ids = chatIdsRef.current
     const last = messagesRef.current[messagesRef.current.length - 1]
     const isBusy = busyRef.current || Boolean(loopRef.current?.busy)
     const liveRun =
@@ -1627,7 +1794,11 @@ export function KbAskPanel({
         : null
     window.aiOffice?.askRunEvent?.({
       type: 'snapshot',
+      ...(key ? { sessionKey: key } : {}),
       payload: {
+        ...(key ? { sessionKey: key } : {}),
+        ...(ids ? { projectId: ids.projectId, chatId: ids.chatId } : {}),
+        docPath: claimedDocPathRef.current,
         messages: messagesRef.current,
         liveRun,
         confirmCard: confirmCardRef.current,
@@ -1635,16 +1806,31 @@ export function KbAskPanel({
     })
   }
 
+  const isActiveRunDetached = (): boolean =>
+    Boolean(
+      !mirror &&
+        activeRunRef.current &&
+        activeRunRef.current.sessionKey !== currentSessionKeyRef.current,
+    )
+
   /* ── the run-event handlers, shared by this mount's own loop AND by the
    * mirror mounts' relay (pub/sub): Home's loop publishes each event over
    * home:ask-run-event, a mirror mount applies the relayed event through
    * the SAME handlers, so both mounts render one identical run. */
   const runEventHandlers = {
     onText: (text: string) => {
+      if (isActiveRunDetached()) {
+        if (activeRunRef.current && text.trim().length > 0) {
+          activeRunRef.current.accText = text
+        }
+        return
+      }
       if (text.trim().length === 0) return
+      if (activeRunRef.current) activeRunRef.current.accText = text
       patchLast({ text })
     },
     onReasoning: (text: string) => {
+      if (isActiveRunDetached()) return
       if (!text) return
       if (
         reasoningNeedsBreakRef.current &&
@@ -1658,6 +1844,7 @@ export function KbAskPanel({
       patchLast({ reasoning: runReasoningRef.current })
     },
     onToolExecuted: ({ call, execution }: { call: AgentToolCall; execution: ToolExecution }) => {
+      if (isActiveRunDetached()) return
       reasoningNeedsBreakRef.current = true
       // a successful create_document names the file it saved: the lineage
       // record's path half (the settled artifact parse's own regex)
@@ -1681,6 +1868,7 @@ export function KbAskPanel({
       )
     },
     onToolStart: (call: AgentToolCall) => {
+      if (isActiveRunDetached()) return
       // a delegated task begins its rolling status line immediately — sync
       if (call.name === DOCUMENT_AGENT_TOOL) {
         const docKind = docIdentityRef.current?.kind
@@ -1721,11 +1909,16 @@ export function KbAskPanel({
       finishLast()
     },
     onUsage: (usage: AgentTokenUsage) => {
+      if (isActiveRunDetached()) return
       runUsageRef.current = addTokenUsage(runUsageRef.current, usage)
       setSessionUsage((prev) => addTokenUsage(prev, usage))
       patchLast({ usage: runUsageRef.current }, { sync: true })
     },
     onError: (error: string) => {
+      if (isActiveRunDetached()) {
+        activeRunRef.current = null
+        return
+      }
       reasoningNeedsBreakRef.current = false
       const errorText = error || tRef.current('askUnknownError')
       patchLast(
@@ -1830,14 +2023,32 @@ export function KbAskPanel({
     ])
   }
   const stopLocalRunRef = useRef<() => void>(() => {})
+  const syncExplicitTargetFromRelayRef = useRef<(target: SessionTarget) => void>(() => {})
 
-  // sync checkpoint rollback, confirmation clicks, and stop actions across Home and mirror mounts
+  // sync checkpoint rollback, confirmation clicks, session switch, and stop actions across Home and mirror mounts
   useEffect(() => {
     if (mirror) return
     const api = window.aiOffice as Partial<HomeApi>
     const off = api.onAskRunEvent?.((evt) => {
       if (evt.type === 'checkpoint-updated') {
-        applyRunEvent(evt.type, evt.payload)
+        if (shouldAcceptMirrorEvent(evt.sessionKey, currentSessionKeyRef.current)) {
+          applyRunEvent(evt.type, evt.payload)
+        }
+      } else if (evt.type === 'switch-session') {
+        const target = evt.payload as Partial<SessionTarget> | null | undefined
+        if (
+          target &&
+          typeof target.projectId === 'string' &&
+          target.projectId !== '' &&
+          typeof target.chatId === 'string' &&
+          target.chatId !== ''
+        ) {
+          syncExplicitTargetFromRelayRef.current({
+            projectId: target.projectId,
+            chatId: target.chatId,
+            docPath: target.docPath ?? null,
+          })
+        }
       } else if (evt.type === 'confirm-action') {
         const action = (evt.payload as { action?: string } | null | undefined)?.action
         if (action === 'allow') confirmRef.current.allow()
@@ -1852,25 +2063,53 @@ export function KbAskPanel({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- syncs mirror interactions and checkpoints into Home
   }, [mirror])
-  // the mirror mount's subscriptions: the snapshot + every later run event
+  // the mirror mount's subscriptions: the snapshot + every later run event filtered by sessionKey
   useEffect(() => {
     if (!mirror) return
     const api = window.aiOffice as Partial<HomeApi>
     let mounted = true
-    void api.askRunSnapshot?.().then((snap) => {
-      if (!mounted || !snap) return
-      const msgs = snap.messages as AskMessage[]
-      const last = msgs[msgs.length - 1]
-      runReasoningRef.current =
-        last?.role === 'assistant' && last.streaming
-          ? (last.reasoning ?? snap.liveRun?.reasoning ?? '')
-          : ''
-      reasoningNeedsBreakRef.current = false
-      mutateMessages(() => msgs)
-      updateBusy(snap.liveRun?.busy ?? false)
-      setRemoteConfirmCard((snap.confirmCard as ToolConfirmCard | null | undefined) ?? null)
-    })
+    if (!window.projectApi) {
+      void api.askRunSnapshot?.().then((snap) => {
+        if (!mounted || !snap) return
+        const msgs = snap.messages as AskMessage[]
+        const last = msgs[msgs.length - 1]
+        runReasoningRef.current =
+          last?.role === 'assistant' && last.streaming
+            ? (last.reasoning ?? snap.liveRun?.reasoning ?? '')
+            : ''
+        reasoningNeedsBreakRef.current = false
+        mutateMessages(() => msgs)
+        updateBusy(snap.liveRun?.busy ?? false)
+        setRemoteConfirmCard((snap.confirmCard as ToolConfirmCard | null | undefined) ?? null)
+      })
+    }
     const off = api.onAskRunEvent?.((evt) => {
+      if (evt.type === 'switch-session') {
+        const target = evt.payload as Partial<SessionTarget> | null | undefined
+        if (
+          target &&
+          typeof target.projectId === 'string' &&
+          target.projectId !== '' &&
+          typeof target.chatId === 'string' &&
+          target.chatId !== ''
+        ) {
+          const nextKey = sessionKeyOf(target.projectId, target.chatId)
+          if (nextKey !== currentSessionKeyRef.current) {
+            syncExplicitTargetFromRelayRef.current({
+              projectId: target.projectId,
+              chatId: target.chatId,
+              docPath: target.docPath ?? null,
+            })
+          }
+        }
+        return
+      }
+      const eventKey =
+        evt.sessionKey ??
+        (evt.type === 'snapshot' && evt.payload && typeof evt.payload === 'object'
+          ? (evt.payload as { sessionKey?: string }).sessionKey
+          : undefined)
+      if (!shouldAcceptMirrorEvent(eventKey, currentSessionKeyRef.current)) return
       if (evt.type === 'snapshot') {
         const snap = evt.payload as {
           messages: AskMessage[]
@@ -2184,12 +2423,30 @@ export function KbAskPanel({
     }
   }, [])
 
+  const effectiveDocPath =
+    explicitTarget !== null ? (explicitTarget.docPath ?? null) : boundDocPath
+  const threadIdentityKey = explicitTarget
+    ? `target:${explicitTarget.projectId}:${explicitTarget.chatId}:${explicitTarget.docPath ?? ''}`
+    : boundDocPath
+      ? `doc:${boundDocPath}`
+      : boundUnsavedTabId
+        ? `unsaved:${boundUnsavedTabId}:${activeChat}`
+        : `home:${activeChat}`
+
+  /** Keeps live messages intact during a first-save temp-to-doc rebind. */
+  const skipRestoreForRebindRef = useRef(false)
+
   const persist = (entry: { role: 'user' | 'assistant'; text: string }): void => {
+    const runKey = currentSessionKeyRef.current ?? undefined
     // mirror mode: no store writes (Home is the single writer) — but the
     // event still goes out so every other mount sees the new turn
     if (mirror) {
       if (entry.role === 'user') {
-        window.aiOffice?.askRunEvent?.({ type: 'user-message', payload: entry })
+        window.aiOffice?.askRunEvent?.({
+          type: 'user-message',
+          ...(runKey ? { sessionKey: runKey } : {}),
+          payload: entry,
+        })
       }
       publishSnapshot()
       return
@@ -2202,96 +2459,149 @@ export function KbAskPanel({
     }
     void window.projectApi?.appendChat({ ...ids, ...entry }).catch(() => undefined)
     // a new turn is also the snapshot every mirror mount aligns to
-    if (entry.role === 'user') publishSnapshot()
+    if (entry.role === 'user' && !isActiveRunDetached()) publishSnapshot()
   }
 
   useEffect(() => {
-    // A tab switch that moves the panel between document threads tears the
-    // old one down exactly like a chip click does: the messages, the loop's
-    // restored history and the queued turns belong to the thread being left.
-    // The mount's first pass (null → null, or the initial pull landing)
-    // has nothing to leave; `hasClaimedRef` keeps the FIRST real claim from
-    // tearing down an empty panel.
-    if (prevDocPathRef.current === boundDocPath) return
+    if (prevThreadKeyRef.current === threadIdentityKey) return
     const hadThread = hasClaimedRef.current
-    prevDocPathRef.current = boundDocPath
+    prevThreadKeyRef.current = threadIdentityKey
+    const preserve = preserveMessagesForRebindRef.current
+    if (preserve && boundDocPath && sameDocPath(preserve.toDocPath, boundDocPath)) {
+      preserveMessagesForRebindRef.current = null
+      skipRestoreForRebindRef.current = true
+      return
+    }
     if (hadThread) leaveThread()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- leaveThread is the panel's stable teardown verb
-  }, [boundDocPath])
+  }, [threadIdentityKey, boundDocPath])
 
   useEffect(() => {
-    // Claim whichever thread is active — the active document's when the
-    // panel is doc-bound, else the family root (the fixed home thread on
-    // mount, the chosen id after a chip click or a new thread). The claim
-    // waits for the first surface pull so a panel opened over a docs tab
-    // claims the document's thread from the start. The ids resolve in the
-    // background, so a turn asked before they land is queued by persist()
-    // and flushed here rather than lost.
     if (!surfaceSettled) return
     const api = window.projectApi
     if (!api) return
     let current = true
     hasClaimedRef.current = true
-    // a question asked while the thread was loading stays on screen, below it
+    const keepForRebind = skipRestoreForRebindRef.current
+    skipRestoreForRebindRef.current = false
     const show = (restored: AskMessage[]): void => {
+      if (keepForRebind) return
       mutateMessages((prev) => [...restored, ...prev])
       loopRef.current?.restore(restored.map((m) => ({ role: m.role, text: m.text })))
     }
     cliContextRef.current = null
-    sentAttachmentsRef.current = []
+    if (!keepForRebind) sentAttachmentsRef.current = []
+    const plan = planThreadClaim({
+      activeTab: activeTabBindingRef.current,
+      explicitTarget,
+      fallbackChatId: activeChat,
+    })
+    const cliKey =
+      plan.mode === 'explicit'
+        ? plan.chatId
+        : plan.mode === 'unsaved-tab'
+          ? plan.tempChatId
+          : activeChat
     void window.aiOffice
-      .kbCliContext?.(activeChat)
+      .kbCliContext?.(cliKey)
       .then((ctx) => {
         if (current) cliContextRef.current = ctx
       })
       .catch(() => undefined)
-    void claimThread(
-      api,
-      boundDocPath ? { docPath: boundDocPath, chatId: activeChat } : { chatId: activeChat },
-      pendingRef.current,
-      show,
-      () => current,
-    )
-      .then((ids) => {
+    const runClaim = async (): Promise<void> => {
+      if (pendingRebindPromiseRef.current) {
+        await pendingRebindPromiseRef.current.catch(() => undefined)
         if (!current) return
-        chatIdsRef.current = ids
-        setClaimedChatId(ids.chatId)
-        // the seed's authority: this claim ran for THIS boundDocPath (null for a
-        // family claim), after the history restore inside the claim — an
-        // ask that follows it is provably in the thread the identity says
-        claimedDocPathRef.current = boundDocPath
+      }
+      let ids: { projectId: string; chatId: string }
+      if (plan.mode === 'explicit') {
+        ids = { projectId: plan.projectId, chatId: plan.chatId }
+        const stored = await api.loadChat({ ...ids, limit: MAX_ASK_ENTRIES })
+        if (!current) return
+        if (stored.length > 0) show(restoreAskMessages(stored))
+        for (const entry of pendingRef.current.splice(0)) {
+          await api.appendChat({ ...ids, ...entry })
+        }
+      } else {
+        const identity: PanelThreadIdentity =
+          plan.mode === 'doc' ? { docPath: plan.docPath, chatId: activeChat } : { chatId: plan.tempChatId }
+        ids = await claimThread(api, identity, pendingRef.current, show, () => current)
+      }
+      if (!current) return
+      chatIdsRef.current = ids
+      const nextKey = sessionKeyOf(ids.projectId, ids.chatId)
+      currentSessionKeyRef.current = nextKey
+      setClaimedChatId(ids.chatId)
+      claimedDocPathRef.current =
+        plan.mode === 'explicit' ? plan.docPath : plan.mode === 'doc' ? plan.docPath : null
+      if (keepForRebind && activeRunRef.current) {
+        activeRunRef.current = {
+          ...activeRunRef.current,
+          sessionKey: nextKey,
+          ids,
+          docPath: claimedDocPathRef.current,
+        }
+      }
+      if (!mirror) {
         for (const entry of pendingRef.current.splice(0)) persist(entry)
-        // the first snapshot the mirror mounts align to: the restored
-        // transcript plus whatever is streaming now
-        if (!mirror) publishSnapshot()
-      })
-      .catch(() => undefined)
+        publishSnapshot()
+      } else {
+        const snap = await window.aiOffice?.askRunSnapshot?.(nextKey).catch(() => null)
+        if (!current || !snap) return
+        const snapKey =
+          snap.sessionKey ??
+          (snap.projectId && snap.chatId ? sessionKeyOf(snap.projectId, snap.chatId) : undefined)
+        if (snapKey && snapKey !== nextKey) return
+        if (snap.liveRun?.busy || snap.confirmCard || snap.messages.length > 0) {
+          const msgs = snap.messages as AskMessage[]
+          const last = msgs[msgs.length - 1]
+          runReasoningRef.current =
+            last?.role === 'assistant' && last.streaming
+              ? (last.reasoning ?? snap.liveRun?.reasoning ?? '')
+              : ''
+          reasoningNeedsBreakRef.current = false
+          mutateMessages(() => msgs)
+          updateBusy(snap.liveRun?.busy ?? false)
+          setRemoteConfirmCard((snap.confirmCard as ToolConfirmCard | null | undefined) ?? null)
+        }
+      }
+    }
+    void runClaim().catch(() => undefined)
     void refreshThreads(api)
     return () => {
       current = false
     }
-    // mutateMessages is identity-stable (ref + setter only), so it never
-    // re-triggers the claim; refreshThreads reads live refs (the doc
-    // binding, the store) — its identity is deliberately not a dependency
+    // refreshThreads reads live refs by design; deps track resolved thread identity
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boundDocPath, activeChat, surfaceSettled, mutateMessages])
+  }, [
+    threadIdentityKey,
+    boundDocPath,
+    boundUnsavedTabId,
+    activeChat,
+    explicitTarget,
+    surfaceSettled,
+    mutateMessages,
+  ])
 
   const refreshThreads = async (api: ProjectApi, queryArg?: string): Promise<void> => {
     try {
-      // the family root this mount lists: the document's own chatId when
-      // doc-bound (the doc's hash id plus the -ts threads this panel starts
-      // — a prefix-disjoint family, same rule as the mounts' roots), else
-      // the mount's root. The family rule decides the plain rows; the
-      // doc-bound rows (the store's path-mapped threads, named by their
-      // files) join them in the library — libraryThreads sections the one
-      // list. The query rides the same call: the store filters by label or
-      // stored text, so the search box is live with one channel.
-      const docPath = docIdentityRef.current?.path ?? null
-      const ids = docPath
-        ? await api.resolveChat({ filePath: docPath })
-        : await api.resolveChat({ filePath: null, tempChatId: chatId })
+      const currentDocPath = explicitTargetRef.current
+        ? (explicitTargetRef.current.docPath ?? null)
+        : (docIdentityRef.current?.path ?? null)
+      const unsavedId =
+        activeTabBindingRef.current && activeTabBindingRef.current.filePath === null
+          ? unsavedTabChatId(activeTabBindingRef.current.tabId)
+          : null
+      const ids = currentDocPath
+        ? await api.resolveChat({ filePath: currentDocPath })
+        : await api.resolveChat({ filePath: null, tempChatId: unsavedId ?? chatId })
       libraryProjectIdRef.current = ids.projectId
       const query = queryArg === undefined ? '' : queryArg
+      if (typeof api.listAllChats === 'function') {
+        const allMetas = await api.listAllChats(query === '' ? undefined : { query })
+        setThreads(globalMetasToLibrarySections(allMetas, ids.chatId))
+        return
+      }
       const metas = await api.listChats({
         projectId: ids.projectId,
         ...(query === '' ? {} : { query }),
@@ -2303,46 +2613,124 @@ export function KbAskPanel({
   }
 
   // The model's history and the stored ids belong to the thread being left;
-  // a question typed before the next claim resolves queues in pendingRef.
-  // The round scope belongs to the conversation it was attached in: a new
-  // thread or a switch must not carry the old selection's corpus along. The
-  // app-session allow set deliberately does NOT reset here: it is the
-  // person's trust, not the thread's state (see sessionAllows above).
+  // clear session identity refs before loop reset so any cancel/done callback
+  // cannot write back into the upcoming thread.
   const leaveThread = (): void => {
+    currentSessionKeyRef.current = null
+    chatIdsRef.current = null
+    claimedDocPathRef.current = null
     loopRef.current?.reset()
     confirm.clear()
     setRemoteConfirmCard(null)
     updateBusy(false)
-    chatIdsRef.current = null
-    // the doc claim being left is no longer the seed's authority: an ask
-    // before the next claim resolves writes into a thread that is not yet
-    // provably the document's, so it must not carry the lineage line
-    claimedDocPathRef.current = null
     pendingRef.current = []
     mutateMessages(() => [])
     setAttachedSkills([])
     clearScope()
-    // staged files belong to the thread they were dropped into
     setAttachments([])
     sentAttachmentsRef.current = []
   }
 
-  /** Switching is a state change: the effect re-reads whichever thread is now active. */
-  const openThread = (chatId: string): void => {
-    leaveThread()
-    setActiveChat(chatId)
+  /** Switching is a state change: updates target and syncs peer panels. */
+  const openThread = (
+    target:
+      | string
+      | { chatId: string; projectId?: string; docPath?: string | null },
+  ): void => {
+    const targetChatId = typeof target === 'string' ? target : target.chatId
+    const row = [...threads.pinned, ...threads.docs, ...threads.other].find(
+      (entry) => entry.chatId === targetChatId,
+    )
+    const projectId =
+      (typeof target === 'object' ? target.projectId : undefined) ??
+      row?.projectId ??
+      libraryProjectIdRef.current
+    const targetDocPath =
+      typeof target === 'object' && 'docPath' in target
+        ? (target.docPath ?? null)
+        : (row?.docPath ?? null)
+    const nextTarget: SessionTarget = {
+      projectId,
+      chatId: targetChatId,
+      docPath: targetDocPath,
+    }
+    if (
+      targetDocPath &&
+      !sameDocPath(docIdentityRef.current?.path ?? null, targetDocPath) &&
+      typeof window.aiOffice?.openPath === 'function'
+    ) {
+      requestedDocLockRef.current = nextTarget
+      window.aiOffice.openPath(targetDocPath).catch(() => undefined)
+    } else {
+      requestedDocLockRef.current = null
+      explicitTargetRef.current = nextTarget
+      setExplicitTarget(nextTarget)
+    }
+    window.aiOffice?.askRunEvent?.({
+      type: 'switch-session',
+      sessionKey: sessionKeyOf(projectId, targetChatId),
+      payload: nextTarget,
+    })
   }
 
-  /** A fresh id, so a new thread does not append to the one being read. */
-  const startThread = (): void => {
+  /** Starts a fresh thread scoped to the active saved/unsaved document or home root. */
+  const startThread = async (): Promise<void> => {
+    const api = window.projectApi
+    const activeDoc = effectiveDocPath
+    if (activeDoc) {
+      const baseIds = api
+        ? await api.resolveChat({ filePath: activeDoc }).catch(() => null)
+        : null
+      const projectId = baseIds?.projectId ?? chatIdsRef.current?.projectId ?? libraryProjectIdRef.current
+      const baseChat = baseIds?.chatId ?? chatIdsRef.current?.chatId ?? activeChat
+      const nextChatId = docExtraChatId(baseChat, Date.now())
+      if (api?.setChatMeta) {
+        await api.setChatMeta({ projectId, chatId: nextChatId, docPath: activeDoc }).catch(() => undefined)
+      }
+      const nextTarget: SessionTarget = { projectId, chatId: nextChatId, docPath: activeDoc }
+      requestedDocLockRef.current = null
+      explicitTargetRef.current = nextTarget
+      setExplicitTarget(nextTarget)
+      window.aiOffice?.askRunEvent?.({
+        type: 'switch-session',
+        sessionKey: sessionKeyOf(projectId, nextChatId),
+        payload: nextTarget,
+      })
+      return
+    }
+    if (boundUnsavedTabId) {
+      const nextChatId = docExtraChatId(unsavedTabChatId(boundUnsavedTabId), Date.now())
+      const nextTarget: SessionTarget = { projectId: 'default', chatId: nextChatId, docPath: null }
+      requestedDocLockRef.current = null
+      explicitTargetRef.current = nextTarget
+      setExplicitTarget(nextTarget)
+      window.aiOffice?.askRunEvent?.({
+        type: 'switch-session',
+        sessionKey: sessionKeyOf('default', nextChatId),
+        payload: nextTarget,
+      })
+      return
+    }
+    requestedDocLockRef.current = null
+    explicitTargetRef.current = null
+    setExplicitTarget(null)
     leaveThread()
     setActiveChat(`${chatId}-${Date.now()}`)
   }
 
-  const removeThread = async (chatId: string, label: string): Promise<void> => {
-    // A transcript gone is gone; the 🗑 on a row should not be a hair-trigger.
+  syncExplicitTargetFromRelayRef.current = (target: SessionTarget) => {
+    if (target.docPath && !sameDocPath(docIdentityRef.current?.path ?? null, target.docPath)) {
+      requestedDocLockRef.current = target
+      return
+    }
+    requestedDocLockRef.current = null
+    explicitTargetRef.current = target
+    setExplicitTarget(target)
+  }
+
+  const removeThread = async (chatIdToDelete: string, label: string): Promise<void> => {
     const row = [...threads.pinned, ...threads.docs, ...threads.other].find(
-      (entry) => entry.chatId === chatId,
+      (entry) => entry.chatId === chatIdToDelete,
     )
     const confirmed = await confirmBox({
       body: <p>{t('askThreadDeleteConfirm', { label: row?.label ?? label })}</p>,
@@ -2356,32 +2744,36 @@ export function KbAskPanel({
     const api = window.projectApi
     if (!api) return
     try {
-      // the library's own project: the rows came from it, and a doc-bound
-      // family (the doc panel's threads) lives outside the default project
-      // the file-less resolution would answer
-      await api.deleteChat({ projectId: libraryProjectIdRef.current, chatId })
-      if (chatId === activeChat) startThread()
+      const projectId = row?.projectId ?? libraryProjectIdRef.current
+      await api.deleteChat({ projectId, chatId: chatIdToDelete })
+      if (chatIdToDelete === (claimedChatId ?? activeChat)) {
+        await startThread()
+      }
       await refreshThreads(api, libraryQueryRef.current)
     } catch {
-      // A delete that did not happen leaves the list as it was, which is the
-      // honest outcome; the reader sees the thread still listed.
+      // Leave list intact on failure.
     }
   }
 
-  /** the library's own verbs (rename, pin) — both write the sidecar and
-   *  refresh through the same channel, the query riding along */
+  /** Commits rename/pin metadata to sidecar store using the row's owning projectId. */
   const commitLibraryMeta = async (
-    chatId: string,
+    chatIdToUpdate: string,
     patch: { title?: string | null; pinned?: boolean },
   ): Promise<void> => {
     const api = window.projectApi
     if (!api?.setChatMeta) return
+    const row = [...threads.pinned, ...threads.docs, ...threads.other].find(
+      (entry) => entry.chatId === chatIdToUpdate,
+    )
     try {
-      await api.setChatMeta({ projectId: libraryProjectIdRef.current, chatId, ...patch })
+      await api.setChatMeta({
+        projectId: row?.projectId ?? libraryProjectIdRef.current,
+        chatId: chatIdToUpdate,
+        ...patch,
+      })
       await refreshThreads(api, libraryQueryRef.current)
     } catch {
-      // a write that did not land leaves the rows as they were: the honest
-      // outcome for a sidecar the next open re-reads anyway
+      // Leave rows intact on failed write.
     }
   }
 
@@ -2679,8 +3071,10 @@ export function KbAskPanel({
           }),
           { sync: true },
         )
+        const runKey = activeRunRef.current?.sessionKey ?? currentSessionKeyRef.current ?? undefined
         window.aiOffice?.askRunEvent?.({
           type: 'checkpoint-added',
+          ...(runKey ? { sessionKey: runKey } : {}),
           payload: checkpoint,
         })
       },
@@ -2891,39 +3285,76 @@ export function KbAskPanel({
         ]),
         events: {
           onText: (text) => {
+            const runKey = activeRunRef.current?.sessionKey ?? currentSessionKeyRef.current ?? undefined
             runEventHandlers.onText(text)
-            if (!mirror) window.aiOffice?.askRunEvent?.({ type: 'text', payload: text })
+            if (!mirror)
+              window.aiOffice?.askRunEvent?.({
+                type: 'text',
+                ...(runKey ? { sessionKey: runKey } : {}),
+                payload: text,
+              })
           },
           onReasoning: (text) => {
+            const runKey = activeRunRef.current?.sessionKey ?? currentSessionKeyRef.current ?? undefined
             runEventHandlers.onReasoning(text)
-            if (!mirror) window.aiOffice?.askRunEvent?.({ type: 'reasoning', payload: text })
+            if (!mirror)
+              window.aiOffice?.askRunEvent?.({
+                type: 'reasoning',
+                ...(runKey ? { sessionKey: runKey } : {}),
+                payload: text,
+              })
           },
           onToolExecuted: ({ call, execution }) => {
+            const runKey = activeRunRef.current?.sessionKey ?? currentSessionKeyRef.current ?? undefined
             runEventHandlers.onToolExecuted({ call, execution })
             if (!mirror)
               window.aiOffice?.askRunEvent?.({
                 type: 'tool-executed',
+                ...(runKey ? { sessionKey: runKey } : {}),
                 payload: { call, execution },
               })
           },
           onToolStart: (call) => {
+            const runKey = activeRunRef.current?.sessionKey ?? currentSessionKeyRef.current ?? undefined
             runEventHandlers.onToolStart(call)
-            if (!mirror) window.aiOffice?.askRunEvent?.({ type: 'tool-start', payload: call })
+            if (!mirror)
+              window.aiOffice?.askRunEvent?.({
+                type: 'tool-start',
+                ...(runKey ? { sessionKey: runKey } : {}),
+                payload: call,
+              })
           },
           onDone: () => {
+            const runKey = activeRunRef.current?.sessionKey ?? currentSessionKeyRef.current ?? undefined
             runEventHandlers.onDone()
-            if (!mirror) window.aiOffice?.askRunEvent?.({ type: 'done', payload: null })
+            if (!mirror)
+              window.aiOffice?.askRunEvent?.({
+                type: 'done',
+                ...(runKey ? { sessionKey: runKey } : {}),
+                payload: null,
+              })
           },
           onUsage: (usage) => {
+            const runKey = activeRunRef.current?.sessionKey ?? currentSessionKeyRef.current ?? undefined
             runEventHandlers.onUsage(usage)
-            if (!mirror) window.aiOffice?.askRunEvent?.({ type: 'usage', payload: usage })
+            if (!mirror)
+              window.aiOffice?.askRunEvent?.({
+                type: 'usage',
+                ...(runKey ? { sessionKey: runKey } : {}),
+                payload: usage,
+              })
           },
           onError: (error) => {
+            const runKey = activeRunRef.current?.sessionKey ?? currentSessionKeyRef.current ?? undefined
             runEventHandlers.onError(error)
             confirmRef.current.settleAll(false)
             updateBusy(false)
             if (!mirror) {
-              window.aiOffice?.askRunEvent?.({ type: 'error', payload: error })
+              window.aiOffice?.askRunEvent?.({
+                type: 'error',
+                ...(runKey ? { sessionKey: runKey } : {}),
+                payload: error,
+              })
               publishSnapshot()
             }
           },
@@ -2931,10 +3362,9 @@ export function KbAskPanel({
       })
     // The document sub-agent's live status: while a document_agent call runs,
     // the main side relays its progress here and the answer's rolling
-    // "文档助手：…" line follows the sub-agent's work (the loop serializes
-    // tool calls, so every event in the call's window belongs to it). Sync
-    // flush: statuses are discrete beats, not per-token streams
+    // line follows the sub-agent's work (the loop serializes tool calls).
     const offAgentProgress = window.aiOffice.onDocumentAgentProgress?.((event) => {
+      if (isActiveRunDetached()) return
       let nextSubAgent: (AgentTaskStatus & { docKind?: string }) | undefined
       patchLast(
         (last) => {
@@ -2951,7 +3381,12 @@ export function KbAskPanel({
         { sync: true },
       )
       if (!mirror && nextSubAgent) {
-        window.aiOffice?.askRunEvent?.({ type: 'subagent-progress', payload: nextSubAgent })
+        const runKey = activeRunRef.current?.sessionKey ?? currentSessionKeyRef.current ?? undefined
+        window.aiOffice?.askRunEvent?.({
+          type: 'subagent-progress',
+          ...(runKey ? { sessionKey: runKey } : {}),
+          payload: nextSubAgent,
+        })
       }
     })
     return () => {
@@ -2980,9 +3415,39 @@ export function KbAskPanel({
   // the one they left
   useEffect(() => {
     stick.scrollToLatest()
-  }, [activeChat]) // eslint-disable-line react-hooks/exhaustive-deps -- the thread identity, not the jump
+  }, [threadIdentityKey]) // eslint-disable-line react-hooks/exhaustive-deps -- the thread identity, not the jump
 
   const finishLast = (): void => {
+    if (isActiveRunDetached() && activeRunRef.current) {
+      const detached = activeRunRef.current
+      activeRunRef.current = null
+      if (detached.accText.trim().length > 0) {
+        void window.projectApi
+          ?.appendChat({ ...detached.ids, role: 'assistant', text: detached.accText })
+          .catch(() => undefined)
+      }
+      window.aiOffice?.askRunEvent?.({
+        type: 'done',
+        sessionKey: detached.sessionKey,
+        payload: null,
+      })
+      window.aiOffice?.askRunEvent?.({
+        type: 'snapshot',
+        sessionKey: detached.sessionKey,
+        payload: {
+          sessionKey: detached.sessionKey,
+          projectId: detached.ids.projectId,
+          chatId: detached.ids.chatId,
+          docPath: detached.docPath,
+          messages: [],
+          liveRun: null,
+          confirmCard: null,
+        },
+      })
+      updateBusy(false)
+      return
+    }
+    activeRunRef.current = null
     // The answer is whole for the first time here; streaming it as it grows
     // would store every intermediate state. The `streaming` guard is what
     // keeps a second finish (Stop, then the loop's own onDone) from storing
@@ -3279,6 +3744,14 @@ export function KbAskPanel({
     if (mirror) {
       updateBusy(true)
       setRemoteConfirmCard(null)
+      const currentIds = chatIdsRef.current
+      const targetSession = currentIds
+        ? {
+            projectId: currentIds.projectId,
+            chatId: currentIds.chatId,
+            docPath: claimedDocPathRef.current,
+          }
+        : undefined
       // the single executor is Home's loop: forward the question there — the
       // mirror never runs its own. The turn lands back through the pub/sub
       // events (user-message + the run's stream).
@@ -3286,6 +3759,7 @@ export function KbAskPanel({
         text: question,
         seq: ++askSeqRef.current,
         origin: 'palette',
+        ...(targetSession ? { targetSession } : {}),
       })
       return
     }
@@ -3409,6 +3883,20 @@ export function KbAskPanel({
         surfaceFresh,
       ])
       if (askSeqRef.current !== seq) return
+      if (!mirror) {
+        const runIds = chatIdsRef.current
+        const runKey =
+          currentSessionKeyRef.current ??
+          (runIds ? sessionKeyOf(runIds.projectId, runIds.chatId) : activeChatRef.current)
+        activeRunRef.current = runIds
+          ? {
+              sessionKey: runKey,
+              ids: runIds,
+              docPath: claimedDocPathRef.current,
+              accText: '',
+            }
+          : null
+      }
       const handle = loopRef.current!.run(text, noteImage ? [...images, noteImage] : images)
       trackRun(handle, instruction)
     } catch {
@@ -3455,8 +3943,50 @@ export function KbAskPanel({
   // asks within the selection, and blank text + a selection parks the chip
   // alone — the panel opens, nothing sends itself, and a draft the user is
   // mid-typing survives the parking (the composer gets the focus).
+  const consumedRequestedSeqRef = useRef(0)
+  useEffect(() => {
+    if (!requestedSession || requestedSession.seq === consumedRequestedSeqRef.current) return
+    consumedRequestedSeqRef.current = requestedSession.seq
+    onRequestedSessionConsumed?.()
+    const nextTarget: SessionTarget = {
+      projectId: requestedSession.projectId,
+      chatId: requestedSession.chatId,
+      docPath: requestedSession.docPath ?? null,
+    }
+    if (nextTarget.docPath && !sameDocPath(docIdentityRef.current?.path ?? null, nextTarget.docPath)) {
+      requestedDocLockRef.current = nextTarget
+    } else {
+      requestedDocLockRef.current = null
+      explicitTargetRef.current = nextTarget
+      setExplicitTarget(nextTarget)
+    }
+  }, [requestedSession, onRequestedSessionConsumed])
+
   const consumedQuerySeqRef = useRef(0)
   useEffect(() => {
+    const targetSession = pendingQuery?.targetSession
+    if (targetSession) {
+      const targetKey = sessionKeyOf(targetSession.projectId, targetSession.chatId)
+      if (currentSessionKeyRef.current !== targetKey) {
+        if (
+          targetSession.docPath &&
+          !sameDocPath(docIdentityRef.current?.path ?? null, targetSession.docPath)
+        ) {
+          requestedDocLockRef.current = targetSession
+          return
+        }
+        if (
+          !explicitTargetRef.current ||
+          sessionKeyOf(explicitTargetRef.current.projectId, explicitTargetRef.current.chatId) !==
+            targetKey
+        ) {
+          requestedDocLockRef.current = null
+          explicitTargetRef.current = targetSession
+          setExplicitTarget(targetSession)
+        }
+        return
+      }
+    }
     const plan = planPendingAskQuery(pendingQuery ?? null, consumedQuerySeqRef.current, busy)
     if (!plan.consume) return
     consumedQuerySeqRef.current = plan.seq
@@ -3539,8 +4069,10 @@ export function KbAskPanel({
               : m,
           ),
         )
+        const runKey = currentSessionKeyRef.current ?? undefined
         window.aiOffice?.askRunEvent?.({
           type: 'checkpoint-updated',
+          ...(runKey ? { sessionKey: runKey } : {}),
           payload: { checkpointId: id, ...patch },
         })
       }
@@ -3629,12 +4161,16 @@ export function KbAskPanel({
         // bubble's whole chrome; the new-thread ＋ lives in the library's own
         // header, where the whole thread list already lives, so the verb and
         // its context stay together.
+        const scStrings = SESSIONS_CENTER_STRINGS[lang] ?? SESSIONS_CENTER_STRINGS.en
         const count = shownCorpusCount(scopePaths, corpusCount)
         const activeId = claimedChatId ?? activeChat
-        const threadLabel = [...threads.pinned, ...threads.docs, ...threads.other].find(
-          (row) => row.chatId === activeId,
-        )?.label
-        const title = askHeaderTitle(boundDocPath, threadLabel, t('askThreadNew'))
+        const allRows = [...threads.pinned, ...threads.docs, ...threads.other]
+        const activeRow = allRows.find((row) => row.chatId === activeId)
+        const title = askHeaderTitle(
+          activeRow?.hasCustomTitle ? null : effectiveDocPath,
+          activeRow?.label ?? (boundUnsavedTabId ? activeTabBinding?.title : undefined),
+          t('askThreadNew'),
+        )
         const checkpointTimeline = collectDocCheckpoints(messages)
         const activeCheckpointCount = checkpointTimeline.filter((e) => !e.checkpoint.reverted).length
         const anyReverting = checkpointTimeline.some((e) => e.checkpoint.reverting)
@@ -3817,6 +4353,19 @@ export function KbAskPanel({
                       {t('askMenuKbCenter')}
                     </button>
                   )}
+                  {onOpenSessionsCenter && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="kb-ask-header-menu-link"
+                      onClick={() => {
+                        setHeaderMenuOpen(false)
+                        onOpenSessionsCenter()
+                      }}
+                    >
+                      {(SESSIONS_CENTER_STRINGS[lang] ?? SESSIONS_CENTER_STRINGS.en).libraryManageAll}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -3904,75 +4453,26 @@ export function KbAskPanel({
             />
           </div>
           <div className="kb-ask-library-list">
-            {(
-              [
-                ['pinned', `📌 ${t('askLibrarySectionPinned')}`],
-                ['docs', `📄 ${t('askLibrarySectionDocs')}`],
-                ['other', `🕘 ${t('askLibrarySectionOther')}`],
-              ] as const
-            ).map(([section, heading]) =>
-              threads[section].length > 0 ? (
-                <div key={section} className="kb-ask-library-section">
-                  <div className="kb-ask-library-section-head">{heading}</div>
-                  {threads[section].map((thread) =>
-                    libraryRenaming?.chatId === thread.chatId ? (
-                      <div key={thread.chatId} className="kb-ask-library-row renaming">
-                        <span className="kb-ask-library-glyph">
-                          {thread.docPath !== undefined ? (
-                            <FileBadge
-                              ext={thread.docPath
-                                .slice(thread.docPath.lastIndexOf('.') + 1)
-                                .toLowerCase()}
-                              size={20}
-                            />
-                          ) : (
-                            '💬'
-                          )}
-                        </span>
-                        <div className="kb-ask-library-rename">
-                          <input
-                            type="text"
-                            autoFocus
-                            value={libraryRenaming.draft}
-                            onChange={(event) =>
-                              setLibraryRenaming({
-                                chatId: thread.chatId,
-                                draft: event.currentTarget.value,
-                              })
-                            }
-                            onKeyDown={(event) => {
-                              // the rename's Esc cancels the edit; the
-                              // library's close must wait its turn, so the
-                              // key stops here
-                              event.stopPropagation()
-                              if (event.key === 'Enter') {
-                                commitRename(thread.chatId, libraryRenaming.draft)
-                              } else if (event.key === 'Escape') {
-                                setLibraryRenaming(null)
-                              }
-                            }}
-                            aria-label={t('askLibraryRename')}
-                          />
-                          <span className="kb-ask-library-rename-hint">
-                            {t('askLibraryRenameHint')}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        key={thread.chatId}
-                        data-chat={thread.chatId}
-                        className={`kb-ask-library-row${thread.chatId === (claimedChatId ?? activeChat) ? ' active' : ''}`}
-                      >
-                        <button
-                          type="button"
-                          className="kb-ask-library-open"
-                          onClick={() => {
-                            openThread(thread.chatId)
-                            closeLibrary()
-                          }}
-                          title={thread.label}
-                        >
+            {(() => {
+              const scStrings = SESSIONS_CENTER_STRINGS[lang] ?? SESSIONS_CENTER_STRINGS.en
+              const pinnedSplit = filterCurrentDocThreads(threads.pinned, effectiveDocPath)
+              const docsSplit = filterCurrentDocThreads(threads.docs, effectiveDocPath)
+              const currentDocRows = [...pinnedSplit.currentDoc, ...docsSplit.currentDoc]
+              const librarySections: Array<readonly [string, string, readonly LibraryThread[]]> = [
+                ...(effectiveDocPath && currentDocRows.length > 0
+                  ? [['current-doc', `📄 ${scStrings.libraryCurrentDocSection}`, currentDocRows] as const]
+                  : []),
+                ['pinned', `📌 ${t('askLibrarySectionPinned')}`, pinnedSplit.otherDocs] as const,
+                ['docs', `📄 ${t('askLibrarySectionDocs')}`, docsSplit.otherDocs] as const,
+                ['other', `🕘 ${t('askLibrarySectionOther')}`, threads.other] as const,
+              ]
+              return librarySections.map(([section, heading, sectionRows]) =>
+                sectionRows.length > 0 ? (
+                  <div key={section} className="kb-ask-library-section">
+                    <div className="kb-ask-library-section-head">{heading}</div>
+                    {sectionRows.map((thread) =>
+                      libraryRenaming?.chatId === thread.chatId ? (
+                        <div key={thread.chatId} className="kb-ask-library-row renaming">
                           <span className="kb-ask-library-glyph">
                             {thread.docPath !== undefined ? (
                               <FileBadge
@@ -3985,56 +4485,133 @@ export function KbAskPanel({
                               '💬'
                             )}
                           </span>
-                          <span className="kb-ask-library-main">
-                            <span className="kb-ask-library-row-title">
-                              {thread.label}
-                              {thread.pinned && (
-                                <span className="kb-ask-library-pin-mark">
-                                  {t('askLibraryPinnedMark')}
-                                </span>
+                          <div className="kb-ask-library-rename">
+                            <input
+                              type="text"
+                              autoFocus
+                              value={libraryRenaming.draft}
+                              onChange={(event) =>
+                                setLibraryRenaming({
+                                  chatId: thread.chatId,
+                                  draft: event.currentTarget.value,
+                                })
+                              }
+                              onKeyDown={(event) => {
+                                // the rename's Esc cancels the edit; the
+                                // library's close must wait its turn, so the
+                                // key stops here
+                                event.stopPropagation()
+                                if (event.key === 'Enter') {
+                                  commitRename(thread.chatId, libraryRenaming.draft)
+                                } else if (event.key === 'Escape') {
+                                  setLibraryRenaming(null)
+                                }
+                              }}
+                              aria-label={t('askLibraryRename')}
+                            />
+                            <span className="kb-ask-library-rename-hint">
+                              {t('askLibraryRenameHint')}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          key={thread.chatId}
+                          data-chat={thread.chatId}
+                          className={`kb-ask-library-row${thread.chatId === (claimedChatId ?? activeChat) ? ' active' : ''}`}
+                        >
+                          <button
+                            type="button"
+                            className="kb-ask-library-open"
+                            onClick={() => {
+                              openThread({
+                                chatId: thread.chatId,
+                                ...(thread.projectId !== undefined ? { projectId: thread.projectId } : {}),
+                                docPath: thread.docPath ?? null,
+                              })
+                              closeLibrary()
+                            }}
+                            title={thread.label}
+                          >
+                            <span className="kb-ask-library-glyph">
+                              {thread.docPath !== undefined ? (
+                                <FileBadge
+                                  ext={thread.docPath
+                                    .slice(thread.docPath.lastIndexOf('.') + 1)
+                                    .toLowerCase()}
+                                  size={20}
+                                />
+                              ) : (
+                                '💬'
                               )}
                             </span>
-                            <span className="kb-ask-library-row-meta">
-                              {t('askLibraryMessages', { n: String(thread.approxCount) })} ·{' '}
-                              {threadTimeAgo(thread.updatedAt, new Date(), t, dateLocale)}
+                            <span className="kb-ask-library-main">
+                              <span className="kb-ask-library-row-title">
+                                {thread.label}
+                                {thread.pinned && (
+                                  <span className="kb-ask-library-pin-mark">
+                                    {t('askLibraryPinnedMark')}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="kb-ask-library-row-meta">
+                                {t('askLibraryMessages', { n: String(thread.approxCount) })} ·{' '}
+                                {threadTimeAgo(thread.updatedAt, new Date(), t, dateLocale)}
+                              </span>
                             </span>
+                          </button>
+                          <span className="kb-ask-library-actions">
+                            <button
+                              type="button"
+                              aria-label={t('askLibraryRename')}
+                              title={t('askLibraryRename')}
+                              onClick={() => beginRename(thread)}
+                            >
+                              ✎
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={thread.pinned ? t('askLibraryUnpin') : t('askLibraryPin')}
+                              title={thread.pinned ? t('askLibraryUnpin') : t('askLibraryPin')}
+                              onClick={() => togglePin(thread)}
+                            >
+                              📌
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              aria-label={t('askThreadDelete', { label: thread.label })}
+                              title={t('askThreadDelete', { label: thread.label })}
+                              onClick={() => void removeThread(thread.chatId, thread.label)}
+                            >
+                              🗑
+                            </button>
                           </span>
-                        </button>
-                        <span className="kb-ask-library-actions">
-                          <button
-                            type="button"
-                            aria-label={t('askLibraryRename')}
-                            title={t('askLibraryRename')}
-                            onClick={() => beginRename(thread)}
-                          >
-                            ✎
-                          </button>
-                          <button
-                            type="button"
-                            aria-label={thread.pinned ? t('askLibraryUnpin') : t('askLibraryPin')}
-                            title={thread.pinned ? t('askLibraryUnpin') : t('askLibraryPin')}
-                            onClick={() => togglePin(thread)}
-                          >
-                            📌
-                          </button>
-                          <button
-                            type="button"
-                            className="danger"
-                            aria-label={t('askThreadDelete', { label: thread.label })}
-                            title={t('askThreadDelete', { label: thread.label })}
-                            onClick={() => void removeThread(thread.chatId, thread.label)}
-                          >
-                            🗑
-                          </button>
-                        </span>
-                      </div>
-                    ),
-                  )}
-                </div>
-              ) : null,
-            )}
+                        </div>
+                      ),
+                    )}
+                  </div>
+                ) : null,
+              )
+            })()}
           </div>
-          <div className="kb-ask-library-footnote">{t('askLibraryFootnote')}</div>
+          {onOpenSessionsCenter ? (
+            <div className="kb-ask-library-foot-row">
+              <div className="kb-ask-library-footnote">{t('askLibraryFootnote')}</div>
+              <button
+                type="button"
+                className="kb-ask-library-manage"
+                onClick={() => {
+                  closeLibrary()
+                  onOpenSessionsCenter()
+                }}
+              >
+                {(SESSIONS_CENTER_STRINGS[lang] ?? SESSIONS_CENTER_STRINGS.en).libraryManageAll}
+              </button>
+            </div>
+          ) : (
+            <div className="kb-ask-library-footnote">{t('askLibraryFootnote')}</div>
+          )}
         </div>
       )}
       {(liveTasks.length > 0 || interruptedRuns.length > 0) && (
@@ -4235,6 +4812,7 @@ export function KbAskPanel({
                     ? () =>
                         window.aiOffice?.askRunEvent?.({
                           type: 'confirm-action',
+                          ...(currentSessionKeyRef.current ? { sessionKey: currentSessionKeyRef.current } : {}),
                           payload: { action: 'allow' },
                         })
                     : confirm.allow
@@ -4244,6 +4822,7 @@ export function KbAskPanel({
                     ? () =>
                         window.aiOffice?.askRunEvent?.({
                           type: 'confirm-action',
+                          ...(currentSessionKeyRef.current ? { sessionKey: currentSessionKeyRef.current } : {}),
                           payload: { action: 'allow-session' },
                         })
                     : confirm.allowSession
@@ -4253,6 +4832,7 @@ export function KbAskPanel({
                     ? () =>
                         window.aiOffice?.askRunEvent?.({
                           type: 'confirm-action',
+                          ...(currentSessionKeyRef.current ? { sessionKey: currentSessionKeyRef.current } : {}),
                           payload: { action: 'deny' },
                         })
                     : confirm.deny
@@ -4435,7 +5015,11 @@ export function KbAskPanel({
         onSend={() => void ask()}
         onStop={() => {
           if (mirror) {
-            window.aiOffice?.askRunEvent?.({ type: 'stop', payload: null })
+            window.aiOffice?.askRunEvent?.({
+              type: 'stop',
+              ...(currentSessionKeyRef.current ? { sessionKey: currentSessionKeyRef.current } : {}),
+              payload: null,
+            })
             updateBusy(false)
             return
           }

@@ -3,6 +3,8 @@ export type {
   ChatMessage,
   ChatMeta,
   ChatScope,
+  ChatThreadMeta,
+  GlobalChatMeta,
   ProjectData,
   ProjectIndex,
   ProjectInfo,

@@ -38,6 +38,7 @@ import type {
   ChatMeta,
   ChatMessage,
   ChatThreadMeta,
+  GlobalChatMeta,
   ProjectData,
   ProjectIndex,
   ProjectInfo,
@@ -300,6 +301,112 @@ function readChatTail(filePath: string): string {
   }
 }
 
+const CHAT_INSPECT_FULL_LIMIT_BYTES = 2 * 1024 * 1024
+const LAST_PREVIEW_MAX_CHARS = 140
+
+function extractLastPreviewFromChunk(chunk: string): string | undefined {
+  let preview: string | undefined
+  for (const line of chunk.split('\n')) {
+    if (!line.trim()) continue
+    try {
+      const record = JSON.parse(line) as { role?: string; text?: string }
+      if (
+        (record.role === 'user' || record.role === 'assistant') &&
+        typeof record.text === 'string'
+      ) {
+        const compact = record.text.replace(/\s+/g, ' ').trim()
+        if (compact) preview = compact.slice(0, LAST_PREVIEW_MAX_CHARS)
+      }
+    } catch {
+      // skip malformed or boundary-truncated lines
+    }
+  }
+  return preview
+}
+
+function countLinesFast(fd: number, size: number): number {
+  const chunk = Buffer.allocUnsafe(65536)
+  let offset = 0
+  let lines = 0
+  let lastByte = 0x0a
+  while (offset < size) {
+    const n = readSync(fd, chunk, 0, Math.min(chunk.length, size - offset), offset)
+    if (n <= 0) break
+    for (let i = 0; i < n; i++) {
+      if (chunk[i] === 0x0a) lines++
+    }
+    lastByte = chunk[n - 1]!
+    offset += n
+  }
+  if (size > 0 && lastByte !== 0x0a) lines++
+  return lines
+}
+
+/**
+ * Inspects one chat JSONL file to extract its first user question, latest
+ * compact message preview, and exact valid message count without allocating
+ * huge strings for oversized transcripts.
+ */
+function inspectChatFile(filePath: string): {
+  firstQuestion?: string
+  lastMessagePreview?: string
+  messageCount: number
+} {
+  try {
+    const size = statSync(filePath).size
+    if (size === 0) return { messageCount: 0 }
+    if (size <= CHAT_INSPECT_FULL_LIMIT_BYTES) {
+      const raw = readFileSync(filePath, 'utf8')
+      let firstQuestion: string | undefined
+      let lastMessagePreview: string | undefined
+      let messageCount = 0
+      for (const line of raw.split('\n')) {
+        if (!line.trim()) continue
+        try {
+          const record = JSON.parse(line) as { role?: string; text?: string }
+          if (record.role === 'user' || record.role === 'assistant') {
+            messageCount++
+            if (typeof record.text === 'string' && record.text.trim()) {
+              if (record.role === 'user' && firstQuestion === undefined) {
+                firstQuestion = record.text
+              }
+              const compact = record.text.replace(/\s+/g, ' ').trim()
+              if (compact) lastMessagePreview = compact.slice(0, LAST_PREVIEW_MAX_CHARS)
+            }
+          }
+        } catch {
+          // ignore malformed lines
+        }
+      }
+      return {
+        messageCount,
+        ...(firstQuestion === undefined ? {} : { firstQuestion }),
+        ...(lastMessagePreview === undefined ? {} : { lastMessagePreview }),
+      }
+    }
+
+    const firstQuestion = firstQuestionInFile(filePath)
+    const fd = openSync(filePath, 'r')
+    try {
+      const tailLen = Math.min(size, 65536)
+      const tailBuf = Buffer.allocUnsafe(tailLen)
+      const bytesRead = readSync(fd, tailBuf, 0, tailLen, size - tailLen)
+      const tailText = tailBuf.subarray(0, bytesRead).toString('utf8')
+      const lastMessagePreview = extractLastPreviewFromChunk(tailText)
+      const messageCount = countLinesFast(fd, size)
+      return {
+        messageCount,
+        ...(firstQuestion === undefined ? {} : { firstQuestion }),
+        ...(lastMessagePreview === undefined ? {} : { lastMessagePreview }),
+      }
+    } finally {
+      closeSync(fd)
+    }
+  } catch {
+    return { messageCount: 0 }
+  }
+}
+
 /// The first user turn in a transcript, read from the file's head. A list of
 /// threads must not read every transcript in full to label them, and the
 /// first question sits on the first lines by construction; a window that ends
@@ -489,12 +596,17 @@ function asChatThreadMeta(value: unknown): ChatThreadMeta | null {
   const raw = value as Partial<ChatThreadMeta>
   if (raw.title !== undefined && typeof raw.title !== 'string') return null
   if (raw.pinned !== undefined && typeof raw.pinned !== 'boolean') return null
+  if (raw.docPath !== undefined && typeof raw.docPath !== 'string') return null
   const out: ChatThreadMeta = {}
   if (typeof raw.title === 'string') {
     const title = raw.title.trim().slice(0, CHAT_META_TITLE_MAX)
     if (title !== '') out.title = title
   }
   if (raw.pinned === true) out.pinned = true
+  if (typeof raw.docPath === 'string') {
+    const docPath = raw.docPath.trim()
+    if (docPath !== '') out.docPath = docPath
+  }
   return Object.keys(out).length > 0 ? out : null
 }
 
@@ -869,6 +981,21 @@ export class ProjectStore {
       this.trashChat(displacedPid ?? pid ?? 'default', displacedChatId)
     }
     this.writeIndex(index)
+    // Also update extra document threads whose docPath metadata pointed to oldPath.
+    for (const proj of index.projects) {
+      const metaMap = this.readChatMetaMap(proj.id)
+      let changed = false
+      for (const [id, meta] of Object.entries(metaMap)) {
+        if (
+          meta.docPath &&
+          (canonicalPathKey(meta.docPath) === oldKey || meta.docPath === oldPath)
+        ) {
+          metaMap[id] = { ...meta, docPath: newPath }
+          changed = true
+        }
+      }
+      if (changed) writeJson(this.chatMetaPath(proj.id), metaMap)
+    }
   }
 
   /** Soft-deletes a transcript the way deleteProject does with a project directory. */
@@ -1136,17 +1263,26 @@ export class ProjectStore {
         } catch {
           // use defaults if stat fails
         }
-        const firstQuestion = firstQuestionInFile(fullPath)
+        const inspected = inspectChatFile(fullPath)
         const meta = metaMap[chatId]
-        const docPath = docByChat.get(chatId)
+        const docPath = docByChat.get(chatId) ?? meta?.docPath
+        const docExists = docPath !== undefined ? existsSync(docPath) : undefined
         const entry: ChatMeta = {
           chatId,
+          projectId,
           updatedAt,
           approxCount,
-          ...(firstQuestion === undefined ? {} : { firstQuestion }),
+          messageCount: inspected.messageCount,
+          ...(inspected.lastMessagePreview === undefined
+            ? {}
+            : { lastMessagePreview: inspected.lastMessagePreview }),
+          ...(inspected.firstQuestion === undefined
+            ? {}
+            : { firstQuestion: inspected.firstQuestion }),
           ...(meta?.title === undefined ? {} : { title: meta.title }),
           ...(meta?.pinned === undefined ? {} : { pinned: meta.pinned }),
           ...(docPath === undefined ? {} : { docPath }),
+          ...(docExists === undefined ? {} : { docExists }),
         }
         if (needle !== '' && !this.chatMatchesQuery(entry, fullPath, needle)) continue
         out.push(entry)
@@ -1157,10 +1293,11 @@ export class ProjectStore {
     }
   }
 
-  /** one thread against the live query: its label, or any stored turn's text */
+  /** one thread against the live query: its label, bound doc path, or any stored turn's text */
   private chatMatchesQuery(entry: ChatMeta, filePath: string, needle: string): boolean {
     const label = entry.title ?? entry.firstQuestion ?? ''
     if (label.toLowerCase().includes(needle)) return true
+    if (entry.docPath && entry.docPath.toLowerCase().includes(needle)) return true
     try {
       const text = readFileSync(filePath, 'utf8').toLowerCase()
       return text.includes(needle)
@@ -1170,16 +1307,39 @@ export class ProjectStore {
   }
 
   /**
+   * Lists conversations across every project, newest first, with project name
+   * and exact message counts for the global AI sessions manager.
+   */
+  listAllChats(query?: string): GlobalChatMeta[] {
+    this.ensureDefaultProject()
+    const projects = this.listProjects()
+    const out: GlobalChatMeta[] = []
+    for (const proj of projects) {
+      const metas = this.listChats(proj.id, query)
+      for (const entry of metas) {
+        out.push({
+          ...entry,
+          projectId: entry.projectId ?? proj.id,
+          projectName: proj.name,
+          messageCount: entry.messageCount ?? entry.approxCount,
+        })
+      }
+    }
+    return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  /**
    * Writes one thread's library metadata (the sidecar; transcripts
    * untouched): `title` null or an empty string clears the override (the
    * label falls back to the first question), a bare string sets it
-   * (validated like the read path), `pinned` flips the pin. Answers the
-   * thread's effective meta afterwards — null when nothing is set.
+   * (validated like the read path), `pinned` flips the pin, `docPath`
+   * binds or clears the linked document path. Answers the thread's
+   * effective meta afterwards — null when nothing is set.
    */
   setChatMeta(
     projectId: string,
     chatId: string,
-    patch: { title?: string | null; pinned?: boolean },
+    patch: { title?: string | null; pinned?: boolean; docPath?: string | null },
   ): ChatThreadMeta | null {
     assertSafeId(projectId, 'projectId')
     assertSafeId(chatId, 'chatId')
@@ -1192,9 +1352,15 @@ export class ProjectStore {
       title = next === '' ? undefined : next
     }
     const pinned = patch.pinned !== undefined ? patch.pinned === true : prev.pinned === true
+    let docPath: string | undefined = prev.docPath
+    if (patch.docPath !== undefined) {
+      const next = typeof patch.docPath === 'string' ? patch.docPath.trim() : ''
+      docPath = next === '' ? undefined : next
+    }
     const next: ChatThreadMeta = {}
     if (title !== undefined) next.title = title
     if (pinned) next.pinned = true
+    if (docPath !== undefined) next.docPath = docPath
     if (Object.keys(next).length === 0) delete map[chatId]
     else map[chatId] = next
     writeJson(this.chatMetaPath(projectId), map)
@@ -1239,6 +1405,27 @@ export class ProjectStore {
     } catch (err) {
       throw new Error(`Could not delete the conversation: ${String(err)}`, { cause: err })
     }
+  }
+
+  /**
+   * Batch deletes conversations across projects, skipping duplicates and
+   * swallowing individual failures so remaining targets still proceed.
+   */
+  deleteChats(targets: ReadonlyArray<{ projectId: string; chatId: string }>): { deleted: number } {
+    const seen = new Set<string>()
+    let deleted = 0
+    for (const target of targets) {
+      const key = `${target.projectId}\0${target.chatId}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      try {
+        this.deleteChat(target.projectId, target.chatId)
+        deleted++
+      } catch (err) {
+        console.warn('[project-store] batch deleteChat failed:', err)
+      }
+    }
+    return { deleted }
   }
 
   // ── Agent run records ─────────────────────────────────────
@@ -1445,6 +1632,32 @@ export class ProjectStore {
     const next = mergedMaxSeq ?? curSeq
     if (next !== undefined) {
       this.seqCounters.set(this.seqKey(toProjectId, toId), next)
+    }
+
+    // Carry over thread sidecar metadata (title, pinned, docPath) on rebind/merge.
+    const fromMetaMap = this.readChatMetaMap(fromProjectId)
+    const fromMeta = fromMetaMap[fromId]
+    if (fromMeta) {
+      const toMetaMap =
+        fromProjectId === toProjectId ? fromMetaMap : this.readChatMetaMap(toProjectId)
+      const existingTo = toMetaMap[toId] ?? {}
+      const merged: ChatThreadMeta = {
+        ...(fromMeta.title !== undefined && existingTo.title === undefined
+          ? { title: fromMeta.title }
+          : existingTo.title !== undefined
+            ? { title: existingTo.title }
+            : {}),
+        ...(fromMeta.pinned || existingTo.pinned ? { pinned: true } : {}),
+        ...(existingTo.docPath !== undefined
+          ? { docPath: existingTo.docPath }
+          : fromMeta.docPath !== undefined
+            ? { docPath: fromMeta.docPath }
+            : {}),
+      }
+      if (Object.keys(merged).length > 0) toMetaMap[toId] = merged
+      delete fromMetaMap[fromId]
+      if (fromProjectId !== toProjectId) writeJson(this.chatMetaPath(fromProjectId), fromMetaMap)
+      writeJson(this.chatMetaPath(toProjectId), toMetaMap)
     }
   }
 

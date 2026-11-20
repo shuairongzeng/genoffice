@@ -924,8 +924,8 @@ const homeApi: HomeApi = {
     ipcRenderer.on(HOME_CHANNELS.askRunEvent, listener)
     return () => ipcRenderer.removeListener(HOME_CHANNELS.askRunEvent, listener)
   },
-  async askRunSnapshot() {
-    return ipcRenderer.invoke(HOME_CHANNELS.askRunSnapshot)
+  async askRunSnapshot(sessionKey) {
+    return ipcRenderer.invoke(HOME_CHANNELS.askRunSnapshot, sessionKey)
   },
   async askRunQuestion(query) {
     await ipcRenderer.invoke(HOME_CHANNELS.askRunQuestion, query)
@@ -1445,8 +1445,10 @@ const projectApi: ProjectApi = {
   loadChat: (args) => ipcRenderer.invoke('project:loadChat', args),
   rebindChat: (args) => ipcRenderer.invoke('project:rebindChat', args),
   listChats: (args) => ipcRenderer.invoke('project:listChats', args),
+  listAllChats: (args) => ipcRenderer.invoke('project:listAllChats', args ?? {}),
   setChatMeta: (args) => ipcRenderer.invoke('project:setChatMeta', args),
   deleteChat: (args) => ipcRenderer.invoke('project:deleteChat', args),
+  deleteChats: (args) => ipcRenderer.invoke('project:deleteChats', args),
 }
 
 contextBridge.exposeInMainWorld('projectApi', projectApi)

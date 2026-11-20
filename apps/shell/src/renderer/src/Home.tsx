@@ -86,6 +86,10 @@ const CloudProjectsView = lazy(() =>
   import('./CloudProjectsView').then((m) => ({ default: m.CloudProjectsView })),
 )
 const KbCenterView = lazy(() => import('./KbCenterView').then((m) => ({ default: m.KbCenterView })))
+const SessionsCenterView = lazy(() =>
+  import('./SessionsCenterView').then((m) => ({ default: m.SessionsCenterView })),
+)
+import { sessionKeyOf, type SessionTarget } from './ask-session-binding'
 import { FolderPicker } from './FolderPicker'
 import { ConflictPrompt, GroupPicker } from './home-dialogs'
 import { FileRow, SubfolderRow, type FileRowActions } from './HomeFileRows'
@@ -1073,6 +1077,14 @@ export function Home() {
     setRowMenu(null)
   }, [])
 
+  /** Shows the global AI Sessions center surface. */
+  const showSessionsCenter = useCallback(() => {
+    dispatchView({ type: 'show-sessions' })
+    writeLaunchView('sessions')
+    setSelected(new Set())
+    setRowMenu(null)
+  }, [])
+
   const changeFilter = (key: string) => {
     setFilter(key)
     setSelected(new Set())
@@ -1229,6 +1241,28 @@ export function Home() {
     // executor (this mount's loop), never routed back into the mirror itself
     return api.onAskRunQuestion?.((query) => setPendingAskQuery(query))
   }, [])
+  const requestedSessionSeqRef = useRef(0)
+  const [requestedSession, setRequestedSession] = useState<
+    (SessionTarget & { readonly seq: number }) | null
+  >(null)
+
+  const openSessionFromCenter = useCallback(
+    (target: SessionTarget) => {
+      const seq = ++requestedSessionSeqRef.current
+      setRequestedSession({ ...target, seq })
+      window.aiOffice?.askRunEvent?.({
+        type: 'switch-session',
+        sessionKey: sessionKeyOf(target.projectId, target.chatId),
+        payload: target,
+      })
+      openAskDock()
+      if (target.docPath) {
+        void window.aiOffice?.openPath?.(target.docPath).catch(() => undefined)
+      }
+    },
+    [openAskDock],
+  )
+
   const openTemplates = useCallback(() => setTemplatesOpen(true), [])
   const openSettings = useCallback((target: SettingsTarget) => setSettingsRequest(target), [])
   const openFolderView = useCallback((root: FolderRoot) => selectFolder(root.path), [selectFolder])
@@ -1380,6 +1414,7 @@ export function Home() {
           api,
           onOpenAsk: openAskDock,
           onOpenKb: showKbCenter,
+          onOpenSessions: showSessionsCenter,
           onOpenTemplates: openTemplates,
           onOpenSettings: openSettings,
         })?.()
@@ -1449,6 +1484,7 @@ export function Home() {
       roots,
       openAskDock,
       showKbCenter,
+      showSessionsCenter,
       openTemplates,
       openSettings,
       openFolderView,
@@ -1471,6 +1507,7 @@ export function Home() {
       if (intent.kind === 'nav') {
         if (intent.view === 'desktop') showDesktop()
         else if (intent.view === 'cloud') showCloud()
+        else if (intent.view === 'sessions') showSessionsCenter()
         else changeView(intent.view)
         return
       }
@@ -1495,7 +1532,7 @@ export function Home() {
       }
       setTemplatesOpen(true)
     },
-    [showDesktop, showCloud, changeView, launchDockCustom],
+    [showDesktop, showCloud, showSessionsCenter, changeView, launchDockCustom],
   )
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
@@ -2717,6 +2754,7 @@ export function Home() {
               roots={roots}
               onOpenAsk={openAskDock}
               onOpenKb={showKbCenter}
+              onOpenSessions={showSessionsCenter}
               onAskAboutPaths={askAboutPaths}
               onOpenTemplates={openTemplates}
               onOpenSettings={openSettings}
@@ -2742,6 +2780,10 @@ export function Home() {
                 lang={lang}
                 onOpenScopeSettings={() => openSettings({ section: 'general' })}
               />
+            </Suspense>
+          ) : surface === 'sessions' ? (
+            <Suspense fallback={null}>
+              <SessionsCenterView onOpenSession={openSessionFromCenter} />
             </Suspense>
           ) : (
             renderGlobalContent()
@@ -2782,6 +2824,9 @@ export function Home() {
           focusSignal={focusComposerSeq}
           onCollapse={() => applyDockPrefs({ collapsed: true })}
           onOpenKbCenter={showKbCenter}
+          onOpenSessionsCenter={showSessionsCenter}
+          requestedSession={requestedSession}
+          onRequestedSessionConsumed={() => setRequestedSession(null)}
           onPetActivityChange={setPetRunState}
         />
       </AiDock>

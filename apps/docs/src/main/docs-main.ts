@@ -4734,12 +4734,30 @@ export function registerProjectIpc(): void {
     return store.listChats(args.projectId, args.query)
   })
 
-  /** Writes one thread's library metadata (rename/pin sidecar; transcripts untouched). */
+  /** Lists all conversations across every project, newest first. */
+  ipcMain.handle('project:listAllChats', (_event, args?: { query?: string }) => {
+    if (args !== undefined && (typeof args !== 'object' || args === null)) {
+      throw new Error('Invalid args')
+    }
+    if (args?.query !== undefined && typeof args.query !== 'string') {
+      throw new Error('Invalid query')
+    }
+    const store = getProjectStore()
+    return store.listAllChats(args?.query)
+  })
+
+  /** Writes one thread's library metadata (rename/pin/docPath sidecar; transcripts untouched). */
   ipcMain.handle(
     'project:setChatMeta',
     (
       _event,
-      args: { projectId: string; chatId: string; title?: string | null; pinned?: boolean },
+      args: {
+        projectId: string
+        chatId: string
+        title?: string | null
+        pinned?: boolean
+        docPath?: string | null
+      },
     ) => {
       if (typeof args.projectId !== 'string' || !args.projectId) {
         throw new Error('Invalid projectId')
@@ -4753,10 +4771,14 @@ export function registerProjectIpc(): void {
       if (args.pinned !== undefined && typeof args.pinned !== 'boolean') {
         throw new Error('Invalid pinned')
       }
+      if (args.docPath !== undefined && args.docPath !== null && typeof args.docPath !== 'string') {
+        throw new Error('Invalid docPath')
+      }
       const store = getProjectStore()
       return store.setChatMeta(args.projectId, args.chatId, {
         ...(args.title === undefined ? {} : { title: args.title }),
         ...(args.pinned === undefined ? {} : { pinned: args.pinned }),
+        ...(args.docPath === undefined ? {} : { docPath: args.docPath }),
       })
     },
   )
@@ -4766,6 +4788,31 @@ export function registerProjectIpc(): void {
     const store = getProjectStore()
     store.deleteChat(args.projectId, args.chatId)
   })
+
+  /** Batch deletes conversations across projects. */
+  ipcMain.handle(
+    'project:deleteChats',
+    (_event, args: { targets?: Array<{ projectId?: unknown; chatId?: unknown }> }) => {
+      if (!args || !Array.isArray(args.targets)) {
+        throw new Error('Invalid targets: expected array')
+      }
+      if (args.targets.length > 500) {
+        throw new Error('Too many targets in one batch delete (max 500)')
+      }
+      const validated: Array<{ projectId: string; chatId: string }> = []
+      for (const item of args.targets) {
+        if (!item || typeof item.projectId !== 'string' || !item.projectId) {
+          throw new Error('Invalid target projectId')
+        }
+        if (typeof item.chatId !== 'string' || !item.chatId) {
+          throw new Error('Invalid target chatId')
+        }
+        validated.push({ projectId: item.projectId, chatId: item.chatId })
+      }
+      const store = getProjectStore()
+      return store.deleteChats(validated)
+    },
+  )
 
   /** rebind chat (called after a file first hits disk): newFilePath/sessionId take priority; the main process computes chatId and records fileMap */
   ipcMain.handle(

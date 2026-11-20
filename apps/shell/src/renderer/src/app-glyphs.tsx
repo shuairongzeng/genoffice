@@ -340,3 +340,26 @@ export function SparkGlyph() {
     </svg>
   )
 }
+
+/** Dual-bubble chat wireframe glyph for the global AI Sessions center tile. */
+export function SessionsGlyph() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <path
+        d="M5 7.5A2.5 2.5 0 0 1 7.5 5h12A2.5 2.5 0 0 1 22 7.5v7A2.5 2.5 0 0 1 19.5 17H11l-4 3.2V17H7.5A2.5 2.5 0 0 1 5 14.5v-7z"
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinejoin="round"
+        fill="currentColor"
+        fillOpacity="0.1"
+      />
+      <path
+        d="M14 20.5v1A2.5 2.5 0 0 0 16.5 24H21l4 3v-3h.5A2.5 2.5 0 0 0 28 21.5v-6A2.5 2.5 0 0 0 25.5 13H24"
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}

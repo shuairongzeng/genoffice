@@ -412,7 +412,7 @@ function asDockHotEdgeReport(value: unknown): DockHotEdgeReport | null {
 }
 
 /** the nav views a dock action may name */
-const DOCK_NAV_VIEWS = ['desktop', 'recent', 'starred', 'cloud'] as const
+const DOCK_NAV_VIEWS = ['desktop', 'recent', 'starred', 'cloud', 'sessions'] as const
 /** the settings sections a dock action may open */
 const DOCK_SETTINGS_SECTIONS = ['general', 'plugins'] as const
 /** the open targets a dock close action may name (the context menu's 关闭标签) */
@@ -683,19 +683,45 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
   })
 
   /* ── the loop's pub/sub backbone: Home's loop publishes run events, every
-   * OTHER renderer subscribes (a closed mount never receives one). The
-   * latest snapshot is cached here so a mid-run mirror mount can pull the
-   * current state instead of starting blank. */
+   * OTHER renderer subscribes (a closed mount never receives one). Snapshots
+   * are bucketed by sessionKey (capped at 32) so switching documents never
+   * cross-contaminates streams, while latestRunSnapshot stays for callers
+   * that omit a sessionKey. */
+  const MAX_SESSION_SNAPSHOTS = 32
+  const runSnapshotsByKey = new Map<string, unknown>()
   let latestRunSnapshot: unknown = null
   ipcMain.on(HOME_CHANNELS.askRunEvent, (event, payload) => {
-    const evt = payload as { type?: string; payload?: unknown } | undefined
-    if (evt?.type === 'snapshot') latestRunSnapshot = evt.payload
+    const evt = payload as { type?: string; sessionKey?: string; payload?: unknown } | undefined
+    if (evt?.type === 'snapshot') {
+      latestRunSnapshot = evt.payload
+      const snapKey =
+        typeof evt.sessionKey === 'string' && evt.sessionKey !== ''
+          ? evt.sessionKey
+          : evt.payload &&
+              typeof evt.payload === 'object' &&
+              typeof (evt.payload as { sessionKey?: unknown }).sessionKey === 'string'
+            ? (evt.payload as { sessionKey: string }).sessionKey
+            : ''
+      if (snapKey !== '') {
+        runSnapshotsByKey.delete(snapKey)
+        runSnapshotsByKey.set(snapKey, evt.payload)
+        if (runSnapshotsByKey.size > MAX_SESSION_SNAPSHOTS) {
+          const oldest = runSnapshotsByKey.keys().next().value
+          if (oldest !== undefined) runSnapshotsByKey.delete(oldest)
+        }
+      }
+    }
     for (const wc of webContents.getAllWebContents()) {
       if (wc === event.sender || wc.isDestroyed()) continue
       wc.send(HOME_CHANNELS.askRunEvent, payload)
     }
   })
-  ipcMain.handle(HOME_CHANNELS.askRunSnapshot, () => latestRunSnapshot)
+  ipcMain.handle(HOME_CHANNELS.askRunSnapshot, (_event, sessionKey?: unknown) => {
+    if (typeof sessionKey === 'string' && sessionKey !== '') {
+      return runSnapshotsByKey.get(sessionKey) ?? null
+    }
+    return latestRunSnapshot
+  })
   // a mirror mount's question: Home's loop is the single executor, so this
   // goes to the shell renderer ONLY — never back into the mirror itself
   ipcMain.handle(HOME_CHANNELS.askRunQuestion, (_event, query) => {

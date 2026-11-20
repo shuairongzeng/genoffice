@@ -13,6 +13,7 @@ import {
   MarkdownGlyph,
   PdfGlyph,
   PlugGlyph,
+  SessionsGlyph,
   SheetsGlyph,
   SlidesGlyph,
   SparkGlyph,
@@ -66,6 +67,8 @@ function appTileGlyph(tile: AppTile): ReactNode {
       return <SparkGlyph />
     case 'kb':
       return <KbGlyph />
+    case 'sessions':
+      return <SessionsGlyph />
     case 'templates':
       return <TemplatesGlyph />
     case 'plugins':

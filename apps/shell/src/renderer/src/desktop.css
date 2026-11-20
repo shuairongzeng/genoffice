@@ -563,6 +563,9 @@
 .desktop-tile-kb {
   --tile-color: var(--desktop-tile-kb);
 }
+.desktop-tile-sessions {
+  --tile-color: var(--accent);
+}
 .desktop-tile-templates {
   --tile-color: var(--desktop-tile-templates);
 }

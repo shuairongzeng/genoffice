@@ -9,6 +9,7 @@ import type {
   ChatMeta,
   ChatThreadMeta,
   ChatScope,
+  GlobalChatMeta,
   ProjectSummary,
   RunEvent,
   RunEventKind,
@@ -23,6 +24,7 @@ export type {
   ChatMeta,
   ChatThreadMeta,
   ChatScope,
+  GlobalChatMeta,
   ProjectSummary,
   RunEvent,
   RunEventKind,
@@ -192,7 +194,14 @@ export interface ProjectApi {
     chatId: string
     title?: string | null
     pinned?: boolean
+    docPath?: string | null
   }): Promise<ChatThreadMeta | null>
   /** Removes one conversation's transcript. */
   deleteChat(args: { projectId: string; chatId: string }): Promise<void>
+  /** Lists all conversations across every project, newest first. */
+  listAllChats?(args?: { query?: string }): Promise<GlobalChatMeta[]>
+  /** Removes multiple conversations across projects in one call. */
+  deleteChats?(args: {
+    targets: Array<{ projectId: string; chatId: string }>
+  }): Promise<{ deleted: number }>
 }

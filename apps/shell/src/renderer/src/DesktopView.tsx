@@ -35,6 +35,7 @@ import {
   MarkdownGlyph,
   PdfGlyph,
   PlugGlyph,
+  SessionsGlyph,
   SheetsGlyph,
   SlidesGlyph,
   SparkGlyph,
@@ -205,6 +206,8 @@ export interface DesktopViewProps {
   readonly onOpenAsk: () => void
   /** open the knowledge base center (the 知识库 tile) */
   readonly onOpenKb: () => void
+  /** open the global AI Sessions center */
+  readonly onOpenSessions?: () => void
   /** hand the selected desktop paths to the docked AI panel as its corpus (the Ask AI action) */
   readonly onAskAboutPaths: (paths: readonly string[]) => void
   /** open the template gallery overlay */
@@ -487,6 +490,7 @@ export function DesktopView({
   roots,
   onOpenAsk,
   onOpenKb,
+  onOpenSessions,
   onAskAboutPaths,
   onOpenTemplates,
   onOpenSettings,
@@ -605,6 +609,7 @@ export function DesktopView({
         api: window.aiOffice as Partial<HomeApi>,
         onOpenAsk,
         onOpenKb,
+        onOpenSessions,
         onOpenTemplates,
         onOpenSettings,
         onOpenFolder,
@@ -620,6 +625,7 @@ export function DesktopView({
       pins,
       onOpenAsk,
       onOpenKb,
+      onOpenSessions,
       onOpenTemplates,
       onOpenSettings,
       onOpenFolder,
@@ -2182,6 +2188,7 @@ export function DesktopView({
         {icon.tile === 'plugins' && <PlugGlyph />}
         {icon.tile === 'settings' && <GearGlyph />}
         {icon.tile === 'kb' && <KbGlyph />}
+        {icon.tile === 'sessions' && <SessionsGlyph />}
       </span>
     )
   }

@@ -103,6 +103,7 @@ describe('mergeDesktopItems', () => {
       'Web Page',
       'AI Chat',
       'Knowledge Base',
+      'AI Sessions',
       'Templates',
       'Plugins',
       'Settings',

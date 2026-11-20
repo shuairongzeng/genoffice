@@ -590,6 +590,11 @@ export function AskPanelEntry(): React.JSX.Element | null {
           focusSignal={focusSeq}
           onEscapeCollapse={() => collapseOverlayDrawer()}
           onCollapse={collapseOverlayDrawer}
+          onOpenSessionsCenter={() =>
+            void (window.aiOffice as Partial<HomeApi>)
+              ?.dockAction?.({ kind: 'nav', view: 'sessions' })
+              .catch(() => undefined)
+          }
           onPetActivityChange={setPetRunState}
           /* the header is the floating card's grab zone (Home's bubble shares
              the verb): absent while docked into a host app's slot — that

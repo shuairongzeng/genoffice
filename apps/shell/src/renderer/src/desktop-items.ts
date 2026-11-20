@@ -18,6 +18,7 @@ export type AppTile =
   | 'plugins'
   | 'settings'
   | 'kb'
+  | 'sessions'
 
 /**
  * One thing on the desktop, whichever source it came from — the model every
@@ -74,6 +75,8 @@ export interface DesktopItemContext {
   readonly onOpenAsk: () => void
   /** the KB tile's verb: the knowledge base center takes over the content area */
   readonly onOpenKb: () => void
+  /** opens the global AI Sessions center view */
+  readonly onOpenSessions?: () => void
   readonly onOpenTemplates: () => void
   readonly onOpenSettings: (target: SettingsTarget) => void
   readonly onOpenFolder: (root: FolderRoot) => void
@@ -136,6 +139,8 @@ export interface DesktopAppOpenHost {
   readonly onOpenAsk: () => void
   /** the KB tile's verb: the knowledge base center takes over the content area */
   readonly onOpenKb: () => void
+  /** opens the global AI Sessions center view */
+  readonly onOpenSessions?: () => void
   readonly onOpenTemplates: () => void
   readonly onOpenSettings: (target: SettingsTarget) => void
 }
@@ -164,6 +169,7 @@ const APP_ENTRIES: readonly DesktopAppEntry[] = [
   { id: 'app:browser', tile: 'browser', titleKey: 'appHtml' },
   { id: 'app:ask', tile: 'ask', titleKey: 'appAsk' },
   { id: 'app:kb', tile: 'kb', titleKey: 'appKb' },
+  { id: 'app:sessions', tile: 'sessions', titleKey: 'appSessions' },
   { id: 'app:templates', tile: 'templates', titleKey: 'appTemplates' },
   { id: 'app:plugins', tile: 'plugins', titleKey: 'appPlugins' },
   { id: 'app:settings', tile: 'settings', titleKey: 'appSettings' },
@@ -184,6 +190,7 @@ const APP_OPEN_VERBS: Readonly<Record<string, (host: DesktopAppOpenHost) => () =
   'app:browser': (host) => () => void host.api.newBrowser?.(),
   'app:ask': (host) => host.onOpenAsk,
   'app:kb': (host) => host.onOpenKb,
+  'app:sessions': (host) => () => host.onOpenSessions?.(),
   'app:templates': (host) => host.onOpenTemplates,
   'app:plugins': (host) => () => host.onOpenSettings({ section: 'plugins' }),
   'app:settings': (host) => () => host.onOpenSettings({ section: 'general' }),

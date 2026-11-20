@@ -35,6 +35,8 @@ describe('readLaunchView', () => {
     expect(readLaunchView()).toBe('starred')
     localStorage.setItem('home.view', 'cloud')
     expect(readLaunchView()).toBe('cloud')
+    localStorage.setItem('home.view', 'sessions')
+    expect(readLaunchView()).toBe('sessions')
     localStorage.setItem('home.view', 'desktop')
     expect(readLaunchView()).toBe('desktop')
   })
@@ -53,7 +55,7 @@ describe('readLaunchView', () => {
 })
 
 describe('initialHomeViewState', () => {
-  it.each(['desktop', 'recent', 'starred', 'cloud'] as const)(
+  it.each(['desktop', 'recent', 'starred', 'cloud', 'sessions'] as const)(
     'maps %s onto its surface',
     (view) => {
       const state = initialHomeViewState(view)
@@ -117,12 +119,14 @@ describe('homeViewReducer', () => {
       { type: 'set-folder', dir: null },
       { type: 'set-folder', dir: '/docs/sub' },
       { type: 'show-cloud' },
+      { type: 'show-sessions' },
       { type: 'exit-cloud' },
     ]
-    const surfaces = new Set(['desktop', 'list', 'folder', 'cloud'])
+    const surfaces = new Set(['desktop', 'list', 'folder', 'cloud', 'sessions'])
     for (const action of actions) {
       const next = homeViewReducer(at('folder', { folder: '/docs' }), action)
       expect(surfaces).toContain(next.surface)
     }
+    expect(homeViewReducer(at('desktop'), { type: 'show-sessions' })).toEqual(at('sessions'))
   })
 })

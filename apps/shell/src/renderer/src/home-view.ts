@@ -20,13 +20,20 @@
 // mechanism the folder tree's expansion state uses (Home has no other
 // renderer-writable settings door, and no view pref existed before).
 
-export type LaunchView = 'desktop' | 'recent' | 'starred' | 'cloud' | 'kb'
+export type LaunchView = 'desktop' | 'recent' | 'starred' | 'cloud' | 'kb' | 'sessions'
 const VIEW_PREF_KEY = 'home.view'
 
 export function readLaunchView(): LaunchView {
   try {
     const raw = localStorage.getItem(VIEW_PREF_KEY)
-    if (raw === 'recent' || raw === 'starred' || raw === 'cloud' || raw === 'kb') return raw
+    if (
+      raw === 'recent' ||
+      raw === 'starred' ||
+      raw === 'cloud' ||
+      raw === 'kb' ||
+      raw === 'sessions'
+    )
+      return raw
     // a build before the workbench docked the ask panel could store 'ask':
     // the panel is always present now, so the closest surface is the list
     if (raw === 'ask') return 'recent'
@@ -45,7 +52,7 @@ export function writeLaunchView(view: LaunchView): void {
 }
 
 /** which surface owns the content column; exactly one at a time */
-export type HomeSurface = 'desktop' | 'list' | 'folder' | 'cloud' | 'kb'
+export type HomeSurface = 'desktop' | 'list' | 'folder' | 'cloud' | 'kb' | 'sessions'
 
 export interface HomeViewState {
   surface: HomeSurface
@@ -70,8 +77,10 @@ export type HomeViewAction =
   | { type: 'set-folder'; dir: string | null }
   /** the Cloud nav item */
   | { type: 'show-cloud' }
-  /** the Knowledge Base center's tile (知识库): the corpus management surface */
+  /** the Knowledge Base center's tile: the corpus management surface */
   | { type: 'show-kb' }
+  /** the AI Sessions center's tile: global per-document and free session manager */
+  | { type: 'show-sessions' }
   /** logout only: the cloud view leaves, everything else stays untouched */
   | { type: 'exit-cloud' }
 
@@ -94,6 +103,8 @@ export function homeViewReducer(state: HomeViewState, action: HomeViewAction): H
       return { ...state, surface: 'cloud', folder: null }
     case 'show-kb':
       return { ...state, surface: 'kb', folder: null }
+    case 'show-sessions':
+      return { ...state, surface: 'sessions', folder: null }
     case 'exit-cloud':
       return state.surface === 'cloud' ? { ...state, surface: 'list' } : state
   }
@@ -108,7 +119,9 @@ export function initialHomeViewState(launch: LaunchView): HomeViewState {
           ? 'cloud'
           : launch === 'kb'
             ? 'kb'
-            : 'list',
+            : launch === 'sessions'
+              ? 'sessions'
+              : 'list',
     list: launch === 'starred' ? 'starred' : 'recent',
     folder: null,
   }

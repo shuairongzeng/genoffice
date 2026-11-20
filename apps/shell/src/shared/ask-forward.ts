@@ -16,6 +16,12 @@
  * it.
  */
 
+export interface PendingAskTargetSession {
+  readonly projectId: string
+  readonly chatId: string
+  readonly docPath?: string | null
+}
+
 /** A question handed to the Ask AI panel from outside. `seq` distinguishes two
  *  submissions of the same text: the panel consumes each seq at most once. */
 export interface PendingAskQuery {
@@ -23,6 +29,8 @@ export interface PendingAskQuery {
   readonly seq: number
   /** 'palette' is the user's own just-typed text; 'deep-link' is web-supplied */
   readonly origin: AskQueryOrigin
+  /** Explicit session destination when forwarded from a mirror panel */
+  readonly targetSession?: PendingAskTargetSession
   /**
    * An explicit file selection (the desktop's multi-select) as this
    * conversation's corpus: the panel attaches it as the round scope — every
@@ -88,10 +96,27 @@ export function normalizeForwardedAskQuery(raw: unknown): PendingAskQuery | null
   if (typeof p.seq !== 'number' || !Number.isFinite(p.seq)) return null
   if (p.origin !== 'palette' && p.origin !== 'deep-link') return null
   const scopePaths = normalizeScopePaths(p.scopePaths)
+  let targetSession: PendingAskTargetSession | undefined
+  if (p.targetSession && typeof p.targetSession === 'object') {
+    const ts = p.targetSession as Partial<PendingAskTargetSession>
+    if (
+      typeof ts.projectId === 'string' &&
+      ts.projectId !== '' &&
+      typeof ts.chatId === 'string' &&
+      ts.chatId !== ''
+    ) {
+      targetSession = {
+        projectId: ts.projectId,
+        chatId: ts.chatId,
+        ...(ts.docPath === null || typeof ts.docPath === 'string' ? { docPath: ts.docPath } : {}),
+      }
+    }
+  }
   return {
     text: p.text.slice(0, MAX_FORWARDED_ASK_TEXT),
     seq: Math.trunc(p.seq),
     origin: p.origin,
+    ...(targetSession ? { targetSession } : {}),
     ...(scopePaths.length > 0 ? { scopePaths } : {}),
   }
 }

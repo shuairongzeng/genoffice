@@ -88,10 +88,18 @@ export interface ProjectIndex {
 
 export interface ChatMeta {
   chatId: string
+  /** Project ID owning this chat (populated by listChats/listAllChats) */
+  projectId?: string
+  /** Human-readable project name (populated by listAllChats) */
+  projectName?: string
   /** Last modification time of the JSONL file (UTC ISO) */
   updatedAt: string
   /** Approximate line count (estimated from file bytes, not exact) */
   approxCount: number
+  /** Exact valid message count across the transcript */
+  messageCount?: number
+  /** Compact preview of the latest valid message */
+  lastMessagePreview?: string
   /** The first thing asked in the thread, read from the file's head */
   firstQuestion?: string
   /**
@@ -104,23 +112,35 @@ export interface ChatMeta {
   pinned?: boolean
   /**
    * The document this thread follows, when chatIdByPath maps a file to it
-   * (the reverse lookup of resolveChatForFile's registration): the library
-   * shows the document's name and an app-kind glyph for such threads.
+   * (or stored on extra document threads in chat-meta.json).
    */
   docPath?: string
+  /** Whether the linked docPath currently exists on disk (omitted when docPath is absent) */
+  docExists?: boolean
+}
+
+/**
+ * Aggregated chat summary returned across all projects for the global session manager.
+ */
+export interface GlobalChatMeta extends ChatMeta {
+  projectId: string
+  projectName: string
+  messageCount: number
 }
 
 /**
  * One thread's library-side metadata, the chat-meta.json sidecar's value.
  * The transcripts own the conversation; this owns what the library layer
- * adds — a display title that outranks the first question, and a pin that
- * outranks recency.
+ * adds — a display title that outranks the first question, a pin that
+ * outranks recency, and an optional document path for extra doc threads.
  */
 export interface ChatThreadMeta {
   /** the rename verb's title override; absent = label by firstQuestion */
   title?: string
   /** the pin verb's mark; absent = unlisted in the pinned section */
   pinned?: boolean
+  /** bound document path for extra threads started inside a document */
+  docPath?: string
 }
 
 // ────────────────────────────────────────────────────────────

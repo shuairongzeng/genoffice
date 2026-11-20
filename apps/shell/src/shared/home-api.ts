@@ -692,15 +692,22 @@ export interface AskRunEvent {
     | 'stop'
     | 'user-message'
     | 'snapshot'
+    | 'switch-session'
     | 'checkpoint-added'
     | 'checkpoint-updated'
     | 'subagent-progress'
+  /** Optional session routing key ("<projectId>:<chatId>") for multi-doc isolation */
+  sessionKey?: string
   payload: unknown
 }
 
 /** a mirror mount's initial state: the shared message list plus any
  *  in-flight run's live state at publish time */
 export interface AskRunSnapshot {
+  sessionKey?: string
+  projectId?: string
+  chatId?: string
+  docPath?: string | null
   messages: unknown[]
   liveRun?: { text: string; reasoning?: string; busy: boolean } | null
   confirmCard?: unknown | null
@@ -748,7 +755,7 @@ export interface DockHotEdgeReport {
  * surface may open as a modal over the rising tab.
  */
 export type DockNavIntent =
-  | { kind: 'nav'; view: 'desktop' | 'recent' | 'starred' | 'cloud' }
+  | { kind: 'nav'; view: 'desktop' | 'recent' | 'starred' | 'cloud' | 'sessions' }
   | { kind: 'settings'; section: 'general' | 'plugins' }
   | { kind: 'templates' }
   | { kind: 'close'; target: 'settings' | 'templates' | 'plugins' }
@@ -970,10 +977,10 @@ export interface HomeApi {
   onAskRunEvent?(handler: (event: AskRunEvent) => void): () => void
   /**
    * A mirror mount's snapshot request (`home:ask-run-snapshot`): the latest
-   * cached snapshot (messages + live run state), null when Home has not
-   * published one yet.
+   * cached snapshot for the given sessionKey (or overall latest when omitted),
+   * null when Home has not published one yet.
    */
-  askRunSnapshot?(): Promise<AskRunSnapshot | null>
+  askRunSnapshot?(sessionKey?: string): Promise<AskRunSnapshot | null>
   /**
    * A mirror mount's question (`home:ask-run-question`): main routes it to
    * Home's shell renderer ONLY — Home's loop is the single executor, so the
