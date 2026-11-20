@@ -163,6 +163,7 @@ import { addTodo, broadcastTodosChanged, registerTodosIpc } from './todos-ipc'
 import { runEditorCommand as dispatchEditorCommand } from './editor-command-dispatch'
 import {
   genofficeLogout,
+  gskApiKey,
   gskLoginInfo,
   loadGenofficeAuth,
   setGskProxyUrl,
@@ -201,6 +202,7 @@ import {
   exportSheetsPdfHeadless,
   exportSlidesPdfHeadless,
   flushPdfSave,
+  getSharedProjectStoreFromMain,
   hasActiveQueuedWorkbook,
   htmlFileRenamed,
   markdownFileRenamed,
@@ -210,6 +212,7 @@ import {
   markSheetsUnsavedNew,
   mediaFilePathForWebContents,
   mediaReadSnapshot,
+  onAiSettingsUpdated,
   PDF_CHANNELS,
   BROWSER_CHANNELS,
   pdfFileRenamed,
@@ -218,6 +221,7 @@ import {
   pendingUnsavedNewRecoveries,
   projectFileRenamed,
   projectFilePaths,
+  readLiveAiSettingsFromMain,
   readRecentFiles,
   readSlidesRecentFiles,
   readStarredFiles,
@@ -245,6 +249,7 @@ import {
   sendPdfPrintRequest,
   sendSheetsMenuAction,
   setPdfSaveAsInFlight,
+  setProjectChatLifecycleHooks,
   setSessionPathResolver,
   sheetsFileRenamed,
   sheetsSuggestedPathTaken,
@@ -317,8 +322,15 @@ import { watchAiDock, readAiDock, AI_DOCK_KEY } from './ai-dock'
 import { watchAiPetPrefs } from './ai-pet-prefs'
 import { readDockPrefs, watchDockPrefs } from './dock-prefs'
 import { createAiLineage, type AiLineageStore } from './ai-lineage'
-import { readAiPermissions, shouldAskBrowserPageAction, watchAiPermissions } from './ai-permissions'
+import { watchAiPermissions, readAiPermissions, shouldAskBrowserPageAction } from './ai-permissions'
 import { createAiSessionAllows } from './ai-session-allows'
+import { PI_AGENT_CHANNELS } from '../shared/pi-agent-api'
+import { readPiAgentPrefs, watchPiAgentPrefs } from './pi-agent/pi-agent-prefs'
+import { PiAgentRuntimeManager } from './pi-agent/pi-runtime'
+import { createPiEcosystemService } from './pi-agent/pi-ecosystem-service'
+import { isEnvLegacyEngineForced, registerPiAgentIpc } from './pi-agent-ipc'
+import { createWorkbenchToolsService } from './workbench-tools-service'
+import { skillsRoot } from './imported-skills'
 import { DOCK_OPEN_NONE } from '../shared/dock-prefs'
 import { DOCK_ITEM_COUNT, normalizeAiDock } from '../shared/desktop-geometry'
 import {
@@ -502,6 +514,8 @@ const OPEN_DOCUMENTS_PATH = () => join(app.getPath('userData'), OPEN_DOCUMENTS_F
 /** only the instance holding the single-instance lock may write or remove the registry */
 let ownsOpenDocumentsRegistry = false
 let stopAuthWatch: (() => void) | null = null
+let piRuntime: PiAgentRuntimeManager | null = null
+let stopAiSettingsSync: (() => void) | null = null
 const publishOpenDocumentsIfOwner = (paths: readonly string[]) => {
   if (ownsOpenDocumentsRegistry) publishOpenDocuments(OPEN_DOCUMENTS_PATH(), paths)
 }
@@ -6769,6 +6783,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
   // home page re-reads its account status. A logout that leaves only the
   // gsk CLI fallback key is not a login
   stopAuthWatch = watchGskApiKey(() => {
+    piRuntime?.syncEnvironmentAndConfig()
     if (!loadGenofficeAuth()) return
     for (const w of BrowserWindow.getAllWindows())
       w.webContents.send(HOME_CHANNELS.accountLoginEvent, { phase: 'success' })
@@ -7184,6 +7199,12 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
   // detached editors, with a focused detached window outranking the strip's
   // active flag), and the sender gate serves the same panel copies the
   // browser skill's channel does.
+  const askPanelWebContents = (): WebContents[] => {
+    const shellWc =
+      shellWindow && !shellWindow.isDestroyed() ? shellWindow.webContents : undefined
+    const overlayWc = tabManager?.drawerOverlayWebContents()
+    return [shellWc, overlayWc].filter((wc): wc is WebContents => !!wc && !wc.isDestroyed())
+  }
   installDocumentAgentBridge({
     listDocumentTabs: async () =>
       (await collectSurfaceTabs(surfaceTabsSource())).map(({ id, kind, title, active }) => ({
@@ -7194,12 +7215,74 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       })),
     webContentsFor: (tabId) =>
       tabManager?.webContentsForTab(tabId) ?? detachedWebContentsFor(tabId),
-    panelWebContents: () => {
-      const shellWc =
-        shellWindow && !shellWindow.isDestroyed() ? shellWindow.webContents : undefined
-      const overlayWc = tabManager?.drawerOverlayWebContents()
-      return [shellWc, overlayWc].filter((wc): wc is WebContents => !!wc && !wc.isDestroyed())
+    panelWebContents: askPanelWebContents,
+  })
+  const workbenchTools = createWorkbenchToolsService({
+    aiLineage: () => aiLineage(),
+  })
+  const piRuntimeInstance = new PiAgentRuntimeManager({
+    userDataDir: app.getPath('userData'),
+    getDefaultWorkingDir: () => defaultSaveDir(),
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appRoot: APPS_ROOT,
+    getPrefs: () => readPiAgentPrefs(APP_SETTINGS_PATH()),
+    getAiSettings: () => readLiveAiSettingsFromMain(),
+    getGskApiKey: () => gskApiKey(),
+    getPermissionMode: () => readAiPermissions(APP_SETTINGS_PATH()),
+    sessionAllows: aiSessionAllows,
+    workbench: workbenchTools,
+    getProjectStore: () => getSharedProjectStoreFromMain(),
+    sendConfirmRequest: (req) => {
+      for (const wc of askPanelWebContents()) {
+        wc.send(PI_AGENT_CHANNELS.confirmRequest, req)
+      }
     },
+    sendStatusEvent: (status) => {
+      for (const wc of askPanelWebContents()) {
+        wc.send(PI_AGENT_CHANNELS.statusEvent, status)
+      }
+    },
+    sendNoticeEvent: (notice) => {
+      for (const wc of askPanelWebContents()) {
+        wc.send(PI_AGENT_CHANNELS.noticeEvent, notice)
+      }
+    },
+    resolveSkillPathsByName: (names) => {
+      const root = skillsRoot(app.getPath('userData'))
+      return names
+        .map((name) => join(root, name, 'SKILL.md'))
+        .filter((p) => existsSync(p))
+    },
+  })
+  piRuntime = piRuntimeInstance
+  piRuntimeInstance.syncEnvironmentAndConfig()
+  const piEcosystem = createPiEcosystemService({
+    userDataDir: app.getPath('userData'),
+    getDefaultWorkingDir: () => defaultSaveDir(),
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appRoot: APPS_ROOT,
+    getPrefs: () => readPiAgentPrefs(APP_SETTINGS_PATH()),
+    runtime: piRuntimeInstance,
+    envOverrideLegacy: isEnvLegacyEngineForced(),
+  })
+  registerPiAgentIpc({
+    appSettingsPath: APP_SETTINGS_PATH,
+    panelWebContents: askPanelWebContents,
+    isShellWindowWebContents: (sender) =>
+      Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.webContents === sender),
+    runtime: piRuntimeInstance,
+    ecosystem: piEcosystem,
+  })
+  setProjectChatLifecycleHooks({
+    onDeleteChat: ({ projectId, chatId }) =>
+      piRuntime?.deleteSession(`${projectId}:${chatId}`),
+    onRebindChat: ({ projectId, oldChatId, newChatId }) =>
+      piRuntime?.rebindSession(`${projectId}:${oldChatId}`, `${projectId}:${newChatId}`),
+  })
+  stopAiSettingsSync = onAiSettingsUpdated(() => {
+    piRuntime?.syncEnvironmentAndConfig()
   })
   configureMcpRuntime({
     version: app.getVersion(),
@@ -7317,6 +7400,12 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
   watchAiPermissions(APP_SETTINGS_PATH(), (mode) => {
     sendToShellRenderer(HOME_CHANNELS.aiPermissionsChanged, mode)
     tabManager?.drawerOverlayWebContents()?.send(HOME_CHANNELS.aiPermissionsChanged, mode)
+  })
+  watchPiAgentPrefs(APP_SETTINGS_PATH(), (prefs) => {
+    const effective = isEnvLegacyEngineForced() ? { ...prefs, engine: 'legacy' as const } : prefs
+    sendToShellRenderer(PI_AGENT_CHANNELS.prefsChanged, effective)
+    tabManager?.drawerOverlayWebContents()?.send(PI_AGENT_CHANNELS.prefsChanged, effective)
+    piRuntime?.syncEnvironmentAndConfig()
   })
   let deferredScheduled = false
   let deferredExecuted = false
@@ -7467,6 +7556,9 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  piRuntime?.disposeAll()
+  stopAiSettingsSync?.()
+  stopAiSettingsSync = null
   // No close prompt may fall through to "Save" during shutdown
   markSheetsShuttingDown()
   stopSheetsSidecar()

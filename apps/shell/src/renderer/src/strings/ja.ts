@@ -931,4 +931,5 @@ export const ja: Dict = {
   setPetSubtitle: '個性豊かな AI ペットを選んで、このステージで反応や表情をすぐに試せます。',
   setPetTitle: 'AI デスクトップ相棒',
   setSecAiPet: 'AI ペット',
+  setSecPiAgent: 'メモリと Pi エコシステム',
 }

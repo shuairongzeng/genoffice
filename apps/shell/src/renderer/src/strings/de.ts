@@ -945,4 +945,5 @@ export const de: Dict = {
   setPetSubtitle: 'Wähle einen lebendigen Begleiter und probiere jede Stimmung direkt hier aus.',
   setPetTitle: 'KI-Desktop-Begleiter',
   setSecAiPet: 'KI-Begleiter',
+  setSecPiAgent: 'Speicher & Pi-Ökosystem',
 }

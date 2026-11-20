@@ -10,18 +10,18 @@
   "desktopName": "genoffice.desktop",
   "scripts": {
     "dev": "electron-vite dev --watch",
-    "build": "electron-vite build",
+    "build": "electron-vite build && node scripts/collect-pi-deps.mjs",
     "notices": "node ../../tools/gen-third-party-notices.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "start": "electron-vite build && electron .",
-    "dist:mac": "npm run notices && electron-vite build && electron-builder --mac",
-    "dist:win": "npm run notices && electron-vite build && electron-builder --win",
-    "dist:linux": "npm run notices && electron-vite build && electron-builder --linux"
+    "dist:mac": "npm run notices && npm run build && electron-builder --mac",
+    "dist:win": "npm run notices && npm run build && electron-builder --win",
+    "dist:linux": "npm run notices && npm run build && electron-builder --linux"
   },
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "^1.4.0",
-    "@earendil-works/pi-ai": "^1.4.0",
+    "@earendil-works/pi-agent-core": "^1.5.2",
+    "@earendil-works/pi-ai": "^1.5.2",
     "@genoffice/agent-core": "*",
     "@genoffice/ai-provider": "*",
     "@genoffice/ai-search": "*",
@@ -56,6 +56,8 @@
   },
   "author": "GenOffice",
   "dependencies": {
+    "@cortexkit/pi-magic-context": "^0.49.67",
+    "@earendil-works/pi-coding-agent": "^1.5.2",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1"
   }

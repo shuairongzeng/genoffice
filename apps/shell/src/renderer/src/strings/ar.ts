@@ -914,4 +914,5 @@ export const ar: Dict = {
   setPetSubtitle: 'اختر رفيقًا وتفاعل معه مباشرةً هنا لتجربة كل تعابيره.',
   setPetTitle: 'رفقاء سطح المكتب الذكيون',
   setSecAiPet: 'حيوانات الذكاء',
+  setSecPiAgent: 'الذاكرة ومنظومة Pi',
 }

@@ -913,4 +913,5 @@ export const en: Dict = {
   setPetSubtitle: 'Pick a lively desktop partner and interact right here to preview every mood.',
   setPetTitle: 'AI Companion Pets',
   setSecAiPet: 'AI Pets',
+  setSecPiAgent: 'Memory & Pi Ecosystem',
 }

@@ -159,6 +159,37 @@ import {
   type DocCheckpoint,
 } from './doc-checkpoints'
 export type { DocCheckpoint } from './doc-checkpoints'
+import { DEFAULT_PI_AGENT_PREFS, normalizePiAgentPrefs, type PiAgentPrefs } from '../../shared/pi-agent-prefs'
+import type {
+  PiAgentCommandInfo,
+  PiAgentConfirmRequest,
+  PiAgentNoticePayload,
+  PiAgentStatusPayload,
+} from '../../shared/pi-agent-api'
+import { getPiEcosystemStrings } from './pi-ecosystem-strings'
+
+const PI_CONFIRM_ARGS_MAX = 400
+
+function formatPiConfirmCard(req: PiAgentConfirmRequest): ToolConfirmCard {
+  let args = '{}'
+  try {
+    const raw = JSON.stringify(req.call.input ?? {}) ?? '{}'
+    args = raw.length > PI_CONFIRM_ARGS_MAX ? `${raw.slice(0, PI_CONFIRM_ARGS_MAX)}…` : raw
+  } catch {
+    args = '{}'
+  }
+  const summaryParts: string[] = []
+  if (req.sourceLabel) summaryParts.push(`[${req.sourceLabel}]`)
+  if (req.argsSummary) summaryParts.push(req.argsSummary)
+  return {
+    toolName: req.call.name,
+    args,
+    ...(summaryParts.length > 0 ? { argsSummary: summaryParts.join(' ') } : {}),
+    outcome: 'awaiting',
+    timedOut: false,
+    sessionAllowable: req.sessionAllowable,
+  }
+}
 
 /**
  * The workbench's knowledge-base ask panel: chat with the reader's corpus
@@ -1279,6 +1310,28 @@ export function KbAskPanel({
   const [corpusCount, setCorpusCount] = useState<number | null>(null)
   const [gskEmail, setGskEmail] = useState<string | null>(null)
   const [provider, setProvider] = useState<string | null>(null)
+  const hasPiBridge =
+    typeof window !== 'undefined' &&
+    typeof window.aiOffice?.piAgentPrompt === 'function' &&
+    typeof window.aiOffice?.piAgentPrefsGet === 'function'
+  const [piPrefs, setPiPrefs] = useState<PiAgentPrefs>(() =>
+    hasPiBridge ? DEFAULT_PI_AGENT_PREFS : { ...DEFAULT_PI_AGENT_PREFS, engine: 'legacy' },
+  )
+  const piPrefsRef = useRef<PiAgentPrefs>(piPrefs)
+  piPrefsRef.current = piPrefs
+  const isPiEngine = hasPiBridge && piPrefs.engine === 'pi'
+  const isPiEngineRef = useRef(isPiEngine)
+  isPiEngineRef.current = isPiEngine
+  const piCommandsRef = useRef<PiAgentCommandInfo[]>([])
+  const piCommandNamesRef = useRef(new Set<string>())
+  const [piConfirm, setPiConfirm] = useState<{ requestId: string; card: ToolConfirmCard } | null>(
+    null,
+  )
+  const piConfirmRef = useRef(piConfirm)
+  piConfirmRef.current = piConfirm
+  const [piStatus, setPiStatus] = useState<PiAgentStatusPayload | null>(null)
+  const [piNotice, setPiNotice] = useState<PiAgentNoticePayload | null>(null)
+  const piNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /**
    * The global permission mode as THIS panel sees it: pulled once, then
    * followed through the store watcher's broadcast (`onAiPermissionsChanged`)
@@ -1836,7 +1889,8 @@ export function KbAskPanel({
       if (
         reasoningNeedsBreakRef.current &&
         runReasoningRef.current.length > 0 &&
-        !runReasoningRef.current.endsWith('\n\n')
+        !runReasoningRef.current.endsWith('\n\n') &&
+        !text.startsWith('\n\n')
       ) {
         runReasoningRef.current += runReasoningRef.current.endsWith('\n') ? '\n' : '\n\n'
       }
@@ -1866,6 +1920,17 @@ export function KbAskPanel({
           ...(call.name === DOCUMENT_AGENT_TOOL ? { subAgent: undefined } : {}),
         }),
         { sync: true },
+      )
+      setPiConfirm((prev) =>
+        prev && prev.card.outcome === 'awaiting' && prev.card.toolName === call.name
+          ? {
+              ...prev,
+              card: {
+                ...prev.card,
+                outcome: execution.denied ? 'denied' : 'allowed',
+              },
+            }
+          : prev,
       )
     },
     onToolStart: (call: AgentToolCall) => {
@@ -1937,40 +2002,91 @@ export function KbAskPanel({
       )
     },
   }
+  /** Ensure a streaming assistant bubble exists before applying incoming Pi events. */
+  const ensureStreamingAssistantBubble = (): void => {
+    const last = messagesRef.current[messagesRef.current.length - 1]
+    if (last?.role === 'assistant' && last.streaming) return
+    mutateMessages((prev) => {
+      const tail = prev[prev.length - 1]
+      if (tail?.role === 'assistant' && tail.streaming) return prev
+      return [
+        ...prev,
+        {
+          role: 'assistant',
+          text: '',
+          toolNotes: [],
+          activities: [],
+          artifacts: [],
+          streaming: true,
+        },
+      ]
+    })
+  }
+
+  /** Settle an active Pi permission card from main over IPC. */
+  const replyPiConfirm = (allowed: boolean, alwaysAllowSession: boolean): void => {
+    const active = piConfirmRef.current
+    if (!active || active.card.outcome !== 'awaiting') return
+    const nextOutcome = allowed ? 'allowed' : 'denied'
+    setPiConfirm({
+      requestId: active.requestId,
+      card: {
+        ...active.card,
+        outcome: nextOutcome,
+        ...(allowed && alwaysAllowSession ? { viaSession: true } : {}),
+      },
+    })
+    void window.aiOffice
+      ?.piAgentConfirmReply?.({
+        requestId: active.requestId,
+        allowed,
+        ...(allowed && alwaysAllowSession ? { alwaysAllowSession: true } : {}),
+      })
+      .catch(() => undefined)
+  }
+
   /** apply one relayed run event through the same handlers the loop uses */
   const applyRunEvent = (type: string, payload: unknown): void => {
     switch (type) {
       case 'text':
-        if (mirror) updateBusy(true)
+        if (isPiEngineRef.current) ensureStreamingAssistantBubble()
+        if (mirror || isPiEngineRef.current) updateBusy(true)
         runEventHandlers.onText(payload as string)
         break
       case 'reasoning':
-        if (mirror) updateBusy(true)
+        if (isPiEngineRef.current) ensureStreamingAssistantBubble()
+        if (mirror || isPiEngineRef.current) updateBusy(true)
         runEventHandlers.onReasoning(payload as string)
         break
       case 'tool-start':
-        if (mirror) updateBusy(true)
+        if (isPiEngineRef.current) ensureStreamingAssistantBubble()
+        if (mirror || isPiEngineRef.current) updateBusy(true)
         runEventHandlers.onToolStart(payload as AgentToolCall)
         break
       case 'tool-executed':
-        if (mirror) updateBusy(true)
+        if (isPiEngineRef.current) ensureStreamingAssistantBubble()
+        if (mirror || isPiEngineRef.current) updateBusy(true)
         runEventHandlers.onToolExecuted(
           payload as { call: AgentToolCall; execution: ToolExecution },
         )
         break
       case 'subagent-progress': {
         const subAgent = payload as (AgentTaskStatus & { docKind?: string }) | undefined
-        if (mirror) updateBusy(true)
+        if (isPiEngineRef.current) ensureStreamingAssistantBubble()
+        if (mirror || isPiEngineRef.current) updateBusy(true)
         patchLast((last) => ({ ...last, subAgent }), { sync: true })
         break
       }
       case 'done':
         runEventHandlers.onDone()
-        if (mirror) {
+        if (mirror || isPiEngineRef.current) {
           runReasoningRef.current = ''
           reasoningNeedsBreakRef.current = false
           updateBusy(false)
-          setRemoteConfirmCard((prev) => (prev?.outcome === 'awaiting' ? null : prev))
+          if (mirror) {
+            setRemoteConfirmCard((prev) => (prev?.outcome === 'awaiting' ? null : prev))
+          }
+          setPiConfirm((prev) => (prev && prev.card.outcome === 'awaiting' ? null : prev))
         }
         break
       case 'usage':
@@ -1978,15 +2094,17 @@ export function KbAskPanel({
         break
       case 'error':
         runEventHandlers.onError(payload as string)
-        if (mirror) {
+        if (mirror || isPiEngineRef.current) {
           runReasoningRef.current = ''
           reasoningNeedsBreakRef.current = false
           updateBusy(false)
-          setRemoteConfirmCard(null)
+          if (mirror) setRemoteConfirmCard(null)
+          setPiConfirm(null)
         }
         break
       case 'checkpoint-added': {
         const cp = payload as DocCheckpoint
+        if (isPiEngineRef.current) ensureStreamingAssistantBubble()
         patchLast(
           (last) => ({
             docCheckpoints: [...(last.docCheckpoints ?? []), cp],
@@ -2057,6 +2175,29 @@ export function KbAskPanel({
         else if (action === 'deny') confirmRef.current.deny()
       } else if (evt.type === 'stop') {
         stopLocalRunRef.current()
+      } else if (
+        isPiEngineRef.current &&
+        shouldAcceptMirrorEvent(evt.sessionKey, currentSessionKeyRef.current)
+      ) {
+        if (evt.type === 'user-message') {
+          runReasoningRef.current = ''
+          reasoningNeedsBreakRef.current = false
+          appendUserMessage(evt.payload as { role: 'user'; text: string })
+          ensureStreamingAssistantBubble()
+          updateBusy(true)
+        } else if (
+          evt.type === 'text' ||
+          evt.type === 'reasoning' ||
+          evt.type === 'tool-start' ||
+          evt.type === 'tool-executed' ||
+          evt.type === 'subagent-progress' ||
+          evt.type === 'checkpoint-added' ||
+          evt.type === 'usage' ||
+          evt.type === 'error' ||
+          evt.type === 'done'
+        ) {
+          applyRunEvent(evt.type, evt.payload)
+        }
       }
     })
     return () => {
@@ -2144,6 +2285,10 @@ export function KbAskPanel({
         runReasoningRef.current = ''
         reasoningNeedsBreakRef.current = false
         appendUserMessage(evt.payload as { role: 'user'; text: string })
+        if (isPiEngineRef.current) {
+          ensureStreamingAssistantBubble()
+          updateBusy(true)
+        }
         return
       }
       applyRunEvent(evt.type, evt.payload)
@@ -2155,6 +2300,84 @@ export function KbAskPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the mirror's subscription is a mount-time contract
   }, [mirror])
 
+  // Subscribe to Pi Agent runtime preferences, commands, confirm prompts, status, and notices.
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? window.aiOffice : undefined
+    if (
+      !api ||
+      typeof api.piAgentPrompt !== 'function' ||
+      typeof api.piAgentPrefsGet !== 'function'
+    ) {
+      return
+    }
+    let alive = true
+    const refreshPiCommands = (): void => {
+      void api
+        .piAgentListCommands?.()
+        .then((cmds) => {
+          if (!alive || !Array.isArray(cmds)) return
+          piCommandsRef.current = cmds
+          piCommandNamesRef.current = new Set(cmds.map((c) => c.name))
+        })
+        .catch(() => undefined)
+    }
+    void api
+      .piAgentPrefsGet?.()
+      .then((loaded) => {
+        if (!alive) return
+        const next = normalizePiAgentPrefs(loaded)
+        piPrefsRef.current = next
+        setPiPrefs(next)
+        if (next.engine === 'pi') refreshPiCommands()
+      })
+      .catch(() => undefined)
+    const offPrefs = api.onPiAgentPrefsChanged?.((incoming) => {
+      if (!alive) return
+      const next = normalizePiAgentPrefs(incoming)
+      piPrefsRef.current = next
+      setPiPrefs(next)
+      if (next.engine === 'pi') refreshPiCommands()
+    })
+    const offConfirm = api.onPiAgentConfirmRequest?.((req) => {
+      if (!alive) return
+      if (!shouldAcceptMirrorEvent(req.sessionKey, currentSessionKeyRef.current)) return
+      setPiConfirm({ requestId: req.requestId, card: formatPiConfirmCard(req) })
+    })
+    const offStatus = api.onPiAgentStatus?.((status) => {
+      if (!alive) return
+      if (!shouldAcceptMirrorEvent(status.sessionKey, currentSessionKeyRef.current)) return
+      setPiStatus(status)
+    })
+    const offNotice = api.onPiAgentNotice?.((payload) => {
+      if (!alive) return
+      if (
+        payload.sessionKey &&
+        !shouldAcceptMirrorEvent(payload.sessionKey, currentSessionKeyRef.current)
+      ) {
+        return
+      }
+      setPiNotice(payload)
+      if (piNoticeTimerRef.current) clearTimeout(piNoticeTimerRef.current)
+      if (payload.level !== 'error') {
+        piNoticeTimerRef.current = setTimeout(() => {
+          piNoticeTimerRef.current = null
+          setPiNotice(null)
+        }, 6000)
+      }
+    })
+    return () => {
+      alive = false
+      offPrefs?.()
+      offConfirm?.()
+      offStatus?.()
+      offNotice?.()
+      if (piNoticeTimerRef.current) {
+        clearTimeout(piNoticeTimerRef.current)
+        piNoticeTimerRef.current = null
+      }
+    }
+  }, [])
+
   const onPetActivityChangeRef = useRef(onPetActivityChange)
   onPetActivityChangeRef.current = onPetActivityChange
   const prevStreamingRef = useRef(false)
@@ -2163,9 +2386,11 @@ export function KbAskPanel({
 
   const lastAskMsg = messages[messages.length - 1]
   const petStreaming = busy || (lastAskMsg?.role === 'assistant' && lastAskMsg.streaming === true)
-  const petConfirmPending = mirror
-    ? remoteConfirmCard?.outcome === 'awaiting'
-    : confirm.card?.outcome === 'awaiting'
+  const petConfirmPending = isPiEngine
+    ? piConfirm?.card.outcome === 'awaiting'
+    : mirror
+      ? remoteConfirmCard?.outcome === 'awaiting'
+      : confirm.card?.outcome === 'awaiting'
   const petHasRunningTool =
     lastAskMsg?.role === 'assistant' &&
     ((lastAskMsg.activities?.some((a) => a.status === 'running') ?? false) ||
@@ -2623,6 +2848,9 @@ export function KbAskPanel({
     loopRef.current?.reset()
     confirm.clear()
     setRemoteConfirmCard(null)
+    setPiConfirm(null)
+    setPiStatus(null)
+    setPiNotice(null)
     updateBusy(false)
     pendingRef.current = []
     mutateMessages(() => [])
@@ -3454,28 +3682,32 @@ export function KbAskPanel({
     // keeps a second finish (Stop, then the loop's own onDone) from storing
     // the same turn twice.
     const last = messagesRef.current[messagesRef.current.length - 1]
-    if (last?.role === 'assistant' && last.streaming && last.text) {
-      persist({ role: 'assistant', text: last.text })
-    }
-    // the lineage record: a create_document run that succeeded in THIS turn
-    // writes "this document came from that task" (the task text + the
-    // answer's first line as the outcome), so the doc-bound panel that
-    // opens the file later can seed its conversation with it. Fire and
-    // forget — a failed record costs the seed, never the conversation.
-    const created = pendingLineageRef.current
-    if (created) {
+    if (!isPiEngineRef.current) {
+      if (last?.role === 'assistant' && last.streaming && last.text) {
+        persist({ role: 'assistant', text: last.text })
+      }
+      // the lineage record: a create_document run that succeeded in THIS turn
+      // writes "this document came from that task" (the task text + the
+      // answer's first line as the outcome), so the doc-bound panel that
+      // opens the file later can seed its conversation with it. Fire and
+      // forget — a failed record costs the seed, never the conversation.
+      const created = pendingLineageRef.current
+      if (created) {
+        pendingLineageRef.current = null
+        const summary =
+          last?.role === 'assistant' && last.text
+            ? (last.text.split('\n')[0]?.slice(0, 200) ?? '')
+            : ''
+        void window.aiOffice
+          .aiLineageRecord?.({
+            path: created.path,
+            task: created.task,
+            ...(summary ? { summary } : {}),
+          })
+          .catch(() => undefined)
+      }
+    } else {
       pendingLineageRef.current = null
-      const summary =
-        last?.role === 'assistant' && last.text
-          ? (last.text.split('\n')[0]?.slice(0, 200) ?? '')
-          : ''
-      void window.aiOffice
-        .aiLineageRecord?.({
-          path: created.path,
-          task: created.task,
-          ...(summary ? { summary } : {}),
-        })
-        .catch(() => undefined)
     }
     // sync: the finish must repaint now, not on the next frame — Stop and
     // onDone land in the same tick, and busy turns false in the same breath
@@ -3487,6 +3719,19 @@ export function KbAskPanel({
 
   stopLocalRunRef.current = () => {
     askSeqRef.current++
+    if (isPiEngineRef.current) {
+      const activeConfirm = piConfirmRef.current
+      if (activeConfirm && activeConfirm.card.outcome === 'awaiting') {
+        void window.aiOffice
+          ?.piAgentConfirmReply?.({ requestId: activeConfirm.requestId, allowed: false })
+          .catch(() => undefined)
+      }
+      setPiConfirm(null)
+      const key = currentSessionKeyRef.current ?? undefined
+      if (key) void window.aiOffice?.piAgentAbort?.(key).catch(() => undefined)
+      finishLast()
+      return
+    }
     // a confirmation left open when Stop is pressed counts as denied
     confirmRef.current.settleAll(false)
     loopRef.current?.cancel()
@@ -3596,16 +3841,45 @@ export function KbAskPanel({
     )
   }
 
-  const listSkillsForMenu = async () =>
-    (await window.aiOffice.skillsList()).map(({ name, description }) => ({ name, description }))
-  const toggleSkill = (name: string) =>
+  const listSkillsForMenu = async () => {
+    const base = (await window.aiOffice.skillsList()).map(({ name, description }) => ({
+      name,
+      description,
+    }))
+    if (!isPiEngineRef.current) return base
+    const cmds = await window.aiOffice.piAgentListCommands?.().catch(() => piCommandsRef.current)
+    if (Array.isArray(cmds)) {
+      piCommandsRef.current = cmds
+      piCommandNamesRef.current = new Set(cmds.map((c) => c.name))
+    }
+    const seen = new Set(base.map((item) => item.name))
+    const merged = [...base]
+    for (const cmd of piCommandsRef.current) {
+      if (!seen.has(cmd.name)) {
+        seen.add(cmd.name)
+        merged.push({
+          name: cmd.name,
+          description: cmd.description || `/${cmd.name} (${cmd.source})`,
+        })
+      }
+    }
+    return merged
+  }
+  const toggleSkill = (name: string) => {
+    if (isPiEngineRef.current && piCommandNamesRef.current.has(name)) {
+      setDraft((prev) => (prev.trim() ? `/${name} ${prev}` : `/${name} `))
+      requestAnimationFrame(() => composerRef.current?.focus())
+      return
+    }
     setAttachedSkills((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
     )
+  }
 
   // Slash palette on the composer: typing `/skill` opens the picker above the
   // textarea; picking one strikes the token from the draft, puts the caret
   // where it stood, and attaches the skill — an attached skill stays attached.
+  // For Pi slash commands, insert `/command ` directly instead of adding a chip.
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const slash = useAiSlash({
     lang,
@@ -3613,6 +3887,18 @@ export function KbAskPanel({
     inputRef: composerRef,
     value: draft,
     onAttachSkill: (name, { start, end }) => {
+      if (isPiEngineRef.current && piCommandNamesRef.current.has(name)) {
+        const inserted = `/${name} `
+        setDraft(draft.slice(0, start) + inserted + draft.slice(end))
+        requestAnimationFrame(() => {
+          const ta = composerRef.current
+          if (!ta) return
+          const caretPos = start + inserted.length
+          ta.focus()
+          ta.setSelectionRange(caretPos, caretPos)
+        })
+        return
+      }
       setDraft(draft.slice(0, start) + draft.slice(end))
       setAttachedSkills((prev) => (prev.includes(name) ? prev : [...prev, name]))
       requestAnimationFrame(() => {
@@ -3742,6 +4028,123 @@ export function KbAskPanel({
         ? (seededDocPathsRef.current.add(claimedDocPath), lineageContextLine(docLineageRef.current))
         : null
     const question = lineageSeed ? `${lineageSeed}\n${instruction}` : instruction
+    if (isPiEngineRef.current) {
+      if (files.length > 0) {
+        const seen = new Set(sentAttachmentsRef.current.map((a) => a.path))
+        sentAttachmentsRef.current = [
+          ...sentAttachmentsRef.current,
+          ...files.filter((a) => !seen.has(a.path)),
+        ]
+      }
+      const seq = ++askSeqRef.current
+      runUsageRef.current = undefined
+      runReasoningRef.current = ''
+      reasoningNeedsBreakRef.current = false
+      setPiConfirm(null)
+      setPiNotice(null)
+      updateBusy(true)
+
+      const note = browserNote
+      const noteId = note?.id
+      const noteHasShot = !!(note?.shotPath && noteId)
+      const cachedShot =
+        noteHasShot && browserNoteShot?.id === noteId ? browserNoteShot.shot : null
+      setBrowserNote(null)
+      setBrowserNoteShot(null)
+      browserScaffoldRef.current = ''
+
+      const ids = chatIdsRef.current ?? { projectId: 'default', chatId: activeChatRef.current }
+      const sessionKey = currentSessionKeyRef.current ?? sessionKeyOf(ids.projectId, ids.chatId)
+      const isSlashCmd = instruction.trim().startsWith('/')
+
+      mutateMessages((prev) => [
+        ...prev,
+        {
+          role: 'user',
+          text: instruction,
+          toolNotes: [],
+          artifacts: [],
+          ...(skills.length > 0 ? { skills: [...skills] } : {}),
+          ...(files.length > 0 ? { attachments: [...files] } : {}),
+        },
+        {
+          role: 'assistant',
+          text: '',
+          toolNotes: [],
+          activities: [],
+          artifacts: [],
+          streaming: true,
+        },
+      ])
+      window.aiOffice?.askRunEvent?.({
+        type: 'user-message',
+        sessionKey,
+        payload: { role: 'user', text: instruction },
+      })
+
+      try {
+        const readNoteImage = async (): Promise<AgentImage | null> => {
+          if (!noteHasShot) return null
+          const shot = cachedShot ?? (noteId ? await readBrowserNoteShot(noteId) : null)
+          if (shot === null) {
+            notice(t('askImageReadFail', { name: browserAskLabelOf(note!) }))
+            return null
+          }
+          return { base64: shot.base64, mime: shot.mime }
+        }
+        const [images, noteImage] = await Promise.all([collectImages(files), readNoteImage()])
+        if (askSeqRef.current !== seq) return
+        const allImages = noteImage ? [...images, noteImage] : images
+        const result = await window.aiOffice?.piAgentPrompt?.({
+          sessionKey,
+          projectId: ids.projectId,
+          chatId: ids.chatId,
+          docPath: claimedDocPathRef.current,
+          instruction,
+          ...(skills.length > 0 ? { skills: [...skills] } : {}),
+          ...(files.length > 0 ? { attachments: [...files] } : {}),
+          ...(allImages.length > 0 ? { images: allImages } : {}),
+          ...(scopeRef.current.length > 0 ? { scopePaths: [...scopeRef.current] } : {}),
+          ...(lineageSeed ? { lineageSeed } : {}),
+          lang,
+        })
+        if (askSeqRef.current !== seq) return
+        if (!result) {
+          runEventHandlers.onError('Pi Agent IPC bridge is unavailable')
+          updateBusy(false)
+          return
+        }
+        if (!result.ok) {
+          const tail = messagesRef.current[messagesRef.current.length - 1]
+          if (tail?.role === 'assistant' && !tail.isError && !tail.error) {
+            runEventHandlers.onError(result.error ?? tRef.current('askUnknownError'))
+          }
+          updateBusy(false)
+          return
+        }
+        if (result.commandHandled && result.commandOutput) {
+          const tail = messagesRef.current[messagesRef.current.length - 1]
+          if (tail?.role === 'assistant' && tail.text.trim().length === 0) {
+            patchLast({ text: result.commandOutput, streaming: false }, { sync: true })
+          }
+        }
+        const settled = messagesRef.current[messagesRef.current.length - 1]
+        if (settled?.role === 'assistant' && settled.streaming) {
+          finishLast()
+        } else {
+          updateBusy(false)
+        }
+        if (!isSlashCmd && window.projectApi) {
+          void refreshThreads(window.projectApi)
+        }
+      } catch (err) {
+        if (askSeqRef.current === seq) {
+          runEventHandlers.onError(err instanceof Error ? err.message : String(err))
+          updateBusy(false)
+        }
+      }
+      return
+    }
     if (mirror) {
       updateBusy(true)
       setRemoteConfirmCard(null)
@@ -4864,40 +5267,54 @@ export function KbAskPanel({
                 // would churn their props while a decision is in flight
                 confirmCard={
                   i === messages.length - 1 && m.role === 'assistant'
-                    ? mirror
-                      ? remoteConfirmCard
-                      : confirm.card
+                    ? isPiEngine
+                      ? (piConfirm?.card ?? null)
+                      : mirror
+                        ? remoteConfirmCard
+                        : confirm.card
                     : null
                 }
                 onAllow={
-                  mirror
-                    ? () =>
-                        window.aiOffice?.askRunEvent?.({
-                          type: 'confirm-action',
-                          ...(currentSessionKeyRef.current ? { sessionKey: currentSessionKeyRef.current } : {}),
-                          payload: { action: 'allow' },
-                        })
-                    : confirm.allow
+                  isPiEngine
+                    ? () => replyPiConfirm(true, false)
+                    : mirror
+                      ? () =>
+                          window.aiOffice?.askRunEvent?.({
+                            type: 'confirm-action',
+                            ...(currentSessionKeyRef.current
+                              ? { sessionKey: currentSessionKeyRef.current }
+                              : {}),
+                            payload: { action: 'allow' },
+                          })
+                      : confirm.allow
                 }
                 onAllowSession={
-                  mirror
-                    ? () =>
-                        window.aiOffice?.askRunEvent?.({
-                          type: 'confirm-action',
-                          ...(currentSessionKeyRef.current ? { sessionKey: currentSessionKeyRef.current } : {}),
-                          payload: { action: 'allow-session' },
-                        })
-                    : confirm.allowSession
+                  isPiEngine
+                    ? () => replyPiConfirm(true, true)
+                    : mirror
+                      ? () =>
+                          window.aiOffice?.askRunEvent?.({
+                            type: 'confirm-action',
+                            ...(currentSessionKeyRef.current
+                              ? { sessionKey: currentSessionKeyRef.current }
+                              : {}),
+                            payload: { action: 'allow-session' },
+                          })
+                      : confirm.allowSession
                 }
                 onDeny={
-                  mirror
-                    ? () =>
-                        window.aiOffice?.askRunEvent?.({
-                          type: 'confirm-action',
-                          ...(currentSessionKeyRef.current ? { sessionKey: currentSessionKeyRef.current } : {}),
-                          payload: { action: 'deny' },
-                        })
-                    : confirm.deny
+                  isPiEngine
+                    ? () => replyPiConfirm(false, false)
+                    : mirror
+                      ? () =>
+                          window.aiOffice?.askRunEvent?.({
+                            type: 'confirm-action',
+                            ...(currentSessionKeyRef.current
+                              ? { sessionKey: currentSessionKeyRef.current }
+                              : {}),
+                            payload: { action: 'deny' },
+                          })
+                      : confirm.deny
                 }
                 onOpenPath={openPath}
                 onRetry={retryAsk}
@@ -4940,6 +5357,19 @@ export function KbAskPanel({
         <p className="kb-ask-notice" role="status">
           {attachNotice}
         </p>
+      )}
+      {piNotice && (
+        <div className="kb-pi-notice" data-level={piNotice.level} role="status">
+          <span className="kb-pi-notice-text">{piNotice.message}</span>
+          <button
+            type="button"
+            className="kb-pi-notice-close"
+            aria-label={getPiEcosystemStrings(lang).noticeCloseLabel}
+            onClick={() => setPiNotice(null)}
+          >
+            ×
+          </button>
+        </div>
       )}
       {slash.element}
       <AiComposer
@@ -5057,6 +5487,16 @@ export function KbAskPanel({
               <AiPermissionModePicker bridge={permissionBridge} lang={lang} />
             )}
             {sessionUsage && <AiUsageChip usage={sessionUsage} session lang={lang} />}
+            {isPiEngine && piStatus?.magicContextActive && (
+              <span
+                className="kb-pi-status-chip"
+                data-testid="kb-pi-status-chip"
+                title={piStatus.statusText ?? getPiEcosystemStrings(lang).mcStatusChipTitle}
+              >
+                {getPiEcosystemStrings(lang).mcStatusLabel} · {piStatus.memoryCount ?? 0}
+                {piStatus.contextPercent !== null ? ` · ${Math.round(piStatus.contextPercent)}%` : ''}
+              </span>
+            )}
             <AiSkillsMenu
               lang={lang}
               listSkills={listSkillsForMenu}
@@ -5076,6 +5516,10 @@ export function KbAskPanel({
         onPasteFiles={(files) => void addDroppedFiles(files)}
         onSend={() => void ask()}
         onStop={() => {
+          if (isPiEngineRef.current) {
+            stopLocalRunRef.current()
+            return
+          }
           if (mirror) {
             window.aiOffice?.askRunEvent?.({
               type: 'stop',

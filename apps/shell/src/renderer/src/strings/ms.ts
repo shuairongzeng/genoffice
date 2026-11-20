@@ -929,4 +929,5 @@ export const ms: Dict = {
   setPetSubtitle: 'Pilih rakan desktop yang ceria dan uji setiap reaksi di pentas ini.',
   setPetTitle: 'Rakan Desktop AI',
   setSecAiPet: 'Haiwan AI',
+  setSecPiAgent: 'Memori & Ekosistem Pi',
 }

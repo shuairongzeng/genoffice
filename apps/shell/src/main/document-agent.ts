@@ -95,8 +95,10 @@ interface ActiveTask {
   kind: string
   title: string
   wcId: number
-  /** the panel webContents awaiting the result (progress is relayed here) */
-  caller: WebContents
+  /** the panel webContents awaiting the result, or null for main-process callers */
+  caller: WebContents | null
+  callerKey: string
+  onProgress?: (event: { taskId: string; kind: string; status: AgentTaskStatus }) => void
   resolve: (result: AgentTaskResult) => void
   reject: (error: Error) => void
   timer: NodeJS.Timeout
@@ -115,10 +117,11 @@ const pendingUndos = new Map<string, PendingUndo>()
 const busyByTab = new Map<string, string>()
 /** tabs that announced headless-agent readiness, by webContents id */
 const readyIds = new Set<number>()
-/** a cancel that landed while its caller's task was still registering, by caller id → time */
-const bufferedCancels = new Map<number, number>()
+/** a cancel that landed while its caller's task was still registering, by caller key → time */
+const bufferedCancels = new Map<string, number>()
 let taskSeq = 0
 let installed = false
+let installedDeps: DocumentAgentBridgeDeps | null = null
 
 /** tabs whose 'destroyed' hook is attached (once per webContents id) */
 const watchedIds = new Set<number>()
@@ -204,10 +207,10 @@ function watchDestroyed(wcId: number): void {
 }
 
 /** drop a stale buffered cancel (the race window is sub-millisecond; anything older is poison) */
-function takeBufferedCancel(callerId: number): boolean {
-  const at = bufferedCancels.get(callerId)
+function takeBufferedCancel(callerKey: string): boolean {
+  const at = bufferedCancels.get(callerKey)
   if (at === undefined) return false
-  bufferedCancels.delete(callerId)
+  bufferedCancels.delete(callerKey)
   return Date.now() - at <= CANCEL_BUFFER_MS
 }
 
@@ -263,6 +266,172 @@ function normalizeEdits(raw: unknown): { tool: string; summary: string }[] | und
     }))
 }
 
+async function runDocumentAgentCore(
+  deps: DocumentAgentBridgeDeps,
+  caller: WebContents | null,
+  callerKey: string,
+  raw: unknown,
+  onProgress?: (event: { taskId: string; kind: string; status: AgentTaskStatus }) => void,
+): Promise<AgentTaskResult> {
+  const task = (raw ?? {}) as { task?: unknown; expectedTabId?: unknown }
+  if (typeof task.task !== 'string' || !task.task.trim()) {
+    throw new Error('`task` must be a non-empty string')
+  }
+  if (task.task.length > MAX_AGENT_TASK_CHARS) {
+    throw new Error(`\`task\` must be at most ${MAX_AGENT_TASK_CHARS} characters`)
+  }
+
+  const target = resolveTarget(await deps.listDocumentTabs())
+  if ('error' in target) throw new Error(target.error)
+
+  // target pinning: the card showed THIS document's title; a tab switch
+  // between the card and the allow must re-ask, not quietly retarget
+  if (typeof task.expectedTabId === 'string' && task.expectedTabId !== target.tab.id) {
+    throw new Error(
+      `the active document changed since the confirmation (it showed "${target.tab.title}") — ` +
+        'switch back to it, or send the task again',
+    )
+  }
+
+  const wc = deps.webContentsFor(target.tab.id)
+  if (!wc || wc.isDestroyed()) {
+    throw new Error('the document tab is no longer live — switch to it and try again')
+  }
+  watchDestroyed(wc.id)
+
+  // a cancel that beat this run's registration: the run was already
+  // stopping — refuse instead of starting a task the person cancelled
+  if (takeBufferedCancel(callerKey)) {
+    throw new Error('the delegated task was cancelled before it started')
+  }
+
+  if (busyByTab.has(target.tab.id)) {
+    throw new Error(
+      'the document assistant is already working in this document — wait for it to finish, ' +
+        'then delegate again',
+    )
+  }
+
+  await waitForReady(wc.id)
+  // the ready wait re-runs the busy check: a second task could have started
+  // while this one was waiting for the tab to boot
+  if (busyByTab.has(target.tab.id)) {
+    throw new Error(
+      'the document assistant is already working in this document — wait for it to finish, ' +
+        'then delegate again',
+    )
+  }
+  if (takeBufferedCancel(callerKey)) {
+    throw new Error('the delegated task was cancelled before it started')
+  }
+
+  const taskId = `agent-${++taskSeq}`
+  const result = new Promise<AgentTaskResult>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      // stop the renderer's task too: a timed-out task must not keep editing
+      if (!wc.isDestroyed()) wc.send(HEADLESS_AGENT_CHANNELS.abort, { taskId })
+      settleTask(taskId, (t) =>
+        t.reject(
+          new Error(
+            'the delegated task timed out after 3 minutes — the document assistant stopped; ' +
+              'check what it had applied before retrying',
+          ),
+        ),
+      )
+    }, DOCUMENT_AGENT_TIMEOUT_MS)
+    activeByTask.set(taskId, {
+      taskId,
+      tabId: target.tab.id,
+      kind: target.tab.kind,
+      title: target.tab.title,
+      wcId: wc.id,
+      caller,
+      callerKey,
+      ...(onProgress ? { onProgress } : {}),
+      resolve,
+      reject,
+      timer,
+    })
+    busyByTab.set(target.tab.id, taskId)
+  })
+  wc.send(HEADLESS_AGENT_CHANNELS.task, { taskId, task: task.task })
+  return result
+}
+
+function cancelDocumentAgentByCallerKey(callerKey: string): boolean {
+  let hadActive = false
+  for (const [taskId, task] of [...activeByTask]) {
+    if (task.callerKey !== callerKey) continue
+    hadActive = true
+    const wc = webContents.fromId(task.wcId)
+    if (wc && !wc.isDestroyed()) wc.send(HEADLESS_AGENT_CHANNELS.abort, { taskId })
+  }
+  if (!hadActive) bufferedCancels.set(callerKey, Date.now())
+  return true
+}
+
+async function undoDocumentAgentCore(
+  deps: DocumentAgentBridgeDeps,
+  raw: unknown,
+): Promise<DocumentAgentUndoResult> {
+  const req = (raw ?? {}) as { tabId?: unknown; checkpointId?: unknown }
+  if (
+    typeof req.tabId !== 'string' ||
+    !req.tabId.trim() ||
+    typeof req.checkpointId !== 'string' ||
+    !req.checkpointId.trim()
+  ) {
+    return { ok: false, error: 'invalid undo checkpoint request' }
+  }
+  if (busyByTab.has(req.tabId)) {
+    return { ok: false, error: 'document assistant is currently running a task on this tab' }
+  }
+  const wc = deps.webContentsFor(req.tabId)
+  if (!wc || wc.isDestroyed()) {
+    return { ok: false, error: 'document tab is no longer open' }
+  }
+  watchDestroyed(wc.id)
+  const undoId = `undo-${randomUUID()}`
+  return await new Promise<DocumentAgentUndoResult>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingUndos.delete(undoId)
+      resolve({ ok: false, error: 'undo timed out' })
+    }, DOCUMENT_AGENT_UNDO_TIMEOUT_MS)
+    pendingUndos.set(undoId, { undoId, wcId: wc.id, resolve, timer })
+    wc.send(HEADLESS_AGENT_CHANNELS.undo, { undoId, checkpointId: req.checkpointId })
+  })
+}
+
+export async function describeDocumentAgentFromMain(): Promise<
+  DocumentAgentTarget | { error: string }
+> {
+  if (!installedDeps) return { error: 'document-agent bridge is not initialized' }
+  const target = resolveTarget(await installedDeps.listDocumentTabs())
+  if ('error' in target) return { error: target.error }
+  return { tabId: target.tab.id, kind: target.tab.kind, title: target.tab.title }
+}
+
+export async function runDocumentAgentFromMain(
+  req: { task: string; expectedTabId?: string },
+  onProgress?: (event: { taskId: string; kind: string; status: AgentTaskStatus }) => void,
+  callerKey = 'main',
+): Promise<AgentTaskResult> {
+  if (!installedDeps) throw new Error('document-agent bridge is not initialized')
+  return runDocumentAgentCore(installedDeps, null, callerKey, req, onProgress)
+}
+
+export function cancelDocumentAgentFromMain(callerKey = 'main'): boolean {
+  return cancelDocumentAgentByCallerKey(callerKey)
+}
+
+export async function undoDocumentAgentFromMain(
+  tabId: string,
+  checkpointId: string,
+): Promise<DocumentAgentUndoResult> {
+  if (!installedDeps) return { ok: false, error: 'document-agent bridge is not initialized' }
+  return undoDocumentAgentCore(installedDeps, { tabId, checkpointId })
+}
+
 /**
  * Register the document-agent bridge. Safe to call once per process (the
  * shell calls it from app.whenReady, before any docs tab can exist).
@@ -270,6 +439,7 @@ function normalizeEdits(raw: unknown): { tool: string; summary: string }[] | und
 export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void {
   if (installed) return
   installed = true
+  installedDeps = deps
 
   const isPanel = (sender: WebContents): boolean =>
     deps.panelWebContents().some((wc) => !wc.isDestroyed() && wc === sender)
@@ -287,13 +457,18 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
     if (!task || task.wcId !== event.sender.id) return
     // and only a well-formed status rides on to the panel
     if (!isAgentTaskStatus(payload.status)) return
-    if (!task.caller.isDestroyed()) {
+    if (task.caller && !task.caller.isDestroyed()) {
       task.caller.send(DOCUMENT_AGENT_CHANNELS.progress, {
         taskId: payload.taskId,
         kind: task.kind,
         status: payload.status,
       })
     }
+    task.onProgress?.({
+      taskId: payload.taskId,
+      kind: task.kind,
+      status: payload.status,
+    })
   })
 
   ipcMain.on(HEADLESS_AGENT_CHANNELS.result, (event, raw: unknown) => {
@@ -368,108 +543,14 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
       // sender gate: the same panel copies the browser skill's channel serves
       if (!isPanel(event.sender))
         throw new Error('document-agent:run is not callable from this sender')
-
-      const task = (raw ?? {}) as { task?: unknown; expectedTabId?: unknown }
-      if (typeof task.task !== 'string' || !task.task.trim()) {
-        throw new Error('`task` must be a non-empty string')
-      }
-      if (task.task.length > MAX_AGENT_TASK_CHARS) {
-        throw new Error(`\`task\` must be at most ${MAX_AGENT_TASK_CHARS} characters`)
-      }
-
-      const target = resolveTarget(await deps.listDocumentTabs())
-      if ('error' in target) throw new Error(target.error)
-
-      // target pinning: the card showed THIS document's title; a tab switch
-      // between the card and the allow must re-ask, not quietly retarget
-      if (typeof task.expectedTabId === 'string' && task.expectedTabId !== target.tab.id) {
-        throw new Error(
-          `the active document changed since the confirmation (it showed "${target.tab.title}") — ` +
-            'switch back to it, or send the task again',
-        )
-      }
-
-      const wc = deps.webContentsFor(target.tab.id)
-      if (!wc || wc.isDestroyed()) {
-        throw new Error('the document tab is no longer live — switch to it and try again')
-      }
-      watchDestroyed(wc.id)
-
-      // a cancel that beat this run's registration: the run was already
-      // stopping — refuse instead of starting a task the person cancelled
-      if (takeBufferedCancel(event.sender.id)) {
-        throw new Error('the delegated task was cancelled before it started')
-      }
-
-      if (busyByTab.has(target.tab.id)) {
-        throw new Error(
-          'the document assistant is already working in this document — wait for it to finish, ' +
-            'then delegate again',
-        )
-      }
-
-      await waitForReady(wc.id)
-      // the ready wait re-runs the busy check: a second task could have started
-      // while this one was waiting for the tab to boot
-      if (busyByTab.has(target.tab.id)) {
-        throw new Error(
-          'the document assistant is already working in this document — wait for it to finish, ' +
-            'then delegate again',
-        )
-      }
-      if (takeBufferedCancel(event.sender.id)) {
-        throw new Error('the delegated task was cancelled before it started')
-      }
-
-      const taskId = `agent-${++taskSeq}`
-      const result = new Promise<AgentTaskResult>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          // stop the renderer's task too: a timed-out task must not keep editing
-          if (!wc.isDestroyed()) wc.send(HEADLESS_AGENT_CHANNELS.abort, { taskId })
-          settleTask(taskId, (t) =>
-            t.reject(
-              new Error(
-                'the delegated task timed out after 3 minutes — the document assistant stopped; ' +
-                  'check what it had applied before retrying',
-              ),
-            ),
-          )
-        }, DOCUMENT_AGENT_TIMEOUT_MS)
-        activeByTask.set(taskId, {
-          taskId,
-          tabId: target.tab.id,
-          kind: target.tab.kind,
-          title: target.tab.title,
-          wcId: wc.id,
-          caller: event.sender,
-          resolve,
-          reject,
-          timer,
-        })
-        busyByTab.set(target.tab.id, taskId)
-      })
-      wc.send(HEADLESS_AGENT_CHANNELS.task, { taskId, task: task.task })
-      return result
+      return runDocumentAgentCore(deps, event.sender, `wc:${event.sender.id}`, raw)
     },
   )
 
   ipcMain.handle(DOCUMENT_AGENT_CHANNELS.cancel, (event) => {
     // the same sender gate as the run channel: only a panel copy can cancel
     if (!isPanel(event.sender)) return false
-    // the caller's in-flight task (the loop serializes tool calls, so a
-    // panel has at most one); the renderer answers with an aborted result
-    let hadActive = false
-    for (const [taskId, task] of [...activeByTask]) {
-      if (task.caller !== event.sender) continue
-      hadActive = true
-      const wc = webContents.fromId(task.wcId)
-      if (wc && !wc.isDestroyed()) wc.send(HEADLESS_AGENT_CHANNELS.abort, { taskId })
-    }
-    // the race: a cancel that lands while its run is still registering (the
-    // handler's awaits) has no task to abort — buffer it per caller so the
-    // registration finds it and refuses to start
-    if (!hadActive) bufferedCancels.set(event.sender.id, Date.now())
-    return true
+    return cancelDocumentAgentByCallerKey(`wc:${event.sender.id}`)
   })
 
   ipcMain.handle(
@@ -478,32 +559,7 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
       if (!isPanel(event.sender)) {
         throw new Error('document-agent:undo is not callable from this sender')
       }
-      const req = (raw ?? {}) as { tabId?: unknown; checkpointId?: unknown }
-      if (
-        typeof req.tabId !== 'string' ||
-        !req.tabId.trim() ||
-        typeof req.checkpointId !== 'string' ||
-        !req.checkpointId.trim()
-      ) {
-        return { ok: false, error: 'invalid undo checkpoint request' }
-      }
-      if (busyByTab.has(req.tabId)) {
-        return { ok: false, error: 'document assistant is currently running a task on this tab' }
-      }
-      const wc = deps.webContentsFor(req.tabId)
-      if (!wc || wc.isDestroyed()) {
-        return { ok: false, error: 'document tab is no longer open' }
-      }
-      watchDestroyed(wc.id)
-      const undoId = `undo-${randomUUID()}`
-      return await new Promise<DocumentAgentUndoResult>((resolve) => {
-        const timer = setTimeout(() => {
-          pendingUndos.delete(undoId)
-          resolve({ ok: false, error: 'undo timed out' })
-        }, DOCUMENT_AGENT_UNDO_TIMEOUT_MS)
-        pendingUndos.set(undoId, { undoId, wcId: wc.id, resolve, timer })
-        wc.send(HEADLESS_AGENT_CHANNELS.undo, { undoId, checkpointId: req.checkpointId })
-      })
+      return undoDocumentAgentCore(deps, raw)
     },
   )
 }

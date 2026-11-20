@@ -18,6 +18,20 @@ import type { DesktopArrangeMode } from '@genoffice/cli/control-protocol'
 import type { AiDockPrefs } from './desktop-geometry'
 import type { DockCustomItem, DockOpenState, DockPrefs } from './dock-prefs'
 import type { AiPetBondStage, AiPetId, AiPetPrefs, AiPetPrefsPatch } from './ai-pet-prefs'
+import type {
+  PiAgentCommandInfo,
+  PiAgentConfirmReply,
+  PiAgentConfirmRequest,
+  PiAgentNoticePayload,
+  PiAgentPromptRequest,
+  PiAgentPromptResult,
+  PiAgentStatusPayload,
+  PiDiagnosticReport,
+  PiEcosystemOverview,
+  PiMagicMemoryEntry,
+  PiPackageActionResult,
+} from './pi-agent-api'
+import type { PiAgentPrefs, PiAgentPrefsPatch } from './pi-agent-prefs'
 import type { PendingAskQuery } from './ask-forward'
 import type {
   AttachmentInfo,
@@ -52,6 +66,31 @@ export type {
   AiPetPrefs,
   AiPetPrefsPatch,
 } from './ai-pet-prefs'
+export type {
+  MagicContextEmbeddingMode,
+  MagicContextStorageMode,
+  PiAgentEngine,
+  PiAgentPrefs,
+  PiAgentPrefsPatch,
+} from './pi-agent-prefs'
+export type {
+  PiAgentCommandInfo,
+  PiAgentConfirmReply,
+  PiAgentConfirmRequest,
+  PiAgentNoticePayload,
+  PiAgentPromptRequest,
+  PiAgentPromptResult,
+  PiAgentStatusPayload,
+  PiDiagnosticItem,
+  PiDiagnosticReport,
+  PiDocCheckpoint,
+  PiEcosystemOverview,
+  PiInstalledPackageInfo,
+  PiLoadedExtensionInfo,
+  PiLoadedSkillInfo,
+  PiMagicMemoryEntry,
+  PiPackageActionResult,
+} from './pi-agent-api'
 export type {
   AgentTaskResult,
   AgentTaskStatus,
@@ -1101,6 +1140,29 @@ export interface HomeApi {
    * here. Fire-and-forget; the consult reads it on the very next call.
    */
   aiSessionAllowAdd?(tool: string): Promise<void>
+  // ---- Embedded Pi Agent & Magic Context runtime ----
+  piAgentPrefsGet?(): Promise<PiAgentPrefs>
+  piAgentPrefsSet?(patch: PiAgentPrefsPatch): Promise<PiAgentPrefs>
+  onPiAgentPrefsChanged?(handler: (prefs: PiAgentPrefs) => void): () => void
+  piAgentPrompt?(req: PiAgentPromptRequest): Promise<PiAgentPromptResult>
+  piAgentAbort?(sessionKey: string): Promise<boolean>
+  piAgentListCommands?(): Promise<PiAgentCommandInfo[]>
+  onPiAgentConfirmRequest?(handler: (req: PiAgentConfirmRequest) => void): () => void
+  piAgentConfirmReply?(reply: PiAgentConfirmReply): Promise<boolean>
+  onPiAgentStatus?(handler: (status: PiAgentStatusPayload) => void): () => void
+  onPiAgentNotice?(handler: (notice: PiAgentNoticePayload) => void): () => void
+  piAgentEcosystemOverview?(): Promise<PiEcosystemOverview>
+  piAgentPackageInstall?(source: string): Promise<PiPackageActionResult>
+  piAgentPackageRemove?(source: string): Promise<PiPackageActionResult>
+  piAgentPackageUpdate?(source?: string): Promise<PiPackageActionResult>
+  piAgentReload?(): Promise<void>
+  piAgentMemoriesList?(opts?: {
+    limit?: number
+    category?: string
+    project?: string
+  }): Promise<PiMagicMemoryEntry[]>
+  piAgentMemoryDelete?(id: number): Promise<{ ok: boolean }>
+  piAgentRunDiagnostics?(): Promise<PiDiagnosticReport>
   /**
    * Report which of the dock's targets are open right now (`home:dock-open`,
    * Home → main): the doc-mode overlay's dock renders the running dots and

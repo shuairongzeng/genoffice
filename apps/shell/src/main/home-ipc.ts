@@ -271,7 +271,287 @@ function statEntries(paths: string[]): RecentEntry[] {
   return statPathEntries(paths, new Set(readStarredFiles()))
 }
 
+export interface KbWorkbenchHandlers {
+  list: () => Promise<unknown>
+  search: (raw: unknown) => Promise<unknown>
+  read: (raw: unknown) => Promise<unknown>
+  createDocument: (raw: unknown) => Promise<unknown>
+  editFile: (raw: unknown) => Promise<unknown>
+  deleteFile: (raw: unknown) => Promise<unknown>
+  cliContext: (sessionId: unknown) => unknown
+  runCli: (raw: unknown) => Promise<unknown>
+}
+
+let registeredKbWorkbenchHandlers: KbWorkbenchHandlers | null = null
+
+export function getRegisteredKbWorkbenchHandlers(): KbWorkbenchHandlers | null {
+  return registeredKbWorkbenchHandlers
+}
+
+/**
+ * Shared Knowledge-Base, file-edit/delete, and CLI workbench handlers invoked
+ * by both legacy renderer IPC (`kb:*`) and the embedded Pi runtime's workbench
+ * tools service.
+ */
+export function createKbWorkbenchHandlers(host: HomeFileIpcHost): KbWorkbenchHandlers {
+  const kbScope = () => normalizeKbScope(readAppSettings(host.appSettingsPath()).kbScope)
+  const kbFolders = () =>
+    normalizeKbScopeFolders(readAppSettings(host.appSettingsPath()).kbScopeFolders)
+
+  const agentFileScopeAllows = async (path: string): Promise<boolean> => {
+    const sources = {
+      indexHas: (p: string) => host.indexStore()?.has(p) ?? false,
+      starred: readStarredFiles(),
+      recents: readRecentFiles(),
+      aliases: host.desktopAliases(),
+      insideAnyRoot: (p: string) => host.insideAnyRoot(p),
+      scope: kbScope(),
+      scopeFolders: kbFolders(),
+      statFile: host.statMaybeFile,
+    }
+    if (!(await kbOpenPathAllows(path, sources))) return false
+    const resolved = await realpath(path).catch(() => null)
+    if (resolved === null || resolved === path) return true
+    return kbOpenPathAllows(resolved, sources)
+  }
+
+  const refuseOutOfScope = (path: string): Error =>
+    new Error(
+      `"${path.slice(0, 120)}" is outside the desktop's file scope — the AI may change files the ` +
+        'person has surfaced (starred or recent, inside a knowledge folder, or indexed). Ask the ' +
+        'person to handle this one themselves',
+    )
+
+  const openEditorOf = async (path: string): Promise<string | null> =>
+    openEditorGuard(path, host.openDocumentPaths ? await host.openDocumentPaths() : [])
+
+  const homeCliDeps: HomeCliDeps = {
+    runner: host.cliRunner,
+    workRoot: () => join(app.getPath('userData'), 'ask-ai-work'),
+    outDir: defaultSaveDir,
+    sourcePaths: readStarredFiles,
+    recordRecent: recordRecentFile,
+  }
+
+  return {
+    list: async (): Promise<unknown> => {
+      const starred = readStarredFiles()
+      const store = host.indexStore()
+      const scope = kbScope()
+      if (scope === 'starred' || !store) {
+        const roots = scope === 'folders' ? kbFolders() : undefined
+        return listKnowledgeFiles(roots ? starred.filter((p) => isUnderAnyRoot(p, roots)) : starred)
+      }
+      const recent = await store
+        .recentFiles(KB_LIST_CAP)
+        .catch(() => [] as Awaited<ReturnType<IndexStore['recentFiles']>>)
+      return listIndexedKnowledgeFiles(
+        starred,
+        recent,
+        KB_LIST_CAP,
+        scope === 'folders' ? kbFolders() : undefined,
+      )
+    },
+
+    search: async (raw: unknown): Promise<unknown> => {
+      const query = (raw && typeof raw === 'object' ? raw : {}) as {
+        q?: unknown
+        limit?: unknown
+        onlyPaths?: unknown
+      }
+      const q = typeof query.q === 'string' ? query.q : ''
+      const limitRaw = Number(query.limit)
+      const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.floor(limitRaw)) : 8
+      const onlyPaths = parseKbOnlyPaths(query.onlyPaths)
+      const store = host.indexStore()
+      if (!q.trim() || !store) {
+        return onlyPaths ? { hits: [], notIndexed: await notIndexedPaths(store, onlyPaths) } : []
+      }
+      host.ensureFileIndexer()?.refreshIfStale(60_000)
+      await host.ensureFileIndexer()?.settle(2_000)
+      const starred = readStarredFiles()
+      const scope = onlyPaths
+        ? { paths: onlyPaths }
+        : kbScope() === 'starred'
+          ? { paths: starred }
+          : kbScope() === 'folders'
+            ? { roots: kbFolders() }
+            : null
+      const searchSettings = host.readFileSearchSettings()
+      const reranker = searchSettings.rerank ? host.ensureSearchReranker() : null
+      const hits = await searchKnowledgeBase(
+        async (qq, pool) =>
+          store
+            .search(qq, { limit: pool })
+            .then((r) =>
+              r.hits.map((h) => ({
+                path: h.path,
+                name: h.name,
+                ext: h.ext,
+                snippetText: (h.snippet ?? []).map((part) => part.text).join(''),
+                matchText: (h.snippet ?? []).find((part) => part.hit)?.text,
+              })),
+            )
+            .catch(() => []),
+        q,
+        scope,
+        Math.min(limit, 20),
+        reranker ? (qq, paths) => reranker.rerank(qq, paths, searchSettings) : undefined,
+      )
+      return onlyPaths ? { hits, notIndexed: await notIndexedPaths(store, onlyPaths) } : hits
+    },
+
+    read: async (raw: unknown): Promise<unknown> => {
+      const req = (raw && typeof raw === 'object' ? raw : {}) as {
+        path?: unknown
+        offset?: unknown
+        onlyPaths?: unknown
+      }
+      const path = typeof req.path === 'string' ? req.path : ''
+      const offsetRaw = Number(req.offset)
+      const offset = Number.isFinite(offsetRaw) ? Math.floor(offsetRaw) : 0
+      const onlyPaths = parseKbOnlyPaths(req.onlyPaths)
+      const starred = readStarredFiles().includes(path)
+      const scope = kbScope()
+      const inCorpus =
+        scope === 'starred'
+          ? starred
+          : scope === 'folders'
+            ? isUnderAnyRoot(path, kbFolders()) &&
+              (starred ||
+                ((await host
+                  .indexStore()
+                  ?.has(path)
+                  .catch(() => false)) ??
+                  false))
+            : starred ||
+              ((await host
+                .indexStore()
+                ?.has(path)
+                .catch(() => false)) ??
+                false)
+      const locationAllowed =
+        onlyPaths !== null && !inCorpus
+          ? host.insideAnyRoot(path) ||
+            host.desktopAliases().includes(path) ||
+            readRecentFiles().includes(path) ||
+            starred
+          : false
+      const readable = kbReadAllows(path, {
+        inCorpus,
+        scopePaths: onlyPaths,
+        locationAllowed,
+        statFile: host.statMaybeFile,
+      })
+      if (!path || !readable) {
+        throw new Error('path is not in the knowledge base')
+      }
+      return readKnowledgeFilePage(path, offset)
+    },
+
+    createDocument: async (raw: unknown): Promise<unknown> => {
+      const req = parseKbCreateRequest(raw)
+      return createKnowledgeDocument(
+        {
+          dir: defaultSaveDir,
+          uniquePath: uniquePathIn,
+          sanitizeBase: sanitizeFileBase,
+          writeText: (path, text) => atomicWriteFile(path, Buffer.from(text, 'utf8')),
+          markdownToDocx: async (markdown, out) => {
+            await createFileViaCli(host.cliRunner(), {
+              type: 'docx',
+              input: { name: 'content.md', content: markdown },
+              out,
+            })
+          },
+          recordRecent: recordRecentFile,
+        },
+        req,
+      )
+    },
+
+    editFile: async (raw: unknown): Promise<unknown> => {
+      const req = parseKbEditRequest(raw)
+      const openIn = await openEditorOf(req.path)
+      if (openIn !== null) {
+        throw new Error(
+          `"${basename(req.path)}" is open in the ${openIn} app right now — editing the file ` +
+            'behind the app would fork it from what the person is looking at. Use `document_agent` ' +
+            'instead (switch to that tab first with `shell:switch_tab` if it is not active).',
+        )
+      }
+      if (!host.statMaybeFile(req.path)?.isFile()) {
+        throw new Error(
+          `"${basename(req.path)}" is not an editable file — it may be missing; check the path`,
+        )
+      }
+      if (!(await agentFileScopeAllows(req.path))) throw refuseOutOfScope(req.path)
+      const realBefore = await realpath(req.path).catch(() => null)
+      const text = await readFileText(req.path, 'utf8')
+      const realAfter = await realpath(req.path).catch(() => null)
+      if (realBefore === null || realAfter === null || realBefore !== realAfter) {
+        throw new Error(
+          `"${basename(req.path)}" moved while the edit was being prepared (its real path ` +
+            'changed) — read it again and retry',
+        )
+      }
+      return applyKnowledgeFileEdit(
+        {
+          statFile: host.statMaybeFile,
+          readFile: async () => text,
+          writeFile: (path, next) => atomicWriteFile(path, Buffer.from(next, 'utf8')),
+        },
+        req,
+      )
+    },
+
+    deleteFile: async (raw: unknown): Promise<unknown> => {
+      const req = parseKbDeleteRequest(raw)
+      if (!req.confirmed) {
+        throw new Error(
+          "delete refused: this call did not come through the panel's confirmation card",
+        )
+      }
+      const openIn = await openEditorOf(req.path)
+      if (openIn !== null) {
+        throw new Error(
+          `"${basename(req.path)}" is open in the ${openIn} app right now — deleting the file ` +
+            'under the app would throw away the document the person is looking at. Ask the person ' +
+            'to close it first (to edit its content instead, use `document_agent`).',
+        )
+      }
+      if (!host.statMaybeFile(req.path)?.isFile()) {
+        throw new Error(
+          `"${basename(req.path)}" is not a file (or is already gone) — nothing was deleted`,
+        )
+      }
+      if (!(await agentFileScopeAllows(req.path))) throw refuseOutOfScope(req.path)
+      await shell.trashItem(req.path)
+      return { path: req.path }
+    },
+
+    cliContext: (sessionId: unknown): unknown =>
+      homeCliContext(homeCliDeps, typeof sessionId === 'string' ? sessionId : ''),
+
+    runCli: async (raw: unknown): Promise<unknown> => {
+      const req = (raw && typeof raw === 'object' ? raw : {}) as {
+        sessionId?: unknown
+        args?: unknown
+        files?: unknown
+        sources?: unknown
+      }
+      return runHomeCli(homeCliDeps, typeof req.sessionId === 'string' ? req.sessionId : '', {
+        args: Array.isArray(req.args) ? (req.args as string[]) : [],
+        files: Array.isArray(req.files) ? (req.files as { name: string; content: string }[]) : [],
+        sources: Array.isArray(req.sources) ? (req.sources as string[]) : [],
+      })
+    },
+  }
+}
+
 export function registerHomeFileIpc(host: HomeFileIpcHost): void {
+  const kbHandlers = createKbWorkbenchHandlers(host)
+  registeredKbWorkbenchHandlers = kbHandlers
   ipcMain.handle(HOME_CHANNELS.recents, (_event, query: unknown): RecentPage =>
     pageRecentPaths(readRecentFiles(), query, new Set(readStarredFiles())),
   )
@@ -330,99 +610,9 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
   // (inside a folder root, on the stored alias list, or among the
   // recents/stars). The answer keeps the bare-array shape for unscoped calls
   // so a renderer that predates onlyPaths (docs' panel) reads it unchanged.
-  const kbScope = () => normalizeKbScope(readAppSettings(host.appSettingsPath()).kbScope)
-  const kbFolders = () =>
-    normalizeKbScopeFolders(readAppSettings(host.appSettingsPath()).kbScopeFolders)
+  ipcMain.handle('kb:list', () => kbHandlers.list())
 
-  ipcMain.handle('kb:list', async (): Promise<unknown> => {
-    const starred = readStarredFiles()
-    const store = host.indexStore()
-    const scope = kbScope()
-    // no store yet (cold start) or the starred scope: the starred half alone —
-    // but still narrowed by the folders scope's roots, so the listing agrees
-    // with what kb:read will let the model open (an empty root list is an
-    // empty corpus here too, not "all starred files")
-    if (scope === 'starred' || !store) {
-      const roots = scope === 'folders' ? kbFolders() : undefined
-      return listKnowledgeFiles(roots ? starred.filter((p) => isUnderAnyRoot(p, roots)) : starred)
-    }
-    // the recent-files listing is one bounded query in the store worker
-    const recent = await store
-      .recentFiles(KB_LIST_CAP)
-      .catch(() => [] as Awaited<ReturnType<IndexStore['recentFiles']>>)
-    return listIndexedKnowledgeFiles(
-      starred,
-      recent,
-      KB_LIST_CAP,
-      scope === 'folders' ? kbFolders() : undefined,
-    )
-  })
-
-  ipcMain.handle('kb:search', async (_event, raw: unknown): Promise<unknown> => {
-    const query = (raw && typeof raw === 'object' ? raw : {}) as {
-      q?: unknown
-      limit?: unknown
-      onlyPaths?: unknown
-    }
-    const q = typeof query.q === 'string' ? query.q : ''
-    const limitRaw = Number(query.limit)
-    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.floor(limitRaw)) : 8
-    // invalid scope payloads are refused outright, before anything runs
-    const onlyPaths = parseKbOnlyPaths(query.onlyPaths)
-    const store = host.indexStore()
-    if (!q.trim() || !store) {
-      return onlyPaths ? { hits: [], notIndexed: await notIndexedPaths(store, onlyPaths) } : []
-    }
-    host.ensureFileIndexer()?.refreshIfStale(60_000)
-    // an answer is worth a real wait: let an in-flight scan and its
-    // extractions land so a question about a just-saved file cites it
-    await host.ensureFileIndexer()?.settle(2_000)
-    const starred = readStarredFiles()
-    // the scopes resolve in priority order — onlyPaths (this round's desktop
-    // selection) first, then the settings scope (starred > folders >
-    // indexed): a selection replaces whatever the settings say for the call
-    const scope = onlyPaths
-      ? { paths: onlyPaths }
-      : kbScope() === 'starred'
-        ? { paths: starred }
-        : kbScope() === 'folders'
-          ? { roots: kbFolders() }
-          : null
-    // the decision model's ordering rail (issue #56 P1 #4): when reranking is
-    // on, kb:search's pool is judged exactly like the Home results and the
-    // palette's files source, so the citations the model reads rank the way
-    // the search panels rank them — off or unavailable degrades to BM25
-    const searchSettings = host.readFileSearchSettings()
-    const reranker = searchSettings.rerank ? host.ensureSearchReranker() : null
-    const hits = await searchKnowledgeBase(
-      async (qq, pool) =>
-        store
-          .search(qq, { limit: pool })
-          .then((r) =>
-            r.hits.map((h) => ({
-              path: h.path,
-              name: h.name,
-              ext: h.ext,
-              snippetText: (h.snippet ?? []).map((part) => part.text).join(''),
-              // the exact text of the first matched run, for a cite that
-              // addresses the match (issue #56). It is the index extraction's
-              // text, so it may differ from what the app's find searches:
-              // whitespace is compacted, docx paragraphs are joined, and xlsx
-              // dates/booleans are rendered (ISO dates, TRUE/FALSE) while the
-              // sheets find matches raw values. Such a target can miss in the
-              // editor — the reveal then degrades to today's plain open, never
-              // to an error
-              matchText: (h.snippet ?? []).find((part) => part.hit)?.text,
-            })),
-          )
-          .catch(() => []),
-      q,
-      scope,
-      Math.min(limit, 20),
-      reranker ? (qq, paths) => reranker.rerank(qq, paths, searchSettings) : undefined,
-    )
-    return onlyPaths ? { hits, notIndexed: await notIndexedPaths(store, onlyPaths) } : hits
-  })
+  ipcMain.handle('kb:search', (_event, raw: unknown) => kbHandlers.search(raw))
 
   /** the sources report's entry cap: the center lists the index's own truth, bounded like the kb list */
   const KB_SOURCES_CAP = 5000
@@ -613,239 +803,19 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     return picked
   })
 
-  ipcMain.handle('kb:read', async (_event, raw: unknown): Promise<unknown> => {
-    const req = (raw && typeof raw === 'object' ? raw : {}) as {
-      path?: unknown
-      offset?: unknown
-      onlyPaths?: unknown
-    }
-    const path = typeof req.path === 'string' ? req.path : ''
-    const offsetRaw = Number(req.offset)
-    const offset = Number.isFinite(offsetRaw) ? Math.floor(offsetRaw) : 0
-    const onlyPaths = parseKbOnlyPaths(req.onlyPaths)
-    // a starred file stays readable in every scope (even with the index
-    // momentarily unavailable); the indexed scope adds "in the index", and the
-    // folders scope narrows both to the chosen roots
-    const starred = readStarredFiles().includes(path)
-    const scope = kbScope()
-    const inCorpus =
-      scope === 'starred'
-        ? starred
-        : scope === 'folders'
-          ? isUnderAnyRoot(path, kbFolders()) &&
-            (starred ||
-              ((await host
-                .indexStore()
-                ?.has(path)
-                .catch(() => false)) ??
-                false))
-          : starred ||
-            ((await host
-              .indexStore()
-              ?.has(path)
-              .catch(() => false)) ??
-              false)
-    // the round-scope branch's location whitelist, computed only when it can
-    // matter (a scope is attached and the corpus does not already cover the
-    // path): a selected file is readable off-corpus only where a desktop
-    // selection can genuinely come from — inside a folder root, on the stored
-    // alias list, or a tracked recent/starred file. An office-named file
-    // anywhere else on disk is refused, whatever the scope says.
-    const locationAllowed =
-      onlyPaths !== null && !inCorpus
-        ? host.insideAnyRoot(path) ||
-          host.desktopAliases().includes(path) ||
-          readRecentFiles().includes(path) ||
-          starred
-        : false
-    const readable = kbReadAllows(path, {
-      inCorpus,
-      scopePaths: onlyPaths,
-      locationAllowed,
-      statFile: host.statMaybeFile,
-    })
-    if (!path || !readable) {
-      throw new Error('path is not in the knowledge base')
-    }
-    return readKnowledgeFilePage(path, offset)
-  })
+  ipcMain.handle('kb:read', (_event, raw: unknown) => kbHandlers.read(raw))
 
-  ipcMain.handle('kb:create-document', async (_event, raw: unknown): Promise<unknown> => {
-    const req = parseKbCreateRequest(raw)
-    return createKnowledgeDocument(
-      {
-        dir: defaultSaveDir,
-        uniquePath: uniquePathIn,
-        sanitizeBase: sanitizeFileBase,
-        writeText: (path, text) => atomicWriteFile(path, Buffer.from(text, 'utf8')),
-        markdownToDocx: async (markdown, out) => {
-          await createFileViaCli(host.cliRunner(), {
-            type: 'docx',
-            input: { name: 'content.md', content: markdown },
-            out,
-          })
-        },
-        recordRecent: recordRecentFile,
-      },
-      req,
-    )
-  })
+  ipcMain.handle('kb:create-document', (_event, raw: unknown) => kbHandlers.createDocument(raw))
 
-  // The write powers' scope gate: the same kb:read verdicts open_path consults
-  // (starred / recent / knowledge folder / indexed, plus the round-scope
-  // location whitelist), re-run on the realpath so a symlink whose target
-  // sits outside the scope cannot smuggle a file past the location verdict.
-  const agentFileScopeAllows = async (path: string): Promise<boolean> => {
-    const sources = {
-      indexHas: (p: string) => host.indexStore()?.has(p) ?? false,
-      starred: readStarredFiles(),
-      recents: readRecentFiles(),
-      aliases: host.desktopAliases(),
-      insideAnyRoot: (p: string) => host.insideAnyRoot(p),
-      scope: kbScope(),
-      scopeFolders: kbFolders(),
-      statFile: host.statMaybeFile,
-    }
-    if (!(await kbOpenPathAllows(path, sources))) return false
-    const resolved = await realpath(path).catch(() => null)
-    if (resolved === null || resolved === path) return true
-    return kbOpenPathAllows(resolved, sources)
-  }
-  const refuseOutOfScope = (path: string): Error =>
-    new Error(
-      `"${path.slice(0, 120)}" is outside the desktop's file scope — the AI may change files the ` +
-        'person has surfaced (starred or recent, inside a knowledge folder, or indexed). Ask the ' +
-        'person to handle this one themselves',
-    )
+  ipcMain.handle('kb:edit-file', (_event, raw: unknown) => kbHandlers.editFile(raw))
 
-  /**
-   * The open-document verdict for edit_file and delete_file: the paths every
-   * app has open right now (strip tabs plus detached editor windows), with
-   * each path's app kind — injected because only index.ts holds the live
-   * lists. Those tools are for text files nobody has open; an open path
-   * belongs to its app's own agent. The canonicalized compare itself lives
-   * in open-editor-guard.ts (shared with the shell tools' write/move/rename
-   * executors since the capability-completion wave).
-   */
-  const openEditorOf = async (path: string): Promise<string | null> =>
-    openEditorGuard(path, host.openDocumentPaths ? await host.openDocumentPaths() : [])
+  ipcMain.handle('kb:delete-file', (_event, raw: unknown) => kbHandlers.deleteFile(raw))
 
-  // edit_file: one patch-style edit of an in-scope text file. The panel's
-  // confirmation card gated it renderer-side (risk:'high', session-allowable);
-  // the scope verdict here is the boundary that keeps the write inside the
-  // corpus whatever the model asked for.
-  ipcMain.handle('kb:edit-file', async (_event, raw: unknown): Promise<unknown> => {
-    const req = parseKbEditRequest(raw)
-    // The open-document guard, first of all gates: edit_file is for text
-    // files NOBODY has open. A file an app has open is the person's live
-    // document — editing the disk copy forks it from what the person sees,
-    // and the task belongs to that document's own agent. This is the safety
-    // net that makes the prompt's routing rules real: the main process knows
-    // the open list, the model does not have to.
-    const openIn = await openEditorOf(req.path)
-    if (openIn !== null) {
-      throw new Error(
-        `"${basename(req.path)}" is open in the ${openIn} app right now — editing the file ` +
-          'behind the app would fork it from what the person is looking at. Use `document_agent` ' +
-          'instead (switch to that tab first with `shell:switch_tab` if it is not active).',
-      )
-    }
-    // existence before the scope verdict: a missing file's honest error is
-    // "not editable", not a misleading scope refusal (the location verdict
-    // below requires existence, so the order would otherwise blur the two)
-    if (!host.statMaybeFile(req.path)?.isFile()) {
-      throw new Error(
-        `"${basename(req.path)}" is not an editable file — it may be missing; check the path`,
-      )
-    }
-    if (!(await agentFileScopeAllows(req.path))) throw refuseOutOfScope(req.path)
-    // TOCTOU: a symlink retargeted between the scope verdict and the read
-    // would edit a file the verdict never covered — re-check the realpath
-    // after reading and refuse on any change
-    const realBefore = await realpath(req.path).catch(() => null)
-    const text = await readFileText(req.path, 'utf8')
-    const realAfter = await realpath(req.path).catch(() => null)
-    if (realBefore === null || realAfter === null || realBefore !== realAfter) {
-      throw new Error(
-        `"${basename(req.path)}" moved while the edit was being prepared (its real path ` +
-          'changed) — read it again and retry',
-      )
-    }
-    return applyKnowledgeFileEdit(
-      {
-        statFile: host.statMaybeFile,
-        readFile: async () => text,
-        writeFile: (path, next) => atomicWriteFile(path, Buffer.from(next, 'utf8')),
-      },
-      req,
-    )
-  })
-
-  // delete_file: one in-scope file to the OS trash. ONE confirmation — the
-  // panel's always-ask card, by the user's explicit call (the browser write
-  // actions' second native ask was noise) — so this handler fails closed on
-  // any request that did not come through that gate: the renderer sets
-  // `confirmed` only inside the skill's executor, the code path the loop
-  // runs strictly after the card allowed. That flag is a RENDERER-ASSERTED
-  // marker — an honest guard against a wiring that forgets the gate, not
-  // proof against a compromised renderer (the one-confirm policy the user
-  // chose). A raw bridge call from anywhere else is refused here.
-  ipcMain.handle('kb:delete-file', async (_event, raw: unknown): Promise<unknown> => {
-    const req = parseKbDeleteRequest(raw)
-    if (!req.confirmed) {
-      throw new Error(
-        "delete refused: this call did not come through the panel's confirmation card",
-      )
-    }
-    // The open-document guard, the same gate edit_file carries: a file an app
-    // has open is the person's live document, and deleting the disk copy
-    // under it throws away what the person is looking at (the app's copy
-    // dies at the next save or close). The confirmation card asked about a
-    // file; the main process knows whether an app is sitting on it, and the
-    // card's yes does not extend past that.
-    const openIn = await openEditorOf(req.path)
-    if (openIn !== null) {
-      throw new Error(
-        `"${basename(req.path)}" is open in the ${openIn} app right now — deleting the file ` +
-          'under the app would throw away the document the person is looking at. Ask the person ' +
-          'to close it first (to edit its content instead, use `document_agent`).',
-      )
-    }
-    if (!host.statMaybeFile(req.path)?.isFile()) {
-      throw new Error(
-        `"${basename(req.path)}" is not a file (or is already gone) — nothing was deleted`,
-      )
-    }
-    if (!(await agentFileScopeAllows(req.path))) throw refuseOutOfScope(req.path)
-    await shell.trashItem(req.path)
-    return { path: req.path }
-  })
-
-  // Ask AI building files: the bundled CLI, confined to the conversation's
-  // work directory, the save folder and the starred files' folders (home-cli.ts)
-  const homeCliDeps: HomeCliDeps = {
-    runner: host.cliRunner,
-    workRoot: () => join(app.getPath('userData'), 'ask-ai-work'),
-    outDir: defaultSaveDir,
-    sourcePaths: readStarredFiles,
-    recordRecent: recordRecentFile,
-  }
-  ipcMain.handle('kb:cli-context', (_event, sessionId: unknown): unknown =>
-    homeCliContext(homeCliDeps, typeof sessionId === 'string' ? sessionId : ''),
+  ipcMain.handle('kb:cli-context', (_event, sessionId: unknown) =>
+    kbHandlers.cliContext(sessionId),
   )
-  ipcMain.handle('kb:run-cli', async (_event, raw: unknown): Promise<unknown> => {
-    const req = (raw && typeof raw === 'object' ? raw : {}) as {
-      sessionId?: unknown
-      args?: unknown
-      files?: unknown
-      sources?: unknown
-    }
-    return runHomeCli(homeCliDeps, typeof req.sessionId === 'string' ? req.sessionId : '', {
-      args: Array.isArray(req.args) ? (req.args as string[]) : [],
-      files: Array.isArray(req.files) ? (req.files as { name: string; content: string }[]) : [],
-      sources: Array.isArray(req.sources) ? (req.sources as string[]) : [],
-    })
-  })
+
+  ipcMain.handle('kb:run-cli', (_event, raw: unknown) => kbHandlers.runCli(raw))
 
   ipcMain.handle(
     HOME_CHANNELS.rerankSearch,

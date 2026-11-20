@@ -906,4 +906,5 @@ export const th: Dict = {
   setPetSubtitle: 'เลือกคู่หูสุดน่ารักและทดลองโต้ตอบเพื่อดูทุกอารมณ์ได้ทันทีที่นี่',
   setPetTitle: 'คู่หู AI บนเดสก์ท็อป',
   setSecAiPet: 'สัตว์เลี้ยง AI',
+  setSecPiAgent: 'หน่วยความจำและระบบนิเวศ Pi',
 }

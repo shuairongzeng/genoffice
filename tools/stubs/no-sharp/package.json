@@ -1,0 +1,11 @@
+{
+  "name": "sharp",
+  "version": "0.35.99",
+  "description": "Local Apache-2.0 stub replacing optional sharp to keep production dependencies copyleft-free.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js"
+  }
+}

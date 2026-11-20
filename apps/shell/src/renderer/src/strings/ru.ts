@@ -926,4 +926,5 @@ export const ru: Dict = {
   setPetSubtitle: 'Выберите живого помощника и испытайте все его реакции прямо на сцене.',
   setPetTitle: 'ИИ-компаньоны',
   setSecAiPet: 'ИИ-питомцы',
+  setSecPiAgent: 'Память и экосистема Pi',
 }

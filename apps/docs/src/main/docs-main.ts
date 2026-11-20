@@ -4162,6 +4162,49 @@ async function extractAttachmentText(filePath: string): Promise<string> {
   return parsed.text
 }
 
+export async function readAttachmentTextFromMain(
+  filePath: string,
+  offset: number,
+  maxChars: number,
+): Promise<AttachmentReadResult> {
+  const name = basename(filePath)
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  if (!ATTACHMENT_EXTS.has(ext)) return { ok: false, error: tm('errUnsupportedExt', { ext }) }
+  if (ATTACHMENT_IMAGE_EXTS.has(ext)) {
+    return { ok: false, error: tm('errImageNoText') }
+  }
+  try {
+    const text = await extractAttachmentText(filePath)
+    const start = Math.max(0, Math.floor(offset) || 0)
+    const size = Math.min(Math.max(1, Math.floor(maxChars) || 1), 48_000)
+    return {
+      ok: true,
+      name,
+      totalChars: text.length,
+      offset: start,
+      text: text.slice(start, start + size),
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+export function readAttachmentImageFromMain(filePath: string): AttachmentImageResult {
+  const name = basename(filePath)
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  const mime = ATTACHMENT_IMAGE_MIME[ext]
+  if (!mime) return { ok: false, error: `${name}: ${tm('errNotImage')}` }
+  try {
+    const stat = statSync(filePath)
+    if (stat.size > ATTACHMENT_IMAGE_MAX_BYTES) {
+      return { ok: false, error: `${name}: ${tm('errImageTooLarge')}` }
+    }
+    return { ok: true, base64: readFileSync(filePath).toString('base64'), mime }
+  } catch {
+    return { ok: false, error: `${name}: ${tm('errUnreadable')}` }
+  }
+}
+
 // ---- print / export PDF ----
 
 const TWIPS_PER_INCH = 1440
@@ -4174,11 +4217,36 @@ const SETTINGS_PATH = () => userDataPath('ai-settings.json')
 
 const activeAiStreams = new Map<string, AbortController>()
 
+const aiSettingsListeners = new Set<() => void>()
+
+export function onAiSettingsUpdated(listener: () => void): () => void {
+  aiSettingsListeners.add(listener)
+  return () => aiSettingsListeners.delete(listener)
+}
+
+export function readLiveAiSettingsFromMain(): AiSettings {
+  const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(SETTINGS_PATH(), {})
+  if ((stored.provider ?? 'genspark') === 'genspark' && stored.gskToolsEnabled === false) {
+    stored.gskToolsEnabled = true
+    writeJsonAtomic(SETTINGS_PATH(), stored)
+  }
+  const settings = resolveAiSettings(stored, defaultAiSettings())
+  settings.provider = activeProvider(settings)
+  return settings
+}
+
 /** every renderer (tabs, home) re-reads ai-settings.json — the composer chip and
  *  the settings page edit the same file from different windows */
 function broadcastAiSettingsChanged(): void {
   for (const wc of webContents.getAllWebContents())
     if (!wc.isDestroyed()) wc.send('ai:settings-changed')
+  for (const listener of aiSettingsListeners) {
+    try {
+      listener()
+    } catch {
+      // ignore listener errors
+    }
+  }
 }
 
 /**
@@ -4188,22 +4256,7 @@ function broadcastAiSettingsChanged(): void {
  */
 export function registerAiIpc(): void {
   app.once('before-quit', shutdownCodexAppServers)
-  ipcMain.handle('ai:get-settings', async (): Promise<AiSettings> => {
-    const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(SETTINGS_PATH(), {})
-    // pre-lock legacy file: genspark selected with cloud tools opted out. The
-    // settings UI locks the tools switch on with genspark and apps read this
-    // file live, so heal the stored flag once. Judged on the *stored* provider
-    // — never the activeProvider fallback below, which must not leak into the
-    // file and clobber a saved (half-configured) BYOK selection.
-    if ((stored.provider ?? 'genspark') === 'genspark' && stored.gskToolsEnabled === false) {
-      stored.gskToolsEnabled = true
-      writeJsonAtomic(SETTINGS_PATH(), stored)
-    }
-    const settings = resolveAiSettings(stored, defaultAiSettings())
-    // a stored BYOK provider is honored when usable; half-filled configs fall back to genspark
-    settings.provider = activeProvider(settings)
-    return settings
-  })
+  ipcMain.handle('ai:get-settings', async (): Promise<AiSettings> => readLiveAiSettingsFromMain())
 
   // Genspark account (gsk login state): auth source for AI features; the frontend uses it to prompt login when logged out
   ipcMain.handle(
@@ -4571,6 +4624,21 @@ function getProjectStore(): ProjectStore {
   return projectStore
 }
 
+export function getSharedProjectStoreFromMain(): ProjectStore {
+  return getProjectStore()
+}
+
+export interface ProjectChatLifecycleHooks {
+  onDeleteChat?: (target: { projectId: string; chatId: string }) => void
+  onRebindChat?: (event: { projectId: string; oldChatId: string; newChatId: string }) => void
+}
+
+let projectChatLifecycleHooks: ProjectChatLifecycleHooks | null = null
+
+export function setProjectChatLifecycleHooks(hooks: ProjectChatLifecycleHooks | null): void {
+  projectChatLifecycleHooks = hooks
+}
+
 /**
  * Fired when a save lands on a new path (save-as / first silent save). The shell
  * uses it to sync the tab title/path, record recents and apply a pending project —
@@ -4787,6 +4855,7 @@ export function registerProjectIpc(): void {
   ipcMain.handle('project:deleteChat', (_event, args: { projectId: string; chatId: string }) => {
     const store = getProjectStore()
     store.deleteChat(args.projectId, args.chatId)
+    projectChatLifecycleHooks?.onDeleteChat?.({ projectId: args.projectId, chatId: args.chatId })
   })
 
   /** Batch deletes conversations across projects. */
@@ -4810,7 +4879,11 @@ export function registerProjectIpc(): void {
         validated.push({ projectId: item.projectId, chatId: item.chatId })
       }
       const store = getProjectStore()
-      return store.deleteChats(validated)
+      const res = store.deleteChats(validated)
+      for (const item of validated) {
+        projectChatLifecycleHooks?.onDeleteChat?.(item)
+      }
+      return res
     },
   )
 
@@ -4833,9 +4906,22 @@ export function registerProjectIpc(): void {
         path = sessionPathResolver(event.sender.id, args.sessionId)
       }
       if (path) {
-        return store.rebindChatToFile(args.projectId, args.tempChatId, path)
+        const res = store.rebindChatToFile(args.projectId, args.tempChatId, path)
+        projectChatLifecycleHooks?.onRebindChat?.({
+          projectId: res.projectId,
+          oldChatId: args.tempChatId,
+          newChatId: res.chatId,
+        })
+        return res
       }
-      if (args.newChatId) store.rebindChat(args.projectId, args.tempChatId, args.newChatId)
+      if (args.newChatId) {
+        store.rebindChat(args.projectId, args.tempChatId, args.newChatId)
+        projectChatLifecycleHooks?.onRebindChat?.({
+          projectId: args.projectId,
+          oldChatId: args.tempChatId,
+          newChatId: args.newChatId,
+        })
+      }
       return { projectId: args.projectId, chatId: args.newChatId ?? args.tempChatId }
     },
   )
@@ -5575,46 +5661,13 @@ export function registerDocsIpc(): void {
       filePath: string,
       offset: number,
       maxChars: number,
-    ): Promise<AttachmentReadResult> => {
-      const name = basename(filePath)
-      const ext = name.split('.').pop()?.toLowerCase() ?? ''
-      if (!ATTACHMENT_EXTS.has(ext)) return { ok: false, error: tm('errUnsupportedExt', { ext }) }
-      if (ATTACHMENT_IMAGE_EXTS.has(ext)) {
-        return { ok: false, error: tm('errImageNoText') }
-      }
-      try {
-        const text = await extractAttachmentText(filePath)
-        const start = Math.max(0, Math.floor(offset) || 0)
-        const size = Math.min(Math.max(1, Math.floor(maxChars) || 1), 48_000)
-        return {
-          ok: true,
-          name,
-          totalChars: text.length,
-          offset: start,
-          text: text.slice(start, start + size),
-        }
-      } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : String(e) }
-      }
-    },
+    ): Promise<AttachmentReadResult> => readAttachmentTextFromMain(filePath, offset, maxChars),
   )
 
   // image attachments read raw bytes → base64; AiPanel puts them into the user message's images for multimodal
-  ipcMain.handle('files:read-image', (_event, filePath: string): AttachmentImageResult => {
-    const name = basename(filePath)
-    const ext = name.split('.').pop()?.toLowerCase() ?? ''
-    const mime = ATTACHMENT_IMAGE_MIME[ext]
-    if (!mime) return { ok: false, error: `${name}: ${tm('errNotImage')}` }
-    try {
-      const stat = statSync(filePath)
-      if (stat.size > ATTACHMENT_IMAGE_MAX_BYTES) {
-        return { ok: false, error: `${name}: ${tm('errImageTooLarge')}` }
-      }
-      return { ok: true, base64: readFileSync(filePath).toString('base64'), mime }
-    } catch {
-      return { ok: false, error: `${name}: ${tm('errUnreadable')}` }
-    }
-  })
+  ipcMain.handle('files:read-image', (_event, filePath: string): AttachmentImageResult =>
+    readAttachmentImageFromMain(filePath),
+  )
 
   // clipboard-pasted images (screenshots and other bitmaps with no local path): saved to a temp file then use the regular attachment path
   ipcMain.handle(

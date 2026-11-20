@@ -934,4 +934,5 @@ export const id: Dict = {
   setPetSubtitle: 'Pilih teman desktop yang ceria dan uji setiap ekspresinya langsung di sini.',
   setPetTitle: 'Teman Desktop AI',
   setSecAiPet: 'Hewan AI',
+  setSecPiAgent: 'Memori & Ekosistem Pi',
 }

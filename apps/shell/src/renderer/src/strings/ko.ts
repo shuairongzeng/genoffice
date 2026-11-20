@@ -919,4 +919,5 @@ export const ko: Dict = {
   setPetSubtitle: '개성 넘치는 AI 펫을 고르고 위 무대에서 다양한 표정과 반응을 바로 체험해 보세요.',
   setPetTitle: 'AI 데스크톱 파트너',
   setSecAiPet: 'AI 펫',
+  setSecPiAgent: '메모리 & Pi 생태계',
 }

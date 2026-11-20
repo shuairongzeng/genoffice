@@ -227,6 +227,8 @@ function assertModuleTreesPresent() {
     '../html/out',
     '../../packages/cli/dist/genoffice.cjs',
     '../../packages/cli/dist/node_modules/jsdom',
+    'out/pi-runtime/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js',
+    'out/pi-runtime/node_modules/@cortexkit/pi-magic-context/dist/index.js',
   ]) {
     if (!existsSync(join(__dirname, rel))) {
       throw new Error(
@@ -775,6 +777,13 @@ const config = {
     {
       from: 'build/templates',
       to: 'templates',
+    },
+    // Externalized Pi coding-agent + Magic Context runtime closure (keeps real
+    // files outside app.asar for ESM dynamic import, jiti extensions, workers,
+    // and ELECTRON_RUN_AS_NODE subagents).
+    {
+      from: 'out/pi-runtime',
+      to: 'pi-runtime',
     },
   ],
   // `mimeType` is read only by the Linux target, where it becomes the

@@ -116,6 +116,7 @@ body.vib .home {
  * wallpaper and stamps data-wallpaper-tone. */
 .home.desktop-mode[data-wallpaper-tone='dark'] {
   --glass-bg: 16 20 23;
+  --glass-surface: rgb(var(--glass-bg));
   --glass-border: rgb(255 255 255 / 10%);
 }
 .home.desktop-mode[data-wallpaper-tone='dark'] .ai-drawer-panel,
@@ -130,14 +131,21 @@ body.vib .home {
   --border: rgb(255 255 255 / 10%);
   --border-subtle: rgb(255 255 255 / 8%);
   --color-border-default: var(--border);
+  --color-border-strong: rgb(255 255 255 / 22%);
   /* the hover/secondary fills (the library's search box, row hovers): a
    * whisper of light, not the theme's light gray */
   --hover: rgb(255 255 255 / 7%);
   --surface-subtle: rgb(255 255 255 / 8%);
+  --color-bg-subtle: var(--surface-subtle);
+  --canvas: rgb(255 255 255 / 6%);
   --color-bg-page: rgb(255 255 255 / 6%);
   --bg-hover: rgb(255 255 255 / 7%);
+  --bg-hover-strong: rgb(255 255 255 / 14%);
+  --text-primary: var(--text);
   --text-secondary: rgb(242 242 245 / 78%);
+  --text-dim: var(--text-secondary);
   --text-tertiary: rgb(242 242 245 / 45%);
+  --color-text-primary: var(--text);
   --color-text-secondary: var(--text-secondary);
   --color-text-tertiary: var(--text-tertiary);
   color: var(--text);
@@ -147,6 +155,15 @@ body.vib .home {
 .home.desktop-mode[data-wallpaper-tone='dark'] .desktop-todo {
   --surface: rgb(255 255 255 / 8%);
   --border-strong: rgb(255 255 255 / 22%);
+}
+/* Inline popovers mounted inside the dark-glass drawer use --surface as their
+ * panel background; remap locally so + and / menus stay dark without altering
+ * --surface for buttons like .ai-confirm-allow. */
+.home.desktop-mode[data-wallpaper-tone='dark'] .ai-drawer-panel .ai-plus-pop,
+.home.desktop-mode[data-wallpaper-tone='dark'] .ai-drawer-panel .ai-slash-pop {
+  --surface: var(--glass-surface);
+  --border-strong: var(--color-border-strong);
+  border-color: var(--glass-border);
 }
 .home.desktop-mode[data-wallpaper-tone='dark'] .dock {
   background: color-mix(in srgb, rgb(var(--glass-bg)) 38%, transparent);
@@ -6797,4 +6814,67 @@ button.kb-ask-card-name:hover {
   text-align: center;
   font-size: 13px;
   color: var(--text-muted);
+}
+
+/* Pi Agent & Magic Context status pill and notice bar in Ask panel */
+.kb-pi-status-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: var(--radius-6);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.kb-pi-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 2px 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-8);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.kb-pi-notice[data-level='warning'] {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.kb-pi-notice[data-level='error'] {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.kb-pi-notice-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.kb-pi-notice-close {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.kb-pi-notice-close:hover {
+  opacity: 1;
 }

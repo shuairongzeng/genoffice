@@ -885,6 +885,7 @@ export const zh = {
   setPetSubtitle: '挑选一只性格各异的 AI 宠物，在上方试玩舞台实时交互体验每种情绪。',
   setPetTitle: 'AI 桌面伙伴',
   setSecAiPet: 'AI 宠物',
+  setSecPiAgent: '记忆与 Pi 生态',
 }
 
 export type Dict = typeof zh

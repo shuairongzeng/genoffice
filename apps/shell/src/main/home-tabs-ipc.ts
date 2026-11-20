@@ -57,6 +57,11 @@ export function installHomeTabsPush(push: HomeTabsPush | null): void {
 }
 
 let livePush: HomeTabsPush | null = null
+let activeRunEventPublisher: ((payload: unknown, excludeSender?: WebContents) => void) | null = null
+
+export function broadcastAskRunEventFromMain(payload: unknown): void {
+  activeRunEventPublisher?.(payload)
+}
 
 /**
  * Collect the pushed state: the shell's tabs with dirtiness resolved (docs
@@ -702,7 +707,8 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
   const MAX_SESSION_SNAPSHOTS = 32
   const runSnapshotsByKey = new Map<string, unknown>()
   let latestRunSnapshot: unknown = null
-  ipcMain.on(HOME_CHANNELS.askRunEvent, (event, payload) => {
+
+  const publishRunEvent = (payload: unknown, excludeSender?: WebContents): void => {
     const evt = payload as { type?: string; sessionKey?: string; payload?: unknown } | undefined
     if (evt?.type === 'snapshot') {
       latestRunSnapshot = evt.payload
@@ -724,9 +730,14 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
       }
     }
     for (const wc of webContents.getAllWebContents()) {
-      if (wc === event.sender || wc.isDestroyed()) continue
+      if ((excludeSender && wc === excludeSender) || wc.isDestroyed()) continue
       wc.send(HOME_CHANNELS.askRunEvent, payload)
     }
+  }
+  activeRunEventPublisher = publishRunEvent
+
+  ipcMain.on(HOME_CHANNELS.askRunEvent, (event, payload) => {
+    publishRunEvent(payload, event.sender)
   })
   ipcMain.handle(HOME_CHANNELS.askRunSnapshot, (_event, sessionKey?: unknown) => {
     if (typeof sessionKey === 'string' && sessionKey !== '') {

@@ -878,4 +878,5 @@ export const zhTW: Dict = {
   setPetSubtitle: '挑選一隻性格各異的 AI 寵物，在上方試玩舞台即時互動體驗每種情緒。',
   setPetTitle: 'AI 桌面夥伴',
   setSecAiPet: 'AI 寵物',
+  setSecPiAgent: '記憶與 Pi 生態',
 }

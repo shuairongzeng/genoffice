@@ -917,4 +917,5 @@ export const cs: Dict = {
   setPetSubtitle: 'Vyberte si živého parťáka a rovnou zde otestujte jeho reakce i nálady.',
   setPetTitle: 'AI parťáci na plochu',
   setSecAiPet: 'AI mazlíčci',
+  setSecPiAgent: 'Paměť a ekosystém Pi',
 }

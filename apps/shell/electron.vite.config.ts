@@ -13,7 +13,11 @@ export default defineConfig({
       minify: 'esbuild',
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/main/boot.ts') },
-        external: ['node:sqlite'],
+        external: [
+          'node:sqlite',
+          '@earendil-works/pi-coding-agent',
+          '@cortexkit/pi-magic-context',
+        ],
         // Keep split chunks in out/main/ alongside index.js so existing
         // join(__dirname, '../renderer/...') and '../preload/...' lookups resolve correctly.
         output: {

@@ -925,4 +925,5 @@ export const pl: Dict = {
   setPetSubtitle: 'Wybierz towarzysza i pobaw się tutaj, aby przetestować każdy nastrój.',
   setPetTitle: 'Pulpitowi towarzysze AI',
   setSecAiPet: 'Zwierzaki AI',
+  setSecPiAgent: 'Pamięć i ekosystem Pi',
 }

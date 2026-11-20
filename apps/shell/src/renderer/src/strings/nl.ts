@@ -928,4 +928,5 @@ export const nl: Dict = {
   setPetSubtitle: 'Kies een levendig maatje en probeer hier direct elke stemming uit.',
   setPetTitle: 'AI-bureaumaatjes',
   setSecAiPet: 'AI-maatjes',
+  setSecPiAgent: 'Geheugen & Pi-ecosysteem',
 }

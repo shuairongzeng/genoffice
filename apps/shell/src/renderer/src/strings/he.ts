@@ -894,4 +894,5 @@ export const he: Dict = {
   setPetSubtitle: 'בחרו שותף חי ושחקו איתו ממש כאן כדי לראות כל מצב רוח.',
   setPetTitle: 'שותפי AI לשולחן העבודה',
   setSecAiPet: 'חיות AI',
+  setSecPiAgent: 'זיכרון ומערכת Pi',
 }

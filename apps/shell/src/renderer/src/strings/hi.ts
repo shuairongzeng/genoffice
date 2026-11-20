@@ -921,4 +921,5 @@ export const hi: Dict = {
   setPetSubtitle: 'एक जीवंत डेस्कटॉप साथी चुनें और यहीं हर भाव का लाइव अनुभव करें।',
   setPetTitle: 'AI डेस्कटॉप साथी',
   setSecAiPet: 'AI साथी',
+  setSecPiAgent: 'मेमोरी और Pi इकोसिस्टम',
 }

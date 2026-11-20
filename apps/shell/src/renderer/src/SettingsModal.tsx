@@ -61,6 +61,7 @@ import { IntegrationsPane, skillUpdateDue } from './IntegrationsPane'
 import { FoundSkills } from './FoundSkills'
 import { PluginsPane } from './PluginsPane'
 import { AiPetSettingsPane } from './AiPetSettingsPane'
+import { PiEcosystemSettingsPane } from './PiEcosystemSettingsPane'
 import './settings.css'
 
 // ── Settings modal (opened from the account menu) ─────────
@@ -205,6 +206,7 @@ export type SectionId =
   | 'general'
   | 'dock'
   | 'aiPet'
+  | 'piAgent'
   | 'integrations'
   | 'skills'
   | 'plugins'
@@ -217,6 +219,7 @@ export const SECTIONS: readonly { id: SectionId; labelKey: StringKey }[] = [
   { id: 'general', labelKey: 'setSecGeneral' },
   { id: 'dock', labelKey: 'setSecDock' },
   { id: 'aiPet', labelKey: 'setSecAiPet' },
+  { id: 'piAgent', labelKey: 'setSecPiAgent' },
   { id: 'integrations', labelKey: 'setSecIntegrations' },
   { id: 'skills', labelKey: 'setSecSkills' },
   { id: 'plugins', labelKey: 'setSecPlugins' },
@@ -224,6 +227,21 @@ export const SECTIONS: readonly { id: SectionId; labelKey: StringKey }[] = [
 ]
 
 function SectionIcon({ id }: { id: SectionId }) {
+  if (id === 'piAgent') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="4" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="3.8" cy="11.5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="12.2" cy="11.5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+        <path
+          d="M7.1 5.4 4.7 10M8.9 5.4l2.4 4.6M5.5 11.5h5"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+        />
+      </svg>
+    )
+  }
   if (id === 'aiModel') {
     return (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -2910,6 +2928,7 @@ export function SettingsModal({
               </>
             )}
             {section === 'aiPet' && <AiPetSettingsPane t={t} />}
+            {section === 'piAgent' && <PiEcosystemSettingsPane t={t} />}
             {section === 'integrations' && (
               <IntegrationsPane t={t} onStatus={(st) => onSkillUpdateDue?.(skillUpdateDue(st))} />
             )}

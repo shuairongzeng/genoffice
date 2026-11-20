@@ -919,4 +919,5 @@ export const vi: Dict = {
   setPetSubtitle: 'Chọn một người bạn sinh động và tương tác ngay tại đây để thử mọi cảm xúc.',
   setPetTitle: 'Bạn đồng hành AI',
   setSecAiPet: 'Thú cưng AI',
+  setSecPiAgent: 'Bộ nhớ & Hệ sinh thái Pi',
 }

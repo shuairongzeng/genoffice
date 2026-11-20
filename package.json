@@ -42,6 +42,7 @@
     "dist:linux": "npm run notices && npm run build:all && npm run dist:linux -w @genoffice/shell"
   },
   "dependencies": {
+    "sharp": "file:./tools/stubs/no-sharp",
     "ws": "^8.21.1"
   },
   "overrides": {

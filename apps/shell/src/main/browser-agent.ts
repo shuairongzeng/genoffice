@@ -1652,8 +1652,81 @@ export interface BrowserAgentIpcDeps {
  * before the call is parsed, and the main-side confirmation stays as the
  * second gate on the risky tools.
  */
+let registeredBrowserDeps: BrowserAgentIpcDeps | null = null
+let registeredBrowserLinks: BrowserPageLinks | null = null
+
+async function executeBrowserSkillWithDeps(
+  deps: BrowserAgentIpcDeps,
+  links: BrowserPageLinks,
+  tool: string,
+  input: Record<string, unknown>,
+  skipMainConfirm: boolean,
+): Promise<unknown> {
+  return executeBrowserSkillAction(
+    {
+      listBrowserTabs: deps.listBrowserTabs,
+      webContentsFor: deps.webContentsFor,
+      pageFor: (chrome) => pageWcOf(links, chrome),
+      confirmAction: skipMainConfirm
+        ? async () => true
+        : (request) => deps.confirmPageAction(request),
+      openBrowserTab: (url) => deps.openBrowserTab(url),
+      activateTab: (id) => deps.activateTab(id),
+      listSurfaceTabs: () => deps.listSurfaceTabs(),
+      pathAllowed: (path) => deps.pathAllowed(path),
+      openPath: (path) => deps.openPath(path),
+      closeTab: (id) => deps.closeTab(id),
+      openFolder: (path) => deps.openFolder(path),
+      listDirectory: (path) => deps.listDirectory(path),
+      createDirectory: (path) => deps.createDirectory(path),
+      writeTextFile: (path, content) => deps.writeTextFile(path, content),
+      moveFile: (from, to) => deps.moveFile(from, to),
+      renameFile: (path, name) => deps.renameFile(path, name),
+      starFile: (path) => deps.starFile(path),
+      unstarFile: (path) => deps.unstarFile(path),
+      addTodo: (text) => deps.addTodo(text),
+    },
+    tool,
+    input,
+  )
+}
+
+/**
+ * Direct in-process browser & shell action entry for the main-process Pi runtime.
+ * `skipMainConfirm` skips the secondary native OS dialog when Pi's own permission
+ * extension already obtained explicit panel confirmation.
+ */
+export async function executeBrowserSkillFromMain(
+  tool: string,
+  input: Record<string, unknown>,
+  opts?: { skipMainConfirm?: boolean },
+): Promise<unknown> {
+  if (!registeredBrowserDeps || !registeredBrowserLinks) {
+    throw new Error('browser skill bridge is not initialized')
+  }
+  return executeBrowserSkillWithDeps(
+    registeredBrowserDeps,
+    registeredBrowserLinks,
+    tool,
+    input,
+    opts?.skipMainConfirm === true,
+  )
+}
+
+export async function listBrowserTabsFromMain() {
+  if (!registeredBrowserDeps) return []
+  return await registeredBrowserDeps.listBrowserTabs()
+}
+
+export async function listSurfaceTabsFromMain() {
+  if (!registeredBrowserDeps) return []
+  return await registeredBrowserDeps.listSurfaceTabs()
+}
+
 export function registerBrowserSkillIpc(deps: BrowserAgentIpcDeps): void {
   const links = new BrowserPageLinks(isBrowserPageView)
+  registeredBrowserDeps = deps
+  registeredBrowserLinks = links
   // the pairing must exist before the first browser tab is created, and
   // app.whenReady (where the shell registers this) precedes any tab
   app.on('web-contents-created', (_event, wc) => links.observeCreated(wc))
@@ -1676,30 +1749,12 @@ export function registerBrowserSkillIpc(deps: BrowserAgentIpcDeps): void {
     ) {
       throw new Error('browserskill:execute input must be an object')
     }
-    return executeBrowserSkillAction(
-      {
-        listBrowserTabs: deps.listBrowserTabs,
-        webContentsFor: deps.webContentsFor,
-        pageFor: (chrome) => pageWcOf(links, chrome),
-        confirmAction: (request) => deps.confirmPageAction(request),
-        openBrowserTab: (url) => deps.openBrowserTab(url),
-        activateTab: (id) => deps.activateTab(id),
-        listSurfaceTabs: () => deps.listSurfaceTabs(),
-        pathAllowed: (path) => deps.pathAllowed(path),
-        openPath: (path) => deps.openPath(path),
-        closeTab: (id) => deps.closeTab(id),
-        openFolder: (path) => deps.openFolder(path),
-        listDirectory: (path) => deps.listDirectory(path),
-        createDirectory: (path) => deps.createDirectory(path),
-        writeTextFile: (path, content) => deps.writeTextFile(path, content),
-        moveFile: (from, to) => deps.moveFile(from, to),
-        renameFile: (path, name) => deps.renameFile(path, name),
-        starFile: (path) => deps.starFile(path),
-        unstarFile: (path) => deps.unstarFile(path),
-        addTodo: (text) => deps.addTodo(text),
-      },
+    return executeBrowserSkillWithDeps(
+      deps,
+      links,
       tool,
       (input ?? {}) as Record<string, unknown>,
+      false,
     )
   })
 }

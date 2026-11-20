@@ -944,4 +944,5 @@ export const es: Dict = {
   setPetSubtitle: 'Elige un compañero expresivo e interactúa aquí mismo para probar cada estado.',
   setPetTitle: 'Compañeros IA de escritorio',
   setSecAiPet: 'Mascotas IA',
+  setSecPiAgent: 'Memoria y ecosistema Pi',
 }

@@ -64,6 +64,20 @@ import { HOME_CHANNELS, HOME_TAB_KINDS } from '../shared/home-api'
 import { normalizeForwardedAskQuery, type PendingAskQuery } from '../shared/ask-forward'
 import { normalizeAiDock } from '../shared/desktop-geometry'
 import { normalizeAiPetPrefs } from '../shared/ai-pet-prefs'
+import { PI_AGENT_CHANNELS } from '../shared/pi-agent-api'
+import type {
+  PiAgentCommandInfo,
+  PiAgentConfirmReply,
+  PiAgentConfirmRequest,
+  PiAgentNoticePayload,
+  PiAgentPromptResult,
+  PiAgentStatusPayload,
+  PiDiagnosticReport,
+  PiEcosystemOverview,
+  PiMagicMemoryEntry,
+  PiPackageActionResult,
+} from '../shared/pi-agent-api'
+import { normalizePiAgentPrefs, type PiAgentPrefs } from '../shared/pi-agent-prefs'
 import { INTEGRATIONS_CHANNELS } from '../shared/integrations-api'
 import type {
   IntegrationsApi,
@@ -1015,6 +1029,76 @@ const homeApi: HomeApi = {
   },
   async aiSessionAllowAdd(tool) {
     await ipcRenderer.invoke(HOME_CHANNELS.aiSessionAllowAdd, tool)
+  },
+  async piAgentPrefsGet() {
+    return normalizePiAgentPrefs(await ipcRenderer.invoke(PI_AGENT_CHANNELS.prefsGet))
+  },
+  async piAgentPrefsSet(patch) {
+    return normalizePiAgentPrefs(await ipcRenderer.invoke(PI_AGENT_CHANNELS.prefsSet, patch))
+  },
+  onPiAgentPrefsChanged(handler) {
+    const listener = (_event: IpcRendererEvent, prefs: unknown): void => {
+      handler(normalizePiAgentPrefs(prefs) as PiAgentPrefs)
+    }
+    ipcRenderer.on(PI_AGENT_CHANNELS.prefsChanged, listener)
+    return () => ipcRenderer.removeListener(PI_AGENT_CHANNELS.prefsChanged, listener)
+  },
+  async piAgentPrompt(req) {
+    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.prompt, req)) as PiAgentPromptResult
+  },
+  async piAgentAbort(sessionKey) {
+    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.abort, sessionKey)) === true
+  },
+  async piAgentListCommands() {
+    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.commandsList)) as PiAgentCommandInfo[]
+  },
+  onPiAgentConfirmRequest(handler) {
+    const listener = (_event: IpcRendererEvent, req: PiAgentConfirmRequest): void => {
+      handler(req)
+    }
+    ipcRenderer.on(PI_AGENT_CHANNELS.confirmRequest, listener)
+    return () => ipcRenderer.removeListener(PI_AGENT_CHANNELS.confirmRequest, listener)
+  },
+  async piAgentConfirmReply(reply: PiAgentConfirmReply) {
+    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.confirmReply, reply)) === true
+  },
+  onPiAgentStatus(handler) {
+    const listener = (_event: IpcRendererEvent, status: PiAgentStatusPayload): void => {
+      handler(status)
+    }
+    ipcRenderer.on(PI_AGENT_CHANNELS.statusEvent, listener)
+    return () => ipcRenderer.removeListener(PI_AGENT_CHANNELS.statusEvent, listener)
+  },
+  onPiAgentNotice(handler) {
+    const listener = (_event: IpcRendererEvent, notice: PiAgentNoticePayload): void => {
+      handler(notice)
+    }
+    ipcRenderer.on(PI_AGENT_CHANNELS.noticeEvent, listener)
+    return () => ipcRenderer.removeListener(PI_AGENT_CHANNELS.noticeEvent, listener)
+  },
+  async piAgentEcosystemOverview() {
+    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.ecosystemOverview)) as PiEcosystemOverview
+  },
+  async piAgentPackageInstall(source) {
+    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.packageInstall, source)) as PiPackageActionResult
+  },
+  async piAgentPackageRemove(source) {
+    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.packageRemove, source)) as PiPackageActionResult
+  },
+  async piAgentPackageUpdate(source) {
+    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.packageUpdate, source)) as PiPackageActionResult
+  },
+  async piAgentReload() {
+    await ipcRenderer.invoke(PI_AGENT_CHANNELS.reload)
+  },
+  async piAgentMemoriesList(opts) {
+    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.memoriesList, opts)) as PiMagicMemoryEntry[]
+  },
+  async piAgentMemoryDelete(id) {
+    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.memoryDelete, id)) as { ok: boolean }
+  },
+  async piAgentRunDiagnostics() {
+    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.runDiagnostics)) as PiDiagnosticReport
   },
   // the AI lineage pair: the panel records "this document came from an AI
   // task" when a create_document run succeeds, and the doc-bound panel asks
