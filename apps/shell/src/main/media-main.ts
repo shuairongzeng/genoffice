@@ -7,6 +7,7 @@ import type { WebContents } from 'electron'
 import { MEDIA_SCHEME, rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
 import {
   HOME_CHANNELS,
+  type MediaAudioMetadata,
   type MediaFolderEntry,
   type MediaInfo,
   type MediaKind,
@@ -18,6 +19,7 @@ import {
   type MediaStateMutationResult,
   type MediaSubtitleTrack,
 } from '../shared/home-api'
+import { extractAudioMetadata, type ExtractedCoverArt } from './media-metadata'
 import {
   MEDIA_LIBRARY_FILE,
   addLibraryFolders,
@@ -112,6 +114,7 @@ export interface MediaSessionEntry {
   mediaKind: MediaKind
   mime: string
   subtitles: Map<string, MediaSubtitleEntry>
+  cover?: ExtractedCoverArt
 }
 
 export interface MediaSnapshotResult {
@@ -185,6 +188,10 @@ export function mediaStreamUrl(token: string): string {
 
 export function mediaSubtitleUrl(token: string, subId: string): string {
   return `${MEDIA_SCHEME}://sub/${token}/${subId}`
+}
+
+export function mediaCoverUrl(token: string): string {
+  return `${MEDIA_SCHEME}://cover/${token}`
 }
 
 function getOrCreateViewContext(wcId: number): MediaViewContext {
@@ -387,6 +394,7 @@ function fileStreamToWeb(
 type ParsedMediaRequest =
   | { kind: 'view'; token: string }
   | { kind: 'sub'; token: string; subId: string }
+  | { kind: 'cover'; token: string }
 
 function parseMediaRequestUrl(rawUrl: string): ParsedMediaRequest | null {
   let url: URL
@@ -400,13 +408,16 @@ function parseMediaRequestUrl(rawUrl: string): ParsedMediaRequest | null {
   if (url.hostname === 'view' && segments.length === 1) {
     return { kind: 'view', token: segments[0]! }
   }
+  if (url.hostname === 'cover' && segments.length === 1) {
+    return { kind: 'cover', token: segments[0]! }
+  }
   if (url.hostname === 'sub' && segments.length === 2) {
     return { kind: 'sub', token: segments[0]!, subId: segments[1]! }
   }
   return null
 }
 
-/** Handle `genoffice-media://view/<token>` and `genoffice-media://sub/<token>/<subId>` securely. */
+/** Handle `genoffice-media://view/<token>`, `genoffice-media://cover/<token>`, and `genoffice-media://sub/<token>/<subId>` securely. */
 export function registerMediaProtocol(): void {
   if (protocolRegistered) return
   protocolRegistered = true
@@ -430,6 +441,19 @@ export function registerMediaProtocol(): void {
     }
     if (method !== 'GET' && method !== 'HEAD') {
       return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD, OPTIONS' } })
+    }
+
+    if (parsedReq.kind === 'cover') {
+      if (!entry.cover) return new Response(null, { status: 404 })
+      const headers = {
+        'Content-Type': entry.cover.mime,
+        'Content-Length': String(entry.cover.data.length),
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Access-Control-Allow-Origin': '*',
+      }
+      if (method === 'HEAD') return new Response(null, { status: 200, headers })
+      return new Response(new Uint8Array(entry.cover.data), { status: 200, headers })
     }
 
     if (parsedReq.kind === 'sub') {
@@ -839,15 +863,35 @@ export async function buildMediaPlayerState(
   let current: MediaInfo | null = null
   let subtitles: MediaSubtitleTrack[] = []
   let resumePositionSec = 0
+  let audioMeta: MediaAudioMetadata | undefined
 
   if (entry) {
     current = await buildMediaInfoForEntry(entry)
     resumePositionSec = resumePositionForPath(library, entry.filePath)
     if (entry.mediaKind === 'video') {
+      entry.cover = undefined
       const subResult = await discoverSidecarSubtitles(entry.filePath, entry.token)
       entry.subtitles = subResult.entries
       subtitles = subResult.tracks
+    } else if (entry.mediaKind === 'audio') {
+      entry.subtitles.clear()
+      try {
+        const extracted = await extractAudioMetadata(entry.filePath)
+        entry.cover = extracted.cover
+        audioMeta = {
+          ...(extracted.title ? { title: extracted.title } : {}),
+          ...(extracted.artist ? { artist: extracted.artist } : {}),
+          ...(extracted.album ? { album: extracted.album } : {}),
+          ...(extracted.sampleRateHz ? { sampleRateHz: extracted.sampleRateHz } : {}),
+          ...(extracted.bitDepth ? { bitDepth: extracted.bitDepth } : {}),
+          ...(extracted.cover ? { coverUrl: mediaCoverUrl(entry.token) } : {}),
+          ...(extracted.lyrics ? { lyrics: extracted.lyrics } : {}),
+        }
+      } catch {
+        entry.cover = undefined
+      }
     } else {
+      entry.cover = undefined
       entry.subtitles.clear()
     }
   }
@@ -860,6 +904,7 @@ export async function buildMediaPlayerState(
     prefs: library.prefs,
     resumePositionSec,
     playerMode: true,
+    ...(audioMeta ? { audioMeta } : {}),
   }
 }
 

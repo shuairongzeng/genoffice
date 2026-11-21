@@ -75,6 +75,7 @@ describe('media-library store and helpers', () => {
         playbackRate: 1.5,
         playlistCollapsed: false,
         autoPlay: true,
+        visualizerMode: 'vinyl',
       })
 
       // Reaching near-end clears the saved resume position automatically.
@@ -105,11 +106,12 @@ describe('media-library store and helpers', () => {
 
   it('caps stored resume positions to MAX_SAVED_POSITIONS and clamps invalid prefs', () => {
     let lib = normalizeMediaLibraryData({
-      prefs: { playMode: 'invalid', volume: 5, playbackRate: 99 },
+      prefs: { playMode: 'invalid', volume: 5, playbackRate: 99, visualizerMode: 'bogus' },
     })
     expect(lib.prefs.playMode).toBe('list')
     expect(lib.prefs.volume).toBe(1)
     expect(lib.prefs.playbackRate).toBe(3)
+    expect(lib.prefs.visualizerMode).toBe('vinyl')
 
     for (let i = 0; i < MAX_SAVED_POSITIONS + 25; i += 1) {
       lib = updateLibraryPlayback(

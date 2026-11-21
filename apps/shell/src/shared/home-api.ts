@@ -599,6 +599,23 @@ export interface MediaInfo {
 
 export type MediaPlayMode = 'list' | 'loop-all' | 'loop-one' | 'shuffle'
 
+export type MediaVisualizerMode = 'vinyl' | 'bars' | 'wave'
+
+export interface MediaLyricLine {
+  timeSec: number
+  text: string
+}
+
+export interface MediaAudioMetadata {
+  title?: string
+  artist?: string
+  album?: string
+  sampleRateHz?: number
+  bitDepth?: number
+  coverUrl?: string
+  lyrics?: MediaLyricLine[]
+}
+
 export interface MediaPlaylistItem {
   filePath: string
   fileName: string
@@ -633,6 +650,7 @@ export interface MediaPlayerPrefs {
   playbackRate: number
   playlistCollapsed: boolean
   autoPlay: boolean
+  visualizerMode?: MediaVisualizerMode
 }
 
 export interface MediaPlayerStateSnapshot {
@@ -643,6 +661,7 @@ export interface MediaPlayerStateSnapshot {
   prefs: MediaPlayerPrefs
   resumePositionSec: number
   playerMode: boolean
+  audioMeta?: MediaAudioMetadata
 }
 
 export interface MediaSavePrefsPatch {

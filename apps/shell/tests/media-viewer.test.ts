@@ -234,15 +234,34 @@ describe('MediaViewer full player UI & interactions', () => {
     expect(host.querySelector('.media-stage-img')).toBeTruthy()
   })
 
+  const makeFakeCanvas2dContext = (): CanvasRenderingContext2D =>
+    ({
+      clearRect: vi.fn(),
+      fillRect: vi.fn(),
+      beginPath: vi.fn(),
+      arc: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      quadraticCurveTo: vi.fn(),
+      closePath: vi.fn(),
+      stroke: vi.fn(),
+      fill: vi.fn(),
+      roundRect: vi.fn(),
+      rect: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+      setTransform: vi.fn(),
+      createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      fillStyle: '',
+      strokeStyle: '',
+      globalAlpha: 1,
+    }) as unknown as CanvasRenderingContext2D
+
   it('guards Web Audio visualizer against suspended AudioContext muting, reuses context on track switch, and closes on unmount', async () => {
     const getCtxSpy = vi
       .spyOn(HTMLCanvasElement.prototype, 'getContext')
-      .mockImplementation(() => ({
-        clearRect: vi.fn(),
-        fillRect: vi.fn(),
-        fillStyle: '',
-        globalAlpha: 1,
-      }) as unknown as CanvasRenderingContext2D)
+      .mockImplementation(makeFakeCanvas2dContext)
 
     let ctxState: 'suspended' | 'running' | 'closed' = 'suspended'
     const closeSpy = vi.fn(async () => {
@@ -333,6 +352,82 @@ describe('MediaViewer full player UI & interactions', () => {
     } finally {
       getCtxSpy.mockRestore()
       vi.unstubAllGlobals()
+    }
+  })
+
+  it('switches 3 visualizer modes cleanly, syncs vinyl disc/tonearm & LRC lyrics, and pauses rAF when document is hidden', async () => {
+    const getCtxSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(makeFakeCanvas2dContext)
+
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 42)
+    const cancelRafSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined)
+
+    ;(window as unknown as { aiOffice: { mediaGetPlayerState: unknown } }).aiOffice.mediaGetPlayerState =
+      vi.fn(async () => ({
+        ...baseSnapshot(),
+        audioMeta: {
+          title: 'Twilight Echo',
+          artist: 'Angela',
+          album: 'Skyline',
+          sampleRateHz: 96000,
+          bitDepth: 24,
+          coverUrl: 'genoffice-media://cover/tok-a',
+          lyrics: [
+            { timeSec: 1.5, text: 'First synced verse' },
+            { timeSec: 8.2, text: 'Second chorus line' },
+          ],
+        },
+      }))
+
+    try {
+      await renderViewer()
+
+      expect(host.querySelector('[data-testid="media-audio-stage"]')?.getAttribute('data-viz-mode')).toBe('vinyl')
+      expect(host.querySelector('.media-audio-title')?.textContent).toBe('Twilight Echo')
+      expect(host.querySelector('[data-testid="media-audio-cover"]')?.getAttribute('src')).toBe(
+        'genoffice-media://cover/tok-a',
+      )
+
+      const audio = host.querySelector('audio')!
+      await act(async () => {
+        audio.dispatchEvent(new Event('play'))
+      })
+      expect(host.querySelector('[data-testid="media-vinyl-disc"]')?.classList.contains('spinning')).toBe(true)
+      expect(host.querySelector('[data-testid="media-vinyl-arm"]')?.classList.contains('engaged')).toBe(true)
+
+      // Click second lyric line to seek playback directly
+      const lyricBtns = host.querySelectorAll('[data-testid="media-lyric-line"]')
+      expect(lyricBtns).toHaveLength(2)
+      await act(async () => {
+        ;(lyricBtns[1] as HTMLButtonElement).click()
+      })
+      expect(audio.currentTime).toBeCloseTo(8.2, 2)
+
+      // Cycle through bars & wave visualizer modes and persist preference
+      await act(async () => {
+        ;(host.querySelector('[data-testid="media-viz-mode-bars"]') as HTMLButtonElement).click()
+      })
+      expect(mediaSavePrefs).toHaveBeenCalledWith({ prefs: { visualizerMode: 'bars' } })
+      expect(host.querySelector('[data-testid="media-audio-stage"]')?.getAttribute('data-viz-mode')).toBe('bars')
+
+      await act(async () => {
+        ;(host.querySelector('[data-testid="media-viz-mode-wave"]') as HTMLButtonElement).click()
+      })
+      expect(mediaSavePrefs).toHaveBeenCalledWith({ prefs: { visualizerMode: 'wave' } })
+      expect(host.querySelector('[data-testid="media-audio-stage"]')?.getAttribute('data-viz-mode')).toBe('wave')
+
+      // Hiding document stops scheduled animation loops cleanly
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      expect(cancelRafSpy).toHaveBeenCalled()
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+      rafSpy.mockRestore()
+      cancelRafSpy.mockRestore()
+      getCtxSpy.mockRestore()
     }
   })
 })

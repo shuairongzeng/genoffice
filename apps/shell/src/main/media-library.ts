@@ -5,6 +5,7 @@ import type {
   MediaPlayMode,
   MediaPlayerPrefs,
   MediaSavePrefsPatch,
+  MediaVisualizerMode,
 } from '../shared/home-api'
 
 export const MEDIA_LIBRARY_FILE = 'media-player.json'
@@ -15,6 +16,7 @@ export const MIN_PLAYBACK_RATE = 0.25
 export const MAX_PLAYBACK_RATE = 3
 
 const VALID_PLAY_MODES = new Set<MediaPlayMode>(['list', 'loop-all', 'loop-one', 'shuffle'])
+const VALID_VISUALIZER_MODES = new Set<MediaVisualizerMode>(['vinyl', 'bars', 'wave'])
 
 export const DEFAULT_MEDIA_PLAYER_PREFS: MediaPlayerPrefs = {
   playMode: 'list',
@@ -23,6 +25,7 @@ export const DEFAULT_MEDIA_PLAYER_PREFS: MediaPlayerPrefs = {
   playbackRate: 1,
   playlistCollapsed: false,
   autoPlay: true,
+  visualizerMode: 'vinyl',
 }
 
 export interface MediaSavedPosition {
@@ -96,6 +99,9 @@ export function normalizeMediaPlayerPrefs(raw: unknown): MediaPlayerPrefs {
         : DEFAULT_MEDIA_PLAYER_PREFS.playlistCollapsed,
     autoPlay:
       typeof src.autoPlay === 'boolean' ? src.autoPlay : DEFAULT_MEDIA_PLAYER_PREFS.autoPlay,
+    visualizerMode: VALID_VISUALIZER_MODES.has(src.visualizerMode as MediaVisualizerMode)
+      ? (src.visualizerMode as MediaVisualizerMode)
+      : DEFAULT_MEDIA_PLAYER_PREFS.visualizerMode,
   }
 }
 

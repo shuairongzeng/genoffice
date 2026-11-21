@@ -34,6 +34,13 @@ export interface MediaPlayerStrings {
   doubleClickHint: string
   audioLabel: string
   videoLabel: string
+  vizVinyl: string
+  vizBars: string
+  vizWave: string
+  lyricsToggle: string
+  lyricsEmpty: string
+  audioLossless: string
+  clickLyricSeek: string
 }
 
 const ZH_STRINGS: MediaPlayerStrings = {
@@ -69,6 +76,13 @@ const ZH_STRINGS: MediaPlayerStrings = {
   doubleClickHint: '双击曲目即可播放',
   audioLabel: '音频',
   videoLabel: '视频',
+  vizVinyl: '黑胶星环',
+  vizBars: '镜像频谱',
+  vizWave: '流体声波',
+  lyricsToggle: '歌词',
+  lyricsEmpty: '同目录放入同名 .lrc 歌词文件即可同步滚动',
+  audioLossless: 'Hi-Res 无损',
+  clickLyricSeek: '点击跳转至该句',
 }
 
 const ZH_TW_STRINGS: MediaPlayerStrings = {
@@ -104,6 +118,13 @@ const ZH_TW_STRINGS: MediaPlayerStrings = {
   doubleClickHint: '雙擊項目即可播放',
   audioLabel: '音訊',
   videoLabel: '影片',
+  vizVinyl: '黑膠星環',
+  vizBars: '鏡像頻譜',
+  vizWave: '流體聲波',
+  lyricsToggle: '歌詞',
+  lyricsEmpty: '於同資料夾放入同名 .lrc 歌詞檔即可同步捲動',
+  audioLossless: 'Hi-Res 無損',
+  clickLyricSeek: '點擊跳轉至該句',
 }
 
 const EN_STRINGS: MediaPlayerStrings = {
@@ -139,6 +160,13 @@ const EN_STRINGS: MediaPlayerStrings = {
   doubleClickHint: 'Double-click any item to play',
   audioLabel: 'Audio',
   videoLabel: 'Video',
+  vizVinyl: 'Vinyl Halo',
+  vizBars: 'Mirror Bars',
+  vizWave: 'Fluid Wave',
+  lyricsToggle: 'Lyrics',
+  lyricsEmpty: 'Add a matching .lrc file alongside the track for synced lyrics',
+  audioLossless: 'Hi-Res Lossless',
+  clickLyricSeek: 'Click line to seek',
 }
 
 const STRINGS_BY_LANG: Partial<Record<Lang, MediaPlayerStrings>> = {

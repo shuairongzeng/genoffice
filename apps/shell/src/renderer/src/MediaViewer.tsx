@@ -6,6 +6,7 @@ import type {
   WheelEvent as ReactWheelEvent,
 } from 'react'
 import type {
+  MediaAudioMetadata,
   MediaFolderEntry,
   MediaInfo,
   MediaPlayMode,
@@ -17,9 +18,24 @@ import type {
   MediaSnapshotRequest,
   MediaStateMutationResult,
   MediaSubtitleTrack,
+  MediaVisualizerMode,
 } from '../../shared/home-api'
 import { useI18n } from './locale'
 import { getMediaPlayerStrings, playModeLabel } from './media-player-strings'
+import {
+  MIRROR_BAR_COUNT,
+  VINYL_HALO_BAR_COUNT,
+  computeLogSpectrum,
+  deriveTrackPalette,
+  extractPaletteFromImage,
+  findActiveLyricIndex,
+  normalizeVisualizerMode,
+  renderFluidWave,
+  renderMirrorBars,
+  renderVinylHalo,
+  updatePeakCaps,
+  type AudioStagePalette,
+} from './audio-visualizer'
 import {
   SPEED_PRESETS,
   buildShuffleOrder,
@@ -45,6 +61,29 @@ const DEFAULT_PREFS: MediaPlayerPrefs = {
   playbackRate: 1,
   playlistCollapsed: false,
   autoPlay: true,
+  visualizerMode: 'vinyl',
+}
+
+function detectIsDarkTheme(): boolean {
+  if (typeof document !== 'undefined') {
+    const attr = document.documentElement.getAttribute('data-theme')
+    if (attr === 'dark') return true
+    if (attr === 'light') return false
+  }
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-color-scheme: dark)').matches
+    : false
+}
+
+function inferTrackLabelFallback(fileName: string): { title: string; artist?: string } {
+  const dot = fileName.lastIndexOf('.')
+  const stem = dot > 0 ? fileName.slice(0, dot) : fileName
+  const cleaned = stem.replace(/^\s*\d{1,3}\s*(?:\.|-|_|\s)\s*/, '').trim() || stem
+  const sep = /^(.+?)\s+[-–—]\s+(.+?)$/.exec(cleaned)
+  if (sep) {
+    return { title: sep[1]!.trim(), artist: sep[2]!.trim() }
+  }
+  return { title: cleaned }
 }
 
 function formatBytes(bytes: number): string {
@@ -267,8 +306,8 @@ function ensureSharedAudioGraph(
     let analyser = analyserRef.current
     if (!analyser) {
       analyser = ctx.createAnalyser()
-      analyser.fftSize = 64
-      analyser.smoothingTimeConstant = 0.78
+      analyser.fftSize = 256
+      analyser.smoothingTimeConstant = 0.8
       analyser.connect(ctx.destination)
       analyserRef.current = analyser
     }
@@ -319,6 +358,13 @@ export function MediaViewer(): React.JSX.Element {
   const [playMode, setPlayMode] = useState<MediaPlayMode>(DEFAULT_PREFS.playMode)
   const [playlistCollapsed, setPlaylistCollapsed] = useState(DEFAULT_PREFS.playlistCollapsed)
   const [autoPlay, setAutoPlay] = useState(DEFAULT_PREFS.autoPlay)
+  const [visualizerMode, setVisualizerMode] = useState<MediaVisualizerMode>(
+    normalizeVisualizerMode(DEFAULT_PREFS.visualizerMode),
+  )
+  const [audioMeta, setAudioMeta] = useState<MediaAudioMetadata | undefined>(undefined)
+  const [lyricsOpen, setLyricsOpen] = useState(true)
+  const [isDarkTheme, setIsDarkTheme] = useState<boolean>(() => detectIsDarkTheme())
+  const [coverPalette, setCoverPalette] = useState<AudioStagePalette | null>(null)
   const [videoDims, setVideoDims] = useState<{ w: number; h: number } | null>(null)
   const [captureNotice, setCaptureNotice] = useState(false)
   const [resumedNoticeSec, setResumedNoticeSec] = useState<number | null>(null)
@@ -327,11 +373,18 @@ export function MediaViewer(): React.JSX.Element {
   const imgRef = useRef<HTMLImageElement | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const audioStageRef = useRef<HTMLElement | null>(null)
+  const activeLyricRef = useRef<HTMLButtonElement | null>(null)
   const spectrumCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const sharedAudioCtxRef = useRef<AudioContext | null>(null)
   const sharedAnalyserRef = useRef<AnalyserNode | null>(null)
   const connectedSourceRef = useRef<MediaElementAudioSourceNode | null>(null)
   const connectedAudioElRef = useRef<HTMLAudioElement | null>(null)
+  const vizBarsRef = useRef<Float32Array>(new Float32Array(VINYL_HALO_BAR_COUNT))
+  const vizPeaksRef = useRef<Float32Array>(new Float32Array(VINYL_HALO_BAR_COUNT))
+  const vizVelRef = useRef<Float32Array>(new Float32Array(VINYL_HALO_BAR_COUNT))
+  const vizPhaseRef = useRef(0)
+  const bassSmoothRef = useRef(0)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const activeItemRef = useRef<HTMLButtonElement | null>(null)
   const dragOriginRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
@@ -372,6 +425,9 @@ export function MediaViewer(): React.JSX.Element {
       setPlaybackRate(snapshot.prefs.playbackRate)
       setPlaylistCollapsed(snapshot.prefs.playlistCollapsed)
       setAutoPlay(snapshot.prefs.autoPlay)
+      setVisualizerMode(normalizeVisualizerMode(snapshot.prefs.visualizerMode))
+      setAudioMeta(snapshot.audioMeta)
+      setCoverPalette(null)
       setLoadError(false)
       setCurrentTime(0)
       setDuration(0)
@@ -576,7 +632,46 @@ export function MediaViewer(): React.JSX.Element {
     [volume, muted, playbackRate, playMode, safeStartAutoPlay],
   )
 
-  // Web Audio API real-time frequency visualizer for audio playback
+  // Track live theme toggles (`data-theme` attribute & OS color scheme) for acoustic stage palette
+  useEffect(() => {
+    const syncTheme = (): void => setIsDarkTheme(detectIsDarkTheme())
+    syncTheme()
+    const observer =
+      typeof MutationObserver !== 'undefined' ? new MutationObserver(syncTheme) : null
+    observer?.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    })
+    const mql =
+      typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-color-scheme: dark)')
+        : null
+    mql?.addEventListener?.('change', syncTheme)
+    return () => {
+      observer?.disconnect()
+      mql?.removeEventListener?.('change', syncTheme)
+    }
+  }, [])
+
+  const stagePalette = useMemo<AudioStagePalette>(() => {
+    if (coverPalette) return coverPalette
+    const seed = audioMeta?.title || info?.fileName || 'genoffice-audio'
+    return deriveTrackPalette(seed, isDarkTheme)
+  }, [coverPalette, audioMeta?.title, info?.fileName, isDarkTheme])
+
+  const activeLyricIdx = useMemo(() => {
+    const lines = audioMeta?.lyrics
+    if (!lines || lines.length === 0) return -1
+    return findActiveLyricIndex(lines, currentTime)
+  }, [audioMeta?.lyrics, currentTime])
+
+  // Smoothly keep the active synchronized lyric centered
+  useEffect(() => {
+    if (!lyricsOpen || activeLyricIdx < 0) return
+    activeLyricRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  }, [activeLyricIdx, lyricsOpen])
+
+  // Web Audio API real-time acoustic stage visualizer (logarithmic bands, peak caps, 3 modes)
   useEffect(() => {
     const canvas = spectrumCanvasRef.current
     const audio = audioRef.current
@@ -643,59 +738,154 @@ export function MediaViewer(): React.JSX.Element {
     window.addEventListener('pointerdown', onGestureResume, { capture: true })
     window.addEventListener('keydown', onGestureResume, { capture: true })
 
-    let rafId = 0
-    const styles = window.getComputedStyle(canvas)
-    const accentColor = styles.getPropertyValue('--accent').trim() || 'currentColor'
-    const barCount = 24
+    const barCount = visualizerMode === 'bars' ? MIRROR_BAR_COUNT : VINYL_HALO_BAR_COUNT
+    if (vizBarsRef.current.length !== barCount) {
+      vizBarsRef.current = new Float32Array(barCount)
+      vizPeaksRef.current = new Float32Array(barCount)
+      vizVelRef.current = new Float32Array(barCount)
+    }
+
     const liveAnalyser =
       sharedAudioCtxRef.current?.state === 'running' && connectedAudioElRef.current === audio
         ? sharedAnalyserRef.current
         : null
-    const bins = liveAnalyser ? new Uint8Array(liveAnalyser.frequencyBinCount) : null
+    const freqBins = liveAnalyser ? new Uint8Array(liveAnalyser.frequencyBinCount) : null
+    const timeBins =
+      liveAnalyser && visualizerMode === 'wave' ? new Uint8Array(liveAnalyser.fftSize) : null
 
-    const drawFrame = (): void => {
-      const w = canvas.width
-      const h = canvas.height
-      ctx2d.clearRect(0, 0, w, h)
+    const reducedMotion =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    let rafId = 0
+    let lastTs = typeof performance !== 'undefined' ? performance.now() : Date.now()
+
+    const measureCanvas = (): { width: number; height: number } => {
+      const dpr = Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
+      const rect = canvas.getBoundingClientRect?.()
+      const fallbackW = visualizerMode === 'vinyl' ? 340 : 620
+      const fallbackH = visualizerMode === 'vinyl' ? 340 : 184
+      const cssW = rect && rect.width > 12 ? rect.width : fallbackW
+      const cssH = rect && rect.height > 12 ? rect.height : fallbackH
+      const pxW = Math.max(1, Math.round(cssW * dpr))
+      const pxH = Math.max(1, Math.round(cssH * dpr))
+      if (canvas.width !== pxW || canvas.height !== pxH) {
+        canvas.width = pxW
+        canvas.height = pxH
+      }
+      ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0)
+      return { width: cssW, height: cssH }
+    }
+
+    const drawFrame = (nowTs: number): void => {
+      if (cancelled) return
+      const dtSec = Math.min(0.1, Math.max(0.004, (nowTs - lastTs) / 1000))
+      lastTs = nowTs
+
+      const { width, height } = measureCanvas()
       const analyserReady =
         sharedAudioCtxRef.current?.state === 'running' && connectedAudioElRef.current === audio
-      if (analyserReady && liveAnalyser && bins && playing) {
-        liveAnalyser.getByteFrequencyData(bins)
-      }
-      const gap = 3
-      const barW = Math.max(2, Math.floor((w - gap * (barCount - 1)) / barCount))
-      ctx2d.fillStyle = accentColor
-      const nowSec = typeof performance !== 'undefined' ? performance.now() / 220 : 0
-      for (let i = 0; i < barCount; i += 1) {
-        let norm: number
-        if (analyserReady && playing && bins && bins.length > 0) {
-          norm = (bins[i % bins.length] ?? 0) / 255
-        } else if (playing) {
-          // Gentle fallback animation when native <audio> plays without an active AudioContext.
-          norm = 0.14 + 0.16 * Math.abs(Math.sin(nowSec + i * 0.55))
-        } else {
-          norm = 0.08 + ((i % 4) * 0.03)
-        }
-        const barH = Math.max(3, Math.round(norm * (h - 4)))
-        const x = i * (barW + gap)
-        const y = h - barH
-        ctx2d.globalAlpha = playing ? 0.45 + norm * 0.55 : 0.25
-        ctx2d.fillRect(x, y, barW, barH)
-      }
-      ctx2d.globalAlpha = 1
+
+      let bassEnergy = 0
       if (playing) {
+        vizPhaseRef.current = (vizPhaseRef.current + dtSec * (reducedMotion ? 0.5 : 2.1)) % (Math.PI * 200)
+      }
+
+      if (playing && analyserReady && liveAnalyser && freqBins) {
+        liveAnalyser.getByteFrequencyData(freqBins)
+        const mapped = computeLogSpectrum(freqBins, barCount, vizBarsRef.current)
+        vizBarsRef.current = mapped.bars
+        bassEnergy = mapped.bassEnergy
+        if (timeBins) {
+          liveAnalyser.getByteTimeDomainData(timeBins)
+        }
+      } else if (playing) {
+        // Gentle breathing wave when native audio plays before user-gesture Web Audio unlock.
+        const nextBars = new Float32Array(barCount)
+        for (let i = 0; i < barCount; i += 1) {
+          const prev = vizBarsRef.current[i] ?? 0
+          const target = 0.14 + 0.16 * Math.abs(Math.sin(vizPhaseRef.current * 1.4 + i * 0.42))
+          nextBars[i] = prev + (target - prev) * 0.25
+        }
+        vizBarsRef.current = nextBars
+        bassEnergy = 0.18 + 0.12 * Math.abs(Math.sin(vizPhaseRef.current * 1.1))
+      } else {
+        bassEnergy = 0
+      }
+
+      updatePeakCaps(vizBarsRef.current, vizPeaksRef.current, vizVelRef.current, dtSec)
+
+      bassSmoothRef.current += (bassEnergy - bassSmoothRef.current) * 0.25
+      if (audioStageRef.current) {
+        audioStageRef.current.style.setProperty('--audio-bass', bassSmoothRef.current.toFixed(3))
+      }
+
+      const renderState = {
+        bars: vizBarsRef.current,
+        peaks: vizPeaksRef.current,
+        timeData: timeBins,
+        bassEnergy: bassSmoothRef.current,
+        phase: vizPhaseRef.current,
+        playing,
+        isDark: isDarkTheme,
+        palette: stagePalette,
+      }
+
+      if (visualizerMode === 'vinyl') {
+        renderVinylHalo(ctx2d, width, height, renderState)
+      } else if (visualizerMode === 'bars') {
+        renderMirrorBars(ctx2d, width, height, renderState)
+      } else {
+        renderFluidWave(ctx2d, width, height, renderState)
+      }
+
+      const isHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
+      if (playing && !isHidden) {
         rafId = window.requestAnimationFrame(drawFrame)
+      } else {
+        rafId = 0
       }
     }
 
-    drawFrame()
+    const startOrRenderOnce = (): void => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId)
+        rafId = 0
+      }
+      lastTs = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      drawFrame(lastTs)
+    }
+
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState === 'hidden') {
+        if (rafId) {
+          window.cancelAnimationFrame(rafId)
+          rafId = 0
+        }
+      } else if (playing && !rafId) {
+        startOrRenderOnce()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            if (!playing) startOrRenderOnce()
+          })
+        : null
+    resizeObserver?.observe(canvas)
+
+    startOrRenderOnce()
     return () => {
       cancelled = true
       if (rafId) window.cancelAnimationFrame(rafId)
       window.removeEventListener('pointerdown', onGestureResume, { capture: true })
       window.removeEventListener('keydown', onGestureResume, { capture: true })
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      resizeObserver?.disconnect()
     }
-  }, [info?.token, info?.mediaKind, playing, loadError, audioGraphTick])
+  }, [info?.token, info?.mediaKind, playing, loadError, audioGraphTick, visualizerMode, isDarkTheme, stagePalette])
 
   // Idle auto-hide for video controls during playback
   const resetControlsIdle = useCallback((): void => {
@@ -1085,6 +1275,11 @@ export function MediaViewer(): React.JSX.Element {
     persistPrefs({ prefs: { playMode: next } })
   }
 
+  function selectVisualizerMode(mode: MediaVisualizerMode): void {
+    setVisualizerMode(mode)
+    persistPrefs({ prefs: { visualizerMode: mode } })
+  }
+
   function togglePlaylistCollapsed(): void {
     setPlaylistCollapsed((prev) => {
       const next = !prev
@@ -1197,9 +1392,14 @@ export function MediaViewer(): React.JSX.Element {
     if (info.mediaKind !== 'audio' && info.mediaKind !== 'video') return
     try {
       if (typeof MediaMetadata !== 'undefined') {
+        const metaTitle = audioMeta?.title || info.fileName
+        const metaArtist =
+          audioMeta?.artist || items.find((i) => sameFile(i.filePath, info.filePath))?.dirName || ''
         navigator.mediaSession.metadata = new MediaMetadata({
-          title: info.fileName,
-          artist: items.find((i) => sameFile(i.filePath, info.filePath))?.dirName ?? '',
+          title: metaTitle,
+          artist: metaArtist,
+          ...(audioMeta?.album ? { album: audioMeta.album } : {}),
+          ...(audioMeta?.coverUrl ? { artwork: [{ src: audioMeta.coverUrl }] } : {}),
         })
       }
       navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'
@@ -1217,7 +1417,7 @@ export function MediaViewer(): React.JSX.Element {
     } catch {
       // Ignore MediaSession errors in unsupported contexts.
     }
-  }, [info, items, playing, activeMediaElement, handleTrackStep])
+  }, [info, items, playing, audioMeta, activeMediaElement, handleTrackStep])
 
   // Keyboard shortcuts
   keyDownHandlerRef.current = (e: KeyboardEvent): void => {
@@ -1685,66 +1885,290 @@ export function MediaViewer(): React.JSX.Element {
                   )}
                 </div>
               </div>
-            ) : info.mediaKind === 'audio' ? (
-              <section className="media-audio-card">
-                <div className="media-audio-hero">
-                  <div
-                    className={`media-audio-disc${playing ? ' spinning' : ''}`}
-                    aria-hidden="true"
-                  >
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M9 18V6l11-2v12"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+            ) : info.mediaKind === 'audio' ? (() => {
+              const fallbackLabel = inferTrackLabelFallback(info.fileName)
+              const displayTitle = audioMeta?.title || fallbackLabel.title
+              const displayArtist = audioMeta?.artist || fallbackLabel.artist
+              const displayCollection = audioMeta?.album || currentItemMeta?.dirName
+              const sampleSpec = audioMeta?.sampleRateHz
+                ? `${audioMeta.bitDepth ? `${audioMeta.bitDepth}-bit / ` : ''}${(audioMeta.sampleRateHz / 1000).toFixed(1).replace(/\.0$/, '')} kHz`
+                : null
+              const isLossless = info.ext === 'flac' || info.ext === 'wav'
+              const lyricLines = audioMeta?.lyrics ?? []
+              const showLyrics = lyricLines.length > 0 && lyricsOpen
+              const audioSubtitleNode = (
+                <p className="media-audio-sub">
+                  {displayArtist ? <strong>{displayArtist}</strong> : null}
+                  {displayArtist && displayCollection ? ` · ${displayCollection}` : displayCollection || ''}
+                  {displayArtist || displayCollection ? ' · ' : ''}
+                  .{info.ext.toUpperCase()}
+                  {sampleSpec ? ` · ${sampleSpec}` : ` · ${formatBytes(info.sizeBytes)}`}
+                  {duration > 0 ? ` · ${formatTime(duration)}` : ''}
+                  {isLossless && <span className="media-hires-badge">{ps.audioLossless}</span>}
+                </p>
+              )
+
+              return (
+                <section
+                  ref={audioStageRef}
+                  className={`media-audio-stage${playing ? ' is-playing' : ''}`}
+                  data-testid="media-audio-stage"
+                  data-viz-mode={visualizerMode}
+                  style={
+                    {
+                      '--stage-accent-1': stagePalette.primary,
+                      '--stage-accent-2': stagePalette.secondary,
+                      '--stage-glow': stagePalette.glow,
+                      '--stage-glow-soft': stagePalette.glowSoft,
+                    } as React.CSSProperties
+                  }
+                >
+                  <div className="media-stage-aurora" aria-hidden="true">
+                    {audioMeta?.coverUrl && (
+                      <div
+                        className="media-stage-cover-wash"
+                        style={{ backgroundImage: `url("${audioMeta.coverUrl}")` }}
                       />
-                      <circle cx="6.5" cy="18.5" r="2.5" stroke="currentColor" strokeWidth="2" />
-                      <circle cx="17.5" cy="16.5" r="2.5" stroke="currentColor" strokeWidth="2" />
-                    </svg>
+                    )}
+                    <div className="media-aurora-orb orb-a" />
+                    <div className="media-aurora-orb orb-b" />
                   </div>
-                  <div className="media-audio-heading">
-                    <h2 className="media-audio-title">{info.fileName}</h2>
-                    <p className="media-audio-sub">
-                      .{info.ext.toUpperCase()} · {formatBytes(info.sizeBytes)}
-                      {duration > 0 ? ` · ${formatTime(duration)}` : ''}
-                      {currentItemMeta ? ` · ${currentItemMeta.dirName}` : ''}
-                    </p>
+
+                  <div className="media-stage-topbar">
+                    <div className="media-viz-switcher" role="tablist" aria-label={ps.playerTitle}>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={visualizerMode === 'vinyl'}
+                        data-testid="media-viz-mode-vinyl"
+                        className={`media-viz-tab${visualizerMode === 'vinyl' ? ' active' : ''}`}
+                        onClick={() => selectVisualizerMode('vinyl')}
+                      >
+                        {ps.vizVinyl}
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={visualizerMode === 'bars'}
+                        data-testid="media-viz-mode-bars"
+                        className={`media-viz-tab${visualizerMode === 'bars' ? ' active' : ''}`}
+                        onClick={() => selectVisualizerMode('bars')}
+                      >
+                        {ps.vizBars}
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={visualizerMode === 'wave'}
+                        data-testid="media-viz-mode-wave"
+                        className={`media-viz-tab${visualizerMode === 'wave' ? ' active' : ''}`}
+                        onClick={() => selectVisualizerMode('wave')}
+                      >
+                        {ps.vizWave}
+                      </button>
+                    </div>
+                    {lyricLines.length > 0 && (
+                      <button
+                        type="button"
+                        data-testid="media-lyrics-toggle"
+                        className={`media-btn${lyricsOpen ? ' active' : ''}`}
+                        onClick={() => setLyricsOpen((prev) => !prev)}
+                      >
+                        {ps.lyricsToggle}
+                      </button>
+                    )}
                   </div>
-                </div>
 
-                <canvas
-                  ref={spectrumCanvasRef}
-                  className="media-audio-spectrum"
-                  width={480}
-                  height={44}
-                  aria-hidden="true"
-                />
+                  <div className={`media-audio-body${showLyrics ? ' has-lyrics' : ''}`}>
+                    {visualizerMode === 'vinyl' ? (
+                      <div className="media-vinyl-unit">
+                        <div className="media-vinyl-showcase">
+                          <canvas
+                            ref={spectrumCanvasRef}
+                            className="media-audio-spectrum media-vinyl-halo-canvas"
+                            width={680}
+                            height={680}
+                            aria-hidden="true"
+                          />
+                          <div
+                            className={`media-vinyl-disc${playing ? ' spinning' : ''}`}
+                            data-testid="media-vinyl-disc"
+                            onClick={togglePlay}
+                          >
+                            <div className="media-vinyl-grooves" aria-hidden="true" />
+                            <div className="media-vinyl-sheen" aria-hidden="true" />
+                            <div className="media-vinyl-label">
+                              {audioMeta?.coverUrl ? (
+                                <img
+                                  className="media-cover-img"
+                                  data-testid="media-audio-cover"
+                                  crossOrigin="anonymous"
+                                  src={audioMeta.coverUrl}
+                                  alt={displayTitle}
+                                  onLoad={(e) => {
+                                    const extracted = extractPaletteFromImage(e.currentTarget, isDarkTheme)
+                                    if (extracted) setCoverPalette(extracted)
+                                  }}
+                                />
+                              ) : (
+                                <div className="media-vinyl-art-fallback" aria-hidden="true">
+                                  <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+                                    <path
+                                      d="M9 18V6l11-2v12"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                    <circle cx="6.5" cy="18.5" r="2.5" stroke="currentColor" strokeWidth="2" />
+                                    <circle cx="17.5" cy="16.5" r="2.5" stroke="currentColor" strokeWidth="2" />
+                                  </svg>
+                                </div>
+                              )}
+                              <span className="media-vinyl-spindle" aria-hidden="true" />
+                            </div>
+                          </div>
 
-                <audio
-                  key={info.token}
-                  ref={audioRef}
-                  crossOrigin="anonymous"
-                  src={info.streamUrl}
-                  autoPlay={autoPlay}
-                  preload="metadata"
-                  onLoadedMetadata={(e) => initializeMediaElement(e.currentTarget)}
-                  onCanPlay={(e) => safeStartAutoPlay(e.currentTarget)}
-                  onTimeUpdate={(e) => handleTimeUpdate(e.currentTarget)}
-                  onPlay={() => setPlaying(true)}
-                  onPause={() => {
-                    setPlaying(false)
-                    flushPlaybackPosition()
-                  }}
-                  onEnded={handleMediaEnded}
-                  onError={() => {
-                    setPlaying(false)
-                    setLoadError(true)
-                  }}
-                />
-              </section>
-            ) : (
+                          <svg
+                            className={`media-vinyl-arm${playing ? ' engaged' : ''}`}
+                            data-testid="media-vinyl-arm"
+                            viewBox="0 0 120 180"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <circle cx="84" cy="26" r="18" className="arm-pivot-ring" />
+                            <circle cx="84" cy="26" r="9" className="arm-pivot-core" />
+                            <path
+                              d="M84 26 L80 96 Q78 122 60 144 L48 158"
+                              className="arm-rod"
+                              strokeWidth="5.5"
+                              strokeLinecap="round"
+                            />
+                            <path
+                              d="M84 26 L80 96 Q78 122 60 144 L48 158"
+                              className="arm-rod-highlight"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                            />
+                            <rect
+                              x="38"
+                              y="151"
+                              width="16"
+                              height="22"
+                              rx="3"
+                              transform="rotate(34 46 162)"
+                              className="arm-headshell"
+                            />
+                          </svg>
+                        </div>
+
+                        <div className="media-vinyl-caption">
+                          <h2 className="media-audio-title" title={info.filePath}>
+                            {displayTitle}
+                          </h2>
+                          {audioSubtitleNode}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="media-panorama-unit">
+                        <div className="media-panorama-header">
+                          <div className={`media-panorama-cover${playing ? ' playing' : ''}`}>
+                            {audioMeta?.coverUrl ? (
+                              <img
+                                className="media-cover-img"
+                                data-testid="media-audio-cover"
+                                crossOrigin="anonymous"
+                                src={audioMeta.coverUrl}
+                                alt={displayTitle}
+                                onLoad={(e) => {
+                                  const extracted = extractPaletteFromImage(e.currentTarget, isDarkTheme)
+                                  if (extracted) setCoverPalette(extracted)
+                                }}
+                              />
+                            ) : (
+                              <div className="media-vinyl-art-fallback" aria-hidden="true">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                                  <path
+                                    d="M9 18V6l11-2v12"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                  <circle cx="6.5" cy="18.5" r="2.5" stroke="currentColor" strokeWidth="2" />
+                                  <circle cx="17.5" cy="16.5" r="2.5" stroke="currentColor" strokeWidth="2" />
+                                </svg>
+                              </div>
+                            )}
+                          </div>
+                          <div className="media-audio-heading">
+                            <h2 className="media-audio-title" title={info.filePath}>
+                              {displayTitle}
+                            </h2>
+                            {audioSubtitleNode}
+                          </div>
+                        </div>
+
+                        <div className="media-panorama-canvas-wrap">
+                          <canvas
+                            ref={spectrumCanvasRef}
+                            className="media-audio-spectrum media-panorama-canvas"
+                            width={960}
+                            height={300}
+                            aria-hidden="true"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {showLyrics && (
+                      <div className="media-lyrics-panel" data-testid="media-lyrics-panel">
+                        <div className="media-lyrics-scroll">
+                          {lyricLines.map((line, idx) => {
+                            const active = idx === activeLyricIdx
+                            return (
+                              <button
+                                key={`${line.timeSec}-${idx}`}
+                                ref={active ? activeLyricRef : undefined}
+                                type="button"
+                                className={`media-lyric-line${active ? ' active' : ''}`}
+                                data-testid="media-lyric-line"
+                                title={ps.clickLyricSeek}
+                                onClick={() => handleSeek(line.timeSec)}
+                              >
+                                {line.text}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <audio
+                    key={info.token}
+                    ref={audioRef}
+                    crossOrigin="anonymous"
+                    src={info.streamUrl}
+                    autoPlay={autoPlay}
+                    preload="metadata"
+                    onLoadedMetadata={(e) => initializeMediaElement(e.currentTarget)}
+                    onCanPlay={(e) => safeStartAutoPlay(e.currentTarget)}
+                    onTimeUpdate={(e) => handleTimeUpdate(e.currentTarget)}
+                    onPlay={() => setPlaying(true)}
+                    onPause={() => {
+                      setPlaying(false)
+                      flushPlaybackPosition()
+                    }}
+                    onEnded={handleMediaEnded}
+                    onError={() => {
+                      setPlaying(false)
+                      setLoadError(true)
+                    }}
+                  />
+                </section>
+              )
+            })() : (
               <video
                 key={info.token}
                 ref={videoRef}
