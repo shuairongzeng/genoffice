@@ -30,9 +30,18 @@ export type AppTile =
  * `draggable` items move on the grid while widgets are placed by their own
  * window.
  */
+export type DesktopStackCategory =
+  | 'recent'
+  | 'docs'
+  | 'sheets'
+  | 'slides'
+  | 'pdf'
+  | 'media'
+  | 'other'
+
 export interface DesktopItem {
   readonly id: string
-  readonly kind: 'app' | 'folder' | 'file' | 'widget'
+  readonly kind: 'app' | 'folder' | 'file' | 'widget' | 'stack'
   readonly title: string
   /** the brand tile an app item draws; null for every other kind */
   readonly tile: AppTile | null
@@ -49,6 +58,10 @@ export interface DesktopItem {
   readonly starred?: boolean
   /** the grid drag applies; widgets are placed by their window, not the grid */
   readonly draggable: boolean
+  /** stack bucket when kind === 'stack' */
+  readonly stackCategory?: DesktopStackCategory
+  /** underlying items grouped inside a stack when kind === 'stack' */
+  readonly stackItems?: readonly DesktopItem[]
   /** run the item: a tab, a parent surface, or the OS default */
   readonly open: () => void
 }

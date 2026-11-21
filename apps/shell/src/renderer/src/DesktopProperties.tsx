@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { Lang } from '@genoffice/i18n'
-import type { HomeApi, RecentEntry } from '../../shared/home-api'
+import type { DesktopRecentsMode, HomeApi, RecentEntry } from '../../shared/home-api'
 import type { DesktopStrings } from './desktop-strings'
 
 /**
@@ -180,6 +180,18 @@ export interface DesktopPropsDialogProps {
   readonly fileCount: number
   /** how many folder icons the desktop is currently showing */
   readonly folderCount: number
+  /** active recent-files surface mode */
+  readonly recentsMode?: DesktopRecentsMode
+  /** whether desktop file category stacks are enabled */
+  readonly useStacks?: boolean
+  /** how many individual recent files are hidden from desktop */
+  readonly hiddenRecentsCount?: number
+  /** change recent-files surface mode */
+  readonly onChangeRecentsMode?: (mode: DesktopRecentsMode) => void
+  /** toggle categorized desktop file stacks */
+  readonly onToggleUseStacks?: (next: boolean) => void
+  /** restore all individually hidden recent files */
+  readonly onRestoreHiddenRecents?: () => void
   /** close the dialog: the scrim, the close button, or Escape */
   readonly onClose: () => void
   /** open Home's settings modal; the view picks the section it lands on */
@@ -190,6 +202,12 @@ export function DesktopPropsDialog({
   strings,
   fileCount,
   folderCount,
+  recentsMode,
+  useStacks,
+  hiddenRecentsCount = 0,
+  onChangeRecentsMode,
+  onToggleUseStacks,
+  onRestoreHiddenRecents,
   onClose,
   onOpenSettings,
 }: DesktopPropsDialogProps): ReactElement {
@@ -262,6 +280,60 @@ export function DesktopPropsDialog({
               </dd>
             </div>
           </dl>
+          {(onChangeRecentsMode || onToggleUseStacks) && (
+            <div className="desktop-props-org">
+              {onChangeRecentsMode && recentsMode && (
+                <div className="desktop-props-org-block">
+                  <div className="desktop-props-org-label">{s.viewRecentsLabel}</div>
+                  <div className="desktop-props-seg" role="radiogroup" aria-label={s.viewRecentsLabel}>
+                    {(
+                      [
+                        ['stack', s.recentsStack],
+                        ['spread', s.recentsSpread],
+                        ['off', s.recentsOff],
+                      ] as const
+                    ).map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="radio"
+                        aria-checked={recentsMode === mode}
+                        className={`desktop-props-seg-btn${recentsMode === mode ? ' active' : ''}`}
+                        onClick={() => onChangeRecentsMode(mode)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {onToggleUseStacks && (
+                <div className="desktop-props-org-inline">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={Boolean(useStacks)}
+                    className={`desktop-props-toggle${useStacks ? ' active' : ''}`}
+                    onClick={() => onToggleUseStacks(!useStacks)}
+                  >
+                    <span>{s.viewUseStacks}</span>
+                    <span className="desktop-props-toggle-pill" aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+              {hiddenRecentsCount > 0 && onRestoreHiddenRecents && (
+                <div className="desktop-props-org-inline">
+                  <button
+                    type="button"
+                    className="desktop-props-restore"
+                    onClick={onRestoreHiddenRecents}
+                  >
+                    {s.dpHiddenRecentsRestore.replace('{n}', String(hiddenRecentsCount))}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           <div className="desktop-props-actions">
             <button
               type="button"

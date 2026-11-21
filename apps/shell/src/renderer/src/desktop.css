@@ -63,6 +63,8 @@
   /* the wallpaper-center aurora preview's deep-blue base (a wallpaper color,
    * like the generated PNG's, not UI chrome) */
   --desktop-wp-aurora-preview-base: #0b1526;
+  --desktop-stack-shadow: 0 18px 46px rgb(0 0 0 / 26%);
+  --desktop-stack-count-ink: #ffffff;
 }
 
 [data-theme='dark'] {
@@ -138,7 +140,9 @@
 .desktop-surface {
   position: relative;
   height: 100%;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
   user-select: none;
 }
 
@@ -1170,4 +1174,434 @@
 .desktop-wp-hex.invalid {
   border-color: var(--color-error);
   color: var(--color-error);
+}
+
+/* ── interactive stack tiles & popover ────────────────── */
+
+.desktop-stack-tile {
+  position: relative;
+  width: calc(64px * var(--desktop-icon-scale));
+  height: calc(64px * var(--desktop-icon-scale));
+  flex-shrink: 0;
+}
+
+.desktop-stack-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: calc(15px * var(--desktop-icon-scale));
+  background: color-mix(in srgb, var(--surface) 74%, var(--desktop-aurora-blue));
+  border: 1px solid var(--desktop-tile-edge);
+  box-shadow: var(--desktop-icon-shadow);
+  pointer-events: none;
+  transition: transform 0.16s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.desktop-stack-layer.layer-1 {
+  transform: translate(calc(5px * var(--desktop-icon-scale)), calc(-4px * var(--desktop-icon-scale)))
+    rotate(6deg) scale(0.92);
+  opacity: 0.72;
+}
+
+.desktop-stack-layer.layer-2 {
+  transform: translate(calc(-4px * var(--desktop-icon-scale)), calc(-3px * var(--desktop-icon-scale)))
+    rotate(-6deg) scale(0.94);
+  opacity: 0.85;
+}
+
+.desktop-stack-face {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: calc(7px * var(--desktop-icon-scale));
+  border-radius: calc(16px * var(--desktop-icon-scale));
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid var(--desktop-tile-edge);
+  box-shadow:
+    inset 0 1px 0 var(--desktop-tile-highlight),
+    var(--desktop-icon-shadow);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
+  transition:
+    transform 0.16s cubic-bezier(0.2, 0.7, 0.3, 1),
+    box-shadow 0.16s;
+}
+
+.desktop-stack-face img,
+.desktop-stack-face svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.desktop-icon-item:hover .desktop-stack-face {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 var(--desktop-tile-highlight),
+    var(--desktop-icon-shadow-hover);
+}
+
+.desktop-icon-item:hover .desktop-stack-layer.layer-1 {
+  transform: translate(calc(8px * var(--desktop-icon-scale)), calc(-6px * var(--desktop-icon-scale)))
+    rotate(8deg) scale(0.93);
+}
+
+.desktop-icon-item:hover .desktop-stack-layer.layer-2 {
+  transform: translate(calc(-6px * var(--desktop-icon-scale)), calc(-5px * var(--desktop-icon-scale)))
+    rotate(-8deg) scale(0.95);
+}
+
+.desktop-stack-count {
+  position: absolute;
+  right: calc(-5px * var(--desktop-icon-scale));
+  bottom: calc(-4px * var(--desktop-icon-scale));
+  z-index: 3;
+  min-width: calc(20px * var(--desktop-icon-scale));
+  height: calc(20px * var(--desktop-icon-scale));
+  padding: 0 calc(6px * var(--desktop-icon-scale));
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--desktop-stack-count-ink);
+  border: 1px solid color-mix(in srgb, var(--surface) 75%, transparent);
+  font-size: calc(11px * var(--desktop-icon-scale));
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.desktop-stack-popover {
+  position: fixed;
+  z-index: 55;
+  width: 420px;
+  max-width: calc(100vw - 24px);
+  max-height: min(440px, calc(100vh - 132px));
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: var(--desktop-stack-shadow);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+  backdrop-filter: blur(22px) saturate(1.35);
+  color: var(--text-primary);
+  overflow: hidden;
+  user-select: text;
+}
+
+.desktop-stack-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 8px;
+}
+
+.desktop-stack-pop-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.desktop-stack-pop-meta {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.desktop-stack-pop-close {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.desktop-stack-pop-close:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text-primary);
+}
+
+.desktop-stack-search-wrap {
+  padding: 0 12px 8px;
+}
+
+.desktop-stack-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-content) 82%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+
+.desktop-stack-search:focus {
+  border-color: var(--accent);
+}
+
+.desktop-stack-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px 8px 10px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.desktop-stack-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  transition: background 0.12s;
+}
+
+.desktop-stack-row:hover {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.desktop-stack-row-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.desktop-stack-row-icon {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.desktop-stack-row-icon img,
+.desktop-stack-row-icon svg {
+  width: 26px;
+  height: 26px;
+  display: block;
+}
+
+.desktop-stack-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.desktop-stack-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.desktop-stack-act {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.desktop-stack-act:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.desktop-stack-empty {
+  padding: 20px 12px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+}
+
+.desktop-stack-pop-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-content) 45%, transparent);
+}
+
+.desktop-stack-foot-btn {
+  border: none;
+  border-radius: 7px;
+  padding: 5px 9px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.desktop-stack-foot-btn:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+/* ── desktop properties organization section ──────────── */
+
+.desktop-props-org {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.desktop-props-org-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.desktop-props-org-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.desktop-props-seg {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.desktop-props-seg-btn {
+  border: none;
+  border-radius: 7px;
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.desktop-props-seg-btn.active {
+  background: var(--bg-content);
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.desktop-props-org-inline {
+  display: flex;
+  align-items: center;
+}
+
+.desktop-props-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-content);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.desktop-props-toggle-pill {
+  width: 30px;
+  height: 17px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+  position: relative;
+  transition: background 0.16s;
+}
+
+.desktop-props-toggle-pill::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--desktop-stack-count-ink);
+  transition: transform 0.16s;
+}
+
+.desktop-props-toggle.active .desktop-props-toggle-pill {
+  background: var(--accent);
+}
+
+.desktop-props-toggle.active .desktop-props-toggle-pill::after {
+  transform: translateX(13px);
+}
+
+.desktop-props-restore {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.desktop-props-restore:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-stack-layer,
+  .desktop-stack-face,
+  .desktop-props-toggle-pill,
+  .desktop-props-toggle-pill::after {
+    transition: none;
+  }
 }

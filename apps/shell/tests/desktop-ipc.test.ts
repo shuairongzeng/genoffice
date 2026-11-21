@@ -474,6 +474,37 @@ describe('home:desktop-prefs-save', () => {
       wallpaperFit: 'tile',
     })
   })
+
+  it('persists optional stack and recents organization fields while keeping defaults strict', async () => {
+    await savePrefs({
+      ...VALID,
+      recentsMode: 'spread',
+      useStacks: true,
+      hiddenRecentPaths: ['/music/a.flac', '/music/a.flac', '/music/b.flac'],
+    })
+    await expect(readPrefs()).resolves.toEqual({
+      ...VALID,
+      recentsMode: 'spread',
+      useStacks: true,
+      hiddenRecentPaths: ['/music/a.flac', '/music/b.flac'],
+    })
+  })
+
+  it('refuses invalid optional recentsMode, useStacks, or hiddenRecentPaths fields', async () => {
+    await savePrefs(VALID)
+    const before = readFileSync(desktopPrefsPath(userData), 'utf8')
+    for (const bad of [
+      { ...VALID, recentsMode: 'bogus' },
+      { ...VALID, recentsMode: 123 },
+      { ...VALID, useStacks: 'yes' },
+      { ...VALID, hiddenRecentPaths: '/not/an/array' },
+      { ...VALID, hiddenRecentPaths: [''] },
+      { ...VALID, hiddenRecentPaths: [42] },
+    ]) {
+      await expect(savePrefs(bad), `${JSON.stringify(bad)} should refuse`).rejects.toThrow()
+    }
+    expect(readFileSync(desktopPrefsPath(userData), 'utf8')).toBe(before)
+  })
 })
 
 // ── wallpapers: the fixture dirs the channels are re-registered against ──

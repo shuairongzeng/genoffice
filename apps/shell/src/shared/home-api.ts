@@ -706,6 +706,8 @@ export interface MediaSnapshotReply {
  * `wallpaperFit` follows the Windows desktop fill modes; `labelColor` is a
  * hex color for desktop text ('' = automatic per theme/wallpaper).
  */
+export type DesktopRecentsMode = 'stack' | 'spread' | 'off'
+
 export interface DesktopPrefs {
   wallpaper: string
   carouselMinutes: number
@@ -717,6 +719,12 @@ export interface DesktopPrefs {
   wallpaperFit: 'cover' | 'contain' | 'stretch' | 'tile' | 'center'
   /** desktop label color, hex (#rgb/#rrggbb); '' = automatic */
   labelColor: string
+  /** how recent files are surfaced on desktop; defaults to 'stack' when omitted */
+  recentsMode?: DesktopRecentsMode
+  /** group desktop files by category into interactive stacks */
+  useStacks?: boolean
+  /** recent file paths hidden from desktop surface without removing from global recents */
+  hiddenRecentPaths?: string[]
 }
 
 // The dock prefs' shape and clamps live in desktop-geometry.ts, shared with

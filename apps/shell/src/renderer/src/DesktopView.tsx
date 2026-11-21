@@ -12,6 +12,7 @@ import { useDismissablePopover } from '@genoffice/ui'
 import type {
   DesktopPinInfo,
   DesktopPrefs,
+  DesktopRecentsMode,
   FolderRoot,
   HomeApi,
   RecentEntry,
@@ -67,6 +68,7 @@ import {
 } from './desktop-selection'
 import { desktopStrings } from './desktop-strings'
 import type { DesktopStrings } from './desktop-strings'
+import { applyDesktopStacks, effectiveRecentsMode } from './desktop-stacks'
 import { MAX_SCOPE_PATHS } from './ask-intent'
 import './desktop.css'
 
@@ -87,8 +89,10 @@ export const DESKTOP_PAD_Y = 12
 export const DESKTOP_TILE_BASE = 64
 /** write-through window: a burst of rearrangements costs one save */
 const SAVE_DEBOUNCE_MS = 300
-/** recents shown as icons, newest first */
+/** recents shown individually as icons, newest first */
 const RECENT_LIMIT = 8
+/** recents pulled when collapsed into the Recents stack card */
+const STACK_RECENT_LIMIT = 24
 /** how long a transient surface notice (a refused drop or open) stays up */
 const NOTICE_MS = 4000
 /**
@@ -145,6 +149,16 @@ const ICON_SIZE_ITEMS = [
   { size: 'lg', labelKey: 'sizeLg' },
 ] as const satisfies ReadonlyArray<{
   size: DesktopPrefs['iconSize']
+  labelKey: keyof DesktopStrings
+}>
+
+/** the View ▸ Recent files presentation modes */
+const RECENTS_MODE_ITEMS = [
+  { mode: 'stack', labelKey: 'recentsStack' },
+  { mode: 'spread', labelKey: 'recentsSpread' },
+  { mode: 'off', labelKey: 'recentsOff' },
+] as const satisfies ReadonlyArray<{
+  mode: DesktopRecentsMode
   labelKey: keyof DesktopStrings
 }>
 
@@ -282,7 +296,14 @@ const DOCK_DROP_BOTTOM_PAD_PX = 12
 const DOCK_HIDDEN_OFFSET_PX = 12
 
 const candidateForIcon = (icon: DesktopItem | undefined): DockCustomCandidate | null => {
-  if (!icon || icon.kind === 'widget' || (icon.kind !== 'app' && !icon.path)) return null
+  if (
+    !icon ||
+    icon.kind === 'widget' ||
+    icon.kind === 'stack' ||
+    (icon.kind !== 'app' && !icon.path)
+  ) {
+    return null
+  }
   return { kind: icon.kind, target: icon.kind === 'app' ? icon.id : icon.path! }
 }
 
@@ -315,9 +336,9 @@ const compareText = (a: string, b: string): number => {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
-/** app icons first (system furniture, never "modified"), then folders, then files */
+/** app icons first (system furniture, never "modified"), then folders, stacks, then files */
 const kindRank = (icon: DesktopItem): number =>
-  icon.kind === 'app' ? 0 : icon.kind === 'folder' ? 1 : 2
+  icon.kind === 'app' ? 0 : icon.kind === 'folder' ? 1 : icon.kind === 'stack' ? 2 : 3
 
 /**
  * The read-only sort flows (name / kind / modified-time): one stable ordering of the
@@ -563,6 +584,19 @@ export function DesktopView({
   const [propsTarget, setPropsTarget] = useState<DesktopPropsTarget | null>(null)
   const [desktopPropsOpen, setDesktopPropsOpen] = useState(false)
 
+  // ── the interactive stack popover ──
+  const [openStackId, setOpenStackId] = useState<string | null>(null)
+  const [stackFilter, setStackFilter] = useState('')
+  const stackPopoverRef = useRef<HTMLDivElement | null>(null)
+  const stackOwnerRef = useRef<HTMLElement | null>(null)
+  const openStackPopover = useCallback((id: string) => {
+    setMenu(null)
+    setSurfaceMenu(null)
+    setSurfaceSub(null)
+    setStackFilter('')
+    setOpenStackId(id)
+  }, [])
+
   // ── the wallpaper center and the carousel ──
   const [wpCenterOpen, setWpCenterOpen] = useState(false)
   const [carouselIndex, setCarouselIndex] = useState(0)
@@ -596,9 +630,17 @@ export function DesktopView({
 
   const providers = useMemo(() => defaultDesktopProviders(), [])
   const aliasPaths = useMemo(() => new Set(aliasList), [aliasList])
+  const recentsMode = effectiveRecentsMode(prefs)
+  const useStacks = prefs.useStacks === true
+  const hiddenRecentSet = useMemo(
+    () => new Set(prefs.hiddenRecentPaths ?? []),
+    [prefs.hiddenRecentPaths],
+  )
+  const recentsLimitRef = useRef(recentsMode === 'stack' ? STACK_RECENT_LIMIT : RECENT_LIMIT)
+  recentsLimitRef.current = recentsMode === 'stack' ? STACK_RECENT_LIMIT : RECENT_LIMIT
   /** the OS gate refusing an alias open surfaces as the notice, not a silent no-op */
   const onOpenExternalFailed = useCallback(() => showNotice(s.noticeOpenFailed), [showNotice, s])
-  const items = useMemo<DesktopItem[]>(
+  const rawItems = useMemo<DesktopItem[]>(
     () =>
       mergeDesktopItems(providers, {
         strings: s,
@@ -633,8 +675,35 @@ export function DesktopView({
       onOpenExternalFailed,
     ],
   )
+  const items = useMemo<DesktopItem[]>(
+    () =>
+      applyDesktopStacks(rawItems, {
+        recentsMode,
+        useStacks,
+        hiddenRecentPaths: hiddenRecentSet,
+        strings: s,
+        onOpenStack: openStackPopover,
+      }),
+    [rawItems, recentsMode, useStacks, hiddenRecentSet, s, openStackPopover],
+  )
   const icons = useMemo(() => items.filter((item) => item.kind !== 'widget'), [items])
   const widgetCount = items.length - icons.length
+  const openStackItem = useMemo(
+    () =>
+      openStackId
+        ? (icons.find((icon) => icon.id === openStackId && icon.kind === 'stack') ?? null)
+        : null,
+    [openStackId, icons],
+  )
+  useEffect(() => {
+    if (openStackId === null) {
+      stackOwnerRef.current = null
+      return
+    }
+    if (openStackItem === null) {
+      setOpenStackId(null)
+    }
+  }, [openStackId, openStackItem])
 
   // mirrors of render-time values, read by the window-level event handlers
   const iconsRef = useRef(icons)
@@ -647,13 +716,22 @@ export function DesktopView({
 
   /** re-pull the newest recents (launch, a recents-changed push, the Refresh item) */
   const reloadRecents = useCallback(() => {
-    const request = (window.aiOffice as Partial<HomeApi>).recents?.({ limit: RECENT_LIMIT })
+    const request = (window.aiOffice as Partial<HomeApi>).recents?.({
+      limit: recentsLimitRef.current,
+    })
     if (!request) return
     request.then(
       (page) => setRecents(page.entries.filter((entry) => !entry.missing)),
       () => undefined,
     )
   }, [])
+
+  const prevRecentsModeRef = useRef(recentsMode)
+  useEffect(() => {
+    if (prevRecentsModeRef.current === recentsMode) return
+    prevRecentsModeRef.current = recentsMode
+    reloadRecents()
+  }, [recentsMode, reloadRecents])
 
   /**
    * Resolve the alias paths to names / extensions / folder flags through the
@@ -825,6 +903,20 @@ export function DesktopView({
     const save = (window.aiOffice as Partial<HomeApi>).desktopPrefsSave
     if (save) void save(next).then(undefined, () => undefined)
   }, [])
+
+  const hideRecentPath = useCallback(
+    (path: string) => {
+      setMenu(null)
+      const current = prefsRef.current.hiddenRecentPaths ?? []
+      if (current.includes(path)) return
+      applyPrefs({ hiddenRecentPaths: [...current, path] })
+    },
+    [applyPrefs],
+  )
+
+  const restoreHiddenRecents = useCallback(() => {
+    applyPrefs({ hiddenRecentPaths: [] })
+  }, [applyPrefs])
 
   // ── the wallpaper: which id is showing, and its bytes ──
 
@@ -1043,10 +1135,9 @@ export function DesktopView({
     surfaceSize.h > 0
       ? Math.max(1, Math.floor((surfaceSize.h - DESKTOP_PAD_Y * 2) / cellH))
       : UNMEASURED_ROWS
-  const cols =
+  const viewportCols =
     surfaceSize.w > 0 ? Math.max(1, Math.floor((surfaceSize.w - DESKTOP_PAD_X * 2) / cellW)) : 1
   rowsRef.current = rows
-  colsRef.current = cols
 
   // ── the resolved grid: saved positions pin, the rest flow into free cells ──
   // Pinned widgets reserve the bottom-right band (widgetReservedCellKeys) —
@@ -1063,48 +1154,53 @@ export function DesktopView({
   const freeLayout = prefs.sortMode === 'custom'
   const layoutPositions = freeLayout ? positions : EMPTY_POSITIONS
   const reservedCells = useMemo(
-    () => widgetReservedCellKeys(widgetCount, rows, cols),
-    [widgetCount, rows, cols],
+    () => widgetReservedCellKeys(widgetCount, rows, viewportCols),
+    [widgetCount, rows, viewportCols],
   )
 
-  const resolved = useMemo(() => {
+  const resolvedGrid = useMemo(() => {
     const cellOf = new Map<string, { col: number; row: number }>()
     // the reserved band counts as occupied from the start
     const taken = new Set<string>(reservedCells)
-    // pinned: quantized saved cells that are still inside the visible grid.
-    // Two icons pinned to one cell (a hand-edited file, a shrunken window)
-    // keep the first; the later one falls back to the free-cell flow.
+    const neededCols = Math.max(
+      viewportCols,
+      Math.ceil((orderedIcons.length + reservedCells.size) / rows),
+    )
+    let maxUsedCol = viewportCols - 1
+    // pinned: quantized saved cells that fit within the active grid columns
     for (const icon of orderedIcons) {
       const pos = layoutPositions[icon.id]
       if (!pos) continue
       const cell = quantizePosition(pos, cellW, cellH)
       const col = (cell.x - DESKTOP_PAD_X) / cellW
       const row = (cell.y - DESKTOP_PAD_Y) / cellH
-      if (col >= cols || row >= rows) continue
+      if (col < 0 || col >= neededCols || row < 0 || row >= rows) continue
       const key = `${col}:${row}`
       if (taken.has(key)) continue
       taken.add(key)
       cellOf.set(icon.id, { col, row })
+      if (col > maxUsedCol) maxUsedCol = col
     }
-    // free icons flow in column-major order: top-left, down, then the next
-    // column; a grid fully claimed by the reserve band falls back to (0,0)
-    // rather than spinning — only a pathologically small surface gets there
+    // free icons flow in column-major order, extending horizontally past
+    // viewportCols when dense so icons never pile onto (0,0) or clip
+    const maxSearchCols = viewportCols + orderedIcons.length + 1
     for (const icon of orderedIcons) {
       if (cellOf.has(icon.id)) continue
-      for (let col = 0; col < cols; col += 1) {
+      for (let col = 0; col < maxSearchCols; col += 1) {
         let placed = false
         for (let row = 0; row < rows; row += 1) {
           const key = `${col}:${row}`
           if (taken.has(key)) continue
           taken.add(key)
           cellOf.set(icon.id, { col, row })
+          if (col > maxUsedCol) maxUsedCol = col
           placed = true
           break
         }
         if (placed) break
       }
     }
-    const out = orderedIcons.map((icon) => {
+    const list = orderedIcons.map((icon) => {
       const cell = cellOf.get(icon.id) ?? { col: 0, row: 0 }
       return {
         icon,
@@ -1114,9 +1210,11 @@ export function DesktopView({
         },
       }
     })
-    effectiveRef.current = new Map(out.map(({ icon, pos }) => [icon.id, pos]))
-    return out
-  }, [orderedIcons, layoutPositions, rows, cols, cellW, cellH, reservedCells])
+    effectiveRef.current = new Map(list.map(({ icon, pos }) => [icon.id, pos]))
+    return { list, totalCols: Math.max(viewportCols, maxUsedCol + 1) }
+  }, [orderedIcons, layoutPositions, rows, viewportCols, cellW, cellH, reservedCells])
+  const resolved = resolvedGrid.list
+  colsRef.current = resolvedGrid.totalCols
 
   /**
    * Every icon's grid cell, straight off the resolved geometry — the same
@@ -1291,7 +1389,7 @@ export function DesktopView({
       }
       const rect = surface.getBoundingClientRect()
       last = {
-        x: Math.max(0, event.clientX - rect.left - d.grabX),
+        x: Math.max(0, event.clientX - rect.left + surface.scrollLeft - d.grabX),
         y: Math.max(0, event.clientY - rect.top - d.grabY),
       }
       setDrag({ id: d.id, x: last.x, y: last.y })
@@ -1419,7 +1517,7 @@ export function DesktopView({
       const surface = surfaceRef.current
       if (!surface) return
       const rect = surface.getBoundingClientRect()
-      const x = event.clientX - rect.left
+      const x = event.clientX - rect.left + surface.scrollLeft
       const y = event.clientY - rect.top
       if (!armed) {
         if (Math.hypot(x - m.startX, y - m.startY) < MARQUEE_THRESHOLD) return
@@ -1513,7 +1611,7 @@ export function DesktopView({
       setPress({
         id: icon.id,
         pointerId: pointerIdOf(event),
-        grabX: event.clientX - rect.left - pos.x,
+        grabX: event.clientX - rect.left + surface.scrollLeft - pos.x,
         grabY: event.clientY - rect.top - pos.y,
         startX: event.clientX,
         startY: event.clientY,
@@ -1632,6 +1730,10 @@ export function DesktopView({
     { inside: () => [surfaceMenuRef.current] },
   )
 
+  useDismissablePopover(openStackItem !== null, () => setOpenStackId(null), {
+    inside: () => [stackPopoverRef.current, stackOwnerRef.current],
+  })
+
   useLayoutEffect(() => {
     const el = menuRef.current
     if (!menu || !el) return
@@ -1733,8 +1835,9 @@ export function DesktopView({
   // reveal applies to file icons and to aliases of either kind — a real file
   // or folder is on disk behind them (app icons and folder roots offer none)
   const menuPath = menuIcon && (menuIcon.kind === 'file' || menuIcon.alias) ? menuIcon.path : null
-  /** file and folder icons get a Properties dialog; app icons do not */
-  const menuPropsIcon = menuIcon && menuIcon.kind !== 'app' ? menuIcon : null
+  /** file and folder icons get a Properties dialog; apps and stacks do not */
+  const menuPropsIcon =
+    menuIcon && (menuIcon.kind === 'file' || menuIcon.kind === 'folder') ? menuIcon : null
   /** the icon is a REMOVABLE folder ROOT (a roots-list icon, not a
    *  dragged-in alias, and not the default save root — main no-ops that
    *  removal, so the verb must not offer it): its menu carries the
@@ -1825,7 +1928,7 @@ export function DesktopView({
           const rect = surface.getBoundingClientRect()
           const { w, h } = cellRef.current
           const col = clampInt(
-            Math.round((at.clientX - rect.left - DESKTOP_PAD_X) / w),
+            Math.round((at.clientX - rect.left + surface.scrollLeft - DESKTOP_PAD_X) / w),
             0,
             colsRef.current - 1,
           )
@@ -2003,12 +2106,21 @@ export function DesktopView({
           return
         }
         if (confirmRemove !== null) setConfirmRemove(null)
+        else if (openStackId !== null) setOpenStackId(null)
         else if (surfaceMenu !== null) setSurfaceMenu(null)
         else if (menu !== null) setMenu(null)
         else if (selectedIds.size > 0 || anchorId !== null) {
           setSelectedIds(EMPTY_SELECTION)
           setAnchorId(null)
         }
+        return
+      }
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        event.target instanceof HTMLSelectElement ||
+        openStackId !== null
+      ) {
         return
       }
       // the desktop owns the keyboard only while nothing else does: an icon,
@@ -2118,6 +2230,7 @@ export function DesktopView({
     orderedIcons,
     dialogOpen,
     confirmRemove,
+    openStackId,
     openSelection,
     cellsOf,
   ])
@@ -2166,8 +2279,56 @@ export function DesktopView({
     } as CSSProperties
   }, [prefs.labelColor, darkWallpaper])
 
+  const filteredStackItems = useMemo(() => {
+    const list = openStackItem?.stackItems ?? []
+    const needle = stackFilter.trim().toLowerCase()
+    if (!needle) return list
+    return list.filter(
+      (item) =>
+        item.title.toLowerCase().includes(needle) || item.ext.toLowerCase().includes(needle),
+    )
+  }, [openStackItem, stackFilter])
+
+  const stackPopoverStyle = useMemo<CSSProperties | undefined>(() => {
+    if (!openStackItem) return undefined
+    const entry = resolved.find((candidate) => candidate.icon.id === openStackItem.id)
+    if (!entry) return undefined
+    const surface = surfaceRef.current
+    const rect = surface?.getBoundingClientRect()
+    const vw = document.documentElement.clientWidth || 1200
+    const vh = document.documentElement.clientHeight || 800
+    const popW = Math.min(420, Math.max(260, vw - 24))
+    const popH = Math.min(440, Math.max(200, vh - 132))
+    const tileViewportLeft = (rect?.left ?? 0) + entry.pos.x - (surface?.scrollLeft ?? 0)
+    const tileViewportTop = (rect?.top ?? 0) + entry.pos.y
+    const preferRight = tileViewportLeft + cellW + 8
+    const left =
+      preferRight + popW <= vw - 12
+        ? preferRight
+        : Math.max(12, Math.min(vw - popW - 12, tileViewportLeft - popW - 8))
+    const maxTop = Math.max(12, vh - popH - 96)
+    const top = Math.max(12, Math.min(maxTop, tileViewportTop))
+    return { left, top, width: popW }
+  }, [openStackItem, resolved, cellW, surfaceSize])
+
   const renderTile = (icon: DesktopItem): ReactNode => {
     if (icon.kind === 'file') return <FileBadge ext={icon.ext} size={64} />
+    if (icon.kind === 'stack') {
+      const members = icon.stackItems ?? []
+      const lead = members[0]
+      return (
+        <span className={`desktop-stack-tile stack-cat-${icon.stackCategory ?? 'other'}`}>
+          <span className="desktop-stack-layer layer-1" aria-hidden="true" />
+          <span className="desktop-stack-layer layer-2" aria-hidden="true" />
+          <span className="desktop-stack-face">
+            <FileBadge ext={lead?.ext ?? ''} size={52} />
+          </span>
+          <span className="desktop-stack-count" aria-hidden="true">
+            {members.length}
+          </span>
+        </span>
+      )
+    }
     if (icon.kind === 'folder') {
       return (
         <span className="desktop-tile desktop-tile-folder">
@@ -2259,7 +2420,7 @@ export function DesktopView({
               : 'replace'
           setMarquee({
             pointerId: pointerIdOf(event),
-            startX: event.clientX - rect.left,
+            startX: event.clientX - rect.left + surface.scrollLeft,
             startY: event.clientY - rect.top,
             mode,
             base: selectedIds,
@@ -2284,7 +2445,16 @@ export function DesktopView({
         onDragLeave={onSurfaceDragLeave}
         onDrop={onSurfaceDrop}
       >
-        <ul className="desktop-icons" role="listbox" aria-label={s.desktopAria}>
+        <ul
+          className="desktop-icons"
+          role="listbox"
+          aria-label={s.desktopAria}
+          style={
+            resolvedGrid.totalCols > viewportCols
+              ? { minWidth: `${DESKTOP_PAD_X * 2 + resolvedGrid.totalCols * cellW}px` }
+              : undefined
+          }
+        >
           {resolved.map(({ icon, pos }, index) => {
             const dragging = drag !== null && drag.id === icon.id
             // the source cell stays put (dimmed) while the carried copy lives
@@ -2300,14 +2470,28 @@ export function DesktopView({
                 role="presentation"
               >
                 <div
+                  ref={
+                    icon.id === openStackId
+                      ? (el) => {
+                          stackOwnerRef.current = el
+                        }
+                      : undefined
+                  }
                   className="desktop-icon-item"
                   role="option"
                   aria-selected={selectedIds.has(icon.id)}
+                  aria-expanded={icon.kind === 'stack' ? openStackId === icon.id : undefined}
                   tabIndex={0}
                   aria-label={icon.title}
                   title={icon.kind === 'folder' ? (icon.path ?? icon.title) : icon.title}
                   onDragStart={(event) => event.preventDefault()}
                   onPointerDown={(event) => onIconPointerDown(event, icon, pos)}
+                  onClick={(event) => {
+                    if (icon.kind !== 'stack') return
+                    if (event.shiftKey || event.metaKey || event.ctrlKey) return
+                    if (Date.now() < dropGuardRef.current) return
+                    icon.open()
+                  }}
                   onDoubleClick={() => {
                     if (Date.now() < dropGuardRef.current) return
                     icon.open()
@@ -2351,8 +2535,9 @@ export function DesktopView({
           (() => {
             const icon = iconsRef.current.find((candidate) => candidate.id === drag.id)
             if (!icon) return null
-            const rect = surfaceRef.current?.getBoundingClientRect()
-            const x = (rect?.left ?? 0) + drag.x
+            const surface = surfaceRef.current
+            const rect = surface?.getBoundingClientRect()
+            const x = (rect?.left ?? 0) + drag.x - (surface?.scrollLeft ?? 0)
             const y = (rect?.top ?? 0) + drag.y
             return createPortal(
               <div
@@ -2378,6 +2563,170 @@ export function DesktopView({
         {notice !== null && (
           <div className="desktop-notice" role="status">
             {notice}
+          </div>
+        )}
+        {openStackItem !== null && (
+          <div
+            ref={stackPopoverRef}
+            className="desktop-stack-popover"
+            role="dialog"
+            aria-label={openStackItem.title}
+            style={stackPopoverStyle}
+            onPointerDown={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.stopPropagation()}
+          >
+            <div className="desktop-stack-pop-head">
+              <h3 className="desktop-stack-pop-title">
+                <span>{openStackItem.title}</span>
+                <span className="desktop-stack-pop-meta">
+                  {s.stackItemCount.replace('{n}', String(openStackItem.stackItems?.length ?? 0))}
+                </span>
+              </h3>
+              <button
+                type="button"
+                className="desktop-stack-pop-close"
+                aria-label={s.wpClose}
+                onClick={() => setOpenStackId(null)}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                  <path
+                    d="M2 2l10 10M12 2L2 12"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div className="desktop-stack-search-wrap">
+              <input
+                type="search"
+                className="desktop-stack-search"
+                placeholder={s.stackSearchPlaceholder}
+                aria-label={s.stackSearchPlaceholder}
+                value={stackFilter}
+                onChange={(event) => setStackFilter(event.currentTarget.value)}
+              />
+            </div>
+            <ul className="desktop-stack-list">
+              {filteredStackItems.length === 0 ? (
+                <li className="desktop-stack-empty">{s.stackEmptyMatch}</li>
+              ) : (
+                filteredStackItems.map((entry) => (
+                  <li key={entry.id} className="desktop-stack-row">
+                    <button
+                      type="button"
+                      className="desktop-stack-row-open"
+                      title={entry.path ?? entry.title}
+                      onClick={() => {
+                        setOpenStackId(null)
+                        entry.open()
+                      }}
+                    >
+                      <span className="desktop-stack-row-icon">
+                        <FileBadge ext={entry.ext} size={26} />
+                      </span>
+                      <span className="desktop-stack-row-name">{entry.title}</span>
+                    </button>
+                    {entry.path !== null && (
+                      <div className="desktop-stack-row-actions">
+                        {!entry.alias && (
+                          <button
+                            type="button"
+                            className="desktop-stack-act"
+                            title={s.menuPinToDesktop}
+                            aria-label={s.menuPinToDesktop}
+                            onClick={() => addAliases([entry.path!])}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                              <path
+                                d="M5.5 2.5h5l-.8 4 2.3 2v1.2H8.6V14l-.6.6-.6-.6V9.7H4V8.5l2.3-2-.8-4Z"
+                                stroke="currentColor"
+                                strokeWidth="1.3"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="desktop-stack-act"
+                          title={s.menuReveal}
+                          aria-label={s.menuReveal}
+                          onClick={() =>
+                            void (window.aiOffice as Partial<HomeApi>).revealPath?.(entry.path!)
+                          }
+                        >
+                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <path
+                              d="M2.2 4.2a1.2 1.2 0 0 1 1.2-1.2h3l1.3 1.5h4.9a1.2 1.2 0 0 1 1.2 1.2v6.1a1.2 1.2 0 0 1-1.2 1.2H3.4a1.2 1.2 0 0 1-1.2-1.2V4.2Z"
+                              stroke="currentColor"
+                              strokeWidth="1.3"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                        {!entry.alias && (
+                          <button
+                            type="button"
+                            className="desktop-stack-act"
+                            title={s.menuHideFromDesktop}
+                            aria-label={s.menuHideFromDesktop}
+                            onClick={() => hideRecentPath(entry.path!)}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                              <path
+                                d="M2 8s2.3-3.8 6-3.8c1.1 0 2.1.3 3 .9m2.3 1.7c.4.4.7.8.7 1.2 0 0-2.3 3.8-6 3.8-1 0-1.9-.3-2.7-.7M3 13 13 3"
+                                stroke="currentColor"
+                                strokeWidth="1.3"
+                                strokeLinecap="round"
+                              />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                ))
+              )}
+            </ul>
+            <div className="desktop-stack-pop-foot">
+              {openStackItem.stackCategory === 'recent' ? (
+                <>
+                  <button
+                    type="button"
+                    className="desktop-stack-foot-btn"
+                    onClick={() => {
+                      setOpenStackId(null)
+                      applyPrefs({ recentsMode: 'spread' })
+                    }}
+                  >
+                    {s.recentsSpread}
+                  </button>
+                  <button
+                    type="button"
+                    className="desktop-stack-foot-btn"
+                    onClick={() => {
+                      setOpenStackId(null)
+                      applyPrefs({ recentsMode: 'off' })
+                    }}
+                  >
+                    {s.menuHideAllRecents}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="desktop-stack-foot-btn"
+                  onClick={() => {
+                    setOpenStackId(null)
+                    applyPrefs({ useStacks: false })
+                  }}
+                >
+                  {s.menuUnstackAll}
+                </button>
+              )}
+            </div>
           </div>
         )}
         {menu && !menuMulti && (
@@ -2407,8 +2756,41 @@ export function DesktopView({
                 openIcon(menu.id)
               }}
             >
-              {s.menuOpen}
+              {menuIcon?.kind === 'stack' ? s.menuOpenStack : s.menuOpen}
             </button>
+            {menuIcon?.kind === 'stack' && menuIcon.stackCategory === 'recent' && (
+              <>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(null)
+                    applyPrefs({ recentsMode: 'spread' })
+                  }}
+                >
+                  {s.recentsSpread}
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(null)
+                    applyPrefs({ recentsMode: 'off' })
+                  }}
+                >
+                  {s.menuHideAllRecents}
+                </button>
+              </>
+            )}
+            {menuIcon?.kind === 'stack' && menuIcon.stackCategory !== 'recent' && (
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setMenu(null)
+                  applyPrefs({ useStacks: false })
+                }}
+              >
+                {s.menuUnstackAll}
+              </button>
+            )}
             {menuPath !== null && (
               <button
                 role="menuitem"
@@ -2426,6 +2808,22 @@ export function DesktopView({
               <button role="menuitem" onClick={() => openIconProps(menuPropsIcon)}>
                 {s.menuProps}
               </button>
+            )}
+            {menuIcon?.kind === 'file' && !menuIcon.alias && menuIcon.path !== null && (
+              <>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(null)
+                    addAliases([menuIcon.path!])
+                  }}
+                >
+                  {s.menuPinToDesktop}
+                </button>
+                <button role="menuitem" onClick={() => hideRecentPath(menuIcon.path!)}>
+                  {s.menuHideFromDesktop}
+                </button>
+              </>
             )}
             {menuIcon !== undefined && menuIcon.alias && (
               <button role="menuitem" onClick={() => removeAlias(menuIcon)}>
@@ -2634,6 +3032,34 @@ export function DesktopView({
                       {s[labelKey]}
                     </button>
                   ))}
+                  <div className="row-menu-divider" />
+                  <button
+                    role="menuitem"
+                    className={useStacks ? 'checked' : undefined}
+                    onClick={() => {
+                      setSurfaceMenu(null)
+                      setSurfaceSub(null)
+                      applyPrefs({ useStacks: !useStacks })
+                    }}
+                  >
+                    {s.viewUseStacks}
+                  </button>
+                  <div className="row-menu-divider" />
+                  <div className="desktop-submenu-label">{s.viewRecentsLabel}</div>
+                  {RECENTS_MODE_ITEMS.map(({ mode, labelKey }) => (
+                    <button
+                      key={mode}
+                      role="menuitem"
+                      className={recentsMode === mode ? 'checked' : undefined}
+                      onClick={() => {
+                        setSurfaceMenu(null)
+                        setSurfaceSub(null)
+                        applyPrefs({ recentsMode: mode })
+                      }}
+                    >
+                      {s[labelKey]}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -2668,8 +3094,18 @@ export function DesktopView({
       {desktopPropsOpen && (
         <DesktopPropsDialog
           strings={s}
-          fileCount={icons.filter((icon) => icon.kind === 'file').length}
+          fileCount={icons.reduce(
+            (sum, icon) =>
+              sum + (icon.kind === 'file' ? 1 : icon.kind === 'stack' ? (icon.stackItems?.length ?? 0) : 0),
+            0,
+          )}
           folderCount={icons.filter((icon) => icon.kind === 'folder').length}
+          recentsMode={recentsMode}
+          useStacks={useStacks}
+          hiddenRecentsCount={prefs.hiddenRecentPaths?.length ?? 0}
+          onChangeRecentsMode={(mode) => applyPrefs({ recentsMode: mode })}
+          onToggleUseStacks={(next) => applyPrefs({ useStacks: next })}
+          onRestoreHiddenRecents={restoreHiddenRecents}
           onClose={() => setDesktopPropsOpen(false)}
           onOpenSettings={() => onOpenSettings({ section: 'general' })}
         />

@@ -72,6 +72,8 @@ const WALLPAPER_FITS: ReadonlySet<string> = new Set([
 
 /** the label color: '' (automatic) or a #rgb / #rrggbb hex */
 const LABEL_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+const RECENTS_MODES: ReadonlySet<string> = new Set(['stack', 'spread', 'off'])
+const MAX_HIDDEN_RECENTS = 200
 
 /** what a fresh profile (or a corrupt file) gets */
 export const DEFAULT_DESKTOP_PREFS: DesktopPrefs = {
@@ -776,7 +778,7 @@ export function registerDesktopIpc(deps: DesktopIpcDeps = {}): void {
  * invariant on its set-wallpaper path.
  */
 export function normalizePrefs(raw: unknown): DesktopPrefs {
-  const prefs = { ...DEFAULT_DESKTOP_PREFS }
+  const prefs: DesktopPrefs = { ...DEFAULT_DESKTOP_PREFS }
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return prefs
   const source = raw as Record<string, unknown>
   if (
@@ -804,17 +806,45 @@ export function normalizePrefs(raw: unknown): DesktopPrefs {
   ) {
     prefs.labelColor = source.labelColor
   }
+  if (typeof source.recentsMode === 'string' && RECENTS_MODES.has(source.recentsMode)) {
+    prefs.recentsMode = source.recentsMode as DesktopPrefs['recentsMode']
+  }
+  if (typeof source.useStacks === 'boolean') {
+    prefs.useStacks = source.useStacks
+  }
+  if (Array.isArray(source.hiddenRecentPaths)) {
+    prefs.hiddenRecentPaths = normalizeHiddenRecentPaths(source.hiddenRecentPaths)
+  }
   return prefs
 }
 
 /**
- * The save's refusal check: all six fields present and of the promised shape.
- * Extra keys are dropped by the write (the layout's policy); missing or
- * malformed ones are refused so the file can never hold half a prefs.
+ * The save's refusal check: all six required fields present and of the promised
+ * shape, plus optional desktop organization fields when provided. Extra keys are
+ * dropped by the write (the layout's policy); missing or malformed ones are
+ * refused so the file can never hold half a prefs.
  */
 function isDesktopPrefs(value: unknown): value is DesktopPrefs {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   const prefs = value as Record<string, unknown>
+  if (prefs.recentsMode !== undefined) {
+    if (typeof prefs.recentsMode !== 'string' || !RECENTS_MODES.has(prefs.recentsMode)) {
+      return false
+    }
+  }
+  if (prefs.useStacks !== undefined && typeof prefs.useStacks !== 'boolean') {
+    return false
+  }
+  if (prefs.hiddenRecentPaths !== undefined) {
+    if (
+      !Array.isArray(prefs.hiddenRecentPaths) ||
+      !prefs.hiddenRecentPaths.every(
+        (entry) => typeof entry === 'string' && entry !== '' && entry.length <= MAX_ALIAS_CHARS,
+      )
+    ) {
+      return false
+    }
+  }
   return (
     typeof prefs.wallpaper === 'string' &&
     prefs.wallpaper !== '' &&
@@ -831,6 +861,19 @@ function isDesktopPrefs(value: unknown): value is DesktopPrefs {
     typeof prefs.labelColor === 'string' &&
     (prefs.labelColor === '' || LABEL_COLOR_RE.test(prefs.labelColor))
   )
+}
+
+function normalizeHiddenRecentPaths(raw: readonly unknown[]): string[] {
+  const seen = new Set<string>()
+  const normalized: string[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'string' || entry === '' || entry.length > MAX_ALIAS_CHARS) continue
+    if (seen.has(entry)) continue
+    seen.add(entry)
+    normalized.push(entry)
+    if (normalized.length >= MAX_HIDDEN_RECENTS) break
+  }
+  return normalized
 }
 
 function clampInt(value: number, min: number, max: number): number {

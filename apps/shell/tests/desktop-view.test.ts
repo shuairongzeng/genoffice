@@ -136,6 +136,7 @@ beforeEach(() => {
     sortMode: 'custom',
     wallpaperFit: 'cover',
     labelColor: '',
+    recentsMode: 'spread',
   }
   prefSaves = []
   openPath = vi.fn(async () => undefined)
@@ -1312,7 +1313,14 @@ describe('DesktopView — context menu', () => {
   it('offers open / reveal / properties / reset on a file icon and acts on each', async () => {
     await render()
     await contextMenu('alpha.docx')
-    expect(menuButtons()).toEqual(['Open', 'Reveal in folder', 'Properties', 'Reset position'])
+    expect(menuButtons()).toEqual([
+      'Open',
+      'Reveal in folder',
+      'Properties',
+      'Pin to desktop',
+      'Hide from desktop',
+      'Reset position',
+    ])
     await click([...host.querySelectorAll<HTMLButtonElement>('.folder-menu button')][0])
     expect(openPath).toHaveBeenCalledWith('/docs/alpha.docx')
     expect(host.querySelector('.folder-menu')).toBeNull()
@@ -1817,6 +1825,7 @@ describe('DesktopView — sort modes', () => {
       sortMode: 'kind',
       wallpaperFit: 'tile',
       labelColor: '#0f7fff',
+      recentsMode: 'spread',
     }
     recentFiles = [fileC, fileA, fileB]
     await render()
@@ -1832,7 +1841,15 @@ describe('DesktopView — icon size', () => {
     expect(host.querySelector('.desktop-content')!.className).toContain('icons-md')
     await surfaceContextMenu()
     await openSurfaceSubmenu('View')
-    expect(submenuButtons()).toEqual(['Small', 'Medium', 'Large'])
+    expect(submenuButtons()).toEqual([
+      'Small',
+      'Medium',
+      'Large',
+      'Use stacks',
+      'Stack into 1 tile',
+      'Show individually',
+      'Hide from desktop',
+    ])
     await clickSurfaceButton('Large')
     expect(host.querySelector('.desktop-content')!.className).toContain('icons-lg')
     expect(prefSaves.at(-1)).toMatchObject({ iconSize: 'lg' })
@@ -1840,7 +1857,7 @@ describe('DesktopView — icon size', () => {
     await surfaceContextMenu()
     await openSurfaceSubmenu('View')
     const checked = [...host.querySelectorAll<HTMLButtonElement>('.desktop-submenu button.checked')]
-    expect(checked.map((b) => b.textContent)).toEqual(['Large'])
+    expect(checked.map((b) => b.textContent)).toEqual(['Large', 'Show individually'])
     await clickSurfaceButton('Small')
     expect(host.querySelector('.desktop-content')!.className).toContain('icons-sm')
   })
@@ -2898,7 +2915,14 @@ describe('DesktopView — the multi-selection menu', () => {
     // a right-click on an icon outside the selection replaces it with the single menu
     await contextMenu('gamma.pdf')
     expect(host.querySelector('.desktop-menu-multi')).toBeNull()
-    expect(menuButtons()).toEqual(['Open', 'Reveal in folder', 'Properties', 'Reset position'])
+    expect(menuButtons()).toEqual([
+      'Open',
+      'Reveal in folder',
+      'Properties',
+      'Pin to desktop',
+      'Hide from desktop',
+      'Reset position',
+    ])
     expect(selectedLabels()).toEqual(['gamma.pdf'])
   })
 
@@ -3097,5 +3121,129 @@ describe('DesktopView — selection keyboard', () => {
     await pressKey('Delete')
     expect(host.querySelector('.desktop-confirm')).toBeNull()
     expect(aliasRemoves).toEqual(['/docs/report.docx'])
+  })
+})
+
+describe('DesktopView — smart stacks and overflow handling', () => {
+  it('collapses recents into 1 tile by default when recentsMode is omitted', async () => {
+    storedPrefs = {
+      wallpaper: 'default',
+      carouselMinutes: 0,
+      iconSize: 'md',
+      sortMode: 'custom',
+      wallpaperFit: 'cover',
+      labelColor: '',
+    }
+    recentFiles = Array.from({ length: 10 }, (_, idx) => ({
+      path: `/music/song-${idx}.flac`,
+      name: `song-${idx}.flac`,
+      ext: 'flac',
+      mtimeMs: idx + 1,
+    }))
+    await render()
+    expect(labels()).toContain('Recents')
+    for (let i = 0; i < 10; i += 1) {
+      expect(labels()).not.toContain(`song-${i}.flac`)
+    }
+    const badge = iconOf('Recents').querySelector('.desktop-stack-count')
+    expect(badge?.textContent).toBe('10')
+  })
+
+  it('opens the glass stack popover, filters safely without type-ahead hijack, opens items, and closes first on Escape', async () => {
+    storedPrefs = { ...storedPrefs, recentsMode: undefined }
+    await render()
+    await doubleClick('Recents')
+    const popover = host.querySelector<HTMLElement>('.desktop-stack-popover')
+    expect(popover).toBeTruthy()
+    expect([...popover!.querySelectorAll('.desktop-stack-row-name')].map((el) => el.textContent)).toEqual([
+      'alpha.docx',
+      'beta.xlsx',
+      'gamma.pdf',
+    ])
+
+    // typing inside the search input filters rows without altering desktop icon selection
+    const input = popover!.querySelector<HTMLInputElement>('.desktop-stack-search')!
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+      setter.call(input, 'beta')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'a', bubbles: true }),
+      )
+      await Promise.resolve()
+    })
+    expect(
+      [...host.querySelectorAll('.desktop-stack-row-name')].map((el) => el.textContent),
+    ).toEqual(['beta.xlsx'])
+
+    // Escape closes the popover before touching desktop selection
+    await click(iconOf('Docs'))
+    await doubleClick('Recents')
+    expect(host.querySelector('.desktop-stack-popover')).toBeTruthy()
+    await pressKey('Escape')
+    expect(host.querySelector('.desktop-stack-popover')).toBeNull()
+  })
+
+  it('pins a file from Recents to the desktop and hides individual recents', async () => {
+    storedPrefs = { ...storedPrefs, recentsMode: undefined }
+    await render()
+    await doubleClick('Recents')
+    const rows = [...host.querySelectorAll<HTMLElement>('.desktop-stack-row')]
+    const alphaRow = rows.find((row) => row.textContent?.includes('alpha.docx'))!
+    const pinBtn = [...alphaRow.querySelectorAll<HTMLButtonElement>('.desktop-stack-act')].find(
+      (btn) => btn.getAttribute('aria-label') === 'Pin to desktop',
+    )!
+    await click(pinBtn)
+    await flushAsync()
+    expect(aliasAdds).toEqual(['/docs/alpha.docx'])
+    expect(labels()).toContain('alpha.docx')
+
+    const hideRows = [...host.querySelectorAll<HTMLElement>('.desktop-stack-row')]
+    const betaRow = hideRows.find((row) => row.textContent?.includes('beta.xlsx'))!
+    const hideBtn = [...betaRow.querySelectorAll<HTMLButtonElement>('.desktop-stack-act')].find(
+      (btn) => btn.getAttribute('aria-label') === 'Hide from desktop',
+    )!
+    await click(hideBtn)
+    expect(prefSaves.at(-1)).toMatchObject({
+      hiddenRecentPaths: ['/docs/beta.xlsx'],
+    })
+  })
+
+  it('groups 2+ categorized pinned files when Use stacks is enabled in View and Desktop Properties', async () => {
+    stored = {
+      positions: {},
+      aliases: ['/docs/first.docx', '/docs/second.docx', '/docs/solo.zip'],
+    }
+    await render()
+    await surfaceContextMenu()
+    await openSurfaceSubmenu('View')
+    await clickSurfaceButton('Use stacks')
+    expect(prefSaves.at(-1)).toMatchObject({ useStacks: true })
+    expect(labels()).toContain('Documents')
+    expect(labels()).not.toContain('first.docx')
+    expect(labels()).not.toContain('second.docx')
+    expect(labels()).toContain('solo.zip')
+
+    // Desktop Properties dialog allows switching recents mode & toggling stacks
+    await surfaceContextMenu()
+    await clickSurfaceButton('Properties')
+    const recentsStackRadio = [
+      ...host.querySelectorAll<HTMLButtonElement>('.desktop-props-seg-btn'),
+    ].find((btn) => btn.textContent === 'Stack into 1 tile')!
+    await click(recentsStackRadio)
+    expect(prefSaves.at(-1)).toMatchObject({ recentsMode: 'stack' })
+  })
+
+  it('expands desktop-icons minWidth past viewport on dense grids without overlapping onto (0, 0)', async () => {
+    stored = {
+      positions: {},
+      aliases: Array.from({ length: 80 }, (_, idx) => `/dense/file-${idx}.txt`),
+    }
+    await render()
+    await flushAsync()
+    const list = host.querySelector<HTMLUListElement>('.desktop-icons')!
+    expect(Number.parseInt(list.style.minWidth, 10)).toBeGreaterThan(1200)
+    const coords = icons().map((li) => `${li.style.left}:${li.style.top}`)
+    expect(new Set(coords).size).toBe(coords.length)
   })
 })

@@ -495,7 +495,6 @@ function wireEditorHooks(
   setMediaFileChangedHook((wcId, path) => {
     manager.setTabFileFor(wcId, path)
     detachedSetFileFor(wcId, path)
-    recordRecentFile(path)
   })
   // ── the browser app's shell hooks ────────────────────────────────────────
   // The browser manages its own two views (the chrome view the TabManager
