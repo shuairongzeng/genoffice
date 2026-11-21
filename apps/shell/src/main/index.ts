@@ -205,6 +205,7 @@ import {
   getSharedProjectStoreFromMain,
   hasActiveQueuedWorkbook,
   htmlFileRenamed,
+  isPlayableMediaExt,
   markdownFileRenamed,
   markPdfUntitledPath,
   markSheetsShuttingDown,
@@ -213,6 +214,7 @@ import {
   mediaFilePathForWebContents,
   mediaReadSnapshot,
   onAiSettingsUpdated,
+  prepareMediaSessionForWebContents,
   PDF_CHANNELS,
   BROWSER_CHANNELS,
   pdfFileRenamed,
@@ -300,6 +302,7 @@ import type {
   AutoSaveDefault,
   AuthorNameSetting,
   DeepLinkPayload,
+  DesktopMediaOpenPayload,
   DockNavIntent,
   DockOpenState,
   NewFileOpts,
@@ -4238,7 +4241,11 @@ const shellWindowDeps: ShellWindowDeps = {
   // login state, and the logged-in cloud launcher widens the pill by one
   // item; the cached prefs count knows the dragged-in custom launchers —
   // every layout pass cuts the rect from the composition actually mounted
-  dockItemCount: () => DOCK_ITEM_COUNT + (cachedDockOpen.loggedIn ? 1 : 0) + cachedDockCustomCount,
+  dockItemCount: () =>
+    DOCK_ITEM_COUNT +
+    (cachedDockOpen.loggedIn ? 1 : 0) +
+    cachedDockCustomCount +
+    (cachedDockOpen.player && !cachedDockHasPlayerCustom ? 1 : 0),
   tabSleepEnabled,
   untitledTitle: (kind) =>
     kind === 'help'
@@ -4435,6 +4442,10 @@ function routeDocumentPath(filePath: string): boolean {
   if (!kind) {
     notifyUnsupportedFile(filePath)
     return false
+  }
+  if (kind === 'media' && isPlayableMediaExt(extname(filePath))) {
+    recordRecentFile(filePath)
+    return openDesktopMediaPlayer(filePath)
   }
   recordRecentFile(filePath)
   const existing = tabManager.findTabOfKindByPath(kind, filePath)
@@ -4672,10 +4683,49 @@ function newBrowserTab(): void {
   }
 }
 
-/** the desktop's Media Player tile opens or focuses the persistent media player tab */
+/** Open or focus the persistent desktop media player window hosted on the Home surface. */
+function openDesktopMediaPlayer(filePath?: string): boolean {
+  if (!shellWindow || shellWindow.isDestroyed()) return false
+  const wc = shellWindow.webContents
+  const entry = prepareMediaSessionForWebContents(wc.id, filePath)
+  tabManager?.openHomeTab()
+  revealShellWindow()
+  const payload: DesktopMediaOpenPayload = {
+    ...(filePath ? { filePath: entry?.filePath ?? filePath } : {}),
+    ...(entry ? { token: entry.token } : {}),
+  }
+  if (wc.isLoadingMainFrame()) {
+    wc.once('did-finish-load', () => {
+      if (!wc.isDestroyed()) sendToShellRenderer(HOME_CHANNELS.desktopMediaOpen, payload)
+    })
+  } else {
+    sendToShellRenderer(HOME_CHANNELS.desktopMediaOpen, payload)
+  }
+  return true
+}
+
+/** the desktop's Media Player tile opens or focuses the desktop media player window */
 function openMediaPlayerTab(): void {
   try {
-    tabManager?.openMediaPlayerTab()
+    if (!openDesktopMediaPlayer()) {
+      tabManager?.openMediaPlayerTab()
+      revealShellWindow()
+    }
+  } catch (err) {
+    surfaceNewTabError(err)
+  }
+}
+
+/** Explicit opt-in escape hatch to open media playback inside a standalone document tab. */
+function openMediaInTab(filePath?: string): void {
+  try {
+    if (filePath && existsSync(filePath)) {
+      const existing = tabManager?.findTabOfKindByPath('media', filePath)
+      if (existing) tabManager?.activateTab(existing)
+      else tabManager?.openDocumentTab('media', filePath)
+    } else {
+      tabManager?.openMediaPlayerTab()
+    }
     revealShellWindow()
   } catch (err) {
     surfaceNewTabError(err)
@@ -4812,6 +4862,7 @@ function registerHomeIpc(): void {
     newBrowserTab,
     newPdfTab,
     openMediaPlayerTab,
+    openMediaInTab,
     afterFileMoved,
     afterFolderMoved,
     trackedFilesUnder,
@@ -6484,6 +6535,7 @@ let cachedDockOpen: DockOpenState = DOCK_OPEN_NONE
 // every composition consumer (the overlay rect's item count) reads one
 // cached number instead of re-parsing app-settings.json per layout pass
 let cachedDockCustomCount = 0
+let cachedDockHasPlayerCustom = false
 registerSelectionStore()
 registerHomeWorkbenchIpc({
   appSettingsPath: () => APP_SETTINGS_PATH(),
@@ -6594,7 +6646,14 @@ registerHomeWorkbenchIpc({
   dockNavAction: (intent) => {
     pendingDockNav = intent
     sendToShellRenderer(HOME_CHANNELS.dockNav, intent)
-    if (intent.kind !== 'close') tabManager?.openHomeTab()
+    const keepCurrentTab =
+      intent.kind === 'close' ||
+      (intent.kind === 'player' &&
+        (intent.action === 'toggle-play' ||
+          intent.action === 'next' ||
+          intent.action === 'prev' ||
+          intent.action === 'close'))
+    if (!keepCurrentTab) tabManager?.openHomeTab()
   },
   // the cold-boot pull: answer the buffered intent exactly once (the
   // return-and-clear makes the push the fast path once armed and this the
@@ -6615,7 +6674,9 @@ registerHomeWorkbenchIpc({
   // from the new item count the same beat the pill re-renders
   applyDockOpen: (sender, state) => {
     if (!shellWindow || shellWindow.isDestroyed() || sender !== shellWindow.webContents) return
-    const compositionChanged = state.loggedIn !== cachedDockOpen.loggedIn
+    const compositionChanged =
+      state.loggedIn !== cachedDockOpen.loggedIn ||
+      Boolean(state.player) !== Boolean(cachedDockOpen.player)
     cachedDockOpen = state
     tabManager?.dockOverlayWebContents()?.send(HOME_CHANNELS.dockOpen, state)
     if (compositionChanged) tabManager?.layout()
@@ -7400,9 +7461,16 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
   // sizes itself from the same numbers), and the layout re-cuts the
   // overlay's rect for the new base size / strength / item count the way
   // the aiDock watcher re-fits the drawer's view
-  cachedDockCustomCount = readDockPrefs(APP_SETTINGS_PATH()).customItems.length
+  const initialDockPrefs = readDockPrefs(APP_SETTINGS_PATH())
+  cachedDockCustomCount = initialDockPrefs.customItems.length
+  cachedDockHasPlayerCustom = initialDockPrefs.customItems.some(
+    (item) => item.kind === 'app' && item.target === 'app:player',
+  )
   watchDockPrefs(APP_SETTINGS_PATH(), (prefs) => {
     cachedDockCustomCount = prefs.customItems.length
+    cachedDockHasPlayerCustom = prefs.customItems.some(
+      (item) => item.kind === 'app' && item.target === 'app:player',
+    )
     sendToShellRenderer(HOME_CHANNELS.dockPrefsChanged, prefs)
     tabManager?.dockOverlayWebContents()?.send(HOME_CHANNELS.dockPrefsChanged, prefs)
     tabManager?.layout()

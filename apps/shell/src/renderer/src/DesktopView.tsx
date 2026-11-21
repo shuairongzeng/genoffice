@@ -283,6 +283,10 @@ export interface DesktopViewProps {
   /** the Home-root node the wallpaper backdrop portals into, so it paints
    * behind every surface; undefined (standalone) renders it in place */
   readonly backdropHost?: HTMLDivElement | null
+  /** true when an OS-style desktop floating window currently holds focus */
+  readonly windowFocused?: boolean
+  /** notifies host that user interacted with desktop icons or surface */
+  readonly onSurfaceFocus?: () => void
 }
 
 const pointerIdOf = (event: PointerEvent | ReactPointerEvent): number =>
@@ -294,6 +298,29 @@ const clampInt = (value: number, min: number, max: number): number =>
 const DOCK_DROP_TOP_PAD_PX = 18
 const DOCK_DROP_BOTTOM_PAD_PX = 12
 const DOCK_HIDDEN_OFFSET_PX = 12
+
+const PLAYABLE_MEDIA_EXTS = new Set([
+  'mp3',
+  'wav',
+  'm4a',
+  'aac',
+  'ogg',
+  'flac',
+  'opus',
+  'mp4',
+  'webm',
+  'mov',
+  'm4v',
+  'mkv',
+])
+
+const isPlayableMediaItem = (icon: DesktopItem | undefined): boolean => {
+  if (!icon) return false
+  if (icon.id === 'app:player') return true
+  if (icon.kind !== 'file') return false
+  const ext = icon.ext.replace(/^\./, '').toLowerCase()
+  return PLAYABLE_MEDIA_EXTS.has(ext)
+}
 
 const candidateForIcon = (icon: DesktopItem | undefined): DockCustomCandidate | null => {
   if (
@@ -525,6 +552,8 @@ export function DesktopView({
   onDockDrop,
   onDockHover,
   backdropHost,
+  windowFocused = false,
+  onSurfaceFocus,
 }: DesktopViewProps): ReactElement {
   const s = desktopStrings(lang)
 
@@ -1575,6 +1604,7 @@ export function DesktopView({
 
   const onIconPointerDown = useCallback(
     (event: ReactPointerEvent, icon: DesktopItem, pos: IconPos) => {
+      onSurfaceFocus?.()
       if (event.button !== 0 || press !== null || marquee !== null) return
       // a press on one member of a 2+ selection drags the whole group: the
       // capture happens before the press's own click semantics below, which
@@ -1618,7 +1648,17 @@ export function DesktopView({
         group,
       })
     },
-    [press, marquee, anchorId, selectedIds, freeLayout, dockPillRef, onDockDrop, cellsOf],
+    [
+      press,
+      marquee,
+      anchorId,
+      selectedIds,
+      freeLayout,
+      dockPillRef,
+      onDockDrop,
+      cellsOf,
+      onSurfaceFocus,
+    ],
   )
 
   const openIcon = useCallback((id: string) => {
@@ -2098,6 +2138,7 @@ export function DesktopView({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (windowFocused) return
       if (event.key === 'Escape') {
         if (dialogOpen) return
         // a live marquee rolls back first — the gesture, not the selection, goes
@@ -2193,6 +2234,20 @@ export function DesktopView({
         return
       }
 
+      if (
+        (event.code === 'Space' || event.key === ' ') &&
+        !event.shiftKey &&
+        selectedIds.size === 1
+      ) {
+        const [onlyId] = selectedIds
+        const hit = orderedIcons.find((icon) => icon.id === onlyId)
+        if (isPlayableMediaItem(hit)) {
+          event.preventDefault()
+          hit!.open()
+          return
+        }
+      }
+
       // removal of the selected aliases, guarded by the confirm dialog
       if (event.key === 'Backspace' || event.key === 'Delete') {
         if (selectedIds.size === 0) return
@@ -2233,6 +2288,7 @@ export function DesktopView({
     openStackId,
     openSelection,
     cellsOf,
+    windowFocused,
   ])
 
   // the dialogs' own Escape: the topmost one closes
@@ -2403,6 +2459,7 @@ export function DesktopView({
         ref={surfaceRef}
         onPointerDown={(event) => {
           if (event.target !== event.currentTarget) return
+          onSurfaceFocus?.()
           setMenu(null)
           setSurfaceMenu(null)
           setSurfaceSub(null)

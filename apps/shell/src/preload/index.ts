@@ -29,6 +29,7 @@ import type {
   FolderRoot,
   MoveResult,
   AuthorNameSetting,
+  DesktopMediaOpenPayload,
   HomeApi,
   HomeTabEntry,
   HomeTabsState,
@@ -580,6 +581,19 @@ const homeApi: HomeApi = {
   },
   async openMediaPlayer() {
     await ipcRenderer.invoke(HOME_CHANNELS.openMediaPlayer)
+  },
+  async openMediaInTab(filePath) {
+    await ipcRenderer.invoke(
+      HOME_CHANNELS.desktopMediaOpenInTab,
+      typeof filePath === 'string' && filePath ? filePath : undefined,
+    )
+  },
+  onDesktopMediaOpen(handler) {
+    const listener = (_event: IpcRendererEvent, payload: unknown) => {
+      if (payload && typeof payload === 'object') handler(payload as DesktopMediaOpenPayload)
+    }
+    ipcRenderer.on(HOME_CHANNELS.desktopMediaOpen, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.desktopMediaOpen, listener)
   },
   async newPdf(opts) {
     await ipcRenderer.invoke(HOME_CHANNELS.newPdf, opts)

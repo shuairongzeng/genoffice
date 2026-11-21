@@ -655,9 +655,11 @@ export { BROWSER_CHANNELS } from '../../../browser/src/shared/ipc'
 export type { BrowserAskAboutPayload } from '../../../browser/src/shared/annotations'
 export {
   MEDIA_EXTS,
+  clearMediaSessionForWebContents,
   isPlayableMediaExt,
   mediaFilePathForWebContents,
   mediaReadSnapshot,
+  prepareMediaSessionForWebContents,
   registerMediaIpc,
   registerMediaProtocol,
   setMediaFileChangedHook,

@@ -114,6 +114,8 @@ export interface DockItem {
    * Same dot as `active` — macOS draws one indicator, whatever it vouches.
    */
   readonly running?: boolean
+  /** glowing playback indicator when media player is actively playing audio */
+  readonly playing?: boolean
   /** run the item: a view switch, a launcher, the drawer's open verb */
   readonly onSelect: () => void
   /** the right-click menu's verbs; absent = no context menu on this item */
@@ -1241,7 +1243,9 @@ export function Dock(props: DockProps): React.JSX.Element {
       </button>
       {/* the dot rides the slot, not the button: the button carries the
           magnification transform and the indicator must not grow */}
-      {(item.active || item.running) && <span className="dock-dot" aria-hidden="true" />}
+      {(item.active || item.running || item.playing) && (
+        <span className={`dock-dot${item.playing ? ' is-playing' : ''}`} aria-hidden="true" />
+      )}
     </div>
   )
 

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -20,6 +20,7 @@ import {
   VIDEO_MEDIA_EXTS,
   addMediaFoldersForView,
   buildMediaPlayerState,
+  clearMediaSessionForWebContents,
   clearMediaSessions,
   configureMediaViewContext,
   discoverSidecarSubtitles,
@@ -31,6 +32,7 @@ import {
   mediaStreamUrl,
   mimeForMediaExt,
   parseByteRange,
+  prepareMediaSessionForWebContents,
   registerMediaSession,
   scanDirectoryMedia,
   setMediaFileChangedHook,
@@ -233,5 +235,35 @@ describe('directory playlist scanning, track switching, subtitles, and persisten
       ext: 'vtt',
       url: 'genoffice-media://sub/tok-1/s2',
     })
+  })
+
+  it('prepares and clears embedded WebContents media sessions and restores last played track', () => {
+    const dir = makeTempDir()
+    const libPath = join(dir, 'media-library.json')
+    setMediaLibraryPathResolver(() => libPath)
+    const audioDir = join(dir, 'music')
+    const track = join(audioDir, 'theme.mp3')
+    mkdirSync(audioDir, { recursive: true })
+    writeFileSync(track, 'mp3data')
+
+    const entry = prepareMediaSessionForWebContents(901, track)
+    expect(entry).toBeDefined()
+    expect(entry?.filePath).toBe(resolve(track))
+    expect(mediaFilePathForWebContents(901)).toBe(resolve(track))
+    expect(mediaSessionForToken(entry!.token)?.wcId).toBe(901)
+
+    // Calling without a filePath reuses the existing session first
+    const reused = prepareMediaSessionForWebContents(901)
+    expect(reused?.token).toBe(entry!.token)
+
+    // After clearing, calling without filePath recovers lastFilePath from library
+    clearMediaSessionForWebContents(901)
+    expect(mediaSessionForWebContents(901)).toBeUndefined()
+    const restored = prepareMediaSessionForWebContents(901)
+    expect(restored?.filePath).toBe(resolve(track))
+    expect(restored?.token).not.toBe(entry!.token)
+
+    clearMediaSessionForWebContents(901)
+    expect(mediaSessionForWebContents(901)).toBeUndefined()
   })
 })

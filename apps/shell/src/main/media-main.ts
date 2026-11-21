@@ -1253,6 +1253,50 @@ export function registerMediaIpc(): void {
   })
 }
 
+/** Prepare a media session and playback context for an existing WebContents (e.g. desktop player). */
+export function prepareMediaSessionForWebContents(
+  wcId: number,
+  filePath?: string,
+): MediaSessionEntry | undefined {
+  registerMediaProtocol()
+  registerMediaIpc()
+
+  let entry: MediaSessionEntry | undefined
+  if (filePath) {
+    entry = registerMediaSession(wcId, filePath)
+    if (entry.mediaKind === 'audio' || entry.mediaKind === 'video') {
+      configureMediaViewContext(wcId, {
+        sessionDir: dirname(entry.filePath),
+        playerMode: true,
+      })
+      recordPlayedTrackInLibrary(entry.filePath)
+    } else {
+      configureMediaViewContext(wcId, { playerMode: false })
+    }
+    return entry
+  }
+
+  configureMediaViewContext(wcId, { playerMode: true })
+  const existing = mediaSessionForWebContents(wcId)
+  if (existing && isPlayableMediaExt(existing.ext)) {
+    return existing
+  }
+  const lib = readMediaLibrary(mediaLibraryStorePath())
+  if (lib.lastFilePath && existsSync(lib.lastFilePath)) {
+    const ext = normalizeMediaExt(extname(lib.lastFilePath))
+    if (isPlayableMediaExt(ext)) {
+      entry = registerMediaSession(wcId, lib.lastFilePath)
+    }
+  }
+  return entry
+}
+
+/** Clear any media session and context associated with a WebContents. */
+export function clearMediaSessionForWebContents(wcId: number): void {
+  unregisterMediaSessionByWcId(wcId)
+  clearMediaViewContext(wcId)
+}
+
 export function createMediaView(filePath?: string): WebContentsView {
   registerMediaProtocol()
   registerMediaIpc()
@@ -1270,33 +1314,10 @@ export function createMediaView(filePath?: string): WebContentsView {
     return { action: 'deny' }
   })
   const wcId = view.webContents.id
-  let entry: MediaSessionEntry | undefined
-
-  if (filePath) {
-    entry = registerMediaSession(wcId, filePath)
-    if (entry.mediaKind === 'audio' || entry.mediaKind === 'video') {
-      configureMediaViewContext(wcId, {
-        sessionDir: dirname(entry.filePath),
-        playerMode: true,
-      })
-      recordPlayedTrackInLibrary(entry.filePath)
-    } else {
-      configureMediaViewContext(wcId, { playerMode: false })
-    }
-  } else {
-    configureMediaViewContext(wcId, { playerMode: true })
-    const lib = readMediaLibrary(mediaLibraryStorePath())
-    if (lib.lastFilePath && existsSync(lib.lastFilePath)) {
-      const ext = normalizeMediaExt(extname(lib.lastFilePath))
-      if (isPlayableMediaExt(ext)) {
-        entry = registerMediaSession(wcId, lib.lastFilePath)
-      }
-    }
-  }
+  const entry = prepareMediaSessionForWebContents(wcId, filePath)
 
   view.webContents.once('destroyed', () => {
-    unregisterMediaSessionByWcId(wcId)
-    clearMediaViewContext(wcId)
+    clearMediaSessionForWebContents(wcId)
   })
   void view.webContents.loadURL(
     rendererUrl(process.env.ELECTRON_RENDERER_URL, 'help', {

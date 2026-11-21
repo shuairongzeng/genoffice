@@ -33,6 +33,8 @@ if (headless) {
 }
 
 registerShellPrivilegedSchemes()
+// Desktop-native media player spawns playback across WebContents/IPC without DOM user gestures.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
 const earlyOpenFiles: string[] = []
 const earlyOpenUrls: string[] = []

@@ -309,6 +309,12 @@ export interface DockOpenState {
   ask: boolean
   /** the Genspark account is signed in (the cloud launcher's gate) */
   loggedIn: boolean
+  /** optional desktop media player window open state */
+  player?: boolean
+  /** optional active media playback state */
+  playerPlaying?: boolean
+  /** optional active media track title for dock tooltips and menus */
+  playerTitle?: string
 }
 
 /** the report every consumer starts from until Home's first one arrives */
@@ -321,7 +327,9 @@ export const DOCK_OPEN_NONE: DockOpenState = {
   loggedIn: false,
 }
 
-/** a DockOpenState, whole: every field present and well-typed, null on anything else */
+const MAX_DOCK_PLAYER_TITLE_CHARS = 160
+
+/** a DockOpenState, whole: every required field present and well-typed, null on anything else */
 export function asDockOpenState(value: unknown): DockOpenState | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Partial<Record<keyof DockOpenState, unknown>>
@@ -343,7 +351,10 @@ export function asDockOpenState(value: unknown): DockOpenState | null {
   if (typeof raw.templates !== 'boolean') return null
   if (typeof raw.ask !== 'boolean') return null
   if (typeof raw.loggedIn !== 'boolean') return null
-  return {
+  if (raw.player !== undefined && typeof raw.player !== 'boolean') return null
+  if (raw.playerPlaying !== undefined && typeof raw.playerPlaying !== 'boolean') return null
+  if (raw.playerTitle !== undefined && typeof raw.playerTitle !== 'string') return null
+  const state: DockOpenState = {
     view,
     settings: raw.settings,
     plugins: raw.plugins,
@@ -351,4 +362,10 @@ export function asDockOpenState(value: unknown): DockOpenState | null {
     ask: raw.ask,
     loggedIn: raw.loggedIn,
   }
+  if (raw.player !== undefined) state.player = raw.player
+  if (raw.playerPlaying !== undefined) state.playerPlaying = raw.playerPlaying
+  if (raw.playerTitle !== undefined) {
+    state.playerTitle = raw.playerTitle.slice(0, MAX_DOCK_PLAYER_TITLE_CHARS)
+  }
+  return state
 }

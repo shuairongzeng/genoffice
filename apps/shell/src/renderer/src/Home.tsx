@@ -40,6 +40,7 @@ import type {
   AccountStatus,
   AiDockPrefs,
   DockNavIntent,
+  DockPlayerAction,
   FolderRoot,
   HomeApi,
   HomeTabEntry,
@@ -67,10 +68,19 @@ import {
   DockRecentIcon,
   DockStarredIcon,
   GearGlyph,
+  PlayerGlyph,
   PlugGlyph,
   TemplatesGlyph,
 } from './app-glyphs'
 import { TodoCard } from './todo-card'
+import { DesktopMediaPlayerWindow } from './DesktopMediaPlayerWindow'
+import type { DesktopWindowMode, StageBounds } from './desktop-window-geometry'
+import type {
+  MediaExternalCommand,
+  MediaExternalLoadRequest,
+  MediaPlaybackReport,
+} from './MediaViewer'
+import { getMediaPlayerStrings } from './media-player-strings'
 import { bindRecentsChanged, onFilesChanged } from './file-events'
 import { aiSetupNeeded } from './ai-setup-state'
 import { SettingsModalHost } from './settings-modal-host'
@@ -425,17 +435,27 @@ export function Home() {
   // this area there, so the dock and the embedded strip keep their margins
   // around a document. Softened to a no-op wherever the channel is absent.
   const stageRef = useRef<HTMLDivElement>(null)
+  const [windowStage, setWindowStage] = useState<StageBounds>(() => ({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1200,
+    height: typeof window !== 'undefined' ? window.innerHeight : 800,
+  }))
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
     const stage = stageRef.current
-    if (typeof api.homeContentRect !== 'function' || !stage) return
     const report = () => {
-      const rect = stage.getBoundingClientRect()
-      api.homeContentRect?.({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
+      const vw = window.innerWidth || Math.round(stage?.getBoundingClientRect().width ?? 1200)
+      const vh = window.innerHeight || Math.round(stage?.getBoundingClientRect().height ?? 800)
+      setWindowStage((prev) =>
+        prev.width === vw && prev.height === vh ? prev : { width: vw, height: vh },
+      )
+      if (typeof api.homeContentRect === 'function' && stage) {
+        const rect = stage.getBoundingClientRect()
+        api.homeContentRect({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
+      }
     }
     report()
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(report) : null
-    observer?.observe(stage)
+    const observer = typeof ResizeObserver === 'function' && stage ? new ResizeObserver(report) : null
+    if (stage) observer?.observe(stage)
     window.addEventListener('resize', report)
     return () => {
       observer?.disconnect()
@@ -466,6 +486,54 @@ export function Home() {
   const [rerankSettingsTick, setRerankSettingsTick] = useState(0)
   const [settingsRequest, setSettingsRequest] = useState<SettingsTarget | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [playerOpen, setPlayerOpen] = useState(false)
+  const [playerMode, setPlayerMode] = useState<DesktopWindowMode>('normal')
+  const [playerFocused, setPlayerFocused] = useState(true)
+  const [playerLoadReq, setPlayerLoadReq] = useState<MediaExternalLoadRequest | null>(null)
+  const [playerCmd, setPlayerCmd] = useState<MediaExternalCommand | null>(null)
+  const [playerPlayback, setPlayerPlayback] = useState<MediaPlaybackReport>({
+    playing: false,
+    title: '',
+    hasPrev: false,
+    hasNext: false,
+  })
+  const playerRestoreModeRef = useRef<DesktopWindowMode>('normal')
+  const playerModeRef = useRef(playerMode)
+  playerModeRef.current = playerMode
+
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    return api.onDesktopMediaOpen?.((payload) => {
+      dispatchView({ type: 'show-desktop' })
+      setPlayerOpen(true)
+      setPlayerFocused(true)
+      setPlayerMode((prev) =>
+        payload?.mode === 'mini'
+          ? 'mini'
+          : prev === 'minimized'
+            ? playerRestoreModeRef.current
+            : prev,
+      )
+      setPlayerLoadReq((prev) => ({
+        seq: (prev?.seq ?? 0) + 1,
+        ...(payload?.token ? { token: payload.token } : {}),
+        ...(payload?.filePath ? { filePath: payload.filePath } : {}),
+      }))
+    })
+  }, [])
+
+  const handlePlayerModeChange = useCallback((next: DesktopWindowMode) => {
+    if (next !== 'minimized') playerRestoreModeRef.current = next
+    setPlayerMode(next)
+    if (next === 'minimized') setPlayerFocused(false)
+  }, [])
+
+  const handleOpenMediaInTab = useCallback((filePath?: string) => {
+    setPlayerOpen(false)
+    setPlayerFocused(false)
+    void (window.aiOffice as Partial<HomeApi>).openMediaInTab?.(filePath)
+  }, [])
+
   const [paletteOpen, setPaletteOpen] = useState(false)
   // the palette's mount mode: 'files' is the Ctrl/Cmd+P quick-open shape, and
   // the shell's Ctrl/Cmd+K summon (tab views, global hotkey, tray) is always
@@ -1506,8 +1574,47 @@ export function Home() {
   // main's buffer of the same beat — the subscribe-then-pull order means
   // the worst case is one intent performed twice (idempotent: the same view
   // switch, the same settings request, the same gallery), never one lost
+  const launchPlayerCommand = useCallback(
+    (action: DockPlayerAction) => {
+      if (action === 'show') {
+        raiseHomeTab()
+        showDesktop()
+        setPlayerOpen(true)
+        setPlayerFocused(true)
+        setPlayerMode((prev) =>
+          prev === 'minimized'
+            ? playerRestoreModeRef.current === 'minimized'
+              ? 'normal'
+              : playerRestoreModeRef.current
+            : prev,
+        )
+        return
+      }
+      if (action === 'mini') {
+        raiseHomeTab()
+        showDesktop()
+        setPlayerOpen(true)
+        setPlayerFocused(true)
+        const nextMode = playerModeRef.current === 'mini' ? 'normal' : 'mini'
+        handlePlayerModeChange(nextMode)
+        return
+      }
+      if (action === 'close') {
+        setPlayerOpen(false)
+        setPlayerFocused(false)
+        return
+      }
+      setPlayerCmd((prev) => ({ seq: (prev?.seq ?? 0) + 1, type: action }))
+    },
+    [raiseHomeTab, showDesktop, handlePlayerModeChange],
+  )
+
   const performDockNav = useCallback(
     (intent: DockNavIntent) => {
+      if (intent.kind === 'player') {
+        launchPlayerCommand(intent.action)
+        return
+      }
       if (intent.kind === 'nav') {
         if (intent.view === 'desktop') showDesktop()
         else if (intent.view === 'cloud') showCloud()
@@ -1536,7 +1643,7 @@ export function Home() {
       }
       setTemplatesOpen(true)
     },
-    [showDesktop, showCloud, showSessionsCenter, changeView, launchDockCustom],
+    [showDesktop, showCloud, showSessionsCenter, changeView, launchDockCustom, launchPlayerCommand],
   )
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
@@ -2414,6 +2521,13 @@ export function Home() {
     // the cloud launcher's gate: a signed-in person keeps their way in, and
     // the doc-mode overlay's composition (main's item count) follows it
     loggedIn,
+    ...(playerOpen
+      ? {
+          player: true,
+          playerPlaying: playerPlayback.playing,
+          ...(playerPlayback.title ? { playerTitle: playerPlayback.title } : {}),
+        }
+      : {}),
   }
   const dockOpenRef = useRef(dockOpen)
   dockOpenRef.current = dockOpen
@@ -2428,6 +2542,9 @@ export function Home() {
     dockOpen.templates,
     dockOpen.ask,
     dockOpen.loggedIn,
+    dockOpen.player,
+    dockOpen.playerPlaying,
+    dockOpen.playerTitle,
   ])
 
   // ── Home-mode auto-hide (设置 ▸ 自动隐藏程序坞): the pill slides below
@@ -2500,6 +2617,29 @@ export function Home() {
   /** the built-in dock ids, read at drop time (the groups are built below the
    *  drop handler's definition — a ref keeps the drop's duplicate check out
    *  of the declaration-order trap) */
+  const ps = getMediaPlayerStrings(lang)
+  const buildPlayerDockMenu = (): readonly DockMenuEntry[] => [
+    {
+      label: playerPlayback.playing ? ps.dockPause : ps.dockPlay,
+      onSelect: () => launchPlayerCommand('toggle-play'),
+    },
+    ...(playerPlayback.hasPrev
+      ? [{ label: ps.dockPrev, onSelect: () => launchPlayerCommand('prev') }]
+      : []),
+    ...(playerPlayback.hasNext
+      ? [{ label: ps.dockNext, onSelect: () => launchPlayerCommand('next') }]
+      : []),
+    { label: ps.dockShowPlayer, onSelect: () => launchPlayerCommand('show') },
+    {
+      label: playerMode === 'mini' ? ps.expandMode : ps.miniMode,
+      onSelect: () => launchPlayerCommand('mini'),
+    },
+    { label: ps.dockQuitPlayer, onSelect: () => launchPlayerCommand('close'), danger: true },
+  ]
+  const hasPlayerCustomInDock = dockPrefs.customItems.some(
+    (custom) => custom.kind === 'app' && custom.target === 'app:player',
+  )
+
   const dockGroupsRef = useRef<readonly (readonly DockItem[])[]>([])
   const dockGroups: readonly (readonly DockItem[])[] = [
     [
@@ -2642,23 +2782,58 @@ export function Home() {
       // other item, and each carries its open verb plus the remove (移除)
       // that takes the definition and its order entry together
       ...dockPrefs.customItems.map(
-        (custom) =>
-          ({
+        (custom) => {
+          const isPlayerCustom = custom.kind === 'app' && custom.target === 'app:player'
+          return {
             id: custom.id,
-            label: dockCustomLabel(custom, DESKTOP_STRINGS[lang]),
+            label:
+              isPlayerCustom && playerOpen && playerPlayback.title
+                ? playerPlayback.title
+                : dockCustomLabel(custom, DESKTOP_STRINGS[lang]),
             icon: dockCustomIcon(custom),
             tile: dockCustomTile(custom),
-            onSelect: () => launchDockCustom(custom),
-            menu: [
-              { label: t('dockMenuOpen'), onSelect: () => launchDockCustom(custom) },
-              {
-                label: t('dockMenuRemove'),
-                onSelect: () => removeDockCustomItem(custom.id),
-                danger: true,
-              },
-            ],
-          }) as DockItem,
+            ...(isPlayerCustom && playerOpen
+              ? { running: true, playing: playerPlayback.playing }
+              : {}),
+            onSelect: () =>
+              isPlayerCustom && playerOpen
+                ? launchPlayerCommand('show')
+                : launchDockCustom(custom),
+            menu:
+              isPlayerCustom && playerOpen
+                ? [
+                    ...buildPlayerDockMenu(),
+                    {
+                      label: t('dockMenuRemove'),
+                      onSelect: () => removeDockCustomItem(custom.id),
+                      danger: true,
+                    },
+                  ]
+                : [
+                    { label: t('dockMenuOpen'), onSelect: () => launchDockCustom(custom) },
+                    {
+                      label: t('dockMenuRemove'),
+                      onSelect: () => removeDockCustomItem(custom.id),
+                      danger: true,
+                    },
+                  ],
+          } as DockItem
+        },
       ),
+      ...(playerOpen && !hasPlayerCustomInDock
+        ? [
+            {
+              id: 'dock:player',
+              label: playerPlayback.title || DESKTOP_STRINGS[lang].appPlayer,
+              icon: <PlayerGlyph />,
+              tile: 'player',
+              running: true,
+              playing: playerPlayback.playing,
+              menu: buildPlayerDockMenu(),
+              onSelect: () => launchPlayerCommand('show'),
+            } as DockItem,
+          ]
+        : []),
     ],
     [
       {
@@ -2685,6 +2860,25 @@ export function Home() {
         <div className="home-desktop-backdrop" aria-hidden="true" ref={setBackdropHost} />
       )}
       {desktopMode && <TodoCard lang={lang} />}
+      {playerOpen && (
+        <DesktopMediaPlayerWindow
+          lang={lang}
+          visible={desktopMode && !docTabActive}
+          focused={playerFocused}
+          stage={windowStage}
+          mode={playerMode}
+          loadRequest={playerLoadReq}
+          command={playerCmd}
+          onFocus={() => setPlayerFocused(true)}
+          onModeChange={handlePlayerModeChange}
+          onClose={() => {
+            setPlayerOpen(false)
+            setPlayerFocused(false)
+          }}
+          onOpenInTab={handleOpenMediaInTab}
+          onPlaybackChange={setPlayerPlayback}
+        />
+      )}
       <SettingsModalHost
         onStatusChange={handleAccountStatus}
         onFileSearchSettingsChange={() => setRerankSettingsTick((n) => n + 1)}
@@ -2771,6 +2965,8 @@ export function Home() {
               onDockDrop={handleDockDrop}
               onDockHover={handleDockHover}
               backdropHost={backdropHost}
+              windowFocused={playerOpen && playerFocused && playerMode !== 'minimized'}
+              onSurfaceFocus={() => setPlayerFocused(false)}
             />
           ) : selectedFolder && rootOf(selectedFolder, roots)?.readable ? (
             renderFolderContent()

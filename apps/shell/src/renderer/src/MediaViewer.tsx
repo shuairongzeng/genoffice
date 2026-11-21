@@ -317,7 +317,54 @@ function ensureSharedAudioGraph(
   }
 }
 
-export function MediaViewer(): React.JSX.Element {
+export interface MediaPlaybackReport {
+  readonly playing: boolean
+  readonly title: string
+  readonly artist?: string
+  readonly mediaKind?: MediaInfo['mediaKind']
+  readonly filePath?: string
+  readonly coverUrl?: string
+  readonly hasPrev: boolean
+  readonly hasNext: boolean
+}
+
+export interface MediaExternalLoadRequest {
+  readonly seq: number
+  readonly token?: string
+  readonly filePath?: string
+}
+
+export interface MediaExternalCommand {
+  readonly seq: number
+  readonly type: 'toggle-play' | 'next' | 'prev' | 'pause'
+}
+
+export interface MediaViewerProps {
+  readonly embedded?: boolean
+  readonly keyboardActive?: boolean
+  readonly visualHidden?: boolean
+  readonly compactMini?: boolean
+  readonly externalLoadRequest?: MediaExternalLoadRequest | null
+  readonly externalCommand?: MediaExternalCommand | null
+  readonly onPlaybackReport?: (report: MediaPlaybackReport) => void
+  readonly onExpandFromMini?: () => void
+  readonly onMinimizeFromMini?: () => void
+  readonly onCloseFromMini?: () => void
+}
+
+export function MediaViewer(props: MediaViewerProps = {}): React.JSX.Element {
+  const {
+    embedded = false,
+    keyboardActive = true,
+    visualHidden = false,
+    compactMini = false,
+    externalLoadRequest = null,
+    externalCommand = null,
+    onPlaybackReport,
+    onExpandFromMini,
+    onMinimizeFromMini,
+    onCloseFromMini,
+  } = props
   const { lang, t } = useI18n()
   const ps = getMediaPlayerStrings(lang)
 
@@ -390,6 +437,15 @@ export function MediaViewer(): React.JSX.Element {
   const dragOriginRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
   const handledRequestsRef = useRef<Set<string>>(new Set())
   const keyDownHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {})
+  const embeddedRef = useRef(embedded)
+  embeddedRef.current = embedded
+  const keyboardActiveRef = useRef(keyboardActive)
+  keyboardActiveRef.current = keyboardActive
+  const externalLoadRequestRef = useRef(externalLoadRequest)
+  externalLoadRequestRef.current = externalLoadRequest
+  const handledExternalLoadSeqRef = useRef(externalLoadRequest?.seq ?? 0)
+  const handledExternalCommandSeqRef = useRef(externalCommand?.seq ?? 0)
+  const mountedRef = useRef(false)
 
   const infoRef = useRef(info)
   infoRef.current = info
@@ -437,7 +493,7 @@ export function MediaViewer(): React.JSX.Element {
       shouldAutoPlayRef.current = autoPlayNext && snapshot.prefs.autoPlay
       pendingResumeSecRef.current = snapshot.resumePositionSec > 0 ? snapshot.resumePositionSec : 0
       setResumedNoticeSec(snapshot.resumePositionSec >= 5 ? snapshot.resumePositionSec : null)
-      replaceUrlToken(snapshot.current?.token)
+      if (!embeddedRef.current) replaceUrlToken(snapshot.current?.token)
 
       const curIndex = snapshot.current
         ? snapshot.items.findIndex((item) => sameFile(item.filePath, snapshot.current!.filePath))
@@ -448,9 +504,13 @@ export function MediaViewer(): React.JSX.Element {
   )
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const token = params.get('token') ?? ''
-    const isExplicitPlayerMode = params.get('mode') === 'player'
+    const params = embeddedRef.current ? null : new URLSearchParams(window.location.search)
+    const token = embeddedRef.current
+      ? (externalLoadRequestRef.current?.token ?? '')
+      : (params?.get('token') ?? '')
+    const isExplicitPlayerMode = embeddedRef.current ? true : params?.get('mode') === 'player'
+    handledExternalLoadSeqRef.current = externalLoadRequestRef.current?.seq ?? 0
+    mountedRef.current = true
     let cancelled = false
     setLoading(true)
     setLoadError(false)
@@ -529,6 +589,42 @@ export function MediaViewer(): React.JSX.Element {
       },
     })
   }, [activeMediaElement, persistPrefs])
+
+  // Load new media triggered externally while the embedded player stays mounted
+  useEffect(() => {
+    if (!mountedRef.current || !externalLoadRequest) return
+    if (externalLoadRequest.seq <= handledExternalLoadSeqRef.current) return
+    handledExternalLoadSeqRef.current = externalLoadRequest.seq
+    let cancelled = false
+    const run = async (): Promise<void> => {
+      flushPlaybackPosition()
+      try {
+        if (typeof window.aiOffice?.mediaGetPlayerState === 'function') {
+          const snapshot = await window.aiOffice.mediaGetPlayerState(
+            externalLoadRequest.token || undefined,
+          )
+          if (!cancelled) {
+            applyPlayerSnapshot(snapshot, true)
+            setLoading(false)
+          }
+          return
+        }
+        if (externalLoadRequest.filePath && typeof window.aiOffice?.mediaSwitchTrack === 'function') {
+          const res = await window.aiOffice.mediaSwitchTrack(externalLoadRequest.filePath)
+          if (!cancelled && res.ok && res.state) {
+            applyPlayerSnapshot(res.state, true)
+            setLoading(false)
+          }
+        }
+      } catch {
+        // Keep current track alive if reload request fails transiently.
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [externalLoadRequest?.seq, externalLoadRequest, applyPlayerSnapshot, flushPlaybackPosition])
 
   useEffect(() => {
     const onPageHide = (): void => flushPlaybackPosition()
@@ -675,7 +771,7 @@ export function MediaViewer(): React.JSX.Element {
   useEffect(() => {
     const canvas = spectrumCanvasRef.current
     const audio = audioRef.current
-    if (!canvas || !audio || info?.mediaKind !== 'audio' || loadError) {
+    if (!canvas || !audio || info?.mediaKind !== 'audio' || loadError || compactMini || visualHidden) {
       if (connectedSourceRef.current && info?.mediaKind !== 'audio') {
         try {
           connectedSourceRef.current.disconnect()
@@ -885,7 +981,18 @@ export function MediaViewer(): React.JSX.Element {
       document.removeEventListener('visibilitychange', onVisibilityChange)
       resizeObserver?.disconnect()
     }
-  }, [info?.token, info?.mediaKind, playing, loadError, audioGraphTick, visualizerMode, isDarkTheme, stagePalette])
+  }, [
+    info?.token,
+    info?.mediaKind,
+    playing,
+    loadError,
+    audioGraphTick,
+    visualizerMode,
+    isDarkTheme,
+    stagePalette,
+    compactMini,
+    visualHidden,
+  ])
 
   // Idle auto-hide for video controls during playback
   const resetControlsIdle = useCallback((): void => {
@@ -1421,6 +1528,7 @@ export function MediaViewer(): React.JSX.Element {
 
   // Keyboard shortcuts
   keyDownHandlerRef.current = (e: KeyboardEvent): void => {
+    if (embeddedRef.current && !keyboardActiveRef.current) return
     if (e.ctrlKey || e.metaKey || e.altKey) return
     const target = e.target as HTMLElement | null
     const tag = target?.tagName
@@ -1589,9 +1697,67 @@ export function MediaViewer(): React.JSX.Element {
     void window.aiOffice?.mediaImportDropped?.(dropped)?.then(handleMutationResponse)
   }
 
+  const kindLabel = !info
+    ? ps.playerTitle
+    : info.mediaKind === 'audio'
+      ? t('mediaTypeAudio')
+      : t('mediaTypeVideo')
+  const hasPlaylistNav = navigationPool.length > 1
+  const currentItemMeta = info ? items.find((i) => sameFile(i.filePath, info.filePath)) : undefined
+  const bufferedPct = duration > 0 ? Math.min(100, Math.max(0, (bufferedEnd / duration) * 100)) : 0
+  const unpinnedSessionFolder = folders.find((f) => !f.persisted && !f.missing)
+
+  const commandActionsRef = useRef({
+    togglePlay,
+    handleTrackStep,
+    pause: () => activeMediaElement()?.pause(),
+  })
+  commandActionsRef.current = {
+    togglePlay,
+    handleTrackStep,
+    pause: () => activeMediaElement()?.pause(),
+  }
+
+  useEffect(() => {
+    if (!externalCommand || externalCommand.seq <= handledExternalCommandSeqRef.current) return
+    handledExternalCommandSeqRef.current = externalCommand.seq
+    if (externalCommand.type === 'toggle-play') commandActionsRef.current.togglePlay()
+    else if (externalCommand.type === 'pause') commandActionsRef.current.pause()
+    else if (externalCommand.type === 'next') commandActionsRef.current.handleTrackStep('next', 'manual')
+    else if (externalCommand.type === 'prev') commandActionsRef.current.handleTrackStep('prev', 'manual')
+  }, [externalCommand?.seq, externalCommand])
+
+  const miniFallbackLabel = info ? inferTrackLabelFallback(info.fileName) : null
+  const reportTitle =
+    audioMeta?.title || miniFallbackLabel?.title || info?.fileName || ps.playerTitle
+  const reportArtist =
+    audioMeta?.artist || miniFallbackLabel?.artist || currentItemMeta?.dirName
+
+  useEffect(() => {
+    onPlaybackReport?.({
+      playing,
+      title: reportTitle,
+      artist: reportArtist,
+      mediaKind: info?.mediaKind,
+      filePath: info?.filePath,
+      coverUrl: audioMeta?.coverUrl,
+      hasPrev: hasPlaylistNav,
+      hasNext: hasPlaylistNav,
+    })
+  }, [
+    onPlaybackReport,
+    playing,
+    reportTitle,
+    reportArtist,
+    info?.mediaKind,
+    info?.filePath,
+    audioMeta?.coverUrl,
+    hasPlaylistNav,
+  ])
+
   if (loading) {
     return (
-      <div className="media-viewer" data-testid="media-viewer">
+      <div className={`media-viewer${embedded ? ' is-embedded' : ''}`} data-testid="media-viewer">
         <div className="media-stage">
           <div className="media-empty-card neutral">
             <p>{t('mediaLoading')}</p>
@@ -1743,7 +1909,7 @@ export function MediaViewer(): React.JSX.Element {
   // Non-player image/empty fallback when standalone mode was not requested
   if (!info && !playerMode) {
     return (
-      <div className="media-viewer" data-testid="media-viewer">
+      <div className={`media-viewer${embedded ? ' is-embedded' : ''}`} data-testid="media-viewer">
         <div className="media-stage">
           <div className="media-empty-card neutral">
             <h2>{t('mediaNoFile')}</h2>
@@ -1753,25 +1919,233 @@ export function MediaViewer(): React.JSX.Element {
     )
   }
 
-  const kindLabel = !info
-    ? ps.playerTitle
-    : info.mediaKind === 'audio'
-      ? t('mediaTypeAudio')
-      : t('mediaTypeVideo')
-  const hasPlaylistNav = navigationPool.length > 1
-  const currentItemMeta = info ? items.find((i) => sameFile(i.filePath, info.filePath)) : undefined
-  const bufferedPct = duration > 0 ? Math.min(100, Math.max(0, (bufferedEnd / duration) * 100)) : 0
-  const unpinnedSessionFolder = folders.find((f) => !f.persisted && !f.missing)
+  const audioElementNode =
+    info && !loadError && info.mediaKind === 'audio' ? (
+      <audio
+        key={info.token}
+        ref={audioRef}
+        className="media-audio-hidden"
+        crossOrigin="anonymous"
+        src={info.streamUrl}
+        autoPlay={autoPlay}
+        preload="metadata"
+        onLoadedMetadata={(e) => initializeMediaElement(e.currentTarget)}
+        onCanPlay={(e) => safeStartAutoPlay(e.currentTarget)}
+        onTimeUpdate={(e) => handleTimeUpdate(e.currentTarget)}
+        onPlay={() => setPlaying(true)}
+        onPause={() => {
+          setPlaying(false)
+          flushPlaybackPosition()
+        }}
+        onEnded={handleMediaEnded}
+        onError={() => {
+          setPlaying(false)
+          setLoadError(true)
+        }}
+      />
+    ) : null
+
+  if (compactMini) {
+    return (
+      <div
+        className={`media-viewer media-player-mode compact-mini${embedded ? ' is-embedded' : ''}${
+          dropActive ? ' dragover' : ''
+        }`}
+        data-testid="media-viewer"
+        onDragOver={onDragOverViewer}
+        onDragLeave={onDragLeaveViewer}
+        onDrop={onDropViewer}
+      >
+        {audioElementNode}
+        <div
+          className="media-mini-card"
+          data-testid="media-mini-card"
+          style={
+            {
+              '--stage-accent-1': stagePalette.primary,
+              '--stage-accent-2': stagePalette.secondary,
+              '--stage-glow': stagePalette.glow,
+              '--stage-glow-soft': stagePalette.glowSoft,
+            } as React.CSSProperties
+          }
+        >
+          <div className="media-mini-main">
+            <button
+              type="button"
+              className={`media-mini-disc${playing ? ' spinning' : ''}`}
+              aria-label={playing ? t('mediaPause') : t('mediaPlay')}
+              onClick={togglePlay}
+            >
+              {audioMeta?.coverUrl ? (
+                <img src={audioMeta.coverUrl} alt={reportTitle} className="media-mini-cover" />
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M9 18V6l11-2v12"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <circle cx="6.5" cy="18.5" r="2.5" stroke="currentColor" strokeWidth="2" />
+                  <circle cx="17.5" cy="16.5" r="2.5" stroke="currentColor" strokeWidth="2" />
+                </svg>
+              )}
+              <span className="media-mini-disc-hole" aria-hidden="true" />
+            </button>
+
+            <div className="media-mini-info">
+              <div className="media-mini-title-row">
+                <span className="media-mini-title" title={info?.filePath ?? reportTitle}>
+                  {reportTitle}
+                </span>
+                {playing && (
+                  <span className="media-eq-bars" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                )}
+              </div>
+              <div className="media-mini-sub">
+                <span>{reportArtist || ps.playerTitle}</span>
+                <span>
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </span>
+              </div>
+            </div>
+
+            <div className="media-mini-controls" data-window-no-drag="true">
+              <button
+                type="button"
+                className="media-mini-btn"
+                data-testid="media-mini-prev"
+                disabled={!hasPlaylistNav}
+                aria-label={ps.prevTrack}
+                title={ps.prevTrack}
+                onClick={() => handleTrackStep('prev', 'manual')}
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3.5 3.5v9M12.5 3.5 6 8l6.5 4.5v-9Z" fill="currentColor" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className="media-mini-btn play"
+                data-testid="media-mini-play"
+                aria-label={playing ? t('mediaPause') : t('mediaPlay')}
+                title={playing ? t('mediaPause') : t('mediaPlay')}
+                onClick={togglePlay}
+              >
+                {playing ? (
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <rect x="3.8" y="3.2" width="3" height="9.6" rx="0.9" fill="currentColor" />
+                    <rect x="9.2" y="3.2" width="3" height="9.6" rx="0.9" fill="currentColor" />
+                  </svg>
+                ) : (
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M4.5 3.2 13 8l-8.5 4.8V3.2Z" fill="currentColor" />
+                  </svg>
+                )}
+              </button>
+              <button
+                type="button"
+                className="media-mini-btn"
+                data-testid="media-mini-next"
+                disabled={!hasPlaylistNav}
+                aria-label={ps.nextTrack}
+                title={ps.nextTrack}
+                onClick={() => handleTrackStep('next', 'manual')}
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M12.5 3.5v9M3.5 3.5 10 8l-6.5 4.5v-9Z" fill="currentColor" />
+                </svg>
+              </button>
+              {onExpandFromMini && (
+                <button
+                  type="button"
+                  className="media-mini-btn"
+                  data-testid="media-mini-expand"
+                  aria-label={ps.expandMode}
+                  title={ps.expandMode}
+                  onClick={onExpandFromMini}
+                >
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path
+                      d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9.2 6.8M2.5 13.5l4.3-4.3"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              )}
+              {onMinimizeFromMini && (
+                <button
+                  type="button"
+                  className="media-mini-btn"
+                  data-testid="media-mini-minimize"
+                  aria-label={ps.windowMinimize}
+                  title={ps.windowMinimize}
+                  onClick={onMinimizeFromMini}
+                >
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </button>
+              )}
+              {onCloseFromMini && (
+                <button
+                  type="button"
+                  className="media-mini-btn danger"
+                  data-testid="media-mini-close"
+                  aria-label={ps.windowClose}
+                  title={ps.windowClose}
+                  onClick={onCloseFromMini}
+                >
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path
+                      d="M4 4l8 8M12 4l-8 8"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="media-mini-seek-row" data-window-no-drag="true">
+            <input
+              type="range"
+              className="media-seek-slider"
+              aria-label={t('mediaSeek')}
+              min={0}
+              max={duration > 0 ? duration : 1}
+              step={0.1}
+              value={Math.min(currentTime, duration > 0 ? duration : 1)}
+              onChange={(e) => handleSeek(Number(e.target.value))}
+            />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
-      className={`media-viewer media-player-mode${dropActive ? ' dragover' : ''}`}
+      className={`media-viewer media-player-mode${embedded ? ' is-embedded' : ''}${
+        dropActive ? ' dragover' : ''
+      }`}
       data-testid="media-viewer"
       onDragOver={onDragOverViewer}
       onDragLeave={onDragLeaveViewer}
       onDrop={onDropViewer}
       onMouseMove={resetControlsIdle}
     >
+      {audioElementNode}
       <header className="media-header">
         <div className="media-header-meta">
           <span className="media-kind-badge">{kindLabel}</span>
@@ -2144,28 +2518,6 @@ export function MediaViewer(): React.JSX.Element {
                       </div>
                     )}
                   </div>
-
-                  <audio
-                    key={info.token}
-                    ref={audioRef}
-                    crossOrigin="anonymous"
-                    src={info.streamUrl}
-                    autoPlay={autoPlay}
-                    preload="metadata"
-                    onLoadedMetadata={(e) => initializeMediaElement(e.currentTarget)}
-                    onCanPlay={(e) => safeStartAutoPlay(e.currentTarget)}
-                    onTimeUpdate={(e) => handleTimeUpdate(e.currentTarget)}
-                    onPlay={() => setPlaying(true)}
-                    onPause={() => {
-                      setPlaying(false)
-                      flushPlaybackPosition()
-                    }}
-                    onEnded={handleMediaEnded}
-                    onError={() => {
-                      setPlaying(false)
-                      setLoadError(true)
-                    }}
-                  />
                 </section>
               )
             })() : (

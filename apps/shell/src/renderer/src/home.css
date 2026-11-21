@@ -846,6 +846,27 @@ html.dock-view body {
   transform: translateX(-50%);
 }
 
+.dock-dot.is-playing {
+  width: 10px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--desktop-tile-templates, var(--accent));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--desktop-tile-templates, var(--accent)) 70%, transparent);
+  animation: dock-dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes dock-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.78;
+    transform: translateX(-50%) scaleX(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(-50%) scaleX(1.15);
+  }
+}
+
 /* the way OUT only: the leave animates the collapse over 120ms; the gesture
  * layer drops the class on the next enter, so tracking stays 1:1 */
 .dock.dock-collapsing .dock-slot {

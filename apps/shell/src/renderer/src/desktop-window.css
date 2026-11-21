@@ -1,0 +1,314 @@
+/* OS-grade glassmorphic floating desktop application window chrome */
+
+:root {
+  --dw-bg: color-mix(in srgb, var(--surface) 88%, transparent);
+  --dw-border: color-mix(in srgb, var(--border-strong) 80%, transparent);
+  --dw-border-focused: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+  --dw-titlebar-bg: color-mix(in srgb, var(--surface) 74%, transparent);
+  --dw-shadow-active: 0 24px 64px rgb(0 0 0 / 28%), 0 4px 16px rgb(0 0 0 / 12%);
+  --dw-shadow-idle: 0 10px 30px rgb(0 0 0 / 14%);
+  --dw-traffic-close: #ff5f57;
+  --dw-traffic-min: #febc2e;
+  --dw-traffic-max: #28c840;
+  --dw-traffic-ink: rgb(0 0 0 / 68%);
+  --dw-snap-bg: color-mix(in srgb, var(--accent) 16%, transparent);
+  --dw-snap-border: color-mix(in srgb, var(--accent) 68%, transparent);
+}
+
+[data-theme='dark'] {
+  --dw-bg: color-mix(in srgb, var(--surface) 86%, transparent);
+  --dw-border: color-mix(in srgb, var(--border-strong) 72%, transparent);
+  --dw-shadow-active: 0 26px 72px rgb(0 0 0 / 56%), 0 6px 20px rgb(0 0 0 / 32%);
+  --dw-shadow-idle: 0 12px 32px rgb(0 0 0 / 32%);
+}
+
+.desktop-window {
+  position: fixed;
+  z-index: 36;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: var(--dw-bg);
+  border: 1px solid var(--dw-border);
+  box-shadow: var(--dw-shadow-idle);
+  -webkit-backdrop-filter: blur(24px) saturate(1.35);
+  backdrop-filter: blur(24px) saturate(1.35);
+  overflow: hidden;
+  transition:
+    box-shadow 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.desktop-window.is-focused {
+  z-index: 41;
+  border-color: var(--dw-border-focused);
+  box-shadow: var(--dw-shadow-active);
+}
+
+.desktop-window.is-maximized {
+  border-radius: 10px;
+}
+
+.desktop-window.is-mini {
+  border-radius: 18px;
+  cursor: grab;
+}
+
+.desktop-window.is-mini.is-interacting {
+  cursor: grabbing;
+}
+
+.desktop-window.is-interacting {
+  transition: none;
+  user-select: none;
+}
+
+/* Keep minimized subtree mounted off-screen so Chromium audio keeps running smoothly. */
+.desktop-window.is-minimized {
+  position: fixed !important;
+  left: -99999px !important;
+  top: 0 !important;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.desktop-window-titlebar {
+  position: relative;
+  z-index: 3;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px;
+  background: var(--dw-titlebar-bg);
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  user-select: none;
+}
+
+.desktop-window.is-interacting .desktop-window-titlebar {
+  cursor: grabbing;
+}
+
+.desktop-window-lights {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.desktop-window-light {
+  position: relative;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dw-traffic-ink);
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.desktop-window-light svg {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.desktop-window-lights:hover .desktop-window-light svg,
+.desktop-window-light:focus-visible svg {
+  opacity: 1;
+}
+
+.desktop-window-light:hover {
+  transform: scale(1.06);
+  filter: brightness(0.95);
+}
+
+.desktop-window-light.close {
+  background: var(--dw-traffic-close);
+}
+
+.desktop-window-light.min {
+  background: var(--dw-traffic-min);
+}
+
+.desktop-window-light.max {
+  background: var(--dw-traffic-max);
+}
+
+.desktop-window-title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  pointer-events: none;
+}
+
+.desktop-window-title-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--desktop-tile-player, var(--accent));
+}
+
+.desktop-window-title-icon svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+.desktop-window-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.desktop-window:not(.is-focused) .desktop-window-title {
+  color: var(--text-secondary);
+}
+
+.desktop-window-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.desktop-window-action-btn {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-content) 76%, transparent);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.desktop-window-action-btn:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--text-primary);
+}
+
+.desktop-window-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Eight-edge resize handles */
+.desktop-window-resize {
+  position: absolute;
+  z-index: 6;
+}
+
+.desktop-window-resize.n {
+  top: 0;
+  left: 8px;
+  right: 8px;
+  height: 5px;
+  cursor: ns-resize;
+}
+
+.desktop-window-resize.s {
+  bottom: 0;
+  left: 8px;
+  right: 8px;
+  height: 5px;
+  cursor: ns-resize;
+}
+
+.desktop-window-resize.e {
+  top: 8px;
+  bottom: 8px;
+  right: 0;
+  width: 5px;
+  cursor: ew-resize;
+}
+
+.desktop-window-resize.w {
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 5px;
+  cursor: ew-resize;
+}
+
+.desktop-window-resize.nw {
+  top: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nwse-resize;
+}
+
+.desktop-window-resize.ne {
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nesw-resize;
+}
+
+.desktop-window-resize.se {
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nwse-resize;
+}
+
+.desktop-window-resize.sw {
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nesw-resize;
+}
+
+.desktop-window-snap-preview {
+  position: fixed;
+  z-index: 35;
+  border-radius: 14px;
+  background: var(--dw-snap-bg);
+  border: 2px dashed var(--dw-snap-border);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-window,
+  .desktop-window-light,
+  .desktop-window-light svg {
+    transition: none;
+  }
+}

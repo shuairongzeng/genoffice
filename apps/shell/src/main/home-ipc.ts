@@ -166,6 +166,7 @@ export interface HomeFileIpcHost {
   newBrowserTab: () => void
   newPdfTab: () => void | Promise<void>
   openMediaPlayerTab?: () => void
+  openMediaInTab?: (filePath?: string) => void
   // the file-follow plumbing (recents/stars/tabs re-keying) stays in index.ts
   afterFileMoved: (oldPath: string, newPath: string) => void
   afterFolderMoved: (oldDir: string, newDir: string, filesBefore: readonly string[]) => void
@@ -992,6 +993,11 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
 
   ipcMain.handle(HOME_CHANNELS.openMediaPlayer, () => {
     host.openMediaPlayerTab?.()
+  })
+
+  ipcMain.handle(HOME_CHANNELS.desktopMediaOpenInTab, (_event, rawPath: unknown) => {
+    const filePath = typeof rawPath === 'string' && rawPath.trim() ? rawPath.trim() : undefined
+    host.openMediaInTab?.(filePath)
   })
 
   ipcMain.handle(HOME_CHANNELS.newPdf, (_event, opts?: NewFileOpts) => {

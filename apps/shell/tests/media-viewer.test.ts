@@ -8,7 +8,11 @@ import type {
   MediaPlaylistItem,
 } from '../src/shared/home-api'
 import { LocaleProvider } from '../src/renderer/src/locale'
-import { MediaViewer } from '../src/renderer/src/MediaViewer'
+import {
+  MediaViewer,
+  type MediaExternalCommand,
+  type MediaPlaybackReport,
+} from '../src/renderer/src/MediaViewer'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -429,5 +433,75 @@ describe('MediaViewer full player UI & interactions', () => {
       cancelRafSpy.mockRestore()
       getCtxSpy.mockRestore()
     }
+  })
+
+  it('supports embedded mode without touching URL history, honors keyboardActive, preserves the audio node across mini transitions, and accepts external commands', async () => {
+    const replaceSpy = vi.spyOn(window.history, 'replaceState')
+    const reports: MediaPlaybackReport[] = []
+    const onPlaybackReport = (report: MediaPlaybackReport) => {
+      reports.push(report)
+    }
+
+    async function renderEmbedded(opts: {
+      keyboardActive: boolean
+      compactMini: boolean
+      externalCommand?: MediaExternalCommand | null
+    }): Promise<void> {
+      await act(async () => {
+        root.render(
+          createElement(
+            LocaleProvider,
+            { initial: 'en' },
+            createElement(MediaViewer, {
+              embedded: true,
+              keyboardActive: opts.keyboardActive,
+              compactMini: opts.compactMini,
+              externalCommand: opts.externalCommand ?? null,
+              onPlaybackReport,
+            }),
+          ),
+        )
+      })
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+    }
+
+    await renderEmbedded({ keyboardActive: false, compactMini: false })
+    expect(replaceSpy).not.toHaveBeenCalled()
+
+    const audioInitial = host.querySelector('audio')!
+    expect(audioInitial).toBeTruthy()
+    audioInitial.currentTime = 12
+
+    // Space / ArrowRight do nothing when keyboardActive is false
+    playSpy.mockClear()
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space' }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
+    })
+    expect(playSpy).not.toHaveBeenCalled()
+    expect(audioInitial.currentTime).toBe(12)
+
+    // Switching to compactMini keeps the exact same <audio> DOM element alive
+    await renderEmbedded({ keyboardActive: true, compactMini: true })
+    expect(host.querySelector('[data-testid="media-mini-card"]')).toBeTruthy()
+    expect(host.querySelector('audio')).toBe(audioInitial)
+
+    // Expanding back to normal still retains the same <audio> element
+    await renderEmbedded({ keyboardActive: true, compactMini: false })
+    expect(host.querySelector('[data-testid="media-mini-card"]')).toBeNull()
+    expect(host.querySelector('audio')).toBe(audioInitial)
+
+    // External commands trigger playback and next-track switching without rewriting window.history
+    await renderEmbedded({
+      keyboardActive: true,
+      compactMini: false,
+      externalCommand: { seq: 1, type: 'next' },
+    })
+    expect(mediaSwitchTrack).toHaveBeenCalledWith('/media/02-Beta.mp3')
+    expect(replaceSpy).not.toHaveBeenCalled()
+    expect(reports.length).toBeGreaterThan(0)
   })
 })

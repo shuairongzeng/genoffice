@@ -403,9 +403,36 @@ describe('asDockOpenState (the report validation)', () => {
       { view: null, settings: true, plugins: true, templates: true, loggedIn: true },
       { view: null, settings: true, plugins: true, templates: true, ask: undefined },
       { view: null, settings: true, plugins: true, templates: true, ask: true },
+      { ...DOCK_OPEN_NONE, player: 'yes' },
+      { ...DOCK_OPEN_NONE, playerPlaying: 1 },
+      { ...DOCK_OPEN_NONE, playerTitle: 42 },
     ]) {
       expect(asDockOpenState(bad)).toBeNull()
     }
+  })
+
+  it('preserves optional player fields and caps playerTitle length to 160 chars', () => {
+    const withPlayer = asDockOpenState({
+      ...DOCK_OPEN_NONE,
+      player: true,
+      playerPlaying: true,
+      playerTitle: 'Song Title',
+    })
+    expect(withPlayer).toEqual({
+      ...DOCK_OPEN_NONE,
+      player: true,
+      playerPlaying: true,
+      playerTitle: 'Song Title',
+    })
+
+    const longTitle = 'A'.repeat(220)
+    const truncated = asDockOpenState({
+      ...DOCK_OPEN_NONE,
+      player: true,
+      playerPlaying: false,
+      playerTitle: longTitle,
+    })
+    expect(truncated?.playerTitle).toHaveLength(160)
   })
 })
 

@@ -475,6 +475,8 @@ const DOCK_NAV_VIEWS = ['desktop', 'recent', 'starred', 'cloud', 'sessions'] as 
 const DOCK_SETTINGS_SECTIONS = ['general', 'plugins'] as const
 /** the open targets a dock close action may name (the context menu's 关闭标签) */
 const DOCK_CLOSE_TARGETS = ['settings', 'templates', 'plugins'] as const
+/** the desktop media player actions routed from the doc-mode dock */
+const DOCK_PLAYER_ACTIONS = ['show', 'toggle-play', 'next', 'prev', 'mini', 'close'] as const
 
 /**
  * A dock action, whole: the discriminated intent the doc-mode dock's items
@@ -489,6 +491,7 @@ function asDockNavIntent(value: unknown): DockNavIntent | null {
     section: unknown
     target: unknown
     custom: unknown
+    action: unknown
   }>
   if (raw.kind === 'nav') {
     if (typeof raw.view !== 'string') return null
@@ -512,6 +515,11 @@ function asDockNavIntent(value: unknown): DockNavIntent | null {
     const custom = asDockCustomItem(raw.custom)
     if (!custom) return null
     return { kind: 'custom', custom }
+  }
+  if (raw.kind === 'player') {
+    if (typeof raw.action !== 'string') return null
+    if (!(DOCK_PLAYER_ACTIONS as readonly string[]).includes(raw.action)) return null
+    return { kind: 'player', action: raw.action as (typeof DOCK_PLAYER_ACTIONS)[number] }
   }
   return null
 }

@@ -41,6 +41,19 @@ export interface MediaPlayerStrings {
   lyricsEmpty: string
   audioLossless: string
   clickLyricSeek: string
+  windowMinimize: string
+  windowMaximize: string
+  windowRestore: string
+  windowClose: string
+  miniMode: string
+  expandMode: string
+  openInTab: string
+  dockPlay: string
+  dockPause: string
+  dockNext: string
+  dockPrev: string
+  dockShowPlayer: string
+  dockQuitPlayer: string
 }
 
 const ZH_STRINGS: MediaPlayerStrings = {
@@ -83,6 +96,19 @@ const ZH_STRINGS: MediaPlayerStrings = {
   lyricsEmpty: '同目录放入同名 .lrc 歌词文件即可同步滚动',
   audioLossless: 'Hi-Res 无损',
   clickLyricSeek: '点击跳转至该句',
+  windowMinimize: '最小化到程序坞',
+  windowMaximize: '最大化窗口',
+  windowRestore: '还原窗口',
+  windowClose: '关闭播放器',
+  miniMode: '迷你音乐盒',
+  expandMode: '展开完整播放器',
+  openInTab: '在标签页中打开',
+  dockPlay: '播放',
+  dockPause: '暂停',
+  dockNext: '下一曲',
+  dockPrev: '上一曲',
+  dockShowPlayer: '显示播放器窗口',
+  dockQuitPlayer: '退出播放器',
 }
 
 const ZH_TW_STRINGS: MediaPlayerStrings = {
@@ -125,6 +151,19 @@ const ZH_TW_STRINGS: MediaPlayerStrings = {
   lyricsEmpty: '於同資料夾放入同名 .lrc 歌詞檔即可同步捲動',
   audioLossless: 'Hi-Res 無損',
   clickLyricSeek: '點擊跳轉至該句',
+  windowMinimize: '最小化至 Dock',
+  windowMaximize: '最大化視窗',
+  windowRestore: '還原視窗',
+  windowClose: '關閉播放器',
+  miniMode: '迷你音樂盒',
+  expandMode: '展開完整播放器',
+  openInTab: '在分頁中開啟',
+  dockPlay: '播放',
+  dockPause: '暫停',
+  dockNext: '下一曲',
+  dockPrev: '上一曲',
+  dockShowPlayer: '顯示播放器視窗',
+  dockQuitPlayer: '結束播放器',
 }
 
 const EN_STRINGS: MediaPlayerStrings = {
@@ -167,6 +206,19 @@ const EN_STRINGS: MediaPlayerStrings = {
   lyricsEmpty: 'Add a matching .lrc file alongside the track for synced lyrics',
   audioLossless: 'Hi-Res Lossless',
   clickLyricSeek: 'Click line to seek',
+  windowMinimize: 'Minimize to Dock',
+  windowMaximize: 'Maximize',
+  windowRestore: 'Restore',
+  windowClose: 'Close Player',
+  miniMode: 'Mini Player',
+  expandMode: 'Expand Player',
+  openInTab: 'Open in Tab',
+  dockPlay: 'Play',
+  dockPause: 'Pause',
+  dockNext: 'Next Track',
+  dockPrev: 'Previous Track',
+  dockShowPlayer: 'Show Media Player',
+  dockQuitPlayer: 'Quit Player',
 }
 
 const STRINGS_BY_LANG: Partial<Record<Lang, MediaPlayerStrings>> = {

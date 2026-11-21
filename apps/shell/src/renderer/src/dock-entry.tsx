@@ -9,6 +9,7 @@ import {
   DockRecentIcon,
   DockStarredIcon,
   GearGlyph,
+  PlayerGlyph,
   PlugGlyph,
   TemplatesGlyph,
 } from './app-glyphs'
@@ -18,6 +19,7 @@ import { normalizeDockPrefs, removeDockCustom, type DockPrefs } from '../../shar
 import { dockCustomLabel, dockCustomIcon, dockCustomTile } from './dock-custom'
 import { useI18n } from './locale'
 import { DESKTOP_STRINGS } from './desktop-strings'
+import { getMediaPlayerStrings } from './media-player-strings'
 
 /**
  * The dock's standalone mount: the shell renderer loaded with `?view=dock`
@@ -232,6 +234,27 @@ export function DockEntry(): React.JSX.Element {
     ...(isOpen ? [{ label: t('dockMenuClose'), onSelect: close, danger: true }] : []),
   ]
 
+  const ps = getMediaPlayerStrings(lang)
+  const buildPlayerMenu = (): readonly DockMenuEntry[] => [
+    {
+      label: dockOpen.playerPlaying ? ps.dockPause : ps.dockPlay,
+      onSelect: () => route({ kind: 'player', action: 'toggle-play' }),
+    },
+    { label: ps.dockPrev, onSelect: () => route({ kind: 'player', action: 'prev' }) },
+    { label: ps.dockNext, onSelect: () => route({ kind: 'player', action: 'next' }) },
+    { label: ps.dockShowPlayer, onSelect: () => route({ kind: 'player', action: 'show' }) },
+    { label: ps.miniMode, onSelect: () => route({ kind: 'player', action: 'mini' }) },
+    {
+      label: ps.dockQuitPlayer,
+      onSelect: () => route({ kind: 'player', action: 'close' }),
+      danger: true,
+    },
+  ]
+  const playerRunning = Boolean(dockOpen.player)
+  const hasPlayerCustom = dockPrefs.customItems.some(
+    (custom) => custom.kind === 'app' && custom.target === 'app:player',
+  )
+
   // the same groups the Home-side dock carries (the shared nav artwork above
   // and the desktop tiles' launcher glyphs), minus the active dots: the
   // current view is Home's state — the running dots below come from the
@@ -335,31 +358,74 @@ export function DockEntry(): React.JSX.Element {
       // resolves the verb — a vanished target's notice lives there too),
       // the remove verb writes the prefs this view already holds
       ...dockPrefs.customItems.map(
-        (custom) =>
-          ({
+        (custom) => {
+          const isPlayerCustom = custom.kind === 'app' && custom.target === 'app:player'
+          return {
             id: custom.id,
-            label: dockCustomLabel(custom, DESKTOP_STRINGS[lang]),
+            label:
+              isPlayerCustom && playerRunning && dockOpen.playerTitle
+                ? dockOpen.playerTitle
+                : dockCustomLabel(custom, DESKTOP_STRINGS[lang]),
             icon: dockCustomIcon(custom),
             tile: dockCustomTile(custom),
-            onSelect: () => route({ kind: 'custom', custom }),
-            menu: [
-              { label: t('dockMenuOpen'), onSelect: () => route({ kind: 'custom', custom }) },
-              {
-                label: t('dockMenuRemove'),
-                onSelect: () => {
-                  const next = removeDockCustom(dockPrefs, custom.id)
-                  if (next !== dockPrefs) {
-                    commitDockPrefs({
-                      customItems: next.customItems,
-                      order: next.order,
-                    })
-                  }
-                },
-                danger: true,
-              },
-            ],
-          }) as DockItem,
+            ...(isPlayerCustom && playerRunning
+              ? { running: true, playing: Boolean(dockOpen.playerPlaying) }
+              : {}),
+            onSelect: () =>
+              isPlayerCustom && playerRunning
+                ? route({ kind: 'player', action: 'show' })
+                : route({ kind: 'custom', custom }),
+            menu:
+              isPlayerCustom && playerRunning
+                ? [
+                    ...buildPlayerMenu(),
+                    {
+                      label: t('dockMenuRemove'),
+                      onSelect: () => {
+                        const next = removeDockCustom(dockPrefs, custom.id)
+                        if (next !== dockPrefs) {
+                          commitDockPrefs({
+                            customItems: next.customItems,
+                            order: next.order,
+                          })
+                        }
+                      },
+                      danger: true,
+                    },
+                  ]
+                : [
+                    { label: t('dockMenuOpen'), onSelect: () => route({ kind: 'custom', custom }) },
+                    {
+                      label: t('dockMenuRemove'),
+                      onSelect: () => {
+                        const next = removeDockCustom(dockPrefs, custom.id)
+                        if (next !== dockPrefs) {
+                          commitDockPrefs({
+                            customItems: next.customItems,
+                            order: next.order,
+                          })
+                        }
+                      },
+                      danger: true,
+                    },
+                  ],
+          } as DockItem
+        },
       ),
+      ...(playerRunning && !hasPlayerCustom
+        ? [
+            {
+              id: 'dock:player',
+              label: dockOpen.playerTitle || DESKTOP_STRINGS[lang].appPlayer,
+              icon: <PlayerGlyph />,
+              tile: 'player',
+              running: true,
+              playing: Boolean(dockOpen.playerPlaying),
+              menu: buildPlayerMenu(),
+              onSelect: () => route({ kind: 'player', action: 'show' }),
+            } as DockItem,
+          ]
+        : []),
     ],
     [
       {

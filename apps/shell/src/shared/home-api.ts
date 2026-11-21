@@ -918,12 +918,21 @@ export interface DockHotEdgeReport {
  * may have vanished, the folder may no longer be a root, the app tile's
  * surface may open as a modal over the rising tab.
  */
+export type DockPlayerAction = 'show' | 'toggle-play' | 'next' | 'prev' | 'mini' | 'close'
+
+export interface DesktopMediaOpenPayload {
+  filePath?: string
+  token?: string
+  mode?: 'normal' | 'mini'
+}
+
 export type DockNavIntent =
   | { kind: 'nav'; view: 'desktop' | 'recent' | 'starred' | 'cloud' | 'sessions' }
   | { kind: 'settings'; section: 'general' | 'plugins' }
   | { kind: 'templates' }
   | { kind: 'close'; target: 'settings' | 'templates' | 'plugins' }
   | { kind: 'custom'; custom: DockCustomItem }
+  | { kind: 'player'; action: DockPlayerAction }
 
 export interface HomeApi {
   /** unified recents across document types, newest first (paged) */
@@ -1526,8 +1535,12 @@ export interface HomeApi {
   newHtml(opts?: NewFileOpts): Promise<void>
   /** open a browser tab (the desktop's Web tile and the palette's open-browser action) */
   newBrowser(): Promise<void>
-  /** open or focus the persistent desktop media player tab */
+  /** open or focus the persistent desktop media player window */
   openMediaPlayer(): Promise<void>
+  /** open a playable media file (or standalone player) inside a dedicated tab */
+  openMediaInTab?(filePath?: string): Promise<void>
+  /** subscribe to desktop media player open requests dispatched from main process */
+  onDesktopMediaOpen?(handler: (payload: DesktopMediaOpenPayload) => void): () => void
   /** create a blank single-page PDF in the default save folder and open it */
   newPdf(opts?: NewFileOpts): Promise<void>
   /** drop entries from the recent list (does not touch the files) */
@@ -1922,6 +1935,8 @@ export const HOME_CHANNELS = {
   newHtml: 'home:new-html',
   newBrowser: 'home:new-browser',
   openMediaPlayer: 'home:open-media-player',
+  desktopMediaOpen: 'home:desktop-media-open',
+  desktopMediaOpenInTab: 'home:desktop-media-open-in-tab',
   newPdf: 'home:new-pdf',
   templatesList: 'home:templates-list',
   newFromTemplate: 'home:new-from-template',
