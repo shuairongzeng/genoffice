@@ -44,6 +44,10 @@ export interface PiAgentPromptRequest {
   readonly scopePaths?: readonly string[]
   readonly lineageSeed?: string | null
   readonly lang?: Lang
+  /** Explicitly detaches the currently active shell tab from this turn's focus context. */
+  readonly ignoreActiveTabContext?: boolean
+  /** Optional shell tab id currently focused in the UI when the prompt was submitted. */
+  readonly focusedTabId?: string | null
 }
 
 export interface PiAgentPromptResult {

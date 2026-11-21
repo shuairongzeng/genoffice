@@ -31,6 +31,8 @@ export interface PendingAskQuery {
   readonly origin: AskQueryOrigin
   /** Explicit session destination when forwarded from a mirror panel */
   readonly targetSession?: PendingAskTargetSession
+  /** Explicitly detaches active-tab focus hints when requested from the composer */
+  readonly ignoreActiveTabContext?: boolean
   /**
    * An explicit file selection (the desktop's multi-select) as this
    * conversation's corpus: the panel attaches it as the round scope — every
@@ -117,6 +119,7 @@ export function normalizeForwardedAskQuery(raw: unknown): PendingAskQuery | null
     seq: Math.trunc(p.seq),
     origin: p.origin,
     ...(targetSession ? { targetSession } : {}),
+    ...(p.ignoreActiveTabContext === true ? { ignoreActiveTabContext: true } : {}),
     ...(scopePaths.length > 0 ? { scopePaths } : {}),
   }
 }

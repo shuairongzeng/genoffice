@@ -8,11 +8,20 @@ import type {
   AiPetDragReport,
   AiPetMenuAction,
   AiPetMenuRequest,
+  AskActiveSessionTarget,
+  AskRunEvent,
   DockHotEdgeReport,
   DockNavIntent,
   DockOpenState,
   HomeTabsState,
 } from '../shared/home-api'
+import type { PiAgentConfirmRequest } from '../shared/pi-agent-api'
+import {
+  createAskRunHub,
+  type AskRunHub,
+  type PiRunStartInput,
+  type StoredChatEntry,
+} from './ask-run-hub'
 import type { OpenDocumentTab } from '../shared/tabs-api'
 import { normalizeAiDock } from '../shared/desktop-geometry'
 import { mergeAiPetPrefs } from '../shared/ai-pet-prefs'
@@ -57,10 +66,41 @@ export function installHomeTabsPush(push: HomeTabsPush | null): void {
 }
 
 let livePush: HomeTabsPush | null = null
-let activeRunEventPublisher: ((payload: unknown, excludeSender?: WebContents) => void) | null = null
+let liveAskRunHub: AskRunHub | null = null
 
-export function broadcastAskRunEventFromMain(payload: unknown): void {
-  activeRunEventPublisher?.(payload)
+export function getLiveAskRunHub(): AskRunHub | null {
+  return liveAskRunHub
+}
+
+export function broadcastAskRunEventFromMain(payload: AskRunEvent): void {
+  liveAskRunHub?.applyPiEvent(payload)
+}
+
+export function beginPiRunInMain(input: PiRunStartInput): void {
+  liveAskRunHub?.beginPiRun(input)
+}
+
+export function markPiUserPersistedInMain(sessionKey: string): void {
+  liveAskRunHub?.markPiUserPersisted(sessionKey)
+}
+
+export function markPiAssistantPersistedInMain(sessionKey: string): void {
+  liveAskRunHub?.markPiAssistantPersisted(sessionKey)
+}
+
+export function setPiConfirmInMain(
+  sessionKey: string,
+  req: PiAgentConfirmRequest | null,
+): void {
+  liveAskRunHub?.setPiConfirm(sessionKey, req)
+}
+
+export function finishPiRunInMain(sessionKey: string): void {
+  liveAskRunHub?.finishPiRun(sessionKey)
+}
+
+export function clearAskSessionInMain(sessionKey: string): void {
+  liveAskRunHub?.clearSession(sessionKey)
 }
 
 /**
@@ -305,6 +345,12 @@ export interface HomeWorkbenchIpcDeps {
    * applyDockOpen — the cache lives where the push does.
    */
   takeDockOpen: () => DockOpenState
+  /** Read persisted chat turns from the project store for live snapshot catch-up. */
+  loadStoredChat?: (
+    projectId: string,
+    chatId: string,
+    limit: number,
+  ) => readonly StoredChatEntry[]
 }
 
 /** longest lineage path/task/summary the record channel accepts (the store caps the task itself) */
@@ -699,51 +745,33 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
     return next
   })
 
-  /* ── the loop's pub/sub backbone: Home's loop publishes run events, every
-   * OTHER renderer subscribes (a closed mount never receives one). Snapshots
-   * are bucketed by sessionKey (capped at 32) so switching documents never
-   * cross-contaminates streams, while latestRunSnapshot stays for callers
-   * that omit a sessionKey. */
-  const MAX_SESSION_SNAPSHOTS = 32
-  const runSnapshotsByKey = new Map<string, unknown>()
-  let latestRunSnapshot: unknown = null
-
-  const publishRunEvent = (payload: unknown, excludeSender?: WebContents): void => {
-    const evt = payload as { type?: string; sessionKey?: string; payload?: unknown } | undefined
-    if (evt?.type === 'snapshot') {
-      latestRunSnapshot = evt.payload
-      const snapKey =
-        typeof evt.sessionKey === 'string' && evt.sessionKey !== ''
-          ? evt.sessionKey
-          : evt.payload &&
-              typeof evt.payload === 'object' &&
-              typeof (evt.payload as { sessionKey?: unknown }).sessionKey === 'string'
-            ? (evt.payload as { sessionKey: string }).sessionKey
-            : ''
-      if (snapKey !== '') {
-        runSnapshotsByKey.delete(snapKey)
-        runSnapshotsByKey.set(snapKey, evt.payload)
-        if (runSnapshotsByKey.size > MAX_SESSION_SNAPSHOTS) {
-          const oldest = runSnapshotsByKey.keys().next().value
-          if (oldest !== undefined) runSnapshotsByKey.delete(oldest)
-        }
+  /* ── the loop's pub/sub backbone and authoritative session coordinator:
+   * Home and Overlay panels synchronize through AskRunHub, while Pi runs
+   * maintain live timeline snapshots and monotonic event sequences in main. */
+  const askRunHub = createAskRunHub({
+    loadStoredChat: deps.loadStoredChat,
+    emitToAll: (payload, excludeSender) => {
+      for (const wc of webContents.getAllWebContents()) {
+        if ((excludeSender && wc === excludeSender) || wc.isDestroyed()) continue
+        wc.send(HOME_CHANNELS.askRunEvent, payload)
       }
-    }
-    for (const wc of webContents.getAllWebContents()) {
-      if ((excludeSender && wc === excludeSender) || wc.isDestroyed()) continue
-      wc.send(HOME_CHANNELS.askRunEvent, payload)
-    }
-  }
-  activeRunEventPublisher = publishRunEvent
+    },
+  })
+  liveAskRunHub = askRunHub
 
   ipcMain.on(HOME_CHANNELS.askRunEvent, (event, payload) => {
-    publishRunEvent(payload, event.sender)
+    askRunHub.publishEvent(payload as AskRunEvent, event.sender)
   })
   ipcMain.handle(HOME_CHANNELS.askRunSnapshot, (_event, sessionKey?: unknown) => {
-    if (typeof sessionKey === 'string' && sessionKey !== '') {
-      return runSnapshotsByKey.get(sessionKey) ?? null
-    }
-    return latestRunSnapshot
+    return askRunHub.getSnapshot(typeof sessionKey === 'string' ? sessionKey : undefined)
+  })
+  ipcMain.handle(HOME_CHANNELS.askActiveSessionGet, () => askRunHub.getActiveState())
+  ipcMain.handle(HOME_CHANNELS.askActiveSessionSet, (event, rawTarget: unknown) => {
+    const target =
+      rawTarget && typeof rawTarget === 'object'
+        ? (rawTarget as AskActiveSessionTarget)
+        : null
+    return askRunHub.setActiveSession(target, event.sender)
   })
   // a mirror mount's question: Home's loop is the single executor, so this
   // goes to the shell renderer ONLY — never back into the mirror itself

@@ -58,6 +58,12 @@ function asPromptRequest(raw: unknown): PiAgentPromptRequest | null {
       ? { lineageSeed: r.lineageSeed }
       : {}),
     ...(typeof r.lang === 'string' ? { lang: r.lang as PiAgentPromptRequest['lang'] } : {}),
+    ...(typeof r.ignoreActiveTabContext === 'boolean'
+      ? { ignoreActiveTabContext: r.ignoreActiveTabContext }
+      : {}),
+    ...(typeof r.focusedTabId === 'string' || r.focusedTabId === null
+      ? { focusedTabId: r.focusedTabId }
+      : {}),
   }
 }
 

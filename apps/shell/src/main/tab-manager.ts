@@ -397,6 +397,12 @@ export class TabManager {
     this.syncDrawerOverlay()
   }
 
+  /** Preload the AI drawer overlay view silently while Home is still active. */
+  prewarmDrawerOverlay(): void {
+    if (this.shellWindow.isDestroyed()) return
+    this.drawerOverlay?.prewarm(this.uiScale())
+  }
+
   /**
    * Install (or drop) the doc-mode dock's native overlay host — the hot
    * strip at the bottom edge that grows into the fisheye dock. Synced in

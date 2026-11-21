@@ -301,7 +301,23 @@ export function createShellWindow(deps: ShellWindowDeps): void {
     send: tabsChangedDualSend(deps.sendToShellRenderer, () => manager.drawerOverlayWebContents()),
   })
   installHomeTabsPush(pushHomeTabs)
-  win.webContents.on('did-finish-load', () => pushHomeTabs.push(true))
+  let prewarmTimer: ReturnType<typeof setTimeout> | null = null
+  win.webContents.on('did-finish-load', () => {
+    pushHomeTabs.push(true)
+    if (prewarmTimer === null && !win.isDestroyed()) {
+      prewarmTimer = setTimeout(() => {
+        prewarmTimer = null
+        if (!win.isDestroyed()) manager.prewarmDrawerOverlay()
+      }, 300)
+      prewarmTimer.unref?.()
+    }
+  })
+  win.once('closed', () => {
+    if (prewarmTimer !== null) {
+      clearTimeout(prewarmTimer)
+      prewarmTimer = null
+    }
+  })
   manager.setClosedListener((closed) => deps.onTabsClosed(closed))
   // W2: the AI drawer's native overlay — while a document tab is active, the
   // HTML drawer cannot paint above the document's WebContentsView, so the

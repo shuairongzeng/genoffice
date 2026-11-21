@@ -1169,3 +1169,29 @@ describe('the panel edge-resize surface (home:ask-panel-resize -> applyPanelResi
     expect(overlay.applyPanelResizeReport(view.webContents as never, { start: true })).toBeNull()
   })
 })
+
+describe('overlay silent prewarming (prewarm)', () => {
+  it('mounts hidden 1x1 overlay silently, keeps hidden on ready ping, and reuses on first doc activation', () => {
+    const overlay = createAiDrawerOverlay(win as never, { focusActiveView: () => undefined })
+    overlay.prewarm(1.25)
+
+    expect(win.contentView.addChildView).toHaveBeenCalledTimes(1)
+    const view = overlayView(win)
+    expect(view.bounds.at(-1)).toEqual({ x: 0, y: 0, width: 1, height: 1 })
+    expect(view.visibles.at(-1)).toBe(false)
+    expect(view.webContents.loadURLs).toHaveLength(1)
+
+    // Calling prewarm twice is a no-op.
+    overlay.prewarm(1.25)
+    expect(win.contentView.addChildView).toHaveBeenCalledTimes(1)
+
+    // Ready ping while still on Home keeps the view invisible so it never intercepts clicks.
+    overlay.markPanelReadyFor(view.webContents as never)
+    expect(view.visibles.at(-1)).toBe(false)
+
+    // Switching to a document tab reuses the already-warmed view with zero second load.
+    overlay.sync(state({ scale: 1.25 }))
+    expect(view.webContents.loadURLs).toHaveLength(1)
+    expect(view.visibles.at(-1)).toBe(true)
+  })
+})

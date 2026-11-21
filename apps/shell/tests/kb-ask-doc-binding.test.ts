@@ -262,7 +262,7 @@ describe('the doc-bound thread identity', () => {
     expect(text).toContain('the sales table shows…')
   })
 
-  it('a tab switch switches the thread: the old turns leave, the new thread claims', async () => {
+  it('keeps current thread on tab switch, updates context chip, and switches on explicit doc-chat click', async () => {
     const first = chatIdForPath('/desk/a.docx')
     const second = chatIdForPath('/desk/b.docx')
     chats.set(first, [
@@ -271,28 +271,52 @@ describe('the doc-bound thread identity', () => {
     chats.set(second, [
       { seq: 0, ts: '2026-11-03T09:00:00.000Z', role: 'user', text: 'question for b' },
     ])
-    surfaceTabs = [DOC_TAB('/desk/a.docx')]
+    surfaceTabs = [DOC_TAB('/desk/a.docx', 'a.docx')]
     render()
     await settle()
     expect(host.querySelector('.kb-ask-thread')?.textContent).toContain('question for a')
-    // the person switches to the other document
-    await switchTab([DOC_TAB('/desk/b.docx')])
+
+    // Switching tabs keeps thread a intact while updating the focused context chip to b.docx.
+    await switchTab([DOC_TAB('/desk/b.docx', 'b.docx')])
+    expect(host.querySelector('.kb-ask-thread')?.textContent).toContain('question for a')
+    expect(host.querySelector('[data-testid="kb-focused-context-chip"]')?.textContent).toContain(
+      'b.docx',
+    )
+
+    // Explicit click on the doc chat switcher enters b's thread.
+    const switchToB = host.querySelector(
+      '[data-testid="kb-switch-doc-chat-btn"], [data-testid="kb-new-doc-chat-btn"]',
+    ) as HTMLButtonElement
+    expect(switchToB).toBeTruthy()
+    await act(async () => {
+      switchToB.click()
+    })
+    await settle()
     const text = host.querySelector('.kb-ask-thread')?.textContent ?? ''
     expect(text).toContain('question for b')
     expect(text).not.toContain('question for a')
-    // and back: the first thread's turns are still there (persisted ids)
-    await switchTab([DOC_TAB('/desk/a.docx')])
+
+    // Switching back to a.docx preserves b until the user explicitly switches back to a.
+    await switchTab([DOC_TAB('/desk/a.docx', 'a.docx')])
+    const switchToA = host.querySelector(
+      '[data-testid="kb-switch-doc-chat-btn"], [data-testid="kb-new-doc-chat-btn"]',
+    ) as HTMLButtonElement
+    await act(async () => {
+      switchToA.click()
+    })
+    await settle()
     expect(host.querySelector('.kb-ask-thread')?.textContent).toContain('question for a')
   })
 
-  it('leaving the docs tab returns the panel to its family root', async () => {
+  it('leaving the docs tab for a browser tab keeps active thread while focusing the browser tab', async () => {
     surfaceTabs = [DOC_TAB('/desk/a.docx')]
     render()
     await settle()
-    // a browser tab (or Home) is not a document: the mount's own root again
     await switchTab([BROWSER_TAB])
-    const resolves = projectCalls.filter((c) => c.method === 'resolveChat')
-    expect(resolves.at(-1)!.args).toEqual({ filePath: null, tempChatId: 'kb-ask' })
+    expect(host.querySelector('[data-testid="kb-focused-context-chip"]')?.textContent).toContain(
+      'Example',
+    )
+    expect(host.querySelector('.kb-ask-header-title')?.textContent).toBe('a.docx')
   })
 
   it('two documents never cross-list: the family filter stays per-root', async () => {
@@ -308,7 +332,7 @@ describe('the doc-bound thread identity', () => {
 })
 
 describe('the drawer stays open while another document opens (the meeting-minutes repro)', () => {
-  it("a tabs push mid-drawer switches the panel to the newly opened document's thread", async () => {
+  it("a tabs push mid-drawer preserves current conversation and offers one-click switch to the newly opened document", async () => {
     // doc A's thread has history; the drawer is open on it
     const a = chatIdForPath('/desk/星际旅行指南.docx')
     chats.set(a, [
@@ -319,10 +343,21 @@ describe('the drawer stays open while another document opens (the meeting-minute
     render()
     await settle()
     expect(host.querySelector('.kb-ask-thread')?.textContent).toContain('write the guide')
-    // the person opens a different document while the drawer stays open: the
-    // tab push (what the fixed dual-send delivers to this renderer) is the
-    // ONLY signal — B's thread is empty, so its empty state shows
+    // Opening a new document keeps A's thread visible without breaking flow, while updating focus chip.
     await switchTab([DOC_TAB('/desk/会议纪要.docx', '会议纪要')])
+    expect(host.querySelector('.kb-ask-thread')?.textContent).toContain('write the guide')
+    expect(host.querySelector('[data-testid="kb-focused-context-chip"]')?.textContent).toContain(
+      '会议纪要',
+    )
+
+    // Clicking the focused context bar action enters B's dedicated empty thread.
+    const switchToB = host.querySelector(
+      '[data-testid="kb-switch-doc-chat-btn"], [data-testid="kb-new-doc-chat-btn"]',
+    ) as HTMLButtonElement
+    await act(async () => {
+      switchToB.click()
+    })
+    await settle()
     const text = host.querySelector('.kb-ask-thread')?.textContent ?? ''
     expect(text).not.toContain('write the guide')
     // B's empty state carries the suggestion cards, not A's history
@@ -401,35 +436,25 @@ describe("the seed's airtight guards (the flapping-identity repro)", () => {
     await settle()
     await ask('first question')
     const userTexts = () =>
-      started.map((r) => r.messages.find((m) => m.role === 'user')?.text ?? '')
+      started.map((r) => r.messages.filter((m) => m.role === 'user').at(-1)?.text ?? '')
     expect(userTexts().filter((t) => t.includes('Document lineage'))).toHaveLength(1)
 
-    // flap to a non-doc surface: the family thread's ask carries NO seed
+    // Switch tab to Home: active conversation stays bound to the doc, second question does not re-seed.
     await switchTab([HOME_TAB])
-    await ask('family question')
+    await ask('second question while viewing home')
     expect(userTexts().at(-1)).not.toContain('Document lineage')
 
-    // flap back to the doc: its thread has the seeded turn stored — history
-    // restores, and the next ask does not seed again
+    // Switch back to doc tab: conversation stayed intact and third question carries no duplicate seed.
     await switchTab([DOC_TAB(PATH)])
     const text = host.querySelector('.kb-ask-thread')?.textContent ?? ''
     expect(text).toContain('Document lineage')
     expect(text).toContain('first question')
     await ask('third question')
     expect(userTexts().at(-1)).not.toContain('Document lineage')
-    // exactly one seed, across every ask in the flap cycle
     expect(userTexts().filter((t) => t.includes('Document lineage'))).toHaveLength(1)
   })
 
   it('an ask before the doc claim resolves carries no seed (the claim is the authority)', async () => {
-    // the claim's resolve is delayed past the ask: the thread identity is
-    // in flight, so the lineage line must not ride a question whose thread
-    // is not provably the document's yet
-    lineageByPath[PATH] = lineage
-    surfaceTabs = [DOC_TAB(PATH)]
-    render()
-    await settle()
-    // a slow claim on a switch to another lineage doc
     const OTHER = '/desk/other.docx'
     lineageByPath[OTHER] = lineage
     let release: (() => void) | null = null
@@ -442,19 +467,20 @@ describe("the seed's airtight guards (the flapping-identity repro)", () => {
       if (args.filePath === OTHER && release === null) {
         await new Promise<void>((resolve) => {
           release = resolve
-          // released after the ask below lands
         })
       }
       return promise
     }
-    await switchTab([DOC_TAB(OTHER)])
+    surfaceTabs = [DOC_TAB(OTHER)]
+    render()
+    await act(async () => {
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
     await ask('raced question')
     release?.()
     await settle()
     const raced = started.at(-1)!.messages.find((m) => m.role === 'user')?.text ?? ''
     expect(raced).not.toContain('Document lineage')
-    // and once the claim resolves, the thread is empty of the seed: the
-    // next ask is the person's question alone (the moment passed)
     await ask('settled question')
     expect(started.at(-1)!.messages.find((m) => m.role === 'user')?.text).not.toContain(
       'Document lineage',
@@ -515,7 +541,7 @@ describe('the first-open suggestions', () => {
 })
 
 describe('the footer copy per thread kind', () => {
-  it('doc-bound says saved-with-the-document; the family root says the panel copy', async () => {
+  it('doc-bound says saved-with-the-document; a free workbench thread says the panel copy', async () => {
     const id = chatIdForPath('/desk/a.docx')
     chats.set(id, [
       { seq: 0, ts: '2026-11-03T09:00:00.000Z', role: 'user', text: 'a turn, so the footer shows' },
@@ -530,8 +556,22 @@ describe('the footer copy per thread kind', () => {
     expect(docFooter).toBeTruthy()
     expect(docFooter!.getAttribute('data-kind')).toBe('doc')
     expect(docFooter!.textContent).toContain('saved with the document')
-    // back to the family root: the panel copy
+
+    // Switching tabs alone keeps docFooter as doc-bound.
     await switchTab([HOME_TAB])
+    expect(host.querySelector('.kb-ask-nosave')!.getAttribute('data-kind')).toBe('doc')
+
+    // Explicitly opening a free thread from library switches footer to panel copy.
+    await act(async () => {
+      host.querySelector<HTMLElement>('.kb-ask-library-button')?.click()
+    })
+    await settle()
+    await act(async () => {
+      host
+        .querySelector<HTMLElement>('.kb-ask-library-row[data-chat="kb-ask"] .kb-ask-library-open')
+        ?.click()
+    })
+    await settle()
     const panelFooter = host.querySelector('.kb-ask-nosave')
     expect(panelFooter!.getAttribute('data-kind')).toBe('panel')
     expect(panelFooter!.textContent).toContain('saved on this device')
@@ -639,20 +679,42 @@ describe('mid-run tab switch protection', () => {
     const docChatId = chatIdForPath('/desk/costs.xlsx')
     expect(chats.get(docChatId)?.some((m) => m.text === 'Total is 2500 RMB.')).toBe(true)
 
-    // Once idle, switching to another document tab transitions threads normally.
+    // Switching to another document keeps costs.xlsx visible while updating the context chip,
+    // and clicking the context switcher opens summary.docx explicitly.
     surfaceTabs = [
       { id: 't3', kind: 'docs', title: 'summary.docx', filePath: '/desk/summary.docx', active: true },
     ]
     act(() => surfaceListener?.())
     await settle()
+    expect(host.textContent).toContain('Total is 2500 RMB.')
+    expect(host.querySelector('[data-testid="kb-focused-context-chip"]')?.textContent).toContain(
+      'summary.docx',
+    )
+    const switchToSummary = host.querySelector(
+      '[data-testid="kb-switch-doc-chat-btn"], [data-testid="kb-new-doc-chat-btn"]',
+    ) as HTMLButtonElement
+    await act(async () => {
+      switchToSummary.click()
+    })
+    await settle()
     expect(host.querySelector('.kb-ask-header-title')?.textContent).toBe('summary.docx')
     expect(host.textContent).not.toContain('Total is 2500 RMB.')
 
-    // Switching to an active media tab binds a per-file thread and displays media suggestion chips.
+    // Switching to an active media tab updates context chip and switches on explicit click.
     surfaceTabs = [
       { id: 't4', kind: 'media', title: 'photo.png', filePath: '/desk/photo.png', active: true },
     ]
     act(() => surfaceListener?.())
+    await settle()
+    expect(host.querySelector('[data-testid="kb-focused-context-chip"]')?.textContent).toContain(
+      'photo.png',
+    )
+    const switchToMedia = host.querySelector(
+      '[data-testid="kb-switch-doc-chat-btn"], [data-testid="kb-new-doc-chat-btn"]',
+    ) as HTMLButtonElement
+    await act(async () => {
+      switchToMedia.click()
+    })
     await settle()
     expect(host.querySelector('.kb-ask-header-title')?.textContent).toBe('photo.png')
     const mediaChatId = chatIdForPath('/desk/photo.png')

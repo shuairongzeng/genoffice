@@ -334,6 +334,7 @@ import { skillsRoot } from './imported-skills'
 import { DOCK_OPEN_NONE } from '../shared/dock-prefs'
 import { DOCK_ITEM_COUNT, normalizeAiDock } from '../shared/desktop-geometry'
 import {
+  clearAskSessionInMain,
   notifyHomeTabsChanged,
   registerHomeTabsIpc,
   registerHomeWorkbenchIpc,
@@ -6612,6 +6613,8 @@ registerHomeWorkbenchIpc({
   // Home's first one — the state is a fact, not an event, so unlike the
   // dock-nav buffer it is never drained)
   takeDockOpen: () => cachedDockOpen,
+  loadStoredChat: (projectId, chatId, limit) =>
+    getSharedProjectStoreFromMain()?.loadChat(projectId, chatId, limit) ?? [],
 })
 registerDroppedFilesIpc()
 registerUserSkillsIpc({
@@ -7276,8 +7279,11 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     ecosystem: piEcosystem,
   })
   setProjectChatLifecycleHooks({
-    onDeleteChat: ({ projectId, chatId }) =>
-      piRuntime?.deleteSession(`${projectId}:${chatId}`),
+    onDeleteChat: ({ projectId, chatId }) => {
+      const key = `${projectId}:${chatId}`
+      clearAskSessionInMain(key)
+      piRuntime?.deleteSession(key)
+    },
     onRebindChat: ({ projectId, oldChatId, newChatId }) =>
       piRuntime?.rebindSession(`${projectId}:${oldChatId}`, `${projectId}:${newChatId}`),
   })

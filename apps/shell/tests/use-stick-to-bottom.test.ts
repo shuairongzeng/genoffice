@@ -111,9 +111,19 @@ beforeEach(() => {
   act(() => root.render(createElement(Harness)))
   // the fake scroller's geometry and scroll verb live on the real element
   const el = host.querySelector<HTMLElement>('[data-scroller]')!
-  Object.defineProperty(el, 'scrollTop', { get: () => geo.scrollTop, set: () => {} })
-  Object.defineProperty(el, 'scrollHeight', { get: () => geo.scrollHeight })
-  Object.defineProperty(el, 'clientHeight', { get: () => geo.clientHeight })
+  Object.defineProperty(el, 'scrollTop', {
+    configurable: true,
+    get: () => geo.scrollTop,
+    set: () => {},
+  })
+  Object.defineProperty(el, 'scrollHeight', {
+    configurable: true,
+    get: () => geo.scrollHeight,
+  })
+  Object.defineProperty(el, 'clientHeight', {
+    configurable: true,
+    get: () => geo.clientHeight,
+  })
   el.scrollTo = scrollTo as never
 })
 
@@ -278,5 +288,155 @@ describe('useStickToBottom', () => {
     // the single frame's scroll went to the height as it stood at flush
     expect(scrollTo).toHaveBeenCalledTimes(1)
     expect(scrollTo).toHaveBeenCalledWith({ top: geo.scrollHeight })
+  })
+
+  it('handles wheel scroll down and up directly on scroller with deltaMode and CSS zoom', async () => {
+    await settle()
+    const el = scrollerEl()!
+    Object.defineProperty(el, 'scrollTop', {
+      configurable: true,
+      get: () => geo.scrollTop,
+      set: (value: number) => {
+        geo.scrollTop = Math.max(0, Math.min(value, bottom()))
+      },
+    })
+    el.getBoundingClientRect = () => ({ height: geo.clientHeight * 1.25 }) as DOMRect
+
+    geo.scrollHeight = 1400
+    geo.clientHeight = 400
+    geo.scrollTop = 0
+
+    // Downward wheel at 1.25 zoom: 250 / 1.25 = 200 chrome px.
+    const downEv = new WheelEvent('wheel', {
+      deltaY: 250,
+      deltaMode: 0,
+      cancelable: true,
+      bubbles: true,
+    })
+    act(() => {
+      el.dispatchEvent(downEv)
+    })
+    expect(downEv.defaultPrevented).toBe(true)
+    expect(geo.scrollTop).toBe(200)
+
+    // Line-mode downward wheel (5 lines * 16 = 80 / 1.25 = 64px).
+    const lineEv = new WheelEvent('wheel', {
+      deltaY: 5,
+      deltaMode: 1,
+      cancelable: true,
+      bubbles: true,
+    })
+    act(() => {
+      el.dispatchEvent(lineEv)
+    })
+    expect(geo.scrollTop).toBe(264)
+
+    // Scroll to bottom, then wheel up past unfollow threshold -> unfollows.
+    geo.scrollTop = bottom()
+    const upEv = new WheelEvent('wheel', {
+      deltaY: -125,
+      deltaMode: 0,
+      cancelable: true,
+      bubbles: true,
+    })
+    act(() => {
+      el.dispatchEvent(upEv)
+    })
+    expect(geo.scrollTop).toBe(bottom() - 100)
+    expect(hook.following).toBe(false)
+
+    // Wheel back down to bottom -> refollows.
+    const refollowEv = new WheelEvent('wheel', {
+      deltaY: 200,
+      deltaMode: 0,
+      cancelable: true,
+      bubbles: true,
+    })
+    act(() => {
+      el.dispatchEvent(refollowEv)
+    })
+    expect(geo.scrollTop).toBe(bottom())
+    expect(hook.following).toBe(true)
+  })
+
+  it('yields wheel to scrollable descendants while away from boundary, then takes over at edge', async () => {
+    await settle()
+    const el = scrollerEl()!
+    Object.defineProperty(el, 'scrollTop', {
+      configurable: true,
+      get: () => geo.scrollTop,
+      set: (value: number) => {
+        geo.scrollTop = Math.max(0, Math.min(value, bottom()))
+      },
+    })
+    geo.scrollHeight = 1200
+    geo.clientHeight = 400
+    geo.scrollTop = 0
+
+    const child = document.createElement('div')
+    child.style.overflowY = 'auto'
+    let childTop = 10
+    Object.defineProperty(child, 'scrollHeight', { configurable: true, get: () => 300 })
+    Object.defineProperty(child, 'clientHeight', { configurable: true, get: () => 100 })
+    Object.defineProperty(child, 'scrollTop', {
+      configurable: true,
+      get: () => childTop,
+      set: (value: number) => {
+        childTop = value
+      },
+    })
+    host.querySelector('[data-content]')!.append(child)
+
+    // Child can still scroll down (10 + 100 < 300): outer scroller yields.
+    const inChildEv = new WheelEvent('wheel', { deltaY: 80, cancelable: true, bubbles: true })
+    act(() => {
+      child.dispatchEvent(inChildEv)
+    })
+    expect(inChildEv.defaultPrevented).toBe(false)
+    expect(geo.scrollTop).toBe(0)
+
+    // Child sits at its bottom edge: outer scroller takes over downward wheel.
+    childTop = 200
+    const atEdgeEv = new WheelEvent('wheel', { deltaY: 120, cancelable: true, bubbles: true })
+    act(() => {
+      child.dispatchEvent(atEdgeEv)
+    })
+    expect(atEdgeEv.defaultPrevented).toBe(true)
+    expect(geo.scrollTop).toBe(120)
+  })
+
+  it('ignores ctrl/meta pinch wheel and horizontal-dominant wheel events', async () => {
+    await settle()
+    const el = scrollerEl()!
+    Object.defineProperty(el, 'scrollTop', {
+      configurable: true,
+      get: () => geo.scrollTop,
+      set: (value: number) => {
+        geo.scrollTop = Math.max(0, Math.min(value, bottom()))
+      },
+    })
+    geo.scrollHeight = 1000
+    geo.clientHeight = 400
+    geo.scrollTop = 0
+
+    const ctrlEv = new WheelEvent('wheel', {
+      deltaY: 120,
+      ctrlKey: true,
+      cancelable: true,
+      bubbles: true,
+    })
+    const horizEv = new WheelEvent('wheel', {
+      deltaX: 200,
+      deltaY: 40,
+      cancelable: true,
+      bubbles: true,
+    })
+    act(() => {
+      el.dispatchEvent(ctrlEv)
+      el.dispatchEvent(horizEv)
+    })
+    expect(ctrlEv.defaultPrevented).toBe(false)
+    expect(horizEv.defaultPrevented).toBe(false)
+    expect(geo.scrollTop).toBe(0)
   })
 })

@@ -944,6 +944,12 @@ const homeApi: HomeApi = {
   async askRunSnapshot(sessionKey) {
     return ipcRenderer.invoke(HOME_CHANNELS.askRunSnapshot, sessionKey)
   },
+  async getActiveAskSession() {
+    return ipcRenderer.invoke(HOME_CHANNELS.askActiveSessionGet)
+  },
+  async setActiveAskSession(target) {
+    return ipcRenderer.invoke(HOME_CHANNELS.askActiveSessionSet, target)
+  },
   async askRunQuestion(query) {
     await ipcRenderer.invoke(HOME_CHANNELS.askRunQuestion, query)
   },

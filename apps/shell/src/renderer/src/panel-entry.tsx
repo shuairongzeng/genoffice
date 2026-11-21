@@ -287,8 +287,16 @@ export function AskPanelEntry(): React.JSX.Element | null {
     if (prevExpandedRef.current === expanded) return
     const firstObservation = prevExpandedRef.current === null
     prevExpandedRef.current = expanded
-    // the boot's known-answer is the state the view loaded in, not a flip
-    if (firstObservation || aiMotionReduced()) return
+    // Skip morph animations on initial hydration, reduced motion, or while hidden behind Home.
+    if (firstObservation || aiMotionReduced() || activeTabKindRef.current === 'home') {
+      if (morphTimerRef.current) {
+        clearTimeout(morphTimerRef.current)
+        morphTimerRef.current = null
+      }
+      morphBusyRef.current = false
+      setPanelMorph(null)
+      return
+    }
     const phase = expanded ? 'open' : 'close'
     setPanelMorph(phase)
     morphBusyRef.current = true
@@ -324,12 +332,15 @@ export function AskPanelEntry(): React.JSX.Element | null {
   // without the channel keeps the floating look, which is the safe default.
   const aiPrefs = useAiPanelPrefs()
   const [activeTabKind, setActiveTabKind] = useState<string | null>(null)
+  const activeTabKindRef = useRef<string | null>(null)
+  activeTabKindRef.current = activeTabKind
   useEffect(() => {
     const readActive = (): void => {
       void window.aiOffice
         ?.getSurfaceTabs?.()
         .then((tabs) => {
           const active = tabs?.find((tab) => tab.active)?.kind ?? null
+          activeTabKindRef.current = active
           setActiveTabKind(active)
         })
         .catch(() => undefined)

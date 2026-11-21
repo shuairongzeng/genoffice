@@ -414,4 +414,58 @@ describe('KbAskPanel tool activity', () => {
     expect(host.querySelectorAll('.kb-ask-thinking')).toHaveLength(3)
     expect(host.querySelectorAll('.kb-ask-activity')).toHaveLength(0)
   })
+
+  it('tracks live thinking scroll position without stealing upward scrolls and clears state when sealed', async () => {
+    render()
+    await settle()
+
+    chunk('reasoning', { text: 'First thinking line.' })
+    pump()
+
+    const details = host.querySelector<HTMLDetailsElement>('details.kb-ask-thinking')!
+    const body = host.querySelector<HTMLDivElement>('.kb-ask-thinking-text')!
+    expect(details.classList.contains('kb-ask-thinking-live')).toBe(true)
+    expect(body.getAttribute('data-scrolled-top')).toBeNull()
+
+    let bodyTop = 0
+    Object.defineProperty(body, 'scrollHeight', { configurable: true, get: () => 400 })
+    Object.defineProperty(body, 'clientHeight', { configurable: true, get: () => 180 })
+    Object.defineProperty(body, 'scrollTop', {
+      configurable: true,
+      get: () => bodyTop,
+      set: (value: number) => {
+        bodyTop = value
+      },
+    })
+
+    // Auto-follows to bottom while pinned near bottom and sets top fade mask flag.
+    chunk('reasoning', { text: ' Second thinking line.' })
+    pump()
+    expect(bodyTop).toBe(400)
+    expect(body.getAttribute('data-scrolled-top')).toBe('true')
+
+    // User scrolls up past threshold (> 16px from bottom): subsequent tokens must not snap back.
+    bodyTop = 60
+    act(() => {
+      body.dispatchEvent(new Event('scroll'))
+    })
+    chunk('reasoning', { text: ' Third thinking line.' })
+    pump()
+    expect(bodyTop).toBe(60)
+    expect(body.getAttribute('data-scrolled-top')).toBe('true')
+
+    // Tool call / answer seals live thinking and renders g-scroll on tool pre blocks.
+    chunk('tool-call', {
+      toolCall: { id: 'pre-1', name: 'search_knowledge_base', input: { query: 'test' } },
+    })
+    chunk('delta', { text: 'Done.' })
+    chunk('done')
+    await settle()
+    pump()
+
+    expect(details.classList.contains('kb-ask-thinking-live')).toBe(false)
+    expect(body.getAttribute('data-scrolled-top')).toBeNull()
+    const toolPre = host.querySelector('details.kb-ask-activity pre')
+    expect(toolPre?.classList.contains('g-scroll')).toBe(true)
+  })
 })

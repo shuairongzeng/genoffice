@@ -6,6 +6,7 @@ import type { SurfaceTab } from '@genoffice/agent-core'
 import type { ChatMessage, ChatMeta, GlobalChatMeta, ProjectApi } from '@genoffice/project-store'
 import {
   deriveActiveTabBinding,
+  deriveFocusedSurfaceTab,
   docExtraChatId,
   filterCurrentDocThreads,
   isBindableDocumentTab,
@@ -62,6 +63,38 @@ describe('ask-session-binding helpers', () => {
         fallbackChatId: 'kb-ask',
       }),
     ).toEqual({ mode: 'unsaved-tab', tempChatId: 'tab-tab_unsaved_1' })
+
+    expect(
+      planThreadClaim({
+        activeTab: binding,
+        explicitTarget: null,
+        fallbackChatId: 'kb-ask',
+        followActiveTab: false,
+      }),
+    ).toEqual({ mode: 'family', tempChatId: 'kb-ask' })
+
+    const browserTab: SurfaceTab = {
+      id: 'b1',
+      kind: 'browser',
+      title: 'Example',
+      url: 'https://example.com',
+      active: true,
+    }
+    expect(deriveFocusedSurfaceTab([unsavedTab])).toEqual({
+      id: 'tab/unsaved:1',
+      kind: 'docs',
+      title: 'Untitled',
+      filePath: null,
+      url: null,
+    })
+    expect(deriveFocusedSurfaceTab([browserTab])).toEqual({
+      id: 'b1',
+      kind: 'browser',
+      title: 'Example',
+      filePath: null,
+      url: 'https://example.com',
+    })
+    expect(deriveFocusedSurfaceTab([{ id: 'home', kind: 'home', title: 'Home', active: true }])).toBeNull()
 
     expect(
       planThreadClaim({
@@ -351,5 +384,135 @@ describe('KbAskPanel session binding integration', () => {
       runEventListener?.({ type: 'user-message', sessionKey: rightKey, payload: { role: 'user', text: 'Accepted A' } })
     })
     expect(host.textContent).toContain('Accepted A')
+  })
+
+  it('keeps desktop workbench session alive across doc/browser switches and lets user explicitly switch to a doc chat', async () => {
+    const docB = 'C:/Plans/DocB.md'
+    const docBChatId = docHash(docB)
+    chats.set('kb-ask', [
+      { seq: 0, ts: '2026-11-20T09:00:00.000Z', role: 'user', text: 'Desktop workflow question' },
+    ])
+    chats.set(docBChatId, [
+      { seq: 0, ts: '2026-11-20T09:05:00.000Z', role: 'user', text: 'Existing DocB thread note' },
+    ])
+    metaByChat.set(docBChatId, { docPath: docB })
+    surfaceTabs = [{ id: 'home', kind: 'home', title: 'Home', active: true }]
+
+    const setActiveCalls: Array<unknown> = []
+    ;(window as unknown as { aiOffice: Record<string, unknown> }).aiOffice.setActiveAskSession = vi.fn(
+      async (target: unknown) => {
+        setActiveCalls.push(target)
+        return { session: target, runningSessionKeys: [] }
+      },
+    )
+
+    mountPanel({ mirror: true })
+    await flush()
+    expect(host.textContent).toContain('Desktop workflow question')
+    expect(host.querySelector('[data-testid="kb-focused-context-bar"]')).toBeNull()
+
+    // Switch to DocB tab: conversation stays on Home thread and streams without clearing.
+    surfaceTabs = [{ id: 't-b', kind: 'markdown', title: 'DocB.md', filePath: docB, active: true }]
+    await act(async () => {
+      surfaceListener?.()
+    })
+    await flush()
+
+    expect(host.textContent).toContain('Desktop workflow question')
+    const chip = host.querySelector('[data-testid="kb-focused-context-chip"]')
+    expect(chip?.textContent).toContain('DocB.md')
+
+    // Stream event for kb-ask continues landing uninterrupted while viewing DocB.md.
+    await act(async () => {
+      runEventListener?.({
+        type: 'text',
+        sessionKey: 'default:kb-ask',
+        seq: 11,
+        payload: 'Streaming while DocB is visible',
+      })
+    })
+    expect(host.textContent).toContain('Desktop workflow question')
+
+    // Dismiss and restore focus attachment chip.
+    act(() => {
+      ;(host.querySelector('[data-testid="kb-focused-context-dismiss-btn"]') as HTMLButtonElement).click()
+    })
+    expect(host.querySelector('[data-testid="kb-focused-context-chip"]')).toBeNull()
+    act(() => {
+      ;(host.querySelector('[data-testid="kb-focused-context-restore-btn"]') as HTMLButtonElement).click()
+    })
+    expect(host.querySelector('[data-testid="kb-focused-context-chip"]')?.textContent).toContain('DocB.md')
+
+    // Click one-click doc switcher to enter DocB's dedicated thread.
+    const switchBtn = host.querySelector('[data-testid="kb-switch-doc-chat-btn"]') as HTMLButtonElement
+    expect(switchBtn).toBeTruthy()
+    await act(async () => {
+      switchBtn.click()
+    })
+    await flush()
+
+    expect(host.textContent).toContain('Existing DocB thread note')
+    expect(host.querySelector('[data-testid="kb-focused-context-bound"]')).toBeTruthy()
+    expect(setActiveCalls.at(-1)).toEqual({
+      projectId: 'default',
+      chatId: docBChatId,
+      docPath: docB,
+    })
+  })
+
+  it('deduplicates replayed stream events using snapshot eventSeq in mirror mode', async () => {
+    const aiOffice = (window as unknown as { aiOffice: Record<string, unknown> }).aiOffice
+    aiOffice.getActiveAskSession = async () => ({
+      session: { projectId: 'default', chatId: 'kb-ask', docPath: null },
+      runningSessionKeys: ['default:kb-ask'],
+    })
+    aiOffice.askRunSnapshot = async () => ({
+      sessionKey: 'default:kb-ask',
+      projectId: 'default',
+      chatId: 'kb-ask',
+      docPath: null,
+      eventSeq: 10,
+      messages: [
+        { role: 'user', text: 'Open docs', toolNotes: [], artifacts: [] },
+        {
+          role: 'assistant',
+          text: 'Initial snapshot text',
+          toolNotes: [],
+          activities: [],
+          artifacts: [],
+          streaming: true,
+        },
+      ],
+      liveRun: { text: 'Initial snapshot text', reasoning: '', busy: true },
+      confirmCard: null,
+    })
+
+    mountPanel({ mirror: true })
+    await flush()
+    expect(host.textContent).toContain('Initial snapshot text')
+
+    // Event with seq <= 10 must be ignored so snapshot state is not overwritten backwards.
+    await act(async () => {
+      runEventListener?.({
+        type: 'text',
+        sessionKey: 'default:kb-ask',
+        seq: 9,
+        payload: 'Stale earlier text',
+      })
+    })
+    expect(host.textContent).toContain('Initial snapshot text')
+    expect(host.textContent).not.toContain('Stale earlier text')
+
+    // Event with seq > 10 applies normally.
+    await act(async () => {
+      runEventListener?.({
+        type: 'text',
+        sessionKey: 'default:kb-ask',
+        seq: 12,
+        payload: 'Fresh newer text',
+      })
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    expect(host.textContent).toContain('Fresh newer text')
   })
 })

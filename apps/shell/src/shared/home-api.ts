@@ -728,6 +728,19 @@ export interface AiPetMenuRequest {
   }
 }
 
+/** Canonical session coordinate managed by the main-process AI workbench hub. */
+export interface AskActiveSessionTarget {
+  readonly projectId: string
+  readonly chatId: string
+  readonly docPath?: string | null
+}
+
+/** Authoritative main-process AI workbench session state and live running keys. */
+export interface AskActiveSessionState {
+  readonly session: AskActiveSessionTarget | null
+  readonly runningSessionKeys: string[]
+}
+
 /** one of the Home loop's run events, relayed to every mirror mount (pub/sub) */
 export interface AskRunEvent {
   type:
@@ -744,11 +757,14 @@ export interface AskRunEvent {
     | 'user-message'
     | 'snapshot'
     | 'switch-session'
+    | 'running-sessions'
     | 'checkpoint-added'
     | 'checkpoint-updated'
     | 'subagent-progress'
   /** Optional session routing key ("<projectId>:<chatId>") for multi-doc isolation */
   sessionKey?: string
+  /** Monotonic hub sequence number assigned in main to deduplicate snapshot + stream races */
+  seq?: number
   payload: unknown
 }
 
@@ -762,6 +778,10 @@ export interface AskRunSnapshot {
   messages: unknown[]
   liveRun?: { text: string; reasoning?: string; busy: boolean } | null
   confirmCard?: unknown | null
+  /** Pending Pi confirm request payload when awaiting user approval */
+  piConfirm?: PiAgentConfirmRequest | null
+  /** Latest hub event sequence incorporated into this snapshot */
+  eventSeq?: number
 }
 
 /**
@@ -1034,6 +1054,10 @@ export interface HomeApi {
    * null when Home has not published one yet.
    */
   askRunSnapshot?(sessionKey?: string): Promise<AskRunSnapshot | null>
+  /** Read the main-process authoritative active Ask session and currently running session keys. */
+  getActiveAskSession?(): Promise<AskActiveSessionState>
+  /** Set the main-process authoritative active Ask session and broadcast switch-session. */
+  setActiveAskSession?(target: AskActiveSessionTarget | null): Promise<AskActiveSessionState>
   /**
    * A mirror mount's question (`home:ask-run-question`): main routes it to
    * Home's shell renderer ONLY — Home's loop is the single executor, so the
@@ -1846,6 +1870,10 @@ export const HOME_CHANNELS = {
   /** overlay → main: a mirror mount's snapshot request — main answers with the
    *  latest cached snapshot (messages + live run state), no Home round trip */
   askRunSnapshot: 'home:ask-run-snapshot',
+  /** renderer <-> main: read the main-process authoritative active Ask session state */
+  askActiveSessionGet: 'home:ask-active-session-get',
+  /** renderer <-> main: commit a new authoritative active Ask session target in main */
+  askActiveSessionSet: 'home:ask-active-session-set',
   /** overlay → main → Home's shell renderer ONLY: a mirror mount's question,
    *  executed by Home's loop (the single executor) — never routed back into
    *  the mirror itself */

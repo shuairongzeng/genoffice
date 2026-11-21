@@ -1250,11 +1250,15 @@ export function Home() {
     (target: SessionTarget) => {
       const seq = ++requestedSessionSeqRef.current
       setRequestedSession({ ...target, seq })
-      window.aiOffice?.askRunEvent?.({
-        type: 'switch-session',
-        sessionKey: sessionKeyOf(target.projectId, target.chatId),
-        payload: target,
-      })
+      if (typeof window.aiOffice?.setActiveAskSession === 'function') {
+        void window.aiOffice.setActiveAskSession(target).catch(() => undefined)
+      } else {
+        window.aiOffice?.askRunEvent?.({
+          type: 'switch-session',
+          sessionKey: sessionKeyOf(target.projectId, target.chatId),
+          payload: target,
+        })
+      }
       openAskDock()
       if (target.docPath) {
         void window.aiOffice?.openPath?.(target.docPath).catch(() => undefined)

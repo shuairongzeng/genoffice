@@ -68,6 +68,12 @@
   --ui-cjk: 'PingFang TC', 'Microsoft JhengHei';
 }
 
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, var(--ui-cjk), 'Segoe UI', 'Microsoft YaHei', sans-serif;
@@ -103,7 +109,7 @@ body.vib .home {
    chrome's own rules below */
 .home {
   display: flex;
-  height: 100vh;
+  height: calc(100vh / var(--ui-scale, 1));
 }
 
 /* the glass surfaces' wallpaper-tone override: the desktop's own material
@@ -4413,6 +4419,7 @@ html[dir='rtl'] .quick-title-row {
   gap: 8px;
   flex-shrink: 0;
   padding: 10px 8px 10px 10px;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
   /* the header is the bubble's grab zone (buttons inside stay clickable) */
   cursor: grab;
 }
@@ -4682,6 +4689,7 @@ html[dir='rtl'] .quick-title-row {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   /* the bubble scrolls inside past its max height, but no scrollbar rail
    * ever shows (the stick-to-bottom affordances carry the position sense) */
   scrollbar-width: none;
@@ -4994,6 +5002,168 @@ html[dir='rtl'] .quick-title-row {
 
 .kb-selection-chip-clear:hover {
   background: var(--hover);
+}
+
+/* Background run jump banner shown when another AI session is streaming off-view. */
+.kb-bg-run-banner {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 6px 8px 0;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: var(--radius-7, 7px);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 12px;
+}
+.kb-bg-run-banner-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent);
+}
+.kb-bg-run-banner-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.kb-bg-run-banner-btn {
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-6, 6px);
+  cursor: pointer;
+}
+.kb-bg-run-banner-btn:hover {
+  background: var(--hover);
+}
+
+/* Live focused-tab context bar decoupled from thread ownership. */
+.kb-focused-context-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 6px 8px 0;
+}
+.kb-focused-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+  padding: 3px 4px 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-subtle, var(--surface));
+  color: var(--text);
+}
+.kb-focused-context-kind {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+}
+.kb-focused-context-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+.kb-focused-context-dismiss {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  line-height: 1;
+  padding: 2px 6px 3px 4px;
+  border-radius: var(--radius-6, 6px);
+  cursor: pointer;
+}
+.kb-focused-context-dismiss:hover {
+  background: var(--hover);
+  color: var(--danger);
+}
+.kb-focused-context-detached {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 3px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+.kb-focused-context-detached-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-focused-context-restore {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: var(--radius-6, 6px);
+  cursor: pointer;
+}
+.kb-focused-context-restore:hover {
+  background: var(--hover);
+}
+.kb-focused-context-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.kb-focused-context-bound {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 3px 8px;
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 999px;
+  background: var(--surface-subtle, var(--surface));
+}
+.kb-focused-context-action {
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.kb-focused-context-action:hover {
+  background: color-mix(in srgb, var(--accent-soft) 75%, var(--hover));
 }
 
 /* the parked "ask AI about this" annotation (browser:ask-about): a card-style
@@ -5346,13 +5516,26 @@ html[dir='rtl'] .quick-title-row {
   color: var(--color-text-tertiary);
 }
 .kb-ask-thinking-text {
-  padding: 0 10px 8px;
+  padding: 4px 10px 10px;
   font-size: 12px;
   line-height: 20px;
   color: var(--color-text-secondary);
   white-space: pre-wrap;
-  max-height: 200px;
+  overflow-wrap: anywhere;
+}
+/* Stream inside a compact viewport with hidden scrollbar tracks and a soft
+ * top alpha mask while scrolled, then expand naturally once settled. */
+.kb-ask-thinking-live .kb-ask-thinking-text {
+  max-height: 180px;
   overflow-y: auto;
+  scrollbar-width: none;
+}
+.kb-ask-thinking-live .kb-ask-thinking-text::-webkit-scrollbar {
+  display: none;
+}
+.kb-ask-thinking-live .kb-ask-thinking-text[data-scrolled-top='true'] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 24px, black 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, black 24px, black 100%);
 }
 .kb-ask-live-status {
   margin-top: 6px;

@@ -53,6 +53,18 @@ export interface SessionsCenterStrings {
   readonly widthCompact: string
   readonly widthStandard: string
   readonly widthWide: string
+  readonly focusedContextDoc: string
+  readonly focusedContextBrowser: string
+  readonly focusedContextTab: string
+  readonly focusedContextDismissTitle: string
+  readonly focusedContextDetachedHint: string
+  readonly focusedContextRestore: string
+  readonly focusedContextBoundBadge: string
+  readonly switchToDocChat: string
+  readonly switchToDocChatCount: string
+  readonly newDocChat: string
+  readonly backgroundRunBanner: string
+  readonly backgroundRunJump: string
 }
 
 const ZH_STRINGS: SessionsCenterStrings = {
@@ -107,6 +119,18 @@ const ZH_STRINGS: SessionsCenterStrings = {
   widthCompact: '紧凑',
   widthStandard: '标准',
   widthWide: '宽屏',
+  focusedContextDoc: '当前文档',
+  focusedContextBrowser: '当前网页',
+  focusedContextTab: '当前标签',
+  focusedContextDismissTitle: '本次不附带此标签上下文',
+  focusedContextDetachedHint: '已取消附带《{title}》上下文',
+  focusedContextRestore: '恢复',
+  focusedContextBoundBadge: '当前文档对话',
+  switchToDocChat: '切到该文档对话',
+  switchToDocChatCount: '切到文档对话 ({n})',
+  newDocChat: '新建文档对话',
+  backgroundRunBanner: '有任务正在后台运行',
+  backgroundRunJump: '返回查看',
 }
 
 const ZH_TW_STRINGS: SessionsCenterStrings = {
@@ -161,6 +185,18 @@ const ZH_TW_STRINGS: SessionsCenterStrings = {
   widthCompact: '精簡',
   widthStandard: '標準',
   widthWide: '寬螢幕',
+  focusedContextDoc: '目前文件',
+  focusedContextBrowser: '目前網頁',
+  focusedContextTab: '目前分頁',
+  focusedContextDismissTitle: '本次不附帶此分頁內容',
+  focusedContextDetachedHint: '已取消附帶《{title}》內容',
+  focusedContextRestore: '恢復',
+  focusedContextBoundBadge: '目前文件對話',
+  switchToDocChat: '切至此文件對話',
+  switchToDocChatCount: '切至文件對話 ({n})',
+  newDocChat: '新增文件對話',
+  backgroundRunBanner: '有任務正在背景執行',
+  backgroundRunJump: '返回查看',
 }
 
 const EN_STRINGS: SessionsCenterStrings = {
@@ -215,6 +251,18 @@ const EN_STRINGS: SessionsCenterStrings = {
   widthCompact: 'Compact',
   widthStandard: 'Standard',
   widthWide: 'Wide',
+  focusedContextDoc: 'Active doc',
+  focusedContextBrowser: 'Active page',
+  focusedContextTab: 'Active tab',
+  focusedContextDismissTitle: 'Detach active tab from this turn',
+  focusedContextDetachedHint: 'Detached "{title}" context',
+  focusedContextRestore: 'Restore',
+  focusedContextBoundBadge: 'Doc thread',
+  switchToDocChat: 'Open doc chat',
+  switchToDocChatCount: 'Doc chat ({n})',
+  newDocChat: 'New doc chat',
+  backgroundRunBanner: 'Task running in background',
+  backgroundRunJump: 'View',
 }
 
 export const SESSIONS_CENTER_STRINGS: Record<Lang, SessionsCenterStrings> = {

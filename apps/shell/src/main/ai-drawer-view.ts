@@ -122,6 +122,8 @@ export interface AiDrawerOverlayState {
 
 /** the overlay's face the TabManager drives; no-op safe after teardown */
 export interface AiDrawerOverlay {
+  /** Preload the overlay view in the background before the first tab switch. */
+  prewarm(scale: number): void
   /** apply the state: mount/hide the view and fit its bounds */
   sync(state: AiDrawerOverlayState): void
   /** drop the view (tests, explicit teardown); the window's own close does it implicitly */
@@ -512,6 +514,15 @@ export function createAiDrawerOverlay(
   })
 
   return {
+    prewarm(scale: number): void {
+      if (shellWindow.isDestroyed() || view !== null) return
+      appliedScale = scale
+      const live = (view = createView(scale))
+      shown = false
+      shellWindow.contentView.addChildView(live)
+      live.setBounds({ x: 0, y: 0, width: 1, height: 1 })
+      live.setVisible(false)
+    },
     sync(state: AiDrawerOverlayState): void {
       if (shellWindow.isDestroyed()) return
       // the mode this sync leaves the view in: the pet-only state is what

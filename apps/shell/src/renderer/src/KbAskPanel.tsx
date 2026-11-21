@@ -113,6 +113,7 @@ import { aiSetupNeeded } from './ai-setup-state'
 import type {
   AttachmentAddResult,
   AiLineageEntry,
+  AskRunSnapshot,
   BrowserAskAboutPayload,
   KbScopedSearchResult,
   HomeApi,
@@ -121,6 +122,7 @@ import { AskAttachments } from './AskAttachments'
 import { planPendingAskQuery, type PendingAskQuery } from './ask-intent'
 import {
   deriveActiveTabBinding,
+  deriveFocusedSurfaceTab,
   docExtraChatId,
   filterCurrentDocThreads,
   planThreadClaim,
@@ -129,6 +131,7 @@ import {
   shouldAcceptMirrorEvent,
   unsavedTabChatId,
   type ActiveTabBinding,
+  type FocusedSurfaceTab,
   type SessionTarget,
 } from './ask-session-binding'
 import { SESSIONS_CENTER_STRINGS } from './sessions-center-strings'
@@ -398,14 +401,32 @@ function KbThinkingBlock({
   endedAt?: number
 }) {
   const [open, setOpen] = useState(live)
+  const [scrolledTop, setScrolledTop] = useState(false)
   const userToggledRef = useRef(false)
+  const stickyBottomRef = useRef(true)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     if (!userToggledRef.current) setOpen(live)
   }, [live])
+  const handleBodyScroll = (): void => {
+    const el = bodyRef.current
+    if (!el) return
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+    stickyBottomRef.current = distance <= 16
+    setScrolledTop(live && el.scrollTop > 2)
+  }
   useEffect(() => {
-    if (!live || !open || !bodyRef.current) return
-    bodyRef.current.scrollTop = bodyRef.current.scrollHeight
+    if (!live) {
+      stickyBottomRef.current = true
+      setScrolledTop(false)
+      return
+    }
+    const el = bodyRef.current
+    if (!open || !el) return
+    if (stickyBottomRef.current) {
+      el.scrollTop = el.scrollHeight
+    }
+    setScrolledTop(el.scrollTop > 2)
   }, [text, live, open])
   const preview = !open ? thinkingPreviewLine(text) : ''
   const duration = !live ? formatThinkingDuration(startedAt, endedAt) : null
@@ -429,7 +450,12 @@ function KbThinkingBlock({
         {preview && <span className="kb-ask-thinking-preview">{preview}</span>}
         {duration && <span className="kb-ask-thinking-duration">{duration}</span>}
       </summary>
-      <div className="kb-ask-thinking-text" ref={bodyRef}>
+      <div
+        className="kb-ask-thinking-text"
+        ref={bodyRef}
+        data-scrolled-top={live && scrolledTop ? 'true' : undefined}
+        onScroll={handleBodyScroll}
+      >
         {text}
       </div>
     </details>
@@ -476,12 +502,12 @@ function KbToolActivityCard({
         <code className="kb-ask-activity-name">{activity.name}</code>
         <section>
           <h4>{t('askToolInput')}</h4>
-          <pre>{activity.inputPreview}</pre>
+          <pre className="g-scroll">{activity.inputPreview}</pre>
         </section>
         {activity.outputPreview !== undefined && (
           <section>
             <h4>{t('askToolOutput')}</h4>
-            <pre>{activity.outputPreview}</pre>
+            <pre className="g-scroll">{activity.outputPreview}</pre>
           </section>
         )}
       </div>
@@ -615,13 +641,14 @@ export interface LibraryThread {
 export function libraryThreads(
   metas: readonly ChatMeta[],
   familyRoot: string,
+  extraFamilyRoots: readonly string[] = [],
 ): { pinned: LibraryThread[]; docs: LibraryThread[]; other: LibraryThread[] } {
+  const roots = [familyRoot, ...extraFamilyRoots].filter(Boolean)
   const rows: LibraryThread[] = metas
     .filter(
       (meta) =>
         meta.docPath !== undefined ||
-        meta.chatId === familyRoot ||
-        meta.chatId.startsWith(`${familyRoot}-`),
+        roots.some((root) => meta.chatId === root || meta.chatId.startsWith(`${root}-`)),
     )
     .map((meta) => ({
       chatId: meta.chatId,
@@ -1537,6 +1564,7 @@ export function KbAskPanel({
   const confirmCardRef = useRef<ToolConfirmCard | null>(null)
   confirmCardRef.current = confirm.card
   const [remoteConfirmCard, setRemoteConfirmCard] = useState<ToolConfirmCard | null>(null)
+  const [remoteConfirmPending, setRemoteConfirmPending] = useState(false)
   useEffect(() => {
     if (mirror) return
     const key = currentSessionKeyRef.current ?? undefined
@@ -1640,15 +1668,30 @@ export function KbAskPanel({
   const [activeTabKind, setActiveTabKind] = useState<string | null>(null)
   const docIdentityRef = useRef(docIdentity)
   docIdentityRef.current = docIdentity
-  /** the doc-bound thread's path (null = the family root) */
-  const docPath = docIdentity?.path ?? null
-  /** thread path pinned while a run is active so opening a browser tab mid-run never tears down the loop */
+  /** Live active non-Home surface tab displayed in the composer focus bar. */
+  const [focusedSurfaceTab, setFocusedSurfaceTab] = useState<FocusedSurfaceTab | null>(null)
+  const focusedSurfaceTabRef = useRef<FocusedSurfaceTab | null>(null)
+  focusedSurfaceTabRef.current = focusedSurfaceTab
+  /** True when the user dismissed active-tab context attachment for the upcoming prompt. */
+  const [focusContextDismissed, setFocusContextDismissed] = useState(false)
+  const focusContextDismissedRef = useRef(false)
+  focusContextDismissedRef.current = focusContextDismissed
+  const turnIgnoreActiveTabContextRef = useRef(false)
+  const prevFocusedTabIdRef = useRef<string | null>(null)
+  /** Active session keys currently executing in main or Home across tabs. */
+  const [runningSessionKeys, setRunningSessionKeys] = useState<string[]>([])
+  /** Session path pinned once on initial cold boot before explicit targets take over. */
   const [boundDocPath, setBoundDocPath] = useState<string | null>(null)
-  /** Active bindable tab identity (includes unsaved new documents keyed by tabId). */
+  const boundDocPathRef = useRef<string | null>(null)
+  boundDocPathRef.current = boundDocPath
+  /** Active bindable tab identity (used for focus bar switchers and first-save rebinding). */
   const [activeTabBinding, setActiveTabBinding] = useState<ActiveTabBinding | null>(null)
   const activeTabBindingRef = useRef<ActiveTabBinding | null>(null)
   const [boundUnsavedTabId, setBoundUnsavedTabId] = useState<string | null>(null)
-  /** Explicit session selection (thread switch, new thread in doc, or sessions center jump). */
+  const boundUnsavedTabIdRef = useRef<string | null>(null)
+  boundUnsavedTabIdRef.current = boundUnsavedTabId
+  const boundUnsavedTitleRef = useRef<string | undefined>(undefined)
+  /** Explicit session selection (thread switch, new thread, or main-hub synchronization). */
   const [explicitTarget, setExplicitTarget] = useState<SessionTarget | null>(null)
   const explicitTargetRef = useRef<SessionTarget | null>(null)
   explicitTargetRef.current = explicitTarget
@@ -1659,6 +1702,10 @@ export function KbAskPanel({
     null,
   )
   const currentSessionKeyRef = useRef<string | null>(null)
+  const [currentSessionKey, setCurrentSessionKey] = useState<string | null>(null)
+  const lastAppliedEventSeqRef = useRef(0)
+  const bootClaimedRef = useRef(false)
+  const registeredInitialSessionRef = useRef(false)
   const activeRunRef = useRef<{
     sessionKey: string
     ids: { projectId: string; chatId: string }
@@ -1681,26 +1728,45 @@ export function KbAskPanel({
   /** the lineage presence the suggestion engine ranks on (a plain boolean dep) */
   const docHasLineage = docLineage !== null
 
+  const effectiveDocPath =
+    explicitTarget !== null ? (explicitTarget.docPath ?? null) : boundDocPath
+  const threadDocMeta = useMemo(() => {
+    if (effectiveDocPath === null) return null
+    if (docIdentity && sameDocPath(docIdentity.path, effectiveDocPath)) return docIdentity
+    const ext = effectiveDocPath.split('.').pop()?.toLowerCase() ?? ''
+    const guessedKind =
+      ext === 'xlsx' || ext === 'xls' || ext === 'csv'
+        ? 'sheets'
+        : ext === 'pptx' || ext === 'ppt'
+          ? 'slides'
+          : ext === 'pdf'
+            ? 'pdf'
+            : ext === 'md' || ext === 'markdown'
+              ? 'markdown'
+              : ext === 'html' || ext === 'htm'
+                ? 'html'
+                : 'docs'
+    return {
+      path: effectiveDocPath,
+      kind: guessedKind,
+      title: docNameOf(effectiveDocPath),
+    }
+  }, [effectiveDocPath, docIdentity])
+
   /**
-   * The doc-bound empty state's suggestion cards: the engine's keys for the
-   * active document's metadata (kind, file name, title, lineage presence —
-   * wordCount/headings stay unknown to the shell and the engine tolerates
-   * them; isEmpty reads false: the shell cannot see the doc's content, only
-   * a doc-bound FILE is shown here, and a lineage doc ranks its verbs
-   * first anyway).
+   * The doc-bound empty state's suggestion cards: rendered when the active
+   * conversation thread itself is bound to a document.
    */
   const docSuggestions = useMemo<readonly DocSuggestion[]>(() => {
-    if (docIdentity === null) return []
+    if (threadDocMeta === null) return []
     return suggestForDocument({
-      kind: docIdentity.kind,
-      fileName: docIdentity.path.split(/[\\/]/).pop() ?? docIdentity.path,
-      ...(docIdentity.title ? { title: docIdentity.title } : {}),
+      kind: threadDocMeta.kind,
+      fileName: threadDocMeta.path.split(/[\\/]/).pop() ?? threadDocMeta.path,
+      ...(threadDocMeta.title ? { title: threadDocMeta.title } : {}),
       isEmpty: false,
       hasLineage: docLineage !== null,
     })
-    // docLineage presence is the metadata the engine ranks on; the entry
-    // itself (task text) is the marker's, not the cards'
-  }, [docIdentity, docHasLineage])
+  }, [threadDocMeta, docHasLineage])
   /**
    * A suggestion click parks its localized prompt in the composer — never
    * auto-sends (the person's Enter is what sends, the same contract every
@@ -1730,34 +1796,77 @@ export function KbAskPanel({
     const tabs = surfaceTabsRef.current
     const activeKind = tabs?.find((t) => t.active)?.kind ?? null
     setActiveTabKind((prev) => (prev === activeKind ? prev : activeKind))
+
+    const nextFocused = deriveFocusedSurfaceTab(tabs)
+    if ((nextFocused?.id ?? null) !== prevFocusedTabIdRef.current) {
+      prevFocusedTabIdRef.current = nextFocused?.id ?? null
+      setFocusContextDismissed(false)
+    }
+    setFocusedSurfaceTab((prev) =>
+      prev?.id === nextFocused?.id &&
+      prev?.kind === nextFocused?.kind &&
+      prev?.title === nextFocused?.title &&
+      prev?.filePath === nextFocused?.filePath &&
+      prev?.url === nextFocused?.url
+        ? prev
+        : nextFocused,
+    )
+
     const nextBinding = deriveActiveTabBinding(tabs)
     const nextSaved =
       nextBinding && nextBinding.filePath !== null
         ? { path: nextBinding.filePath, kind: nextBinding.kind, title: nextBinding.title }
         : null
-    setDocIdentity((prev) => (prev?.path === nextSaved?.path ? prev : nextSaved))
+    setDocIdentity((prev) =>
+      prev?.path === nextSaved?.path &&
+      prev?.kind === nextSaved?.kind &&
+      prev?.title === nextSaved?.title
+        ? prev
+        : nextSaved,
+    )
 
-    // Detect an unsaved draft tab acquiring a file path for the first time and rebind its history.
+    if (nextBinding && boundUnsavedTabIdRef.current === nextBinding.tabId) {
+      boundUnsavedTitleRef.current = nextBinding.title
+    }
+
+    // Detect an unsaved draft tab acquiring a file path for the first time and rebind
+    // ONLY when the active conversation is currently bound to that unsaved tab.
     if (nextBinding && nextBinding.filePath !== null) {
       const prevTabPath = tabLastPathRef.current.get(nextBinding.tabId)
       if (prevTabPath === null) {
         const tempChatId = unsavedTabChatId(nextBinding.tabId)
         const currentIds = chatIdsRef.current
-        const fromProjectId =
-          currentIds && currentIds.chatId === tempChatId ? currentIds.projectId : 'default'
         if (currentIds && currentIds.chatId === tempChatId) {
           preserveMessagesForRebindRef.current = {
             fromChatId: tempChatId,
             toDocPath: nextBinding.filePath,
           }
-        }
-        const rebindCall = window.projectApi?.rebindChat?.({
-          projectId: fromProjectId,
-          tempChatId,
-          newFilePath: nextBinding.filePath,
-        })
-        if (rebindCall) {
-          pendingRebindPromiseRef.current = rebindCall.catch(() => undefined)
+          const savedFilePath = nextBinding.filePath
+          const rebindCall = window.projectApi?.rebindChat?.({
+            projectId: currentIds.projectId,
+            tempChatId,
+            newFilePath: savedFilePath,
+          })
+          if (rebindCall) {
+            pendingRebindPromiseRef.current = rebindCall
+              .then((rebound) => {
+                if (rebound && explicitTargetRef.current?.chatId === tempChatId) {
+                  const upgraded: SessionTarget = {
+                    projectId: rebound.projectId,
+                    chatId: rebound.chatId,
+                    docPath: savedFilePath,
+                  }
+                  explicitTargetRef.current = upgraded
+                  setExplicitTarget(upgraded)
+                  void window.aiOffice?.setActiveAskSession?.(upgraded).catch(() => undefined)
+                }
+              })
+              .catch(() => undefined)
+          }
+          if (boundUnsavedTabIdRef.current === nextBinding.tabId && !explicitTargetRef.current) {
+            setBoundDocPath(savedFilePath)
+            setBoundUnsavedTabId(null)
+          }
         }
       }
     }
@@ -1765,63 +1874,26 @@ export function KbAskPanel({
       tabLastPathRef.current.set(nextBinding.tabId, nextBinding.filePath)
     }
 
-    const isBusy = busyRef.current || Boolean(loopRef.current?.busy)
-    // Keep non-document active runs (e.g. browser/home) pinned until the run settles.
-    if (!mirror && isBusy && nextBinding === null && activeTabBindingRef.current !== null) {
-      return
-    }
-    if (!mirror && isBusy && activeTabBindingRef.current !== null) {
-      const sameSavedUpgrade =
-        nextBinding !== null &&
-        nextBinding.tabId === activeTabBindingRef.current.tabId &&
-        activeTabBindingRef.current.filePath === null &&
-        nextBinding.filePath !== null
-      if (!sameSavedUpgrade) return
-    }
-
-    const prevBinding = activeTabBindingRef.current
-    const prevKey = prevBinding ? `${prevBinding.tabId}:${prevBinding.filePath ?? ''}` : null
-    const nextKey = nextBinding ? `${nextBinding.tabId}:${nextBinding.filePath ?? ''}` : null
-    if (prevKey !== nextKey) {
-      const upgradedSameTab =
-        prevBinding !== null &&
-        nextBinding !== null &&
-        prevBinding.tabId === nextBinding.tabId &&
-        prevBinding.filePath === null &&
-        nextBinding.filePath !== null
-      if (upgradedSameTab) {
-        // Explicit target for a temp thread cannot outlive a saved path upgrade unless locked.
-        if (explicitTargetRef.current && explicitTargetRef.current.docPath == null) {
-          explicitTargetRef.current = null
-          setExplicitTarget(null)
-        }
-      } else {
-        const lock = requestedDocLockRef.current
-        if (lock && nextBinding?.filePath && sameDocPath(nextBinding.filePath, lock.docPath)) {
-          explicitTargetRef.current = lock
-          setExplicitTarget(lock)
-          requestedDocLockRef.current = null
-        } else if (explicitTargetRef.current !== null) {
-          if (lock === null) {
-            explicitTargetRef.current = null
-            setExplicitTarget(null)
-          }
-        }
-      }
-    }
-
     activeTabBindingRef.current = nextBinding
     setActiveTabBinding(nextBinding)
-    const nextPath = nextBinding?.filePath ?? null
-    setBoundDocPath((prev) => (prev === nextPath ? prev : nextPath))
-    const nextUnsavedId = nextBinding && nextBinding.filePath === null ? nextBinding.tabId : null
-    setBoundUnsavedTabId((prev) => (prev === nextUnsavedId ? prev : nextUnsavedId))
+
+    // Unified workbench policy: adopt the active document tab at initial cold boot when
+    // main has no active session yet, then keep the active thread stable across tab flips.
+    if (!bootClaimedRef.current) {
+      bootClaimedRef.current = true
+      const nextPath = nextBinding?.filePath ?? null
+      setBoundDocPath((prev) => (prev === nextPath ? prev : nextPath))
+      const nextUnsavedId =
+        nextBinding && nextBinding.filePath === null ? nextBinding.tabId : null
+      if (nextUnsavedId && nextBinding) {
+        boundUnsavedTitleRef.current = nextBinding.title
+      }
+      setBoundUnsavedTabId((prev) => (prev === nextUnsavedId ? prev : nextUnsavedId))
+    }
   }
-  // the lineage query rides the doc binding: activation and every switch
-  // re-ask for the document's AI origin (a record landing between tabs is
-  // picked up by the next switch; the query is one cheap main-side read)
+  // Query AI lineage for the conversation's bound document.
   useEffect(() => {
-    if (docPath === null) {
+    if (effectiveDocPath === null) {
       setDocLineage(null)
       return
     }
@@ -1832,7 +1904,7 @@ export function KbAskPanel({
     }
     let current = true
     void api
-      .aiLineageGet(docPath)
+      .aiLineageGet(effectiveDocPath)
       .then((entry) => {
         if (current) setDocLineage(entry)
       })
@@ -1842,21 +1914,54 @@ export function KbAskPanel({
     return () => {
       current = false
     }
-  }, [docPath])
-  const refreshSurfaceTabs = (): Promise<void> => {
+  }, [effectiveDocPath])
+  const refreshSurfaceTabs = (includeActiveSession = false): Promise<void> => {
     const pull = window.aiOffice.getSurfaceTabs?.()
+    const activePull =
+      includeActiveSession && typeof window.aiOffice.getActiveAskSession === 'function'
+        ? window.aiOffice.getActiveAskSession().catch(() => null)
+        : Promise.resolve(null)
     if (!pull) {
-      setSurfaceSettled(true)
-      return Promise.resolve()
+      return activePull
+        .then((activeState) => {
+          if (activeState?.runningSessionKeys) {
+            setRunningSessionKeys(activeState.runningSessionKeys)
+          }
+          if (activeState?.session && !bootClaimedRef.current) {
+            const seeded: SessionTarget = {
+              projectId: activeState.session.projectId,
+              chatId: activeState.session.chatId,
+              docPath: activeState.session.docPath ?? null,
+            }
+            explicitTargetRef.current = seeded
+            setExplicitTarget(seeded)
+            registeredInitialSessionRef.current = true
+          }
+        })
+        .finally(() => {
+          setSurfaceSettled(true)
+        })
     }
-    return pull
-      .then((tabs: readonly SurfaceTab[]) => {
-        surfaceTabsRef.current = tabs
+    return Promise.all([pull, activePull])
+      .then(([tabs, activeState]) => {
+        if (activeState?.runningSessionKeys) {
+          setRunningSessionKeys(activeState.runningSessionKeys)
+        }
+        if (activeState?.session && !bootClaimedRef.current) {
+          const seeded: SessionTarget = {
+            projectId: activeState.session.projectId,
+            chatId: activeState.session.chatId,
+            docPath: activeState.session.docPath ?? null,
+          }
+          explicitTargetRef.current = seeded
+          setExplicitTarget(seeded)
+          registeredInitialSessionRef.current = true
+        }
+        surfaceTabsRef.current = tabs as readonly SurfaceTab[]
         deriveDocIdentity()
       })
       .catch(() => {
-        // a failed pull keeps the last snapshot: the section degrades to the
-        // last known surface, never to a wrong one
+        // Keep the last snapshot when the pull fails.
       })
       .finally(() => {
         setSurfaceSettled(true)
@@ -2201,6 +2306,7 @@ export function KbAskPanel({
           updateBusy(false)
           if (mirror) {
             setRemoteConfirmCard((prev) => (prev?.outcome === 'awaiting' ? null : prev))
+            setRemoteConfirmPending(false)
           }
           setPiConfirm((prev) => (prev && prev.card.outcome === 'awaiting' ? null : prev))
         }
@@ -2214,7 +2320,10 @@ export function KbAskPanel({
           runReasoningRef.current = ''
           reasoningNeedsBreakRef.current = false
           updateBusy(false)
-          if (mirror) setRemoteConfirmCard(null)
+          if (mirror) {
+            setRemoteConfirmCard(null)
+            setRemoteConfirmPending(false)
+          }
           setPiConfirm(null)
         }
         break
@@ -2260,16 +2369,47 @@ export function KbAskPanel({
   const stopLocalRunRef = useRef<() => void>(() => {})
   const syncExplicitTargetFromRelayRef = useRef<(target: SessionTarget) => void>(() => {})
 
+  /** Hydrate transcript, live status, and confirmation cards from an AskRunSnapshot. */
+  const applySnapshotState = (snap: AskRunSnapshot): void => {
+    if (typeof snap.eventSeq === 'number' && Number.isFinite(snap.eventSeq)) {
+      lastAppliedEventSeqRef.current = Math.max(lastAppliedEventSeqRef.current, snap.eventSeq)
+    }
+    const msgs = (snap.messages ?? []) as AskMessage[]
+    const last = msgs[msgs.length - 1]
+    runReasoningRef.current =
+      last?.role === 'assistant' && last.streaming
+        ? (last.reasoning ?? snap.liveRun?.reasoning ?? '')
+        : ''
+    reasoningNeedsBreakRef.current = false
+    mutateMessages(() => msgs)
+    updateBusy(snap.liveRun?.busy ?? false)
+    if (mirror) {
+      const snapCard = (snap.confirmCard as ToolConfirmCard | null | undefined) ?? null
+      setRemoteConfirmCard(snapCard)
+      setRemoteConfirmPending(snapCard?.outcome === 'awaiting')
+    }
+    if (snap.piConfirm && isPiEngineRef.current) {
+      setPiConfirm({
+        requestId: snap.piConfirm.requestId,
+        card: formatPiConfirmCard(snap.piConfirm),
+      })
+    } else if (isPiEngineRef.current) {
+      setPiConfirm(null)
+    }
+  }
+
   // sync checkpoint rollback, confirmation clicks, session switch, and stop actions across Home and mirror mounts
   useEffect(() => {
     if (mirror) return
     const api = window.aiOffice as Partial<HomeApi>
     const off = api.onAskRunEvent?.((evt) => {
-      if (evt.type === 'checkpoint-updated') {
-        if (shouldAcceptMirrorEvent(evt.sessionKey, currentSessionKeyRef.current)) {
-          applyRunEvent(evt.type, evt.payload)
+      if (evt.type === 'running-sessions') {
+        if (Array.isArray(evt.payload)) {
+          setRunningSessionKeys(evt.payload.filter((k): k is string => typeof k === 'string'))
         }
-      } else if (evt.type === 'switch-session') {
+        return
+      }
+      if (evt.type === 'switch-session') {
         const target = evt.payload as Partial<SessionTarget> | null | undefined
         if (
           target &&
@@ -2284,6 +2424,21 @@ export function KbAskPanel({
             docPath: target.docPath ?? null,
           })
         }
+        return
+      }
+      if (!shouldAcceptMirrorEvent(evt.sessionKey, currentSessionKeyRef.current)) return
+      if (
+        typeof evt.seq === 'number' &&
+        Number.isFinite(evt.seq) &&
+        evt.seq <= lastAppliedEventSeqRef.current
+      ) {
+        return
+      }
+      if (typeof evt.seq === 'number' && Number.isFinite(evt.seq)) {
+        lastAppliedEventSeqRef.current = evt.seq
+      }
+      if (evt.type === 'checkpoint-updated') {
+        applyRunEvent(evt.type, evt.payload)
       } else if (evt.type === 'confirm-action') {
         const action = (evt.payload as { action?: string } | null | undefined)?.action
         if (action === 'allow') confirmRef.current.allow()
@@ -2291,10 +2446,7 @@ export function KbAskPanel({
         else if (action === 'deny') confirmRef.current.deny()
       } else if (evt.type === 'stop') {
         stopLocalRunRef.current()
-      } else if (
-        isPiEngineRef.current &&
-        shouldAcceptMirrorEvent(evt.sessionKey, currentSessionKeyRef.current)
-      ) {
+      } else if (isPiEngineRef.current) {
         if (evt.type === 'user-message') {
           runReasoningRef.current = ''
           reasoningNeedsBreakRef.current = false
@@ -2329,19 +2481,16 @@ export function KbAskPanel({
     if (!window.projectApi) {
       void api.askRunSnapshot?.().then((snap) => {
         if (!mounted || !snap) return
-        const msgs = snap.messages as AskMessage[]
-        const last = msgs[msgs.length - 1]
-        runReasoningRef.current =
-          last?.role === 'assistant' && last.streaming
-            ? (last.reasoning ?? snap.liveRun?.reasoning ?? '')
-            : ''
-        reasoningNeedsBreakRef.current = false
-        mutateMessages(() => msgs)
-        updateBusy(snap.liveRun?.busy ?? false)
-        setRemoteConfirmCard((snap.confirmCard as ToolConfirmCard | null | undefined) ?? null)
+        applySnapshotState(snap)
       })
     }
     const off = api.onAskRunEvent?.((evt) => {
+      if (evt.type === 'running-sessions') {
+        if (Array.isArray(evt.payload)) {
+          setRunningSessionKeys(evt.payload.filter((k): k is string => typeof k === 'string'))
+        }
+        return
+      }
       if (evt.type === 'switch-session') {
         const target = evt.payload as Partial<SessionTarget> | null | undefined
         if (
@@ -2368,21 +2517,18 @@ export function KbAskPanel({
           ? (evt.payload as { sessionKey?: string }).sessionKey
           : undefined)
       if (!shouldAcceptMirrorEvent(eventKey, currentSessionKeyRef.current)) return
+      if (
+        typeof evt.seq === 'number' &&
+        Number.isFinite(evt.seq) &&
+        evt.seq <= lastAppliedEventSeqRef.current
+      ) {
+        return
+      }
+      if (typeof evt.seq === 'number' && Number.isFinite(evt.seq)) {
+        lastAppliedEventSeqRef.current = evt.seq
+      }
       if (evt.type === 'snapshot') {
-        const snap = evt.payload as {
-          messages: AskMessage[]
-          liveRun?: { reasoning?: string; busy?: boolean } | null
-          confirmCard?: ToolConfirmCard | null
-        }
-        const last = snap.messages[snap.messages.length - 1]
-        runReasoningRef.current =
-          last?.role === 'assistant' && last.streaming
-            ? (last.reasoning ?? snap.liveRun?.reasoning ?? '')
-            : ''
-        reasoningNeedsBreakRef.current = false
-        mutateMessages(() => snap.messages)
-        updateBusy(snap.liveRun?.busy ?? false)
-        setRemoteConfirmCard(snap.confirmCard ?? null)
+        applySnapshotState(evt.payload as AskRunSnapshot)
         return
       }
       if (evt.type === 'confirm-state') {
@@ -2390,11 +2536,13 @@ export function KbAskPanel({
           | { pending?: unknown; card?: ToolConfirmCard | null }
           | null
           | undefined
+        const card = p && 'card' in p ? (p.card ?? null) : null
         if (p && 'card' in p) {
-          setRemoteConfirmCard(p.card ?? null)
+          setRemoteConfirmCard(card)
         } else if (p?.pending === false) {
           setRemoteConfirmCard(null)
         }
+        setRemoteConfirmPending(p?.pending === true || card?.outcome === 'awaiting')
         return
       }
       if (evt.type === 'user-message') {
@@ -2505,7 +2653,7 @@ export function KbAskPanel({
   const petConfirmPending = isPiEngine
     ? piConfirm?.card.outcome === 'awaiting'
     : mirror
-      ? remoteConfirmCard?.outcome === 'awaiting'
+      ? remoteConfirmPending || remoteConfirmCard?.outcome === 'awaiting'
       : confirm.card?.outcome === 'awaiting'
   const petHasRunningTool =
     lastAskMsg?.role === 'assistant' &&
@@ -2765,8 +2913,6 @@ export function KbAskPanel({
     }
   }, [])
 
-  const effectiveDocPath =
-    explicitTarget !== null ? (explicitTarget.docPath ?? null) : boundDocPath
   const threadIdentityKey = explicitTarget
     ? `target:${explicitTarget.projectId}:${explicitTarget.chatId}:${explicitTarget.docPath ?? ''}`
     : boundDocPath
@@ -2809,14 +2955,14 @@ export function KbAskPanel({
     const hadThread = hasClaimedRef.current
     prevThreadKeyRef.current = threadIdentityKey
     const preserve = preserveMessagesForRebindRef.current
-    if (preserve && boundDocPath && sameDocPath(preserve.toDocPath, boundDocPath)) {
+    if (preserve && effectiveDocPath && sameDocPath(preserve.toDocPath, effectiveDocPath)) {
       preserveMessagesForRebindRef.current = null
       skipRestoreForRebindRef.current = true
       return
     }
     if (hadThread) leaveThread()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- leaveThread is the panel's stable teardown verb
-  }, [threadIdentityKey, boundDocPath])
+  }, [threadIdentityKey, effectiveDocPath])
 
   useEffect(() => {
     if (!surfaceSettled) return
@@ -2833,10 +2979,29 @@ export function KbAskPanel({
     }
     cliContextRef.current = null
     if (!keepForRebind) sentAttachmentsRef.current = []
+    const coldBootBinding: ActiveTabBinding | null =
+      explicitTarget === null
+        ? boundDocPath !== null
+          ? {
+              tabId: activeTabBindingRef.current?.tabId ?? 'doc',
+              kind: docIdentityRef.current?.kind ?? 'docs',
+              title: docIdentityRef.current?.title ?? docNameOf(boundDocPath),
+              filePath: boundDocPath,
+            }
+          : boundUnsavedTabId !== null
+            ? {
+                tabId: boundUnsavedTabId,
+                kind: activeTabBindingRef.current?.kind ?? 'docs',
+                title: boundUnsavedTitleRef.current ?? '',
+                filePath: null,
+              }
+            : null
+        : activeTabBindingRef.current
     const plan = planThreadClaim({
-      activeTab: activeTabBindingRef.current,
+      activeTab: coldBootBinding,
       explicitTarget,
       fallbackChatId: activeChat,
+      followActiveTab: explicitTarget === null,
     })
     const cliKey =
       plan.mode === 'explicit'
@@ -2873,6 +3038,7 @@ export function KbAskPanel({
       chatIdsRef.current = ids
       const nextKey = sessionKeyOf(ids.projectId, ids.chatId)
       currentSessionKeyRef.current = nextKey
+      setCurrentSessionKey(nextKey)
       setClaimedChatId(ids.chatId)
       claimedDocPathRef.current =
         plan.mode === 'explicit' ? plan.docPath : plan.mode === 'doc' ? plan.docPath : null
@@ -2884,28 +3050,41 @@ export function KbAskPanel({
           docPath: claimedDocPathRef.current,
         }
       }
-      if (!mirror) {
+      if (!registeredInitialSessionRef.current) {
+        registeredInitialSessionRef.current = true
+        if (!explicitTargetRef.current) {
+          void window.aiOffice
+            ?.setActiveAskSession?.({
+              projectId: ids.projectId,
+              chatId: ids.chatId,
+              docPath: claimedDocPathRef.current,
+            })
+            .catch(() => undefined)
+        }
+      }
+      if (mirror || isPiEngineRef.current) {
+        const snap = await window.aiOffice?.askRunSnapshot?.(nextKey).catch(() => null)
+        if (!current) return
+        if (snap) {
+          const snapKey =
+            snap.sessionKey ??
+            (snap.projectId && snap.chatId ? sessionKeyOf(snap.projectId, snap.chatId) : undefined)
+          if (
+            (!snapKey || snapKey === nextKey) &&
+            (snap.liveRun?.busy ||
+              snap.confirmCard ||
+              snap.piConfirm ||
+              (Array.isArray(snap.messages) && snap.messages.length > 0))
+          ) {
+            applySnapshotState(snap)
+          }
+        }
+      }
+      if (!mirror && !isPiEngineRef.current) {
         for (const entry of pendingRef.current.splice(0)) persist(entry)
         publishSnapshot()
-      } else {
-        const snap = await window.aiOffice?.askRunSnapshot?.(nextKey).catch(() => null)
-        if (!current || !snap) return
-        const snapKey =
-          snap.sessionKey ??
-          (snap.projectId && snap.chatId ? sessionKeyOf(snap.projectId, snap.chatId) : undefined)
-        if (snapKey && snapKey !== nextKey) return
-        if (snap.liveRun?.busy || snap.confirmCard || snap.messages.length > 0) {
-          const msgs = snap.messages as AskMessage[]
-          const last = msgs[msgs.length - 1]
-          runReasoningRef.current =
-            last?.role === 'assistant' && last.streaming
-              ? (last.reasoning ?? snap.liveRun?.reasoning ?? '')
-              : ''
-          reasoningNeedsBreakRef.current = false
-          mutateMessages(() => msgs)
-          updateBusy(snap.liveRun?.busy ?? false)
-          setRemoteConfirmCard((snap.confirmCard as ToolConfirmCard | null | undefined) ?? null)
-        }
+      } else if (!mirror) {
+        for (const entry of pendingRef.current.splice(0)) persist(entry)
       }
     }
     void runClaim().catch(() => undefined)
@@ -2929,10 +3108,10 @@ export function KbAskPanel({
     try {
       const currentDocPath = explicitTargetRef.current
         ? (explicitTargetRef.current.docPath ?? null)
-        : (docIdentityRef.current?.path ?? null)
+        : boundDocPathRef.current
       const unsavedId =
-        activeTabBindingRef.current && activeTabBindingRef.current.filePath === null
-          ? unsavedTabChatId(activeTabBindingRef.current.tabId)
+        explicitTargetRef.current === null && boundUnsavedTabIdRef.current !== null
+          ? unsavedTabChatId(boundUnsavedTabIdRef.current)
           : null
       const ids = currentDocPath
         ? await api.resolveChat({ filePath: currentDocPath })
@@ -2941,29 +3120,49 @@ export function KbAskPanel({
       const query = queryArg === undefined ? '' : queryArg
       if (typeof api.listAllChats === 'function') {
         const allMetas = await api.listAllChats(query === '' ? undefined : { query })
-        setThreads(globalMetasToLibrarySections(allMetas, ids.chatId))
+        setThreads(globalMetasToLibrarySections(allMetas, chatId))
         return
       }
       const metas = await api.listChats({
         projectId: ids.projectId,
         ...(query === '' ? {} : { query }),
       })
-      setThreads(libraryThreads(metas, ids.chatId))
+      setThreads(libraryThreads(metas, ids.chatId, ids.chatId === chatId ? [] : [chatId]))
     } catch {
       setThreads({ pinned: [], docs: [], other: [] })
     }
   }
 
+  // Keep the thread index fresh across tab switches and explicit session jumps so
+  // both header titles and focused-context doc actions stay accurate on every surface.
+  useEffect(() => {
+    if (!surfaceSettled) return
+    const api = window.projectApi
+    if (!api) return
+    void refreshThreads(api, libraryOpen ? libraryQueryRef.current : undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    surfaceSettled,
+    activeTabBinding?.tabId,
+    activeTabBinding?.filePath,
+    explicitTarget?.projectId,
+    explicitTarget?.chatId,
+    explicitTarget?.docPath,
+  ])
+
   // The model's history and the stored ids belong to the thread being left;
   // clear session identity refs before loop reset so any cancel/done callback
   // cannot write back into the upcoming thread.
   const leaveThread = (): void => {
+    lastAppliedEventSeqRef.current = 0
     currentSessionKeyRef.current = null
+    setCurrentSessionKey(null)
     chatIdsRef.current = null
     claimedDocPathRef.current = null
     loopRef.current?.reset()
     confirm.clear()
     setRemoteConfirmCard(null)
+    setRemoteConfirmPending(false)
     setPiConfirm(null)
     setPiStatus(null)
     setPiNotice(null)
@@ -2974,6 +3173,60 @@ export function KbAskPanel({
     clearScope()
     setAttachments([])
     sentAttachmentsRef.current = []
+  }
+
+  const commitActiveSession = (
+    target: SessionTarget,
+    opts: { broadcast?: boolean } = {},
+  ): void => {
+    const normalized: SessionTarget = {
+      projectId: target.projectId,
+      chatId: target.chatId,
+      docPath: target.docPath ?? null,
+    }
+    requestedDocLockRef.current = null
+    lastAppliedEventSeqRef.current = 0
+    explicitTargetRef.current = normalized
+    setExplicitTarget(normalized)
+    if (opts.broadcast !== false) {
+      if (typeof window.aiOffice?.setActiveAskSession === 'function') {
+        void window.aiOffice.setActiveAskSession(normalized).catch(() => undefined)
+      } else {
+        window.aiOffice?.askRunEvent?.({
+          type: 'switch-session',
+          sessionKey: sessionKeyOf(normalized.projectId, normalized.chatId),
+          payload: normalized,
+        })
+      }
+    }
+  }
+
+  const switchToFocusedDocChat = async (binding: ActiveTabBinding): Promise<void> => {
+    if (binding.filePath) {
+      const api = window.projectApi
+      if (api) {
+        const resolved = await api.resolveChat({ filePath: binding.filePath }).catch(() => null)
+        if (resolved) {
+          commitActiveSession({
+            projectId: resolved.projectId,
+            chatId: resolved.chatId,
+            docPath: binding.filePath,
+          })
+          return
+        }
+      }
+      commitActiveSession({
+        projectId: libraryProjectIdRef.current || 'default',
+        chatId,
+        docPath: binding.filePath,
+      })
+      return
+    }
+    commitActiveSession({
+      projectId: 'default',
+      chatId: unsavedTabChatId(binding.tabId),
+      docPath: null,
+    })
   }
 
   /** Switching is a state change: updates target and syncs peer panels. */
@@ -2999,26 +3252,17 @@ export function KbAskPanel({
       chatId: targetChatId,
       docPath: targetDocPath,
     }
+    commitActiveSession(nextTarget)
     if (
       targetDocPath &&
       !sameDocPath(docIdentityRef.current?.path ?? null, targetDocPath) &&
       typeof window.aiOffice?.openPath === 'function'
     ) {
-      requestedDocLockRef.current = nextTarget
-      window.aiOffice.openPath(targetDocPath).catch(() => undefined)
-    } else {
-      requestedDocLockRef.current = null
-      explicitTargetRef.current = nextTarget
-      setExplicitTarget(nextTarget)
+      void window.aiOffice.openPath(targetDocPath).catch(() => undefined)
     }
-    window.aiOffice?.askRunEvent?.({
-      type: 'switch-session',
-      sessionKey: sessionKeyOf(projectId, targetChatId),
-      payload: nextTarget,
-    })
   }
 
-  /** Starts a fresh thread scoped to the active saved/unsaved document or home root. */
+  /** Starts a fresh thread scoped to the currently bound document or workbench root. */
   const startThread = async (): Promise<void> => {
     const api = window.projectApi
     const activeDoc = effectiveDocPath
@@ -3032,45 +3276,25 @@ export function KbAskPanel({
       if (api?.setChatMeta) {
         await api.setChatMeta({ projectId, chatId: nextChatId, docPath: activeDoc }).catch(() => undefined)
       }
-      const nextTarget: SessionTarget = { projectId, chatId: nextChatId, docPath: activeDoc }
-      requestedDocLockRef.current = null
-      explicitTargetRef.current = nextTarget
-      setExplicitTarget(nextTarget)
-      window.aiOffice?.askRunEvent?.({
-        type: 'switch-session',
-        sessionKey: sessionKeyOf(projectId, nextChatId),
-        payload: nextTarget,
-      })
+      commitActiveSession({ projectId, chatId: nextChatId, docPath: activeDoc })
       return
     }
-    if (boundUnsavedTabId) {
+    if (explicitTargetRef.current === null && boundUnsavedTabId) {
       const nextChatId = docExtraChatId(unsavedTabChatId(boundUnsavedTabId), Date.now())
-      const nextTarget: SessionTarget = { projectId: 'default', chatId: nextChatId, docPath: null }
-      requestedDocLockRef.current = null
-      explicitTargetRef.current = nextTarget
-      setExplicitTarget(nextTarget)
-      window.aiOffice?.askRunEvent?.({
-        type: 'switch-session',
-        sessionKey: sessionKeyOf('default', nextChatId),
-        payload: nextTarget,
-      })
+      commitActiveSession({ projectId: 'default', chatId: nextChatId, docPath: null })
       return
     }
-    requestedDocLockRef.current = null
-    explicitTargetRef.current = null
-    setExplicitTarget(null)
-    leaveThread()
-    setActiveChat(`${chatId}-${Date.now()}`)
+    const nextChatId = `${chatId}-${Date.now()}`
+    setActiveChat(nextChatId)
+    commitActiveSession({
+      projectId: libraryProjectIdRef.current || 'default',
+      chatId: nextChatId,
+      docPath: null,
+    })
   }
 
   syncExplicitTargetFromRelayRef.current = (target: SessionTarget) => {
-    if (target.docPath && !sameDocPath(docIdentityRef.current?.path ?? null, target.docPath)) {
-      requestedDocLockRef.current = target
-      return
-    }
-    requestedDocLockRef.current = null
-    explicitTargetRef.current = target
-    setExplicitTarget(target)
+    commitActiveSession(target, { broadcast: false })
   }
 
   const removeThread = async (chatIdToDelete: string, label: string): Promise<void> => {
@@ -3321,11 +3545,11 @@ export function KbAskPanel({
     // the browser skill's gate starts from the same tab list snapshot; the
     // surface context starts from its own pull (the loop's prompt reads it)
     refreshBrowserTabs()
-    void refreshSurfaceTabs()
+    void refreshSurfaceTabs(true)
     const offTabsChanged = window.aiOfficeTabs?.onChanged(() => {
       refreshAppManifest()
       refreshBrowserTabs()
-      void refreshSurfaceTabs()
+      void refreshSurfaceTabs(false)
     })
     refreshSettings()
     void window.aiOffice
@@ -3540,7 +3764,13 @@ export function KbAskPanel({
         }),
         systemSuffix: () => {
           const custom = piPrefsRef.current.systemPrompt.trim()
-          return custom ? `\n\n${custom}` : ''
+          const focusOverride = turnIgnoreActiveTabContextRef.current
+            ? '## Active tab focus\nThe user explicitly detached the currently active tab from this turn. Do not assume this request targets that tab unless explicitly named.'
+            : ''
+          return [custom, focusOverride]
+            .filter(Boolean)
+            .map((part) => `\n\n${part}`)
+            .join('')
         },
         // the paranoid posture's gate: while the mode answers here, EVERY tool
         // call reaches confirmTool (the gate itself classifies reads and
@@ -3839,8 +4069,8 @@ export function KbAskPanel({
       { sync: true },
     )
     updateBusy(false)
-    // the finished turn is also the snapshot the mirrors settle to
-    if (!mirror) publishSnapshot()
+    // Legacy renderer loops publish a settled snapshot; Pi runs own their hub snapshot in main.
+    if (!mirror && !isPiEngineRef.current) publishSnapshot()
   }
 
   stopLocalRunRef.current = () => {
@@ -4121,33 +4351,22 @@ export function KbAskPanel({
     instruction: string,
     skills: readonly string[] = [],
     files: readonly AttachmentInfo[] = [],
+    ignoreActiveTabContextArg?: boolean,
   ): Promise<void> => {
     // loop.busy closes the same-tick race the React state leaves open: a second
     // Enter before busy re-renders would otherwise queue a second run whose
     // streaming bubble the first run's patches would land on
     if (!instruction || busy || loopRef.current?.busy) return
+    const ignoreActiveTabContext =
+      ignoreActiveTabContextArg ?? focusContextDismissedRef.current
+    turnIgnoreActiveTabContextRef.current = ignoreActiveTabContext
     if (!mirror) updateBusy(true)
     refreshSettings()
     // the lineage record's task half: the person's raw question this run answers
     runInstructionRef.current = instruction
-    // the continuity seed: an EMPTY doc-CLAIMED thread whose document has
-    // lineage opens with the task's context riding the first question (the
-    // browser-note scaffold precedent — the line is visible in the
-    // transcript, stored with it, and seen by the model, so "what did you
-    // just do" answers). Three guards make it airtight:
-    // - CLAIMED on a doc, and the claim still matches the live identity: the
-    //   ask lands while the claim and the surface snapshot agree — a stale
-    //   snapshot mid-switch cannot seed the thread the ask is NOT in (the
-    //   flapping-identity repro seeded the family thread);
-    // - the thread is EMPTY: once turns exist, the conversation itself is the
-    //   context;
-    // - not already seeded: the doc's first question carries the line once,
-    //   even across flaps that empty the panel again (a switch home and
-    //   back, a claim re-run).
     const claimedDocPath = claimedDocPathRef.current
     const lineageSeed =
       claimedDocPath !== null &&
-      docIdentityRef.current?.path === claimedDocPath &&
       docLineageRef.current &&
       messagesRef.current.length === 0 &&
       !seededDocPathsRef.current.has(claimedDocPath)
@@ -4234,6 +4453,8 @@ export function KbAskPanel({
           ...(scopeRef.current.length > 0 ? { scopePaths: [...scopeRef.current] } : {}),
           ...(lineageSeed ? { lineageSeed } : {}),
           lang,
+          ignoreActiveTabContext,
+          focusedTabId: focusedSurfaceTabRef.current?.id ?? null,
         })
         if (askSeqRef.current !== seq) return
         if (!result) {
@@ -4288,6 +4509,7 @@ export function KbAskPanel({
     if (mirror) {
       updateBusy(true)
       setRemoteConfirmCard(null)
+      setRemoteConfirmPending(false)
       const currentIds = chatIdsRef.current
       const targetSession = currentIds
         ? {
@@ -4304,6 +4526,7 @@ export function KbAskPanel({
         seq: ++askSeqRef.current,
         origin: 'palette',
         ...(targetSession ? { targetSession } : {}),
+        ...(ignoreActiveTabContext ? { ignoreActiveTabContext: true } : {}),
       })
       return
     }
@@ -4493,18 +4716,14 @@ export function KbAskPanel({
     if (!requestedSession || requestedSession.seq === consumedRequestedSeqRef.current) return
     consumedRequestedSeqRef.current = requestedSession.seq
     onRequestedSessionConsumed?.()
-    const nextTarget: SessionTarget = {
-      projectId: requestedSession.projectId,
-      chatId: requestedSession.chatId,
-      docPath: requestedSession.docPath ?? null,
-    }
-    if (nextTarget.docPath && !sameDocPath(docIdentityRef.current?.path ?? null, nextTarget.docPath)) {
-      requestedDocLockRef.current = nextTarget
-    } else {
-      requestedDocLockRef.current = null
-      explicitTargetRef.current = nextTarget
-      setExplicitTarget(nextTarget)
-    }
+    commitActiveSession(
+      {
+        projectId: requestedSession.projectId,
+        chatId: requestedSession.chatId,
+        docPath: requestedSession.docPath ?? null,
+      },
+      { broadcast: false },
+    )
   }, [requestedSession, onRequestedSessionConsumed])
 
   const consumedQuerySeqRef = useRef(0)
@@ -4514,20 +4733,11 @@ export function KbAskPanel({
       const targetKey = sessionKeyOf(targetSession.projectId, targetSession.chatId)
       if (currentSessionKeyRef.current !== targetKey) {
         if (
-          targetSession.docPath &&
-          !sameDocPath(docIdentityRef.current?.path ?? null, targetSession.docPath)
-        ) {
-          requestedDocLockRef.current = targetSession
-          return
-        }
-        if (
           !explicitTargetRef.current ||
           sessionKeyOf(explicitTargetRef.current.projectId, explicitTargetRef.current.chatId) !==
             targetKey
         ) {
-          requestedDocLockRef.current = null
-          explicitTargetRef.current = targetSession
-          setExplicitTarget(targetSession)
+          commitActiveSession(targetSession)
         }
         return
       }
@@ -4537,8 +4747,9 @@ export function KbAskPanel({
     consumedQuerySeqRef.current = plan.seq
     onPendingQueryConsumed?.()
     if (plan.scopePaths) applyScope(plan.scopePaths)
-    if (plan.action === 'submit') void askWith(plan.text)
-    else if (plan.action === 'park') {
+    if (plan.action === 'submit') {
+      void askWith(plan.text, [], [], pendingQuery?.ignoreActiveTabContext)
+    } else if (plan.action === 'park') {
       // a scope parking never clobbers a draft the user is already typing:
       // the selection parks as the chip, the half-written question stays
       // theirs, and the composer takes the focus so the next keystroke
@@ -4713,7 +4924,10 @@ export function KbAskPanel({
         const activeRow = allRows.find((row) => row.chatId === activeId)
         const title = askHeaderTitle(
           activeRow?.hasCustomTitle ? null : effectiveDocPath,
-          activeRow?.label ?? (boundUnsavedTabId ? activeTabBinding?.title : undefined),
+          activeRow?.label ??
+            (explicitTarget === null && boundUnsavedTabId
+              ? boundUnsavedTitleRef.current
+              : undefined),
           t('askThreadNew'),
         )
         const checkpointTimeline = collectDocCheckpoints(messages)
@@ -4739,7 +4953,7 @@ export function KbAskPanel({
         }
         const canResizePresets = typeof window.aiOffice?.setAiDock === 'function'
         const newChatLabel =
-          effectiveDocPath || boundUnsavedTabId
+          effectiveDocPath || (explicitTarget === null && boundUnsavedTabId)
             ? scStrings.headerNewDocChat
             : scStrings.headerNewChat
         return (
@@ -5286,7 +5500,7 @@ export function KbAskPanel({
                 knows the document's AI origin, the visible continuity
                 marker (the model-facing half rides the first question as
                 the seed) */}
-            {messages.length === 0 && docIdentity !== null && (
+            {messages.length === 0 && effectiveDocPath !== null && (
               <div className="kb-ask-doc-empty">
                 {docLineage !== null && (
                   <p className="kb-ask-doc-lineage" data-testid="kb-ask-doc-lineage">
@@ -5312,7 +5526,7 @@ export function KbAskPanel({
                 </div>
               </div>
             )}
-            {messages.length === 0 && docIdentity === null && corpusCount === 0 && (
+            {messages.length === 0 && effectiveDocPath === null && corpusCount === 0 && (
               // the never-indexed onboarding: only for a corpus the store
               // itself says is empty — a fresh thread on a healthy corpus
               // takes the neutral welcome below instead
@@ -5363,7 +5577,7 @@ export function KbAskPanel({
                 </button>
               </div>
             )}
-            {messages.length === 0 && docIdentity === null && corpusCount !== 0 && (
+            {messages.length === 0 && effectiveDocPath === null && corpusCount !== 0 && (
               // a fresh family thread's empty state: the mascot's hello and
               // the suggestion chips — the same park-in-the-composer
               // contract the doc-bound cards play, with the corpus's own
@@ -5485,10 +5699,10 @@ export function KbAskPanel({
       {messages.length > 0 && (
         <p
           className="kb-ask-nosave"
-          data-kind={boundDocPath !== null || docIdentity !== null ? 'doc' : 'panel'}
+          data-kind={effectiveDocPath !== null ? 'doc' : 'panel'}
         >
           <IconInfo />
-          {t(boundDocPath !== null || docIdentity !== null ? 'askDocSaved' : 'askNoSave')}
+          {t(effectiveDocPath !== null ? 'askDocSaved' : 'askNoSave')}
         </p>
       )}
       {gskEmail === null && provider === 'genspark' && (
@@ -5528,6 +5742,153 @@ export function KbAskPanel({
         textareaRef={composerRef}
         header={
           <>
+            {(() => {
+              const otherRunningKeys = runningSessionKeys.filter((k) => k !== currentSessionKey)
+              if (otherRunningKeys.length === 0) return null
+              const sc = SESSIONS_CENTER_STRINGS[lang] ?? SESSIONS_CENTER_STRINGS.en
+              const bgKey = otherRunningKeys[0]!
+              const colon = bgKey.indexOf(':')
+              const bgProjectId = colon > 0 ? bgKey.slice(0, colon) : 'default'
+              const bgChatId = colon > 0 ? bgKey.slice(colon + 1) : bgKey
+              const allRows = [...threads.pinned, ...threads.docs, ...threads.other]
+              const bgRow = allRows.find((r) => r.chatId === bgChatId)
+              return (
+                <div className="kb-bg-run-banner" data-testid="kb-bg-run-banner" role="status">
+                  <span className="kb-bg-run-banner-dot" aria-hidden="true" />
+                  <span className="kb-bg-run-banner-text">
+                    {sc.backgroundRunBanner}
+                    {bgRow?.label ? ` · ${bgRow.label}` : ''}
+                  </span>
+                  <button
+                    type="button"
+                    className="kb-bg-run-banner-btn"
+                    data-testid="kb-bg-run-jump-btn"
+                    onClick={() =>
+                      commitActiveSession({
+                        projectId: bgRow?.projectId ?? bgProjectId,
+                        chatId: bgChatId,
+                        docPath: bgRow?.docPath ?? null,
+                      })
+                    }
+                  >
+                    {sc.backgroundRunJump}
+                  </button>
+                </div>
+              )
+            })()}
+            {focusedSurfaceTab !== null && (() => {
+              const sc = SESSIONS_CENTER_STRINGS[lang] ?? SESSIONS_CENTER_STRINGS.en
+              const allRows = [...threads.pinned, ...threads.docs, ...threads.other]
+              const isBrowserFocus = focusedSurfaceTab.kind === 'browser'
+              const focusBadgeLabel = isBrowserFocus
+                ? sc.focusedContextBrowser
+                : activeTabBinding
+                  ? sc.focusedContextDoc
+                  : sc.focusedContextTab
+              const focusTitle =
+                focusedSurfaceTab.title?.trim() ||
+                (focusedSurfaceTab.filePath
+                  ? docNameOf(focusedSurfaceTab.filePath)
+                  : focusedSurfaceTab.url || focusBadgeLabel)
+              let isSessionBoundToFocused = false
+              let docThreadsForFocused: LibraryThread[] = []
+              if (activeTabBinding) {
+                if (activeTabBinding.filePath) {
+                  isSessionBoundToFocused = sameDocPath(effectiveDocPath, activeTabBinding.filePath)
+                  docThreadsForFocused = filterCurrentDocThreads(
+                    allRows,
+                    activeTabBinding.filePath,
+                  ).currentDoc
+                } else {
+                  const tempId = unsavedTabChatId(activeTabBinding.tabId)
+                  const curId = claimedChatId ?? activeChat
+                  isSessionBoundToFocused = curId === tempId || curId.startsWith(`${tempId}-`)
+                  docThreadsForFocused = allRows.filter(
+                    (r) => r.chatId === tempId || r.chatId.startsWith(`${tempId}-`),
+                  )
+                }
+              }
+              return (
+                <div className="kb-focused-context-bar" data-testid="kb-focused-context-bar">
+                  {focusContextDismissed ? (
+                    <div className="kb-focused-context-detached">
+                      <span className="kb-focused-context-detached-text">
+                        {sc.focusedContextDetachedHint.replace('{title}', focusTitle)}
+                      </span>
+                      <button
+                        type="button"
+                        className="kb-focused-context-restore"
+                        data-testid="kb-focused-context-restore-btn"
+                        onClick={() => setFocusContextDismissed(false)}
+                      >
+                        {sc.focusedContextRestore}
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      className="kb-focused-context-chip"
+                      data-testid="kb-focused-context-chip"
+                      title={focusedSurfaceTab.filePath ?? focusedSurfaceTab.url ?? focusTitle}
+                    >
+                      <span className="kb-focused-context-kind">{focusBadgeLabel}</span>
+                      <span className="kb-focused-context-title">{focusTitle}</span>
+                      <button
+                        type="button"
+                        className="kb-focused-context-dismiss"
+                        data-testid="kb-focused-context-dismiss-btn"
+                        aria-label={sc.focusedContextDismissTitle}
+                        title={sc.focusedContextDismissTitle}
+                        onClick={() => setFocusContextDismissed(true)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )}
+                  {activeTabBinding && (
+                    <div className="kb-focused-context-actions">
+                      {isSessionBoundToFocused ? (
+                        <span
+                          className="kb-focused-context-bound"
+                          data-testid="kb-focused-context-bound"
+                        >
+                          {sc.focusedContextBoundBadge}
+                        </span>
+                      ) : docThreadsForFocused.length > 0 ? (
+                        <button
+                          type="button"
+                          className="kb-focused-context-action"
+                          data-testid="kb-switch-doc-chat-btn"
+                          onClick={() => {
+                            const target = docThreadsForFocused[0]!
+                            commitActiveSession({
+                              projectId: target.projectId ?? libraryProjectIdRef.current ?? 'default',
+                              chatId: target.chatId,
+                              docPath: target.docPath ?? activeTabBinding.filePath,
+                            })
+                          }}
+                        >
+                          {docThreadsForFocused.length > 1
+                            ? sc.switchToDocChatCount.replace(
+                                '{n}',
+                                String(docThreadsForFocused.length),
+                              )
+                            : sc.switchToDocChat}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="kb-focused-context-action"
+                          data-testid="kb-new-doc-chat-btn"
+                          onClick={() => void switchToFocusedDocChat(activeTabBinding)}
+                        >
+                          {sc.newDocChat}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
             {/* the parked "ask AI about this" annotation (W2a): a card-style
                 pending draft above the composer; × drops it with its scaffold.
                 The evidence pack shows as the element's XPath line and, when

@@ -15,6 +15,15 @@ export interface ActiveTabBinding {
   readonly filePath: string | null
 }
 
+/** Normalized active non-Home surface tab displayed in the live focus bar. */
+export interface FocusedSurfaceTab {
+  readonly id: string
+  readonly kind: string
+  readonly title: string
+  readonly filePath: string | null
+  readonly url: string | null
+}
+
 /** Thread claim resolution computed from active tab, explicit choice, or mount default. */
 export type ThreadClaimPlan =
   | {
@@ -75,16 +84,35 @@ export function deriveActiveTabBinding(
 }
 
 /**
+ * Extracts the currently active non-Home tab (document, media, or browser)
+ * for display in the composer's live focus bar without forcing a session switch.
+ */
+export function deriveFocusedSurfaceTab(
+  tabs: readonly SurfaceTab[] | null | undefined,
+): FocusedSurfaceTab | null {
+  const active = tabs?.find((t) => t.active && t.kind !== 'home')
+  if (!active) return null
+  return {
+    id: active.id,
+    kind: active.kind,
+    title: active.title,
+    filePath: typeof active.filePath === 'string' && active.filePath !== '' ? active.filePath : null,
+    url: typeof active.url === 'string' && active.url !== '' ? active.url : null,
+  }
+}
+
+/**
  * Decides which conversation transcript the panel should claim.
- * An explicit choice (switching threads, starting a new chat in a doc, or jumping
- * from the global session manager) takes priority over resetting to the doc default.
+ * An explicit choice takes priority; when `followActiveTab` is false (unified
+ * workbench mode after initialization), tab switches do not hijack the thread.
  */
 export function planThreadClaim(input: {
   activeTab: ActiveTabBinding | null
   explicitTarget: SessionTarget | null
   fallbackChatId: string
+  followActiveTab?: boolean
 }): ThreadClaimPlan {
-  const { activeTab, explicitTarget, fallbackChatId } = input
+  const { activeTab, explicitTarget, fallbackChatId, followActiveTab = true } = input
   if (explicitTarget) {
     return {
       mode: 'explicit',
@@ -93,13 +121,13 @@ export function planThreadClaim(input: {
       docPath: explicitTarget.docPath ?? null,
     }
   }
-  if (activeTab?.filePath) {
+  if (followActiveTab && activeTab?.filePath) {
     return {
       mode: 'doc',
       docPath: activeTab.filePath,
     }
   }
-  if (activeTab) {
+  if (followActiveTab && activeTab) {
     return {
       mode: 'unsaved-tab',
       tempChatId: unsavedTabChatId(activeTab.tabId),

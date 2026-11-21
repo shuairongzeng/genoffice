@@ -582,6 +582,8 @@ export async function prepareTurnWorkbenchState(
     instruction: string
     lineageSeed?: string | null
     lang?: string
+    ignoreActiveTabContext?: boolean
+    focusedTabId?: string | null
     skillFilePaths?: readonly string[]
     onCheckpoint?: (checkpoint: PiDocCheckpoint) => void
     onDocumentAgentProgress?: (event: { taskId: string; kind: string; status: AgentTaskStatus }) => void
@@ -594,17 +596,27 @@ export async function prepareTurnWorkbenchState(
     workbench.getAppSkillManifest().catch(() => null),
   ])
 
+  const resolvedSurfaceTabs = Array.isArray(rawSurfaceTabs)
+    ? (rawSurfaceTabs as SurfaceTab[])
+    : []
+  const focusedTab =
+    (input.focusedTabId
+      ? resolvedSurfaceTabs.find((t) => t.id === input.focusedTabId)
+      : undefined) ?? resolvedSurfaceTabs.find((t) => t.active)
+  const effectiveViewer: SurfaceViewer =
+    focusedTab && focusedTab.kind !== 'home' ? 'overlay' : input.viewer
+
   const state: WorkbenchTurnRuntimeState = {
     sessionKey: input.sessionKey,
     projectId: input.projectId,
     chatId: input.chatId,
-    viewer: input.viewer,
+    viewer: effectiveViewer,
     scopePaths: [...input.scopePaths],
     scopeNotIndexed: [],
     attachments: [...input.attachments],
     instruction: input.instruction,
     corpus: Array.isArray(rawCorpus) ? (rawCorpus as KbFileInfo[]) : [],
-    surfaceTabs: Array.isArray(rawSurfaceTabs) ? (rawSurfaceTabs as SurfaceTab[]) : [],
+    surfaceTabs: resolvedSurfaceTabs,
     browserTabs: Array.isArray(rawBrowserTabs)
       ? (rawBrowserTabs as BrowserTabSnapshot[]).map((b) => ({
           id: b.id,
@@ -625,6 +637,20 @@ export async function prepareTurnWorkbenchState(
 
   const surfaceSection = formatSurfaceSection(state.surfaceTabs, state.viewer)
   if (surfaceSection) sections.push(surfaceSection)
+
+  if (input.ignoreActiveTabContext) {
+    sections.push(
+      '## Active tab focus\nThe user explicitly detached the currently active tab from this turn. Do not assume this request refers to the currently open tab unless explicitly named.',
+    )
+  } else if (focusedTab && focusedTab.kind !== 'home') {
+    const focusLines = [
+      '## Active tab focus',
+      `Current focused tab: [${focusedTab.kind}] "${focusedTab.title || '(untitled)'}" (tabId: ${focusedTab.id}).`,
+      ...(focusedTab.filePath ? [`filePath: ${focusedTab.filePath}`] : []),
+      ...(focusedTab.url ? [`url: ${focusedTab.url}`] : []),
+    ]
+    sections.push(focusLines.join('\n'))
+  }
 
   const skillCtx = ephemeralSkill.buildContext?.() ?? ''
   if (skillCtx.trim()) sections.push(skillCtx.trim())

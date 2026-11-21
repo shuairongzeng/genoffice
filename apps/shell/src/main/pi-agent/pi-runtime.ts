@@ -40,7 +40,14 @@ import {
 } from '../../shared/pi-agent-api'
 import type { PiAgentPrefs } from '../../shared/pi-agent-prefs'
 import type { AiSessionAllows } from '../ai-session-allows'
-import { broadcastAskRunEventFromMain } from '../home-tabs-ipc'
+import {
+  beginPiRunInMain,
+  broadcastAskRunEventFromMain,
+  finishPiRunInMain,
+  markPiAssistantPersistedInMain,
+  markPiUserPersistedInMain,
+  setPiConfirmInMain,
+} from '../home-tabs-ipc'
 import { skillsRoot } from '../imported-skills'
 import type { WorkbenchToolsService } from '../workbench-tools-service'
 import {
@@ -672,6 +679,7 @@ export class PiAgentRuntimeManager {
         sessionKey: request.sessionKey,
         resolve,
       })
+      setPiConfirmInMain(request.sessionKey, request)
       this.deps.sendConfirmRequest(request)
     })
   }
@@ -680,6 +688,7 @@ export class PiAgentRuntimeManager {
     const pending = this.pendingConfirms.get(reply.requestId)
     if (!pending) return false
     this.pendingConfirms.delete(reply.requestId)
+    setPiConfirmInMain(pending.sessionKey, null)
     pending.resolve({
       allowed: reply.allowed === true,
       ...(reply.alwaysAllowSession !== undefined
@@ -690,6 +699,7 @@ export class PiAgentRuntimeManager {
   }
 
   private cancelConfirmsForSession(sessionKey: string): void {
+    setPiConfirmInMain(sessionKey, null)
     for (const [reqId, pending] of [...this.pendingConfirms]) {
       if (pending.sessionKey !== sessionKey) continue
       this.pendingConfirms.delete(reqId)
@@ -1136,6 +1146,8 @@ export class PiAgentRuntimeManager {
       instruction: cleanInstruction,
       lineageSeed: req.lineageSeed,
       lang: req.lang,
+      ignoreActiveTabContext: req.ignoreActiveTabContext,
+      focusedTabId: req.focusedTabId,
       skillFilePaths: skillPaths,
       onDocumentAgentProgress: (event: {
         taskId: string
@@ -1174,6 +1186,15 @@ export class PiAgentRuntimeManager {
     }
     this.activeRuns.set(req.sessionKey, run)
     record.busy = true
+    beginPiRunInMain({
+      sessionKey: req.sessionKey,
+      projectId: req.projectId,
+      chatId: req.chatId,
+      docPath: req.docPath ?? null,
+      userText: cleanInstruction,
+      ...(req.skills ? { skills: req.skills } : {}),
+      ...(req.attachments ? { attachments: req.attachments } : {}),
+    })
 
     try {
       // Collect user images (inline + image attachments) when model supports vision.
@@ -1202,6 +1223,7 @@ export class PiAgentRuntimeManager {
             : {}),
         })
         run.userPersisted = true
+        markPiUserPersistedInMain(req.sessionKey)
       }
 
       const outbound = isSlashCommand ? cleanInstruction : prepared.outboundPrompt
@@ -1245,6 +1267,7 @@ export class PiAgentRuntimeManager {
           role: 'assistant',
           text: finalCleanText,
         })
+        markPiAssistantPersistedInMain(req.sessionKey)
       }
 
       for (const candidate of prepared.state.lineageCandidates) {
@@ -1282,6 +1305,7 @@ export class PiAgentRuntimeManager {
       record.coord.setFallbackTurnState(undefined)
       this.activeRuns.delete(req.sessionKey)
       this.cancelConfirmsForSession(req.sessionKey)
+      finishPiRunInMain(req.sessionKey)
     }
   }
 

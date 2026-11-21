@@ -29,6 +29,39 @@ export const STICK_REFOLLOW_PX = 8
 /** far enough from the bottom for an upward scroll to stop following (px) */
 export const STICK_UNFOLLOW_PX = 24
 
+const WHEEL_LINE_PX = 16
+const SCROLLABLE_BOUNDARY_SLOP = 1
+
+function wheelPixelDelta(event: WheelEvent, pageHeight: number): number {
+  if (event.deltaMode === 1) return event.deltaY * WHEEL_LINE_PX
+  if (event.deltaMode === 2) return event.deltaY * pageHeight
+  return event.deltaY
+}
+
+function findScrollableDescendant(
+  target: EventTarget | null,
+  boundary: HTMLElement,
+  step: number,
+): HTMLElement | null {
+  let node = target instanceof Element ? target : null
+  while (node && node !== boundary) {
+    if (node instanceof HTMLElement && node.scrollHeight > node.clientHeight + SCROLLABLE_BOUNDARY_SLOP) {
+      const overflowY =
+        typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
+          ? window.getComputedStyle(node).overflowY
+          : ''
+      if (overflowY === 'auto' || overflowY === 'scroll' || node.tagName === 'TEXTAREA') {
+        const canUp = step < 0 && node.scrollTop > SCROLLABLE_BOUNDARY_SLOP
+        const canDown =
+          step > 0 && node.scrollTop + node.clientHeight < node.scrollHeight - SCROLLABLE_BOUNDARY_SLOP
+        if (canUp || canDown) return node
+      }
+    }
+    node = node.parentElement
+  }
+  return null
+}
+
 export interface StickToBottom {
   /** set on the scroll container */
   scrollerRef: (node: HTMLDivElement | null) => void
@@ -121,8 +154,40 @@ export function useStickToBottom(): StickToBottom {
       // a downward scroll short of the band, or the anchoring/programmatic
       // events growth produces: the state stands
     }
+    const onWheel = (event: WheelEvent): void => {
+      if (event.ctrlKey || event.metaKey || event.deltaY === 0) return
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
+      const rawDeltaY = wheelPixelDelta(event, scroller.clientHeight || 400)
+      const rectHeight =
+        typeof scroller.getBoundingClientRect === 'function'
+          ? scroller.getBoundingClientRect().height
+          : 0
+      const zoom =
+        rectHeight > 0 && scroller.clientHeight > 0 ? rectHeight / scroller.clientHeight : 1
+      const step = rawDeltaY / (zoom || 1)
+      if (step === 0) return
+      if (findScrollableDescendant(event.target, scroller, step)) return
+      const maxTop = scroller.scrollHeight - scroller.clientHeight
+      if (maxTop <= SCROLLABLE_BOUNDARY_SLOP) return
+      event.preventDefault()
+      const nextTop = Math.max(0, Math.min(maxTop, scroller.scrollTop + step))
+      if (Math.abs(nextTop - scroller.scrollTop) > 0.01) {
+        scroller.scrollTop = nextTop
+        lastScrollTopRef.current = scroller.scrollTop
+      }
+      const distance = maxTop - scroller.scrollTop
+      if (distance <= STICK_REFOLLOW_PX) {
+        applyFollowing(true)
+      } else if (step < 0 && distance >= STICK_UNFOLLOW_PX) {
+        applyFollowing(false)
+      }
+    }
     scroller.addEventListener('scroll', onScroll, { passive: true })
-    return () => scroller.removeEventListener('scroll', onScroll)
+    scroller.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      scroller.removeEventListener('scroll', onScroll)
+      scroller.removeEventListener('wheel', onWheel)
+    }
   }, [scroller])
 
   /** the React-shaped growth twin: the commit already landed, scroll now */
