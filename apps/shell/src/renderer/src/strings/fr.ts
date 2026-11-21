@@ -429,6 +429,7 @@ export const fr: Dict = {
   settings: 'Paramètres',
   setSecAccount: 'Compte',
   setSecGeneral: 'Général',
+  setSecDesktop: 'Bureau et fond d\'écran',
   setSecDock: 'Dock',
   setDockMagnify: 'Agrandissement',
   setDockMagnifyDesc: 'Les icônes grandissent au passage du pointeur',

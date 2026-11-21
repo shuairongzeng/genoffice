@@ -414,6 +414,7 @@ export const hi: Dict = {
   settings: 'सेटिंग्स',
   setSecAccount: 'खाता',
   setSecGeneral: 'सामान्य',
+  setSecDesktop: 'डेस्कटॉप और वॉलपेपर',
   setSecDock: 'Dock',
   setDockMagnify: 'आवर्धन',
   setDockMagnifyDesc: 'पॉइंटर गुज़रने पर आइकन बड़े होते हैं',

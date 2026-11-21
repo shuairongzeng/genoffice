@@ -404,6 +404,7 @@ export const he: Dict = {
   settings: 'הגדרות',
   setSecAccount: 'חשבון',
   setSecGeneral: 'כללי',
+  setSecDesktop: 'שולחן עבודה ורקע',
   setSecDock: 'Dock',
   setDockMagnify: 'הגדלה',
   setDockMagnifyDesc: 'האייקונים מתרחבים כשהסמן עובר',

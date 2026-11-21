@@ -416,6 +416,7 @@ export const nl: Dict = {
   settings: 'Instellingen',
   setSecAccount: 'Account',
   setSecGeneral: 'Algemeen',
+  setSecDesktop: 'Bureaublad & achtergrond',
   setSecDock: 'Dock',
   setDockMagnify: 'Vergroting',
   setDockMagnifyDesc: 'Pictogrammen vergroten onder de aanwijzer',

@@ -419,6 +419,7 @@ export const pt: Dict = {
   settings: 'Configurações',
   setSecAccount: 'Conta',
   setSecGeneral: 'Geral',
+  setSecDesktop: 'Área de trabalho e papel de parede',
   setSecDock: 'Dock',
   setDockMagnify: 'Ampliação',
   setDockMagnifyDesc: 'Os ícones ampliam quando o ponteiro passa',

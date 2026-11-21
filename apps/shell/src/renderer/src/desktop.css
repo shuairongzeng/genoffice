@@ -1,3 +1,5 @@
+@import './modal-shell.css';
+
 /* The Home desktop's look (DesktopView.tsx). Layered backdrop — a deep
  * brand-adjacent gradient, an extremely slow aurora drift and a dot grid —
  * plus the glassmorphic icon tiles. List views never see any of this: the
@@ -917,6 +919,48 @@
   flex-direction: column;
   gap: 16px;
   padding: 6px 22px 24px;
+}
+
+.desktop-wp-body-embedded {
+  flex: none;
+  overflow: visible;
+  padding: 6px 0 12px;
+}
+
+.desktop-settings-pane {
+  display: flex;
+  flex-direction: column;
+}
+
+.desktop-settings-subtitle {
+  margin: 18px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.desktop-wp-custom-thumb {
+  width: 64px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  border: 1px solid var(--border-subtle);
+  object-fit: cover;
+  display: block;
+}
+
+.desktop-drop-ghost {
+  position: absolute;
+  z-index: 2;
+  border-radius: 16px;
+  border: 2px dashed color-mix(in srgb, var(--accent) 68%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events: none;
+  transition:
+    left 0.08s ease-out,
+    top 0.08s ease-out;
 }
 
 .desktop-wp-group {

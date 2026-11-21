@@ -1,0 +1,61 @@
+/* Shared modal overlay and dialog chrome used by Settings, Wallpaper Center, and Properties dialogs.
+   Chrome colors use semantic tokens only. */
+
+.set-overlay {
+  position: fixed;
+  inset: 0;
+  /* above the star-prompt promo card (z-index 60): at the same level the
+     later-DOM card stacked over this dialog */
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5vh 24px;
+  background: var(--color-bg-overlay);
+  backdrop-filter: blur(6px);
+}
+
+.set-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(960px, 100%);
+  height: min(720px, 90vh);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-modal-strong);
+  overflow: hidden;
+}
+
+.set-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+}
+
+.set-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.set-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.set-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}

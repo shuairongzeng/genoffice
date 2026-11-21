@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import type { Lang } from '@genoffice/i18n'
 import type { DesktopRecentsMode, HomeApi, RecentEntry } from '../../shared/home-api'
 import type { DesktopStrings } from './desktop-strings'
+import './modal-shell.css'
 
 /**
  * The desktop's two properties dialogs, both opened off the desktop:

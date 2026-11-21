@@ -422,6 +422,7 @@ export const ja: Dict = {
   settings: '設定',
   setSecAccount: 'アカウント',
   setSecGeneral: '一般',
+  setSecDesktop: 'デスクトップと壁紙',
   setSecDock: 'Dock',
   setDockMagnify: '拡大',
   setDockMagnifyDesc: 'ポインタが通過するとアイコンが拡大します',

@@ -432,6 +432,7 @@ export const de: Dict = {
   settings: 'Einstellungen',
   setSecAccount: 'Konto',
   setSecGeneral: 'Allgemein',
+  setSecDesktop: 'Schreibtisch & Hintergrund',
   setSecDock: 'Dock',
   setDockMagnify: 'Vergrößerung',
   setDockMagnifyDesc: 'Symbole vergrößern sich, wenn der Zeiger sie überstreicht',

@@ -631,7 +631,11 @@ export function registerDesktopIpc(deps: DesktopIpcDeps = {}): void {
           "wallpaperFit: 'cover'|'contain'|'stretch'|'tile'|'center', labelColor: string }",
       )
     }
-    await writeDesktopPrefs(userDataDir(), normalizePrefs(raw))
+    const normalized = normalizePrefs(raw)
+    await writeDesktopPrefs(userDataDir(), normalized)
+    for (const wc of webContents.getAllWebContents()) {
+      if (!wc.isDestroyed()) wc.send(HOME_CHANNELS.desktopPrefsChanged, normalized)
+    }
   })
 
   // ── wallpapers ──

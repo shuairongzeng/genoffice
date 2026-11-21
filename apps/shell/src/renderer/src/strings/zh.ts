@@ -401,6 +401,7 @@ export const zh = {
   settings: '设置中心',
   setSecAccount: '账户',
   setSecGeneral: '通用',
+  setSecDesktop: '桌面与壁纸',
   setSecDock: '程序坞',
   setDockMagnify: '放大效果',
   setDockMagnifyDesc: '指针划过时图标放大',

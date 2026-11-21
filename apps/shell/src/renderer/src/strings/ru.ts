@@ -420,6 +420,7 @@ export const ru: Dict = {
   settings: 'Настройки',
   setSecAccount: 'Аккаунт',
   setSecGeneral: 'Общие',
+  setSecDesktop: 'Рабочий стол и обои',
   setSecDock: 'Dock',
   setDockMagnify: 'Увеличение',
   setDockMagnifyDesc: 'Значки увеличиваются под указателем',

@@ -410,6 +410,7 @@ export const en: Dict = {
   settings: 'Settings',
   setSecAccount: 'Account',
   setSecGeneral: 'General',
+  setSecDesktop: 'Desktop & Wallpaper',
   setSecDock: 'Dock',
   setDockMagnify: 'Magnification',
   setDockMagnifyDesc: 'Icons magnify as the pointer passes over them',

@@ -505,6 +505,29 @@ describe('home:desktop-prefs-save', () => {
     }
     expect(readFileSync(desktopPrefsPath(userData), 'utf8')).toBe(before)
   })
+
+  it('broadcasts desktop-prefs-changed to live webContents after saving and skips destroyed ones', async () => {
+    const sent: Array<{ channel: string; payload: unknown }> = []
+    const live = {
+      isDestroyed: () => false,
+      send: (channel: string, payload: unknown) => sent.push({ channel, payload }),
+    }
+    const dead = {
+      isDestroyed: () => true,
+      send: (channel: string, payload: unknown) => sent.push({ channel, payload }),
+    }
+    scopeContents.push(live as unknown as (typeof scopeContents)[number])
+    scopeContents.push(dead as unknown as (typeof scopeContents)[number])
+    try {
+      await savePrefs(VALID)
+      const hits = sent.filter((entry) => entry.channel === HOME_CHANNELS.desktopPrefsChanged)
+      expect(hits).toHaveLength(1)
+      expect(hits[0]?.payload).toEqual(VALID)
+    } finally {
+      scopeContents.pop()
+      scopeContents.pop()
+    }
+  })
 })
 
 // ── wallpapers: the fixture dirs the channels are re-registered against ──

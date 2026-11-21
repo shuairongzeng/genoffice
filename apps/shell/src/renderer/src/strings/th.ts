@@ -411,6 +411,7 @@ export const th: Dict = {
   settings: 'การตั้งค่า',
   setSecAccount: 'บัญชี',
   setSecGeneral: 'ทั่วไป',
+  setSecDesktop: 'เดสก์ท็อปและวอลเปเปอร์',
   setSecDock: 'Dock',
   setDockMagnify: 'การขยาย',
   setDockMagnifyDesc: 'ไอคอนขยายเมื่อตัวชี้ผ่าน',

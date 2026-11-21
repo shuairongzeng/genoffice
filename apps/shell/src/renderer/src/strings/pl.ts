@@ -415,6 +415,7 @@ export const pl: Dict = {
   settings: 'Ustawienia',
   setSecAccount: 'Konto',
   setSecGeneral: 'Ogólne',
+  setSecDesktop: 'Pulpit i tapeta',
   setSecDock: 'Dock',
   setDockMagnify: 'Powiększanie',
   setDockMagnifyDesc: 'Ikony powiększają się pod kursorem',

@@ -416,6 +416,7 @@ export const ms: Dict = {
   settings: 'Tetapan',
   setSecAccount: 'Akaun',
   setSecGeneral: 'Umum',
+  setSecDesktop: 'Desktop & Hiasan Latar',
   setSecDock: 'Dock',
   setDockMagnify: 'Pembesaran',
   setDockMagnifyDesc: 'Ikon membesar apabila penunjuk melintas',

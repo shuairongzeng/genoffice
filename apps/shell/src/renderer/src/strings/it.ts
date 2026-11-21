@@ -419,6 +419,7 @@ export const it: Dict = {
   settings: 'Impostazioni',
   setSecAccount: 'Account',
   setSecGeneral: 'Generale',
+  setSecDesktop: 'Scrivania e sfondo',
   setSecDock: 'Dock',
   setDockMagnify: 'Ingrandimento',
   setDockMagnifyDesc: 'Le icone si ingrandiscono al passaggio del puntatore',

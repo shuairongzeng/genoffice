@@ -423,6 +423,7 @@ export const id: Dict = {
   settings: 'Pengaturan',
   setSecAccount: 'Akun',
   setSecGeneral: 'Umum',
+  setSecDesktop: 'Desktop & Wallpaper',
   setSecDock: 'Dock',
   setDockMagnify: 'Pembesaran',
   setDockMagnifyDesc: 'Ikon membesar saat kursor melintas',

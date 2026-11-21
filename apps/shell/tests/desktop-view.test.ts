@@ -1684,6 +1684,7 @@ describe('DesktopView — the empty-surface menu', () => {
       'Refresh',
       'Add folder to desktop…',
       'Change wallpaper',
+      'Tidy up icons',
       'Properties',
     ])
     expect(host.querySelector('.desktop-submenu')).toBeNull()
@@ -1937,7 +1938,7 @@ describe('DesktopView — the desktop properties dialog', () => {
       '/docs/GenOffice',
     )
     await click(host.querySelector('.desktop-props-open-settings'))
-    expect(props.onOpenSettings).toHaveBeenCalledWith({ section: 'general' })
+    expect(props.onOpenSettings).toHaveBeenCalledWith({ section: 'desktop' })
     expect(host.querySelector('.desktop-props-dialog')).toBeNull()
   })
 })
@@ -2005,13 +2006,16 @@ describe('DesktopView — the wallpaper center', () => {
       t.textContent?.includes('Minimal light'),
     )
     await click(tile)
-    expect(prefSaves.at(-1)).toMatchObject({ wallpaper: 'builtin:minimal-light' })
-    expect(host.querySelector('.desktop-wp-dialog')).toBeNull() // applied and closed
+    expect(prefSaves.at(-1)).toMatchObject({ wallpaper: 'builtin:minimal-light', carouselMinutes: 0 })
+    // Live preview keeps the dialog open until explicitly closed
+    expect(host.querySelector('.desktop-wp-dialog')).toBeTruthy()
     await flushAsync()
     const layer = activeLayer()
     expect(layer?.style.backgroundImage).toContain(wallpaperUrl('builtin:minimal-light'))
     expect(host.querySelector('.desktop-aurora-a')).toBeNull()
     expect(wallpaperImage).toHaveBeenCalledWith('builtin:minimal-light')
+    await click(host.querySelector('.desktop-wp-dialog .set-close'))
+    expect(host.querySelector('.desktop-wp-dialog')).toBeNull()
   })
 
   it('applies the picked custom image through wallpaperPickCustom', async () => {
@@ -2079,7 +2083,6 @@ describe('DesktopView — the wallpaper fit', () => {
         t.textContent?.includes('Minimal light'),
       ),
     )
-    await openWallpaperCenter()
     expect(fitButtons().map((b) => b.textContent)).toEqual([
       'Fill',
       'Fit',
@@ -3245,5 +3248,106 @@ describe('DesktopView — smart stacks and overflow handling', () => {
     expect(Number.parseInt(list.style.minWidth, 10)).toBeGreaterThan(1200)
     const coords = icons().map((li) => `${li.style.left}:${li.style.top}`)
     expect(new Set(coords).size).toBe(coords.length)
+  })
+})
+
+describe('DesktopView — hover submenus, wheel zoom, shortcuts, tidy up & pin to dock', () => {
+  it('opens submenus automatically on hover without clicking and collapses when hovering plain rows', async () => {
+    await render()
+    await surfaceContextMenu()
+    expect(host.querySelector('.desktop-submenu')).toBeNull()
+
+    const newRow = host.querySelector('button[data-submenu="new"]')!.closest('.desktop-menu-row')!
+    await act(async () => {
+      newRow.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: 20, clientY: 20 }))
+      await Promise.resolve()
+    })
+    expect(submenuButtons()).toContain('Docs')
+
+    // Moving onto a plain row without submenu (Refresh) collapses the submenu
+    const refreshBtn = [...host.querySelectorAll<HTMLButtonElement>('.desktop-menu > button')].find(
+      (b) => b.textContent === 'Refresh',
+    )!
+    await act(async () => {
+      refreshBtn.dispatchEvent(
+        new MouseEvent('mouseover', { bubbles: true, clientX: 20, clientY: 140 }),
+      )
+      await Promise.resolve()
+    })
+    expect(host.querySelector('.desktop-submenu')).toBeNull()
+  })
+
+  it('stops active carousel when choosing a wallpaper so selection takes effect immediately', async () => {
+    storedPrefs = { ...storedPrefs, carouselMinutes: 10, wallpaper: 'default' }
+    await render()
+    await openWallpaperCenter()
+    const tile = [...host.querySelectorAll<HTMLElement>('.desktop-wp-tile')].find((t) =>
+      t.textContent?.includes('Deep teal'),
+    )!
+    await click(tile)
+    expect(prefSaves.at(-1)).toMatchObject({
+      wallpaper: 'builtin:teal-deep',
+      carouselMinutes: 0,
+    })
+  })
+
+  it('scales icon sizes with Ctrl+wheel and supports F5 refresh and Alt+Enter properties shortcuts', async () => {
+    await render()
+    const surface = host.querySelector('.desktop-surface')!
+
+    // Zoom in: md -> lg
+    await act(async () => {
+      surface.dispatchEvent(new WheelEvent('wheel', { bubbles: true, ctrlKey: true, deltaY: -120 }))
+      await Promise.resolve()
+    })
+    expect(prefSaves.at(-1)).toMatchObject({ iconSize: 'lg' })
+
+    // Advance throttle window and zoom out: lg -> md
+    await act(async () => {
+      vi.advanceTimersByTime(200)
+      surface.dispatchEvent(new WheelEvent('wheel', { bubbles: true, ctrlKey: true, deltaY: 120 }))
+      await Promise.resolve()
+    })
+    expect(prefSaves.at(-1)).toMatchObject({ iconSize: 'md' })
+
+    // F5 triggers recents refresh
+    await pressKey('F5')
+
+    // Alt+Enter with selected root folder opens IconPropsDialog
+    await act(async () => {
+      iconOf('Work').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', altKey: true, bubbles: true }))
+      await Promise.resolve()
+    })
+    expect(host.querySelector('.desktop-props-dialog .set-title')?.textContent).toBe('Work')
+  })
+
+  it('resets custom icon positions via Tidy up icons and pins icons to Dock from context menu', async () => {
+    const pinned: DockCustomCandidate[] = []
+    stored = { positions: { 'app:docs': cellPos(2, 2) } }
+    await render('en', {
+      dockPillRef: { current: document.createElement('div') },
+      onDockDrop: (item) => {
+        pinned.push(item)
+        return 'added'
+      },
+    })
+
+    // Pin Docs from icon right-click menu
+    await contextMenu('Docs')
+    await clickIconMenuButton('Keep in Dock')
+    expect(pinned).toEqual([{ kind: 'app', target: 'app:docs' }])
+
+    // Tidy up icons clears custom coordinates
+    await surfaceContextMenu()
+    await clickSurfaceButton('Tidy up icons')
+    await act(async () => {
+      vi.advanceTimersByTime(DEBOUNCE_MS + 10)
+      await Promise.resolve()
+    })
+    expect(saves.at(-1)).toEqual({ positions: {} })
   })
 })

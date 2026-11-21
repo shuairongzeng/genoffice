@@ -398,6 +398,7 @@ export const zhTW: Dict = {
   settings: '設定',
   setSecAccount: '帳戶',
   setSecGeneral: '一般',
+  setSecDesktop: '桌面與桌布',
   setSecDock: '程序塢',
   setDockMagnify: '放大效果',
   setDockMagnifyDesc: '指標劃過時圖示放大',

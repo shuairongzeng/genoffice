@@ -62,6 +62,7 @@ import { FoundSkills } from './FoundSkills'
 import { PluginsPane } from './PluginsPane'
 import { AiPetSettingsPane } from './AiPetSettingsPane'
 import { PiEcosystemSettingsPane } from './PiEcosystemSettingsPane'
+import { DesktopSettingsPane } from './DesktopSettingsPane'
 import './settings.css'
 
 // ── Settings modal (opened from the account menu) ─────────
@@ -205,6 +206,7 @@ export type SectionId =
   | 'aiMedia'
   | 'general'
   | 'dock'
+  | 'desktop'
   | 'aiPet'
   | 'piAgent'
   | 'integrations'
@@ -218,6 +220,7 @@ export const SECTIONS: readonly { id: SectionId; labelKey: StringKey }[] = [
   { id: 'aiMedia', labelKey: 'setSecAiMedia' },
   { id: 'general', labelKey: 'setSecGeneral' },
   { id: 'dock', labelKey: 'setSecDock' },
+  { id: 'desktop', labelKey: 'setSecDesktop' },
   { id: 'aiPet', labelKey: 'setSecAiPet' },
   { id: 'piAgent', labelKey: 'setSecPiAgent' },
   { id: 'integrations', labelKey: 'setSecIntegrations' },
@@ -338,6 +341,20 @@ function SectionIcon({ id }: { id: SectionId }) {
         />
         <circle cx="11.5" cy="5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
         <circle cx="4.5" cy="11" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+      </svg>
+    )
+  }
+  if (id === 'desktop') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <rect x="1.8" y="2.5" width="12.4" height="9" rx="1.6" stroke="currentColor" strokeWidth="1.3" />
+        <path
+          d="M2.5 9.6 5.6 6.8l2.3 2.1 2.1-1.9 3.5 2.8M6.2 13.8h3.6"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     )
   }
@@ -2835,6 +2852,7 @@ export function SettingsModal({
                 )}
               </>
             )}
+            {section === 'desktop' && <DesktopSettingsPane />}
             {section === 'dock' && (
               <>
                 <h3 className="set-pane-title">{t('setSecDock')}</h3>

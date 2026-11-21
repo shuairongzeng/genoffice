@@ -417,6 +417,7 @@ export const ko: Dict = {
   settings: '설정',
   setSecAccount: '계정',
   setSecGeneral: '일반',
+  setSecDesktop: '데스크톱 및 배경화면',
   setSecDock: 'Dock',
   setDockMagnify: '확대',
   setDockMagnifyDesc: '포인터가 지나가면 아이콘이 확대됩니다',

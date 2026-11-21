@@ -415,6 +415,7 @@ export const ar: Dict = {
   settings: 'الإعدادات',
   setSecAccount: 'الحساب',
   setSecGeneral: 'عام',
+  setSecDesktop: 'سطح المكتب والخلفية',
   setSecDock: 'Dock',
   setDockMagnify: 'تكبير',
   setDockMagnifyDesc: 'تكبر الأيقونات عند مرور المؤشر',

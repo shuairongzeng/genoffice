@@ -338,6 +338,7 @@ export const cs: Dict = {
   settings: 'Nastavení',
   setSecAccount: 'Účet',
   setSecGeneral: 'Obecné',
+  setSecDesktop: 'Plocha a tapeta',
   setSecDock: 'Dock',
   setDockMagnify: 'Zvětšení',
   setDockMagnifyDesc: 'Ikony se zvětší pod kurzorem',

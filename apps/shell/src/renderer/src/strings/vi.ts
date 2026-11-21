@@ -410,6 +410,7 @@ export const vi: Dict = {
   settings: 'Cài đặt',
   setSecAccount: 'Tài khoản',
   setSecGeneral: 'Chung',
+  setSecDesktop: 'Màn hình nền & Hình nền',
   setSecDock: 'Dock',
   setDockMagnify: 'Phóng to',
   setDockMagnifyDesc: 'Biểu tượng phóng to khi con trỏ đi qua',

@@ -160,6 +160,10 @@ export interface DesktopStrings {
   stackEmptyMatch: string
   stackItemCount: string
   dpHiddenRecentsRestore: string
+  menuTidyUp: string
+  menuPinToDock: string
+  desktopSettingsAppearance: string
+  desktopSettingsLayout: string
 }
 
 export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
@@ -280,6 +284,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: '没有匹配的文件',
     stackItemCount: '{n} 项',
     dpHiddenRecentsRestore: '恢复已隐藏的最近文件 ({n})',
+    menuTidyUp: '整理桌面图标',
+    menuPinToDock: '固定到程序坞',
+    desktopSettingsAppearance: '壁纸与外观',
+    desktopSettingsLayout: '桌面布局与整理',
   },
   en: {
     navDesktop: 'Desktop',
@@ -398,6 +406,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'No matching files',
     stackItemCount: '{n} items',
     dpHiddenRecentsRestore: 'Restore hidden recents ({n})',
+    menuTidyUp: 'Tidy up icons',
+    menuPinToDock: 'Keep in Dock',
+    desktopSettingsAppearance: 'Wallpaper & Appearance',
+    desktopSettingsLayout: 'Desktop Layout & Stacks',
   },
   ja: {
     navDesktop: 'デスクトップ',
@@ -520,6 +532,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: '一致するファイルがありません',
     stackItemCount: '{n} 項目',
     dpHiddenRecentsRestore: '非表示の最近の項目を復元 ({n})',
+    menuTidyUp: 'アイコンを整頓',
+    menuPinToDock: 'Dock に追加',
+    desktopSettingsAppearance: '壁紙と外観',
+    desktopSettingsLayout: 'デスクトップ配置とスタック',
   },
   ko: {
     navDesktop: '데스크톱',
@@ -640,6 +656,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: '일치하는 파일 없음',
     stackItemCount: '{n}개 항목',
     dpHiddenRecentsRestore: '숨긴 최근 파일 복원 ({n})',
+    menuTidyUp: '아이콘 정리',
+    menuPinToDock: 'Dock에 고정',
+    desktopSettingsAppearance: '배경화면 및 모양',
+    desktopSettingsLayout: '데스크톱 레이아웃 및 스택',
   },
   fr: {
     navDesktop: 'Bureau',
@@ -762,6 +782,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'Aucun fichier correspondant',
     stackItemCount: '{n} éléments',
     dpHiddenRecentsRestore: 'Restaurer les récents masqués ({n})',
+    menuTidyUp: 'Ranger les icônes',
+    menuPinToDock: 'Garder dans le Dock',
+    desktopSettingsAppearance: 'Fond d’écran et apparence',
+    desktopSettingsLayout: 'Disposition du bureau et piles',
   },
   de: {
     navDesktop: 'Desktop',
@@ -885,6 +909,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'Keine passenden Dateien',
     stackItemCount: '{n} Objekte',
     dpHiddenRecentsRestore: 'Ausgeblendete wiederherstellen ({n})',
+    menuTidyUp: 'Symbole aufräumen',
+    menuPinToDock: 'Im Dock behalten',
+    desktopSettingsAppearance: 'Hintergrund & Erscheinung',
+    desktopSettingsLayout: 'Schreibtisch-Layout & Stapel',
   },
   es: {
     navDesktop: 'Escritorio',
@@ -1006,6 +1034,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'Sin archivos coincidentes',
     stackItemCount: '{n} elementos',
     dpHiddenRecentsRestore: 'Restaurar recientes ocultos ({n})',
+    menuTidyUp: 'Ordenar iconos',
+    menuPinToDock: 'Mantener en el Dock',
+    desktopSettingsAppearance: 'Fondo y apariencia',
+    desktopSettingsLayout: 'Diseño de escritorio y pilas',
   },
   th: {
     navDesktop: 'เดสก์ท็อป',
@@ -1124,6 +1156,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'ไม่พบไฟล์ที่ตรงกัน',
     stackItemCount: '{n} รายการ',
     dpHiddenRecentsRestore: 'กู้คืนไฟล์ล่าสุดที่ซ่อนไว้ ({n})',
+    menuTidyUp: 'จัดระเบียบไอคอน',
+    menuPinToDock: 'ปักหมุดที่ Dock',
+    desktopSettingsAppearance: 'วอลเปเปอร์และรูปลักษณ์',
+    desktopSettingsLayout: 'เลย์เอาต์และชุดซ้อนบนเดสก์ท็อป',
   },
   id: {
     navDesktop: 'Desktop',
@@ -1243,6 +1279,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'Tidak ada file yang cocok',
     stackItemCount: '{n} item',
     dpHiddenRecentsRestore: 'Pulihkan terkini tersembunyi ({n})',
+    menuTidyUp: 'Rapikan ikon',
+    menuPinToDock: 'Simpan di Dock',
+    desktopSettingsAppearance: 'Wallpaper & Tampilan',
+    desktopSettingsLayout: 'Tata Letak & Tumpukan Desktop',
   },
   ru: {
     navDesktop: 'Рабочий стол',
@@ -1363,6 +1403,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'Нет подходящих файлов',
     stackItemCount: '{n} шт.',
     dpHiddenRecentsRestore: 'Вернуть скрытые недавние ({n})',
+    menuTidyUp: 'Упорядочить значки',
+    menuPinToDock: 'Оставить в Dock',
+    desktopSettingsAppearance: 'Обои и оформление',
+    desktopSettingsLayout: 'Макет рабочего стола и стопки',
   },
   ar: {
     navDesktop: 'سطح المكتب',
@@ -1481,6 +1525,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'لا توجد ملفات مطابقة',
     stackItemCount: '{n} عناصر',
     dpHiddenRecentsRestore: 'استعادة الأخيرة المخفية ({n})',
+    menuTidyUp: 'ترتيب الأيقونات',
+    menuPinToDock: 'تثبيت في شريط Dock',
+    desktopSettingsAppearance: 'الخلفية والمظهر',
+    desktopSettingsLayout: 'تخطيط سطح المكتب والمجموعات',
   },
   pt: {
     navDesktop: 'Área de trabalho',
@@ -1603,6 +1651,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'Nenhum arquivo correspondente',
     stackItemCount: '{n} itens',
     dpHiddenRecentsRestore: 'Restaurar recentes ocultos ({n})',
+    menuTidyUp: 'Organizar ícones',
+    menuPinToDock: 'Manter no Dock',
+    desktopSettingsAppearance: 'Papel de parede e aparência',
+    desktopSettingsLayout: 'Layout da mesa e pilhas',
   },
   it: {
     navDesktop: 'Desktop',
@@ -1724,6 +1776,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'Nessun file corrispondente',
     stackItemCount: '{n} elementi',
     dpHiddenRecentsRestore: 'Ripristina recenti nascosti ({n})',
+    menuTidyUp: 'Riordina icone',
+    menuPinToDock: 'Mantieni nel Dock',
+    desktopSettingsAppearance: 'Sfondo e aspetto',
+    desktopSettingsLayout: 'Layout scrivania e pile',
   },
   pl: {
     navDesktop: 'Pulpit',
@@ -1844,6 +1900,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'Brak pasujących plików',
     stackItemCount: '{n} elem.',
     dpHiddenRecentsRestore: 'Przywróć ukryte ostatnie ({n})',
+    menuTidyUp: 'Uporządkuj ikony',
+    menuPinToDock: 'Zatrzymaj w Docku',
+    desktopSettingsAppearance: 'Tapeta i wygląd',
+    desktopSettingsLayout: 'Układ pulpitu i stosy',
   },
   cs: {
     navDesktop: 'Plocha',
@@ -1963,6 +2023,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'Žádné odpovídající soubory',
     stackItemCount: '{n} položek',
     dpHiddenRecentsRestore: 'Obnovit skryté nedávné ({n})',
+    menuTidyUp: 'Uspořádat ikony',
+    menuPinToDock: 'Ponechat v Docku',
+    desktopSettingsAppearance: 'Tapeta a vzhled',
+    desktopSettingsLayout: 'Rozložení plochy a sady',
   },
   nl: {
     navDesktop: 'Bureaublad',
@@ -2086,6 +2150,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'Geen overeenkomende bestanden',
     stackItemCount: '{n} items',
     dpHiddenRecentsRestore: 'Verborgen recente herstellen ({n})',
+    menuTidyUp: 'Symbolen opruimen',
+    menuPinToDock: 'Zet vast in Dock',
+    desktopSettingsAppearance: 'Achtergrond & weergave',
+    desktopSettingsLayout: 'Bureaubladindeling & stapels',
   },
   ms: {
     navDesktop: 'Desktop',
@@ -2205,6 +2273,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'Tiada fail yang sepadan',
     stackItemCount: '{n} item',
     dpHiddenRecentsRestore: 'Pulihkan terkini tersembunyi ({n})',
+    menuTidyUp: 'Susun ikon',
+    menuPinToDock: 'Kekalkan di Dock',
+    desktopSettingsAppearance: 'Hiasan latar & rupa',
+    desktopSettingsLayout: 'Susun atur & tindanan desktop',
   },
   he: {
     navDesktop: 'שולחן עבודה',
@@ -2323,6 +2395,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'אין קבצים תואמים',
     stackItemCount: '{n} פריטים',
     dpHiddenRecentsRestore: 'שחזר אחרונים מוסתרים ({n})',
+    menuTidyUp: 'סדר סמלים',
+    menuPinToDock: 'השאר ב-Dock',
+    desktopSettingsAppearance: 'רקע ומראה',
+    desktopSettingsLayout: 'פריסת שולחן העבודה וערימות',
   },
   hi: {
     navDesktop: 'डेस्कटॉप',
@@ -2442,6 +2518,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'कोई मेल खाती फ़ाइल नहीं',
     stackItemCount: '{n} आइटम',
     dpHiddenRecentsRestore: 'छिपी हुई हालिया फ़ाइलें पुनर्स्थापित करें ({n})',
+    menuTidyUp: 'आइकन व्यवस्थित करें',
+    menuPinToDock: 'डॉक में रखें',
+    desktopSettingsAppearance: 'वॉलपेपर और स्वरूप',
+    desktopSettingsLayout: 'डेस्कटॉप लेआउट और स्टैक',
   },
   'zh-TW': {
     navDesktop: '桌面',
@@ -2560,6 +2640,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: '沒有相符的檔案',
     stackItemCount: '{n} 項',
     dpHiddenRecentsRestore: '恢復已隱藏的最近檔案 ({n})',
+    menuTidyUp: '整理桌面圖示',
+    menuPinToDock: '固定至程序塢',
+    desktopSettingsAppearance: '桌布與外觀',
+    desktopSettingsLayout: '桌面配置與整理',
   },
   vi: {
     navDesktop: 'Màn hình chính',
@@ -2678,6 +2762,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     stackEmptyMatch: 'Không có tệp phù hợp',
     stackItemCount: '{n} mục',
     dpHiddenRecentsRestore: 'Khôi phục tệp gần đây đã ẩn ({n})',
+    menuTidyUp: 'Sắp xếp biểu tượng',
+    menuPinToDock: 'Giữ trên Dock',
+    desktopSettingsAppearance: 'Hình nền & Giao diện',
+    desktopSettingsLayout: 'Bố cục màn hình nền & Ngăn xếp',
   },
 }
 

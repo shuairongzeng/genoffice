@@ -5,6 +5,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   ReactElement,
   ReactNode,
+  WheelEvent as ReactWheelEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { htmlDir, type Lang } from '@genoffice/i18n'
@@ -21,9 +22,18 @@ import type { DockCustomAddStatus, DockCustomCandidate } from '../../shared/dock
 import type { DockGhostFrom } from './dock-ghost'
 import { DesktopPropsDialog, IconPropsDialog } from './DesktopProperties'
 import type { DesktopPropsTarget } from './DesktopProperties'
-import { ANIMATED_WALLPAPERS, DesktopWallpaperCenter } from './DesktopWallpaperCenter'
+import {
+  ANIMATED_WALLPAPERS,
+  DesktopWallpaperCenter,
+  STATIC_WALLPAPERS,
+} from './DesktopWallpaperCenter'
 import { FileBadge } from './file-badge'
 import { placeFolderMenu, submenuFlipsOutOfView } from './folder-menu-position'
+import {
+  computeSubmenuTopOffset,
+  isMovingTowardSubmenu,
+  type Point2D,
+} from './menu-hover-intent'
 import { handleMenuKeyDown } from './menu-keyboard'
 import type { SettingsTarget } from './SettingsModal'
 import {
@@ -180,14 +190,9 @@ const WALLPAPER_FIT_STYLE: Record<DesktopPrefs['wallpaperFit'], CSSProperties> =
   center: { backgroundSize: 'auto', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' },
 }
 
-/** the static built-ins the timed carousel crossfades through */
-const STATIC_WALLPAPERS = [
-  'builtin:brand-aurora',
-  'builtin:warm-dusk',
-  'builtin:dot-grid-dark',
-  'builtin:minimal-light',
-  'builtin:teal-deep',
-] as const
+const WHEEL_ZOOM_THROTTLE_MS = 160
+const SUBMENU_HOVER_DELAY_MS = 140
+const ICON_SIZE_ORDER: readonly DesktopPrefs['iconSize'][] = ['sm', 'md', 'lg']
 
 /** what a fresh profile (or a preload that predates the prefs) gets */
 const DEFAULT_PREFS: DesktopPrefs = {
@@ -588,6 +593,7 @@ export function DesktopView({
   /** alias paths queued for removal, awaiting the confirm dialog */
   const [confirmRemove, setConfirmRemove] = useState<readonly string[] | null>(null)
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [dragOverDock, setDragOverDock] = useState(false)
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   /** an OS file drag is over the surface: the drop-zone affordance shows */
   const [dragOver, setDragOver] = useState(false)
@@ -595,6 +601,59 @@ export function DesktopView({
   // ── the empty-surface context menu and its one open submenu ──
   const [surfaceMenu, setSurfaceMenu] = useState<{ x: number; y: number } | null>(null)
   const [surfaceSub, setSurfaceSub] = useState<'new' | 'sort' | 'view' | null>(null)
+  const surfaceSubRef = useRef<'new' | 'sort' | 'view' | null>(surfaceSub)
+  surfaceSubRef.current = surfaceSub
+  const subHoverTimerRef = useRef(0)
+  const lastMenuPointerRef = useRef<Point2D>({ x: 0, y: 0 })
+  const subTriggerPointRef = useRef<Point2D>({ x: 0, y: 0 })
+  const submenuElRef = useRef<HTMLDivElement | null>(null)
+  const surfaceFlippedRef = useRef(false)
+  const wheelZoomAtRef = useRef(0)
+
+  const clearSubHoverTimer = useCallback(() => {
+    window.clearTimeout(subHoverTimerRef.current)
+    subHoverTimerRef.current = 0
+  }, [])
+  useEffect(() => () => window.clearTimeout(subHoverTimerRef.current), [])
+
+  const scheduleSubmenu = useCallback(
+    (nextSub: 'new' | 'sort' | 'view' | null, pointer?: Point2D) => {
+      clearSubHoverTimer()
+      const currentSub = surfaceSubRef.current
+      if (currentSub === nextSub) {
+        if (pointer && nextSub !== null) subTriggerPointRef.current = pointer
+        return
+      }
+      const submenuRect = submenuElRef.current?.getBoundingClientRect()
+      const hasVisibleSub =
+        currentSub !== null && submenuRect !== undefined && submenuRect.width > 0 && submenuRect.height > 0
+      const pt = pointer ?? lastMenuPointerRef.current
+      if (
+        hasVisibleSub &&
+        isMovingTowardSubmenu(
+          pt,
+          subTriggerPointRef.current,
+          {
+            left: submenuRect.left,
+            top: submenuRect.top,
+            right: submenuRect.right,
+            bottom: submenuRect.bottom,
+          },
+          surfaceFlippedRef.current,
+        )
+      ) {
+        subHoverTimerRef.current = window.setTimeout(() => {
+          subHoverTimerRef.current = 0
+          if (nextSub !== null && pointer) subTriggerPointRef.current = pointer
+          setSurfaceSub(nextSub)
+        }, SUBMENU_HOVER_DELAY_MS)
+        return
+      }
+      if (nextSub !== null && pointer) subTriggerPointRef.current = pointer
+      setSurfaceSub(nextSub)
+    },
+    [clearSubHoverTimer],
+  )
 
   // ── the transient surface notice: a refused drop or open, said out loud ──
   /** the notice text now showing, null while none is */
@@ -1434,7 +1493,10 @@ export function DesktopView({
           : candidateForIcon(iconsRef.current.find((item) => item.id === d.id))
         const eligible = candidate !== null && (!canDrop || canDrop(candidate))
         const over = eligible && isPointOverDockPill(pillRef?.current, event.clientX, event.clientY)
+        setDragOverDock((prev) => (prev === over ? prev : over))
         hover(over ? event.clientX : null)
+      } else {
+        setDragOverDock(false)
       }
     }
     /**
@@ -1481,6 +1543,7 @@ export function DesktopView({
       // (the batched state lands with the drop's own write in one commit —
       // on a dock drop the real slot takes the spacer's place)
       gestureRef.current.onDockHover?.(null)
+      setDragOverDock(false)
       if (commit && moved && last) {
         if (client && dockDropAt(client, d.group)) {
           dropGuardRef.current = Date.now() + DROP_DBLCLICK_GUARD_MS
@@ -1804,16 +1867,32 @@ export function DesktopView({
     el.style.top = `${top}px`
     // flyouts open toward the reading flow's end (right in ltr, left in rtl);
     // when that side has no room they mirror, so nothing is cut off
-    el.classList.toggle(
-      'flip-sub',
-      submenuFlipsOutOfView(
-        left,
-        el.offsetWidth,
-        document.documentElement.clientWidth,
-        htmlDir(lang),
-      ),
+    const flipped = submenuFlipsOutOfView(
+      left,
+      el.offsetWidth,
+      document.documentElement.clientWidth,
+      htmlDir(lang),
     )
+    surfaceFlippedRef.current = flipped
+    el.classList.toggle('flip-sub', flipped)
   }, [surfaceMenu, lang])
+
+  useLayoutEffect(() => {
+    const subEl = submenuElRef.current
+    if (!surfaceSub || !subEl) return
+    subEl.style.top = ''
+    const rowEl = subEl.closest('.desktop-menu-row')
+    if (!rowEl) return
+    const rowRect = rowEl.getBoundingClientRect()
+    const subHeight = subEl.offsetHeight || subEl.getBoundingClientRect().height
+    if (subHeight <= 0) return
+    const topOffset = computeSubmenuTopOffset(
+      rowRect.top,
+      subHeight,
+      document.documentElement.clientHeight,
+    )
+    subEl.style.top = `${topOffset}px`
+  }, [surfaceSub, surfaceMenu])
 
   // a menu that opens is keyboard-reachable at once: focus lands on its first
   // item, so the arrows own the keyboard from the first press. The element
@@ -1886,6 +1965,11 @@ export function DesktopView({
     menuIcon && menuIcon.kind === 'folder' && !menuIcon.alias
       ? (roots.find((root) => root.path === menuIcon.path && root.removable)?.path ?? null)
       : null
+  const menuDockCandidate = menuIcon ? candidateForIcon(menuIcon) : null
+  const canPinMenuIconToDock =
+    Boolean(onDockDrop) &&
+    menuDockCandidate !== null &&
+    (!canDockDrop || canDockDrop(menuDockCandidate))
 
   // ── the multi-selection menu: right-click inside a 2+ selection ──
   // The menu acts on the whole selection, in grid order. Every row decides
@@ -2098,10 +2182,35 @@ export function DesktopView({
   }, [])
 
   const openDesktopProps = useCallback(() => {
+    clearSubHoverTimer()
     setSurfaceMenu(null)
     setSurfaceSub(null)
     setDesktopPropsOpen(true)
-  }, [])
+  }, [clearSubHoverTimer])
+
+  const tidyUpDesktop = useCallback(() => {
+    clearSubHoverTimer()
+    setSurfaceMenu(null)
+    setSurfaceSub(null)
+    if (!freeLayout) return
+    setPositions({})
+  }, [clearSubHoverTimer, freeLayout])
+
+  const pinMenuIconToDock = useCallback(() => {
+    if (!menuIcon || !onDockDrop) return
+    const candidate = candidateForIcon(menuIcon)
+    if (!candidate) return
+    const x = menu?.x ?? Math.round((document.documentElement.clientWidth || 1200) / 2)
+    const y = menu?.y ?? Math.round((document.documentElement.clientHeight || 800) / 2)
+    setMenu(null)
+    const status = onDockDrop(candidate, {
+      x,
+      y,
+      size: Math.round(DESKTOP_TILE_BASE * iconScale),
+    })
+    if (status === 'full') showNotice(s.noticeDockFull)
+    else if (status === 'duplicate') showNotice(s.noticeDockDuplicate)
+  }, [menuIcon, menu, onDockDrop, iconScale, showNotice, s])
 
   /** open the icon properties dialog off the icon's own menu */
   const openIconProps = useCallback((icon: DesktopItem) => {
@@ -2115,12 +2224,13 @@ export function DesktopView({
     })
   }, [])
 
-  /** apply a picked wallpaper and close the center — the backdrop re-renders
-   * behind the dialog on its way out */
+  /** Apply a picked wallpaper live without closing the preview dialog, clearing any active carousel. */
   const applyWallpaper = useCallback(
     (id: string) => {
-      setWpCenterOpen(false)
-      applyPrefs({ wallpaper: id })
+      applyPrefs({
+        wallpaper: id,
+        ...(prefsRef.current.carouselMinutes > 0 ? { carouselMinutes: 0 } : {}),
+      })
     },
     [applyPrefs],
   )
@@ -2196,6 +2306,28 @@ export function DesktopView({
         )
         return
       }
+      if (
+        menu === null &&
+        surfaceMenu === null &&
+        ownsKeyboard &&
+        ((event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.key === 'Enter') ||
+          ((event.metaKey || event.ctrlKey) &&
+            !event.altKey &&
+            !event.shiftKey &&
+            (event.key === 'i' || event.key === 'I')))
+      ) {
+        event.preventDefault()
+        if (selectedIds.size === 1) {
+          const [onlyId] = selectedIds
+          const hit = orderedIcons.find((icon) => icon.id === onlyId)
+          if (hit && (hit.kind === 'file' || hit.kind === 'folder') && hit.path !== null) {
+            openIconProps(hit)
+            return
+          }
+        }
+        openDesktopProps()
+        return
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return
       // an open menu owns the keyboard: its own handler takes the arrows, and
       // nothing that slips past it may move the icon grid behind the menu.
@@ -2214,6 +2346,12 @@ export function DesktopView({
         return
       }
       if (!ownsKeyboard) return
+
+      if (event.key === 'F5' && !event.shiftKey) {
+        event.preventDefault()
+        refreshRecents()
+        return
+      }
 
       // grid navigation walks the geometry: the nearest icon in a strictly
       // different column (left/right) or row (up/down), ties by the other axis
@@ -2289,6 +2427,9 @@ export function DesktopView({
     openSelection,
     cellsOf,
     windowFocused,
+    openIconProps,
+    openDesktopProps,
+    refreshRecents,
   ])
 
   // the dialogs' own Escape: the topmost one closes
@@ -2447,6 +2588,39 @@ export function DesktopView({
     </div>
   )
 
+  const onSurfaceWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault()
+      if (event.deltaY === 0) return
+      const now = Date.now()
+      if (now - wheelZoomAtRef.current < WHEEL_ZOOM_THROTTLE_MS) return
+      wheelZoomAtRef.current = now
+      const curIdx = ICON_SIZE_ORDER.indexOf(prefs.iconSize)
+      const step = event.deltaY < 0 ? 1 : -1
+      const nextSize = ICON_SIZE_ORDER[clampInt(curIdx + step, 0, ICON_SIZE_ORDER.length - 1)]!
+      if (nextSize !== prefs.iconSize) applyPrefs({ iconSize: nextSize })
+      return
+    }
+    const surface = surfaceRef.current
+    if (!surface || surface.scrollWidth <= surface.clientWidth || event.deltaX !== 0 || event.deltaY === 0) {
+      return
+    }
+    event.preventDefault()
+    surface.scrollLeft += event.deltaY
+  }
+
+  const dragSnapPos =
+    drag !== null && freeLayout && !dragOverDock
+      ? {
+          x:
+            DESKTOP_PAD_X +
+            clampInt(Math.round((drag.x - DESKTOP_PAD_X) / cellW), 0, colsRef.current - 1) * cellW,
+          y:
+            DESKTOP_PAD_Y +
+            clampInt(Math.round((drag.y - DESKTOP_PAD_Y) / cellH), 0, rowsRef.current - 1) * cellH,
+        }
+      : null
+
   return (
     <main className={`content desktop-content icons-${prefs.iconSize}`} style={labelStyle}>
       {backdropHost
@@ -2457,9 +2631,11 @@ export function DesktopView({
       <div
         className={`desktop-surface${dragOver ? ' drag-over' : ''}`}
         ref={surfaceRef}
+        onWheel={onSurfaceWheel}
         onPointerDown={(event) => {
           if (event.target !== event.currentTarget) return
           onSurfaceFocus?.()
+          clearSubHoverTimer()
           setMenu(null)
           setSurfaceMenu(null)
           setSurfaceSub(null)
@@ -2491,6 +2667,8 @@ export function DesktopView({
           // gesture in progress, not a menu — nothing opens, nothing clears
           // (the band still commits on its own release)
           if (marqueeBand !== null) return
+          onSurfaceFocus?.()
+          clearSubHoverTimer()
           setSelectedIds(EMPTY_SELECTION)
           setAnchorId(null)
           setMenu(null)
@@ -2502,6 +2680,18 @@ export function DesktopView({
         onDragLeave={onSurfaceDragLeave}
         onDrop={onSurfaceDrop}
       >
+        {dragSnapPos !== null && (
+          <div
+            className="desktop-drop-ghost"
+            aria-hidden="true"
+            style={{
+              left: dragSnapPos.x,
+              top: dragSnapPos.y,
+              width: cellW,
+              height: cellH,
+            }}
+          />
+        )}
         <ul
           className="desktop-icons"
           role="listbox"
@@ -2555,6 +2745,8 @@ export function DesktopView({
                   }}
                   onContextMenu={(event) => {
                     event.preventDefault()
+                    onSurfaceFocus?.()
+                    clearSubHoverTimer()
                     // a right-click inside the selection keeps it (the menu
                     // acts on the whole set); one outside replaces it
                     if (!(selectedIds.has(icon.id) && selectedIds.size > 1)) {
@@ -2562,6 +2754,7 @@ export function DesktopView({
                       setAnchorId(icon.id)
                     }
                     setSurfaceMenu(null)
+                    setSurfaceSub(null)
                     setMenu({ id: icon.id, x: event.clientX + 2, y: event.clientY + 2 })
                   }}
                 >
@@ -2866,6 +3059,11 @@ export function DesktopView({
                 {s.menuProps}
               </button>
             )}
+            {canPinMenuIconToDock && (
+              <button role="menuitem" onClick={pinMenuIconToDock}>
+                {s.menuPinToDock}
+              </button>
+            )}
             {menuIcon?.kind === 'file' && !menuIcon.alias && menuIcon.path !== null && (
               <>
                 <button
@@ -2988,6 +3186,10 @@ export function DesktopView({
             ref={(el) => {
               surfaceMenuRef.current = el
             }}
+            onMouseMove={(event) => {
+              lastMenuPointerRef.current = { x: event.clientX, y: event.clientY }
+            }}
+            onMouseLeave={() => clearSubHoverTimer()}
             onKeyDown={(event) => {
               handleMenuKeyDown(event, event.currentTarget, {
                 openSub: surfaceSub,
@@ -2995,6 +3197,7 @@ export function DesktopView({
                 onCloseSubmenu: () => setSurfaceSub(null),
                 onDismiss: () => {
                   menuTabDismissRef.current = true
+                  clearSubHoverTimer()
                   setSurfaceMenu(null)
                   setSurfaceSub(null)
                 },
@@ -3002,18 +3205,33 @@ export function DesktopView({
               })
             }}
           >
-            <div className="desktop-menu-row">
+            <div
+              className="desktop-menu-row"
+              onMouseEnter={(event) =>
+                scheduleSubmenu('new', { x: event.clientX, y: event.clientY })
+              }
+            >
               <button
                 role="menuitem"
                 aria-haspopup="menu"
                 aria-expanded={surfaceSub === 'new'}
                 data-submenu="new"
-                onClick={() => setSurfaceSub(surfaceSub === 'new' ? null : 'new')}
+                onClick={() => {
+                  clearSubHoverTimer()
+                  setSurfaceSub(surfaceSub === 'new' ? null : 'new')
+                }}
               >
                 {s.menuNew}
               </button>
               {surfaceSub === 'new' && (
-                <div className="desktop-submenu" role="menu">
+                <div
+                  className="desktop-submenu"
+                  role="menu"
+                  ref={(el) => {
+                    submenuElRef.current = el
+                  }}
+                  onMouseEnter={() => clearSubHoverTimer()}
+                >
                   {NEW_DOCUMENT_ACTIONS.map(({ action, labelKey }) => (
                     <button key={action} role="menuitem" onClick={() => createDocument(action)}>
                       {s[labelKey]}
@@ -3023,6 +3241,7 @@ export function DesktopView({
                   <button
                     role="menuitem"
                     onClick={() => {
+                      clearSubHoverTimer()
                       setSurfaceMenu(null)
                       setSurfaceSub(null)
                       onNewFolder()
@@ -3033,24 +3252,40 @@ export function DesktopView({
                 </div>
               )}
             </div>
-            <div className="desktop-menu-row">
+            <div
+              className="desktop-menu-row"
+              onMouseEnter={(event) =>
+                scheduleSubmenu('sort', { x: event.clientX, y: event.clientY })
+              }
+            >
               <button
                 role="menuitem"
                 aria-haspopup="menu"
                 aria-expanded={surfaceSub === 'sort'}
                 data-submenu="sort"
-                onClick={() => setSurfaceSub(surfaceSub === 'sort' ? null : 'sort')}
+                onClick={() => {
+                  clearSubHoverTimer()
+                  setSurfaceSub(surfaceSub === 'sort' ? null : 'sort')
+                }}
               >
                 {s.menuSort}
               </button>
               {surfaceSub === 'sort' && (
-                <div className="desktop-submenu" role="menu">
+                <div
+                  className="desktop-submenu"
+                  role="menu"
+                  ref={(el) => {
+                    submenuElRef.current = el
+                  }}
+                  onMouseEnter={() => clearSubHoverTimer()}
+                >
                   {SORT_MODE_ITEMS.map(({ mode, labelKey }) => (
                     <button
                       key={mode}
                       role="menuitem"
                       className={prefs.sortMode === mode ? 'checked' : undefined}
                       onClick={() => {
+                        clearSubHoverTimer()
                         setSurfaceMenu(null)
                         setSurfaceSub(null)
                         applyPrefs({ sortMode: mode })
@@ -3062,18 +3297,33 @@ export function DesktopView({
                 </div>
               )}
             </div>
-            <div className="desktop-menu-row">
+            <div
+              className="desktop-menu-row"
+              onMouseEnter={(event) =>
+                scheduleSubmenu('view', { x: event.clientX, y: event.clientY })
+              }
+            >
               <button
                 role="menuitem"
                 aria-haspopup="menu"
                 aria-expanded={surfaceSub === 'view'}
                 data-submenu="view"
-                onClick={() => setSurfaceSub(surfaceSub === 'view' ? null : 'view')}
+                onClick={() => {
+                  clearSubHoverTimer()
+                  setSurfaceSub(surfaceSub === 'view' ? null : 'view')
+                }}
               >
                 {s.menuView}
               </button>
               {surfaceSub === 'view' && (
-                <div className="desktop-submenu" role="menu">
+                <div
+                  className="desktop-submenu"
+                  role="menu"
+                  ref={(el) => {
+                    submenuElRef.current = el
+                  }}
+                  onMouseEnter={() => clearSubHoverTimer()}
+                >
                   <div className="desktop-submenu-label">{s.iconSizeLabel}</div>
                   {ICON_SIZE_ITEMS.map(({ size, labelKey }) => (
                     <button
@@ -3081,6 +3331,7 @@ export function DesktopView({
                       role="menuitem"
                       className={prefs.iconSize === size ? 'checked' : undefined}
                       onClick={() => {
+                        clearSubHoverTimer()
                         setSurfaceMenu(null)
                         setSurfaceSub(null)
                         applyPrefs({ iconSize: size })
@@ -3094,6 +3345,7 @@ export function DesktopView({
                     role="menuitem"
                     className={useStacks ? 'checked' : undefined}
                     onClick={() => {
+                      clearSubHoverTimer()
                       setSurfaceMenu(null)
                       setSurfaceSub(null)
                       applyPrefs({ useStacks: !useStacks })
@@ -3109,6 +3361,7 @@ export function DesktopView({
                       role="menuitem"
                       className={recentsMode === mode ? 'checked' : undefined}
                       onClick={() => {
+                        clearSubHoverTimer()
                         setSurfaceMenu(null)
                         setSurfaceSub(null)
                         applyPrefs({ recentsMode: mode })
@@ -3121,19 +3374,56 @@ export function DesktopView({
               )}
             </div>
             <div className="row-menu-divider" />
-            <button role="menuitem" onClick={refreshRecents}>
+            <button
+              role="menuitem"
+              onMouseEnter={(event) =>
+                scheduleSubmenu(null, { x: event.clientX, y: event.clientY })
+              }
+              onClick={refreshRecents}
+            >
               {s.menuRefresh}
             </button>
             {/* the retired sidebar tree's + button: adding a folder root is
                 the surface's own verb now, next to the refresh it reloads */}
-            <button role="menuitem" onClick={addFolderRoot}>
+            <button
+              role="menuitem"
+              onMouseEnter={(event) =>
+                scheduleSubmenu(null, { x: event.clientX, y: event.clientY })
+              }
+              onClick={addFolderRoot}
+            >
               {s.menuAddFolder}
             </button>
-            <button role="menuitem" onClick={openWallpaperCenter}>
+            <button
+              role="menuitem"
+              onMouseEnter={(event) =>
+                scheduleSubmenu(null, { x: event.clientX, y: event.clientY })
+              }
+              onClick={openWallpaperCenter}
+            >
               {s.menuWallpaper}
             </button>
+            {freeLayout && (
+              <button
+                role="menuitem"
+                disabled={Object.keys(positions).length === 0}
+                aria-disabled={Object.keys(positions).length === 0}
+                onMouseEnter={(event) =>
+                  scheduleSubmenu(null, { x: event.clientX, y: event.clientY })
+                }
+                onClick={tidyUpDesktop}
+              >
+                {s.menuTidyUp}
+              </button>
+            )}
             <div className="row-menu-divider" />
-            <button role="menuitem" onClick={openDesktopProps}>
+            <button
+              role="menuitem"
+              onMouseEnter={(event) =>
+                scheduleSubmenu(null, { x: event.clientX, y: event.clientY })
+              }
+              onClick={openDesktopProps}
+            >
               {s.menuProps}
             </button>
           </div>
@@ -3164,7 +3454,7 @@ export function DesktopView({
           onToggleUseStacks={(next) => applyPrefs({ useStacks: next })}
           onRestoreHiddenRecents={restoreHiddenRecents}
           onClose={() => setDesktopPropsOpen(false)}
-          onOpenSettings={() => onOpenSettings({ section: 'general' })}
+          onOpenSettings={() => onOpenSettings({ section: 'desktop' })}
         />
       )}
       {wpCenterOpen && (
