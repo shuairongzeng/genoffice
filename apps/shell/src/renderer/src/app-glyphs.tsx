@@ -363,3 +363,26 @@ export function SessionsGlyph() {
     </svg>
   )
 }
+
+/** Media player glyph (rounded frame with centered play triangle) for desktop and dock tiles. */
+export function PlayerGlyph(): React.JSX.Element {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <rect
+        x="4.5"
+        y="6.5"
+        width="23"
+        height="19"
+        rx="4"
+        stroke="currentColor"
+        strokeWidth="2.3"
+        fill="currentColor"
+        fillOpacity="0.12"
+      />
+      <path
+        d="M13 11.4c0-.65.72-1.05 1.27-.7l7.15 4.6c.5.32.5 1.08 0 1.4l-7.15 4.6c-.55.35-1.27-.05-1.27-.7v-9.2z"
+        fill="currentColor"
+      />
+    </svg>
+  )
+}

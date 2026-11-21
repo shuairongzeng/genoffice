@@ -34,6 +34,7 @@ import {
   KbGlyph,
   MarkdownGlyph,
   PdfGlyph,
+  PlayerGlyph,
   PlugGlyph,
   SessionsGlyph,
   SheetsGlyph,
@@ -2189,6 +2190,7 @@ export function DesktopView({
         {icon.tile === 'settings' && <GearGlyph />}
         {icon.tile === 'kb' && <KbGlyph />}
         {icon.tile === 'sessions' && <SessionsGlyph />}
+        {icon.tile === 'player' && <PlayerGlyph />}
       </span>
     )
   }

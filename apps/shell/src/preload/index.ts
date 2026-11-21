@@ -32,9 +32,13 @@ import type {
   HomeApi,
   HomeTabEntry,
   HomeTabsState,
+  MediaFolderEntry,
   MediaInfo,
+  MediaPlayerStateSnapshot,
+  MediaSavePrefsPatch,
   MediaSnapshotReply,
   MediaSnapshotRequest,
+  MediaStateMutationResult,
   AgentTaskResult,
   AgentTaskStatus,
   DocumentAgentTarget,
@@ -573,6 +577,9 @@ const homeApi: HomeApi = {
   },
   async newBrowser() {
     await ipcRenderer.invoke(HOME_CHANNELS.newBrowser)
+  },
+  async openMediaPlayer() {
+    await ipcRenderer.invoke(HOME_CHANNELS.openMediaPlayer)
   },
   async newPdf(opts) {
     await ipcRenderer.invoke(HOME_CHANNELS.newPdf, opts)
@@ -1496,6 +1503,51 @@ const homeApi: HomeApi = {
   },
   async mediaGetInfo(token) {
     return (await ipcRenderer.invoke(HOME_CHANNELS.mediaGetInfo, token)) as MediaInfo | null
+  },
+  async mediaGetPlayerState(token) {
+    return (await ipcRenderer.invoke(
+      HOME_CHANNELS.mediaPlayerState,
+      token,
+    )) as MediaPlayerStateSnapshot
+  },
+  async mediaSwitchTrack(filePath) {
+    return (await ipcRenderer.invoke(
+      HOME_CHANNELS.mediaSwitchTrack,
+      filePath,
+    )) as MediaStateMutationResult
+  },
+  async mediaAddFolder() {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.mediaAddFolder)) as MediaStateMutationResult
+  },
+  async mediaAddFiles() {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.mediaAddFiles)) as MediaStateMutationResult
+  },
+  async mediaPinFolder(dirPath) {
+    return (await ipcRenderer.invoke(
+      HOME_CHANNELS.mediaPinFolder,
+      dirPath,
+    )) as MediaStateMutationResult
+  },
+  async mediaRemoveFolder(dirPath) {
+    return (await ipcRenderer.invoke(
+      HOME_CHANNELS.mediaRemoveFolder,
+      dirPath,
+    )) as MediaStateMutationResult
+  },
+  async mediaRemovePinnedFile(filePath) {
+    return (await ipcRenderer.invoke(
+      HOME_CHANNELS.mediaRemovePinnedFile,
+      filePath,
+    )) as MediaStateMutationResult
+  },
+  async mediaImportDropped(paths) {
+    return (await ipcRenderer.invoke(
+      HOME_CHANNELS.mediaImportDropped,
+      paths,
+    )) as MediaStateMutationResult
+  },
+  async mediaSavePrefs(patch: MediaSavePrefsPatch) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.mediaSavePrefs, patch)) as { ok: boolean }
   },
   async mediaOpenSystem() {
     return (await ipcRenderer.invoke(HOME_CHANNELS.mediaOpenSystem)) as {

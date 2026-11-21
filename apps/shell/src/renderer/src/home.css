@@ -692,6 +692,10 @@ html.dock-view body {
   --tile-color: var(--accent);
 }
 
+.dock-tile-player {
+  --tile-color: var(--desktop-tile-player);
+}
+
 /* a dragged-in folder: the desktop's plain glass tile, at the pill's scale */
 .dock-tile-folder {
   --tile-color: transparent;

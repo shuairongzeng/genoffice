@@ -89,6 +89,19 @@ describe('defaultDesktopProviders', () => {
     expect(newBrowser).toHaveBeenCalledTimes(1)
     expect(newHtml).not.toHaveBeenCalled()
   })
+
+  it('includes the Media Player desktop tile wired to openMediaPlayer', () => {
+    const openMediaPlayer = vi.fn()
+    const items = mergeDesktopItems(
+      defaultDesktopProviders(),
+      ctx({ api: { openMediaPlayer } }),
+    )
+    const tile = items.find((item) => item.id === 'app:player')
+    expect(tile?.tile).toBe('player')
+    expect(tile?.title).toBe(strings.appPlayer)
+    tile?.open()
+    expect(openMediaPlayer).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('mergeDesktopItems', () => {
@@ -107,6 +120,7 @@ describe('mergeDesktopItems', () => {
       'Templates',
       'Plugins',
       'Settings',
+      'Media Player',
       'Work',
       'alpha.docx',
       'beta.xlsx',

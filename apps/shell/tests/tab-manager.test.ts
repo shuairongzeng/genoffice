@@ -217,6 +217,24 @@ vi.mock('../../browser/src/main/browser-main', () => ({
   teardownBrowserTab: vi.fn(),
 }))
 
+const createMediaView = vi.fn(() => makeFakeView())
+const requestMediaClose = vi.fn(() => Promise.resolve(true))
+const mediaFilePathForWebContents = vi.fn((): string | undefined => undefined)
+vi.mock('../src/main/media-main', () => ({
+  MEDIA_EXTS: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.mp3', '.wav', '.m4a', '.ogg', '.mp4', '.webm'],
+  isPlayableMediaExt: (ext: string) =>
+    ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.mp4', '.webm', '.mov', '.mkv', '.m4v', '.avi'].includes(
+      ext.toLowerCase(),
+    ),
+  createMediaView: (...args: unknown[]) => createMediaView(...(args as [])),
+  requestMediaClose: (...args: unknown[]) => requestMediaClose(...(args as [])),
+  mediaFilePathForWebContents: (...args: unknown[]) => mediaFilePathForWebContents(...(args as [])),
+  mediaReadSnapshot: vi.fn(),
+  registerMediaIpc: vi.fn(),
+  registerMediaProtocol: vi.fn(),
+  setMediaFileChangedHook: vi.fn(),
+}))
+
 import { TabManager } from '../src/main/tab-manager'
 import { documentApps } from '../src/main/app-registry'
 import { HOME_CHANNELS } from '../src/shared/home-api'
@@ -1301,6 +1319,19 @@ describe('closing tabs', () => {
 })
 
 describe('file path bookkeeping', () => {
+  it('opens and reuses a dedicated media player tab while never reusing an image tab', async () => {
+    const imgTabId = manager.openDocumentTab('media', '/tmp/photo.png')
+    const playerId = manager.openMediaPlayerTab()
+    expect(playerId).toBeTruthy()
+    expect(playerId).not.toBe(imgTabId)
+    expect(manager.list().some((t) => t.id === playerId && t.kind === 'media')).toBe(true)
+    expect(manager.openMediaPlayerTab()).toBe(playerId)
+
+    await manager.closeTab(playerId)
+    const audioTabId = manager.openDocumentTab('media', '/tmp/song.mp3')
+    expect(manager.openMediaPlayerTab()).toBe(audioTabId)
+  })
+
   it('updates the tab title when a module opens a file in an existing tab', () => {
     manager.openDocsTab()
     const view = lastCreatedView(createDocsView)
@@ -1396,6 +1427,15 @@ describe('file path bookkeeping', () => {
       open: () => {
         manager.openHtmlTab('/tmp/one.html')
         return lastCreatedView(createHtmlView)
+      },
+    },
+    {
+      kind: 'media',
+      file: '/tmp/one.mp3',
+      renamed: '/tmp/two.mp3',
+      open: () => {
+        manager.openDocumentTab('media', '/tmp/one.mp3')
+        return lastCreatedView(createMediaView)
       },
     },
   ]

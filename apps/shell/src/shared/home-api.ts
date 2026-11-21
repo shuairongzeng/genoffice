@@ -597,6 +597,72 @@ export interface MediaInfo {
   sizeBytes: number
 }
 
+export type MediaPlayMode = 'list' | 'loop-all' | 'loop-one' | 'shuffle'
+
+export interface MediaPlaylistItem {
+  filePath: string
+  fileName: string
+  ext: string
+  mediaKind: 'audio' | 'video'
+  mime: string
+  sizeBytes: number
+  dirPath: string
+  dirName: string
+  source: 'session' | 'folder' | 'pinned'
+}
+
+export interface MediaFolderEntry {
+  path: string
+  name: string
+  count: number
+  persisted: boolean
+  missing?: boolean
+}
+
+export interface MediaSubtitleTrack {
+  id: string
+  label: string
+  url: string
+  ext: 'vtt' | 'srt'
+}
+
+export interface MediaPlayerPrefs {
+  playMode: MediaPlayMode
+  volume: number
+  muted: boolean
+  playbackRate: number
+  playlistCollapsed: boolean
+  autoPlay: boolean
+}
+
+export interface MediaPlayerStateSnapshot {
+  current: MediaInfo | null
+  subtitles: MediaSubtitleTrack[]
+  items: MediaPlaylistItem[]
+  folders: MediaFolderEntry[]
+  prefs: MediaPlayerPrefs
+  resumePositionSec: number
+  playerMode: boolean
+}
+
+export interface MediaSavePrefsPatch {
+  lastFilePath?: string | null
+  position?: {
+    filePath: string
+    sec: number
+    durationSec?: number
+  }
+  prefs?: Partial<MediaPlayerPrefs>
+}
+
+export interface MediaStateMutationResult {
+  ok: boolean
+  cancelled?: boolean
+  added?: number
+  state?: MediaPlayerStateSnapshot
+  error?: string
+}
+
 export interface MediaSnapshotRequest {
   requestId: string
   timestampSec?: number
@@ -1433,6 +1499,8 @@ export interface HomeApi {
   newHtml(opts?: NewFileOpts): Promise<void>
   /** open a browser tab (the desktop's Web tile and the palette's open-browser action) */
   newBrowser(): Promise<void>
+  /** open or focus the persistent desktop media player tab */
+  openMediaPlayer(): Promise<void>
   /** create a blank single-page PDF in the default save folder and open it */
   newPdf(opts?: NewFileOpts): Promise<void>
   /** drop entries from the recent list (does not touch the files) */
@@ -1644,6 +1712,24 @@ export interface HomeApi {
   }): Promise<{ ok: boolean; error?: string }>
   /** resolve active media view metadata and token stream URL */
   mediaGetInfo(token: string): Promise<MediaInfo | null>
+  /** resolve full player state including directory playlist, persisted folders, subtitles, and resume position */
+  mediaGetPlayerState(token?: string): Promise<MediaPlayerStateSnapshot>
+  /** switch the active player view to an authorized audio/video path in its directory or library */
+  mediaSwitchTrack(filePath: string): Promise<MediaStateMutationResult>
+  /** open a folder picker and add the selected directory to the persisted media library */
+  mediaAddFolder(): Promise<MediaStateMutationResult>
+  /** open a multi-file picker and add audio/video files to the persisted media library */
+  mediaAddFiles(): Promise<MediaStateMutationResult>
+  /** pin a temporary session directory to the persisted media library */
+  mediaPinFolder(dirPath: string): Promise<MediaStateMutationResult>
+  /** remove a persisted folder from the media library without touching files on disk */
+  mediaRemoveFolder(dirPath: string): Promise<MediaStateMutationResult>
+  /** remove a pinned file from the media library without touching files on disk */
+  mediaRemovePinnedFile(filePath: string): Promise<MediaStateMutationResult>
+  /** import dropped folder or audio/video file paths into the persisted media library */
+  mediaImportDropped(paths: readonly string[]): Promise<MediaStateMutationResult>
+  /** persist playback preferences, last file path, and resume position */
+  mediaSavePrefs(patch: MediaSavePrefsPatch): Promise<{ ok: boolean }>
   /** open the active view's bound media file in the OS default application */
   mediaOpenSystem(): Promise<{ ok: boolean; error?: string }>
   /** subscribe to main-process snapshot/frame requests for AI direct reading */
@@ -1808,6 +1894,7 @@ export const HOME_CHANNELS = {
   newMarkdown: 'home:new-markdown',
   newHtml: 'home:new-html',
   newBrowser: 'home:new-browser',
+  openMediaPlayer: 'home:open-media-player',
   newPdf: 'home:new-pdf',
   templatesList: 'home:templates-list',
   newFromTemplate: 'home:new-from-template',
@@ -2048,6 +2135,15 @@ export const HOME_CHANNELS = {
   cloudProjectsCached: 'home:cloud-projects-cached',
   openCloudProject: 'home:open-cloud-project',
   mediaGetInfo: 'media:get-info',
+  mediaPlayerState: 'media:player-state',
+  mediaSwitchTrack: 'media:switch-track',
+  mediaAddFolder: 'media:add-folder',
+  mediaAddFiles: 'media:add-files',
+  mediaPinFolder: 'media:pin-folder',
+  mediaRemoveFolder: 'media:remove-folder',
+  mediaRemovePinnedFile: 'media:remove-pinned-file',
+  mediaImportDropped: 'media:import-dropped',
+  mediaSavePrefs: 'media:save-prefs',
   mediaOpenSystem: 'media:open-system',
   mediaReadSnapshotRequest: 'media:read-snapshot-request',
   mediaReadSnapshotReply: 'media:read-snapshot-reply',

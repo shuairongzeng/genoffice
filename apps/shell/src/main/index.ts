@@ -4672,6 +4672,16 @@ function newBrowserTab(): void {
   }
 }
 
+/** the desktop's Media Player tile opens or focuses the persistent media player tab */
+function openMediaPlayerTab(): void {
+  try {
+    tabManager?.openMediaPlayerTab()
+    revealShellWindow()
+  } catch (err) {
+    surfaceNewTabError(err)
+  }
+}
+
 /**
  * "New PDF" creates a blank single-page .pdf in the default folder up front and
  * opens it as a regular file tab — the PDF module has no in-memory blank mode
@@ -4801,6 +4811,7 @@ function registerHomeIpc(): void {
     newHtmlTab,
     newBrowserTab,
     newPdfTab,
+    openMediaPlayerTab,
     afterFileMoved,
     afterFolderMoved,
     trackedFilesUnder,

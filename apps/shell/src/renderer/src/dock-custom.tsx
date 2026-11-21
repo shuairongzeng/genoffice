@@ -12,6 +12,7 @@ import {
   KbGlyph,
   MarkdownGlyph,
   PdfGlyph,
+  PlayerGlyph,
   PlugGlyph,
   SessionsGlyph,
   SheetsGlyph,
@@ -75,6 +76,8 @@ function appTileGlyph(tile: AppTile): ReactNode {
       return <PlugGlyph />
     case 'settings':
       return <GearGlyph />
+    case 'player':
+      return <PlayerGlyph />
   }
 }
 

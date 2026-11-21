@@ -25,6 +25,7 @@
   --desktop-tile-templates: #16a34a;
   --desktop-tile-plugins: #f97316;
   --desktop-tile-settings: #64748b;
+  --desktop-tile-player: #e11d48;
 
   /* the wallpaper's four brand hues (logo.svg) */
   --desktop-aurora-blue: #0f7fff;
@@ -574,6 +575,9 @@
 }
 .desktop-tile-settings {
   --tile-color: var(--desktop-tile-settings);
+}
+.desktop-tile-player {
+  --tile-color: var(--desktop-tile-player);
 }
 
 /* folders have no brand color: plain glass with the theme's own ink */

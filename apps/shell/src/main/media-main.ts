@@ -1,17 +1,38 @@
 import { randomUUID } from 'node:crypto'
-import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
-import { basename, extname, join, resolve } from 'node:path'
-import { ipcMain, protocol, shell, WebContentsView } from 'electron'
+import { createReadStream, existsSync, type Dirent } from 'node:fs'
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
+import { basename, dirname, extname, join, resolve } from 'node:path'
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell, WebContentsView } from 'electron'
 import type { WebContents } from 'electron'
 import { MEDIA_SCHEME, rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
 import {
   HOME_CHANNELS,
+  type MediaFolderEntry,
   type MediaInfo,
   type MediaKind,
+  type MediaPlayerStateSnapshot,
+  type MediaPlaylistItem,
+  type MediaSavePrefsPatch,
   type MediaSnapshotImage,
   type MediaSnapshotReply,
+  type MediaStateMutationResult,
+  type MediaSubtitleTrack,
 } from '../shared/home-api'
+import {
+  MEDIA_LIBRARY_FILE,
+  addLibraryFolders,
+  addLibraryPinnedFiles,
+  naturalCompareMediaName,
+  normalizeMediaPathKey,
+  readMediaLibrary,
+  removeLibraryFolder,
+  removeLibraryPinnedFile,
+  resumePositionForPath,
+  srtToWebVtt,
+  updateLibraryPlayback,
+  writeMediaLibrary,
+  type MediaLibraryStoreData,
+} from './media-library'
 
 export type { MediaKind }
 
@@ -49,6 +70,8 @@ const IMAGE_EXT_SET = new Set<string>(IMAGE_MEDIA_EXTS)
 const AUDIO_EXT_SET = new Set<string>(AUDIO_MEDIA_EXTS)
 const VIDEO_EXT_SET = new Set<string>(VIDEO_MEDIA_EXTS)
 
+const MAX_DIR_SCAN_ITEMS = 2000
+
 const MIME_BY_EXT: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
@@ -73,6 +96,13 @@ const MIME_BY_EXT: Record<string, string> = {
   mkv: 'video/x-matroska',
 }
 
+export interface MediaSubtitleEntry {
+  id: string
+  filePath: string
+  label: string
+  ext: 'vtt' | 'srt'
+}
+
 export interface MediaSessionEntry {
   token: string
   wcId: number
@@ -81,6 +111,7 @@ export interface MediaSessionEntry {
   ext: string
   mediaKind: MediaKind
   mime: string
+  subtitles: Map<string, MediaSubtitleEntry>
 }
 
 export interface MediaSnapshotResult {
@@ -93,8 +124,14 @@ export type ByteRangeParse =
   | { kind: 'unsatisfiable' }
   | { kind: 'partial'; start: number; end: number }
 
+interface MediaViewContext {
+  sessionDirs: Set<string>
+  playerMode: boolean
+}
+
 const sessionsByToken = new Map<string, MediaSessionEntry>()
 const tokenByWcId = new Map<number, string>()
+const viewContexts = new Map<number, MediaViewContext>()
 
 interface PendingSnapshotWaiter {
   wcId: number
@@ -104,6 +141,21 @@ const pendingSnapshots = new Map<string, PendingSnapshotWaiter>()
 
 let protocolRegistered = false
 let ipcRegistered = false
+let mediaFileChangedHook: ((wcId: number, filePath: string) => void) | null = null
+let mediaLibraryPathResolver: () => string = () =>
+  join(app.getPath('userData'), MEDIA_LIBRARY_FILE)
+
+export function setMediaFileChangedHook(hook: ((wcId: number, filePath: string) => void) | null): void {
+  mediaFileChangedHook = hook
+}
+
+export function setMediaLibraryPathResolver(resolver: () => string): void {
+  mediaLibraryPathResolver = resolver
+}
+
+export function mediaLibraryStorePath(): string {
+  return mediaLibraryPathResolver()
+}
 
 export function normalizeMediaExt(ext: string): string {
   return ext.trim().toLowerCase().replace(/^\.+/, '')
@@ -117,6 +169,11 @@ export function mediaKindForExt(ext: string): MediaKind | undefined {
   return undefined
 }
 
+export function isPlayableMediaExt(ext: string): boolean {
+  const kind = mediaKindForExt(ext)
+  return kind === 'audio' || kind === 'video'
+}
+
 export function mimeForMediaExt(ext: string): string {
   const clean = normalizeMediaExt(ext)
   return MIME_BY_EXT[clean] ?? 'application/octet-stream'
@@ -124,6 +181,30 @@ export function mimeForMediaExt(ext: string): string {
 
 export function mediaStreamUrl(token: string): string {
   return `${MEDIA_SCHEME}://view/${token}`
+}
+
+export function mediaSubtitleUrl(token: string, subId: string): string {
+  return `${MEDIA_SCHEME}://sub/${token}/${subId}`
+}
+
+function getOrCreateViewContext(wcId: number): MediaViewContext {
+  let ctx = viewContexts.get(wcId)
+  if (!ctx) {
+    ctx = { sessionDirs: new Set<string>(), playerMode: false }
+    viewContexts.set(wcId, ctx)
+  }
+  return ctx
+}
+
+export function configureMediaViewContext(
+  wcId: number,
+  opts: { sessionDir?: string; playerMode?: boolean },
+): void {
+  const ctx = getOrCreateViewContext(wcId)
+  if (opts.playerMode !== undefined) ctx.playerMode = opts.playerMode
+  if (opts.sessionDir && opts.sessionDir.trim()) {
+    ctx.sessionDirs.add(resolve(opts.sessionDir.trim()))
+  }
 }
 
 /** Register or replace the single local media path bound to a WebContents view. */
@@ -141,6 +222,7 @@ export function registerMediaSession(wcId: number, filePath: string): MediaSessi
     ext,
     mediaKind,
     mime: mimeForMediaExt(ext),
+    subtitles: new Map<string, MediaSubtitleEntry>(),
   }
   sessionsByToken.set(token, entry)
   tokenByWcId.set(wcId, token)
@@ -163,9 +245,15 @@ export function unregisterMediaSessionByToken(token: string): boolean {
   return true
 }
 
+export function clearMediaViewContext(wcId: number): void {
+  viewContexts.delete(wcId)
+}
+
 export function clearMediaSessions(): void {
   sessionsByToken.clear()
   tokenByWcId.clear()
+  viewContexts.clear()
+  pendingSnapshots.clear()
 }
 
 export function mediaSessionForToken(token: string): MediaSessionEntry | undefined {
@@ -179,6 +267,21 @@ export function mediaSessionForWebContents(wcId: number): MediaSessionEntry | un
 
 export function mediaFilePathForWebContents(wcId: number): string | undefined {
   return mediaSessionForWebContents(wcId)?.filePath
+}
+
+function recordPlayedTrackInLibrary(filePath: string): void {
+  const storePath = mediaLibraryStorePath()
+  const resolved = resolve(filePath)
+  const ext = normalizeMediaExt(extname(resolved))
+  if (!isPlayableMediaExt(ext)) return
+  let lib = readMediaLibrary(storePath)
+  const dirKey = normalizeMediaPathKey(dirname(resolved))
+  const inPersistedFolder = lib.folders.some((folder) => normalizeMediaPathKey(folder) === dirKey)
+  if (!inPersistedFolder) {
+    lib = addLibraryPinnedFiles(lib, [resolved])
+  }
+  lib = updateLibraryPlayback(lib, { lastFilePath: resolved })
+  writeMediaLibrary(storePath, lib)
 }
 
 /** Parse single-range HTTP `Range: bytes=...` headers for media streaming. */
@@ -281,30 +384,71 @@ function fileStreamToWeb(
   })
 }
 
-function tokenFromMediaRequestUrl(rawUrl: string): string | null {
+type ParsedMediaRequest =
+  | { kind: 'view'; token: string }
+  | { kind: 'sub'; token: string; subId: string }
+
+function parseMediaRequestUrl(rawUrl: string): ParsedMediaRequest | null {
   let url: URL
   try {
     url = new URL(rawUrl)
   } catch {
     return null
   }
-  if (url.protocol !== `${MEDIA_SCHEME}:` || url.hostname !== 'view') return null
+  if (url.protocol !== `${MEDIA_SCHEME}:`) return null
   const segments = url.pathname.replace(/^\/+/, '').split('/').filter(Boolean)
-  return segments.length === 1 ? segments[0]! : null
+  if (url.hostname === 'view' && segments.length === 1) {
+    return { kind: 'view', token: segments[0]! }
+  }
+  if (url.hostname === 'sub' && segments.length === 2) {
+    return { kind: 'sub', token: segments[0]!, subId: segments[1]! }
+  }
+  return null
 }
 
-/** Handle `genoffice-media://view/<token>` with strict token lookup and HTTP Range support. */
+/** Handle `genoffice-media://view/<token>` and `genoffice-media://sub/<token>/<subId>` securely. */
 export function registerMediaProtocol(): void {
   if (protocolRegistered) return
   protocolRegistered = true
   protocol.handle(MEDIA_SCHEME, async (request) => {
-    const token = tokenFromMediaRequestUrl(request.url)
-    const entry = token ? sessionsByToken.get(token) : undefined
+    const parsedReq = parseMediaRequestUrl(request.url)
+    if (!parsedReq) return new Response(null, { status: 404 })
+    const entry = sessionsByToken.get(parsedReq.token)
     if (!entry) return new Response(null, { status: 404 })
 
     const method = request.method.toUpperCase()
+    if (method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+          'Access-Control-Allow-Headers': 'Range',
+          'Access-Control-Max-Age': '600',
+        },
+      })
+    }
     if (method !== 'GET' && method !== 'HEAD') {
-      return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } })
+      return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD, OPTIONS' } })
+    }
+
+    if (parsedReq.kind === 'sub') {
+      const subEntry = entry.subtitles.get(parsedReq.subId)
+      if (!subEntry) return new Response(null, { status: 404 })
+      try {
+        const raw = await readFile(subEntry.filePath, 'utf8')
+        const vtt = subEntry.ext === 'srt' ? srtToWebVtt(raw) : raw
+        const headers = {
+          'Content-Type': 'text/vtt; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+          'Access-Control-Allow-Origin': '*',
+        }
+        if (method === 'HEAD') return new Response(null, { status: 200, headers })
+        return new Response(vtt, { status: 200, headers })
+      } catch {
+        return new Response(null, { status: 404 })
+      }
     }
 
     let size = 0
@@ -333,6 +477,7 @@ export function registerMediaProtocol(): void {
       'X-Content-Type-Options': 'nosniff',
       'Cache-Control': 'no-store',
       'Access-Control-Allow-Origin': '*',
+      'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
       ...(entry.ext === 'svg' ? { 'Content-Security-Policy': 'sandbox' } : {}),
     }
 
@@ -363,6 +508,565 @@ export function registerMediaProtocol(): void {
   })
 }
 
+async function safeRealpath(targetPath: string): Promise<string | null> {
+  try {
+    return await realpath(targetPath)
+  } catch {
+    return null
+  }
+}
+
+/** Scan one directory (shallow) for playable audio/video files sorted naturally by name. */
+export async function scanDirectoryMedia(
+  dirPath: string,
+  source: 'session' | 'folder' = 'folder',
+  maxItems = MAX_DIR_SCAN_ITEMS,
+): Promise<{ items: MediaPlaylistItem[]; missing: boolean }> {
+  const resolvedDir = resolve(dirPath)
+  let dirStat: Awaited<ReturnType<typeof stat>>
+  try {
+    dirStat = await stat(resolvedDir)
+  } catch {
+    return { items: [], missing: true }
+  }
+  if (!dirStat.isDirectory()) return { items: [], missing: true }
+
+  let dirents: Dirent<string>[]
+  try {
+    dirents = await readdir(resolvedDir, { withFileTypes: true, encoding: 'utf8' })
+  } catch {
+    return { items: [], missing: true }
+  }
+
+  const realDir = (await safeRealpath(resolvedDir)) ?? resolvedDir
+  const realDirKey = normalizeMediaPathKey(realDir)
+
+  const candidates = dirents
+    .filter((entry) => entry.isFile() || entry.isSymbolicLink())
+    .map((entry) => ({
+      name: entry.name,
+      ext: normalizeMediaExt(extname(entry.name)),
+    }))
+    .filter((entry) => isPlayableMediaExt(entry.ext))
+    .sort((a, b) => naturalCompareMediaName(a.name, b.name))
+    .slice(0, maxItems)
+
+  const dirName = basename(resolvedDir) || resolvedDir
+  const results = await Promise.all(
+    candidates.map(async ({ name, ext }): Promise<MediaPlaylistItem | null> => {
+      const fullPath = join(resolvedDir, name)
+      try {
+        const fileStat = await stat(fullPath)
+        if (!fileStat.isFile()) return null
+        const realFile = (await safeRealpath(fullPath)) ?? fullPath
+        if (normalizeMediaPathKey(dirname(realFile)) !== realDirKey) {
+          return null
+        }
+        const mediaKind = mediaKindForExt(ext)
+        if (mediaKind !== 'audio' && mediaKind !== 'video') return null
+        return {
+          filePath: fullPath,
+          fileName: name,
+          ext,
+          mediaKind,
+          mime: mimeForMediaExt(ext),
+          sizeBytes: fileStat.size,
+          dirPath: resolvedDir,
+          dirName,
+          source,
+        }
+      } catch {
+        return null
+      }
+    }),
+  )
+
+  return {
+    items: results.filter((item): item is MediaPlaylistItem => item !== null),
+    missing: false,
+  }
+}
+
+/** Find matching `.vtt` / `.srt` sidecar subtitle files alongside a video file. */
+export async function discoverSidecarSubtitles(
+  videoPath: string,
+  token: string,
+): Promise<{ tracks: MediaSubtitleTrack[]; entries: Map<string, MediaSubtitleEntry> }> {
+  const tracks: MediaSubtitleTrack[] = []
+  const entries = new Map<string, MediaSubtitleEntry>()
+  const dir = dirname(videoPath)
+  const file = basename(videoPath)
+  const stem = file.slice(0, file.length - extname(file).length).toLowerCase()
+  if (!stem) return { tracks, entries }
+
+  let dirents: Dirent<string>[]
+  try {
+    dirents = await readdir(dir, { withFileTypes: true, encoding: 'utf8' })
+  } catch {
+    return { tracks, entries }
+  }
+
+  const matches = dirents
+    .filter((d) => d.isFile())
+    .map((d) => {
+      const name = d.name
+      const ext = normalizeMediaExt(extname(name))
+      if (ext !== 'vtt' && ext !== 'srt') return null
+      const subStem = name.slice(0, name.length - extname(name).length)
+      const subLower = subStem.toLowerCase()
+      if (subLower !== stem && !subLower.startsWith(`${stem}.`)) return null
+      const suffix = subStem.slice(stem.length).replace(/^\.+/, '').trim()
+      return {
+        name,
+        ext: ext as 'vtt' | 'srt',
+        label: suffix || name,
+        filePath: join(dir, name),
+      }
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .sort((a, b) => naturalCompareMediaName(a.name, b.name))
+
+  matches.forEach((item, index) => {
+    const id = `s${index + 1}`
+    entries.set(id, { id, filePath: item.filePath, label: item.label, ext: item.ext })
+    tracks.push({
+      id,
+      label: item.label,
+      url: mediaSubtitleUrl(token, id),
+      ext: item.ext,
+    })
+  })
+  return { tracks, entries }
+}
+
+/**
+ * Authorize switching to `candidatePath` from `wcId`: only playable audio/video
+ * inside an authorized directory (sessionDirs or persisted folders) or pinned
+ * files is allowed, and symlinks escaping outside are rejected.
+ */
+export async function isAuthorizedMediaPath(
+  wcId: number,
+  candidatePath: string,
+  library?: MediaLibraryStoreData,
+): Promise<string | null> {
+  if (typeof candidatePath !== 'string' || !candidatePath.trim()) return null
+  const resolved = resolve(candidatePath.trim())
+  const ext = normalizeMediaExt(extname(resolved))
+  if (!isPlayableMediaExt(ext)) return null
+
+  let infoStat: Awaited<ReturnType<typeof stat>>
+  try {
+    infoStat = await stat(resolved)
+    if (!infoStat.isFile()) return null
+  } catch {
+    return null
+  }
+  const realTarget = await safeRealpath(resolved)
+  if (!realTarget) return null
+
+  const lib = library ?? readMediaLibrary(mediaLibraryStorePath())
+  const ctx = viewContexts.get(wcId)
+  const dirCandidates = new Set<string>([
+    ...lib.folders.map((f) => resolve(f)),
+    ...(ctx ? Array.from(ctx.sessionDirs) : []),
+  ])
+
+  const authorizedDirKeys = new Set<string>()
+  await Promise.all(
+    Array.from(dirCandidates).map(async (dir) => {
+      const realDir = await safeRealpath(dir)
+      if (realDir) authorizedDirKeys.add(normalizeMediaPathKey(realDir))
+    }),
+  )
+
+  const targetDirKey = normalizeMediaPathKey(dirname(realTarget))
+  if (authorizedDirKeys.has(targetDirKey)) {
+    return resolved
+  }
+
+  const targetKey = normalizeMediaPathKey(realTarget)
+  for (const pinned of lib.pinnedFiles) {
+    const realPinned = await safeRealpath(pinned)
+    if (realPinned && normalizeMediaPathKey(realPinned) === targetKey) {
+      return resolved
+    }
+  }
+  return null
+}
+
+async function buildMediaInfoForEntry(entry: MediaSessionEntry): Promise<MediaInfo> {
+  let sizeBytes = 0
+  try {
+    const info = await stat(entry.filePath)
+    if (info.isFile()) sizeBytes = info.size
+  } catch {
+    // Keep sizeBytes=0 so the renderer can display a friendly load error.
+  }
+  return {
+    token: entry.token,
+    streamUrl: mediaStreamUrl(entry.token),
+    filePath: entry.filePath,
+    fileName: entry.fileName,
+    ext: entry.ext,
+    mediaKind: entry.mediaKind,
+    mime: entry.mime,
+    sizeBytes,
+  }
+}
+
+/** Build the complete player snapshot for a view, scanning directories and restoring tracks. */
+export async function buildMediaPlayerState(
+  wcId: number,
+  requestedToken?: string,
+): Promise<MediaPlayerStateSnapshot> {
+  const token =
+    typeof requestedToken === 'string' && requestedToken.trim()
+      ? requestedToken.trim()
+      : tokenByWcId.get(wcId)
+  let entry = token ? sessionsByToken.get(token) : undefined
+  if (entry && entry.wcId !== wcId) entry = undefined
+
+  const ctx = getOrCreateViewContext(wcId)
+  const library = readMediaLibrary(mediaLibraryStorePath())
+
+  if (entry && entry.mediaKind === 'image' && !ctx.playerMode) {
+    const current = await buildMediaInfoForEntry(entry)
+    return {
+      current,
+      subtitles: [],
+      items: [],
+      folders: [],
+      prefs: library.prefs,
+      resumePositionSec: 0,
+      playerMode: false,
+    }
+  }
+
+  ctx.playerMode = true
+  const persistedDirKeys = new Set(library.folders.map(normalizeMediaPathKey))
+  const orderedDirs: Array<{ path: string; persisted: boolean }> = []
+  const seenDirKeys = new Set<string>()
+
+  for (const folder of library.folders) {
+    const key = normalizeMediaPathKey(folder)
+    if (seenDirKeys.has(key)) continue
+    seenDirKeys.add(key)
+    orderedDirs.push({ path: folder, persisted: true })
+  }
+  for (const sessionDir of ctx.sessionDirs) {
+    const key = normalizeMediaPathKey(sessionDir)
+    if (seenDirKeys.has(key)) continue
+    seenDirKeys.add(key)
+    orderedDirs.push({ path: sessionDir, persisted: persistedDirKeys.has(key) })
+  }
+
+  const scanned = await Promise.all(
+    orderedDirs.map(async (dir) => ({
+      dir,
+      scan: await scanDirectoryMedia(dir.path, dir.persisted ? 'folder' : 'session'),
+    })),
+  )
+
+  const items: MediaPlaylistItem[] = []
+  const seenItemKeys = new Set<string>()
+  const folders: MediaFolderEntry[] = []
+
+  for (const { dir, scan } of scanned) {
+    folders.push({
+      path: dir.path,
+      name: basename(dir.path) || dir.path,
+      count: scan.items.length,
+      persisted: dir.persisted,
+      ...(scan.missing ? { missing: true } : {}),
+    })
+    for (const item of scan.items) {
+      const key = normalizeMediaPathKey(item.filePath)
+      if (seenItemKeys.has(key)) continue
+      seenItemKeys.add(key)
+      items.push(item)
+    }
+  }
+
+  // Merge standalone persisted files (unless already represented by a scanned directory).
+  const pinnedResults = await Promise.all(
+    library.pinnedFiles.map(async (pinnedPath): Promise<MediaPlaylistItem | null> => {
+      const key = normalizeMediaPathKey(pinnedPath)
+      if (seenItemKeys.has(key)) return null
+      const ext = normalizeMediaExt(extname(pinnedPath))
+      const mediaKind = mediaKindForExt(ext)
+      if (mediaKind !== 'audio' && mediaKind !== 'video') return null
+      try {
+        const st = await stat(pinnedPath)
+        if (!st.isFile()) return null
+        return {
+          filePath: pinnedPath,
+          fileName: basename(pinnedPath),
+          ext,
+          mediaKind,
+          mime: mimeForMediaExt(ext),
+          sizeBytes: st.size,
+          dirPath: dirname(pinnedPath),
+          dirName: basename(dirname(pinnedPath)) || dirname(pinnedPath),
+          source: 'pinned',
+        }
+      } catch {
+        return null
+      }
+    }),
+  )
+  for (const pinnedItem of pinnedResults) {
+    if (!pinnedItem) continue
+    const key = normalizeMediaPathKey(pinnedItem.filePath)
+    if (seenItemKeys.has(key)) continue
+    seenItemKeys.add(key)
+    items.push(pinnedItem)
+  }
+
+  // Standalone launcher startup: restore lastFilePath if available, else fall back to items[0].
+  if (!entry && items.length > 0) {
+    const preferred =
+      (library.lastFilePath
+        ? items.find((item) => normalizeMediaPathKey(item.filePath) === normalizeMediaPathKey(library.lastFilePath!))
+        : undefined) ?? items[0]!
+    entry = registerMediaSession(wcId, preferred.filePath)
+    if (library.lastFilePath !== entry.filePath) {
+      const updated = updateLibraryPlayback(library, { lastFilePath: entry.filePath })
+      writeMediaLibrary(mediaLibraryStorePath(), updated)
+    }
+    mediaFileChangedHook?.(wcId, entry.filePath)
+  }
+
+  let current: MediaInfo | null = null
+  let subtitles: MediaSubtitleTrack[] = []
+  let resumePositionSec = 0
+
+  if (entry) {
+    current = await buildMediaInfoForEntry(entry)
+    resumePositionSec = resumePositionForPath(library, entry.filePath)
+    if (entry.mediaKind === 'video') {
+      const subResult = await discoverSidecarSubtitles(entry.filePath, entry.token)
+      entry.subtitles = subResult.entries
+      subtitles = subResult.tracks
+    } else {
+      entry.subtitles.clear()
+    }
+  }
+
+  return {
+    current,
+    subtitles,
+    items,
+    folders,
+    prefs: library.prefs,
+    resumePositionSec,
+    playerMode: true,
+  }
+}
+
+/** Switch an open media view to an authorized audio/video track and sync its tab metadata. */
+export async function switchMediaTrackForView(
+  wcId: number,
+  candidatePath: string,
+): Promise<MediaStateMutationResult> {
+  const authorized = await isAuthorizedMediaPath(wcId, candidatePath)
+  if (!authorized) {
+    return { ok: false, error: 'Media path is not authorized or no longer exists.' }
+  }
+  configureMediaViewContext(wcId, { playerMode: true })
+  const entry = registerMediaSession(wcId, authorized)
+  recordPlayedTrackInLibrary(entry.filePath)
+  mediaFileChangedHook?.(wcId, entry.filePath)
+  const state = await buildMediaPlayerState(wcId, entry.token)
+  return { ok: true, state }
+}
+
+export async function addMediaFoldersForView(
+  wcId: number,
+  dirPaths: readonly string[],
+): Promise<MediaStateMutationResult> {
+  const storePath = mediaLibraryStorePath()
+  let lib = readMediaLibrary(storePath)
+  const validDirs: string[] = []
+  for (const raw of dirPaths) {
+    if (typeof raw !== 'string' || !raw.trim()) continue
+    const resolved = resolve(raw.trim())
+    try {
+      const info = await stat(resolved)
+      if (info.isDirectory()) validDirs.push(resolved)
+    } catch {
+      // Ignore unreachable directory.
+    }
+  }
+  if (validDirs.length === 0) {
+    const state = await buildMediaPlayerState(wcId)
+    return { ok: false, added: 0, state, error: 'No valid directory selected.' }
+  }
+  lib = addLibraryFolders(lib, validDirs)
+  writeMediaLibrary(storePath, lib)
+
+  configureMediaViewContext(wcId, { playerMode: true })
+  const state = await buildMediaPlayerState(wcId)
+  return { ok: true, added: validDirs.length, state }
+}
+
+export async function addMediaFilesForView(
+  wcId: number,
+  filePaths: readonly string[],
+): Promise<MediaStateMutationResult> {
+  const validFiles: string[] = []
+  for (const raw of filePaths) {
+    if (typeof raw !== 'string' || !raw.trim()) continue
+    const resolved = resolve(raw.trim())
+    if (!isPlayableMediaExt(extname(resolved))) continue
+    try {
+      const info = await stat(resolved)
+      if (info.isFile()) validFiles.push(resolved)
+    } catch {
+      // Skip non-existent files.
+    }
+  }
+  if (validFiles.length === 0) {
+    const state = await buildMediaPlayerState(wcId)
+    return { ok: false, added: 0, state, error: 'No supported audio or video files selected.' }
+  }
+
+  const storePath = mediaLibraryStorePath()
+  let lib = readMediaLibrary(storePath)
+  const folderKeys = new Set(lib.folders.map(normalizeMediaPathKey))
+  const toPin = validFiles.filter((f) => !folderKeys.has(normalizeMediaPathKey(dirname(f))))
+  if (toPin.length > 0) {
+    lib = addLibraryPinnedFiles(lib, toPin)
+  }
+  lib = updateLibraryPlayback(lib, { lastFilePath: validFiles[0]! })
+  writeMediaLibrary(storePath, lib)
+
+  configureMediaViewContext(wcId, { playerMode: true })
+  const entry = registerMediaSession(wcId, validFiles[0]!)
+  mediaFileChangedHook?.(wcId, entry.filePath)
+  const state = await buildMediaPlayerState(wcId, entry.token)
+  return { ok: true, added: validFiles.length, state }
+}
+
+export async function importDroppedMediaForView(
+  wcId: number,
+  rawPaths: readonly string[],
+): Promise<MediaStateMutationResult> {
+  const dirs: string[] = []
+  const files: string[] = []
+  for (const raw of rawPaths) {
+    if (typeof raw !== 'string' || !raw.trim()) continue
+    const resolved = resolve(raw.trim())
+    try {
+      const info = await stat(resolved)
+      if (info.isDirectory()) {
+        dirs.push(resolved)
+      } else if (info.isFile() && isPlayableMediaExt(extname(resolved))) {
+        files.push(resolved)
+      }
+    } catch {
+      // Ignore invalid or unreachable paths.
+    }
+  }
+
+  if (dirs.length === 0 && files.length === 0) {
+    const state = await buildMediaPlayerState(wcId)
+    return { ok: false, added: 0, state, error: 'No supported folders or audio/video files dropped.' }
+  }
+
+  const storePath = mediaLibraryStorePath()
+  let lib = readMediaLibrary(storePath)
+  if (dirs.length > 0) lib = addLibraryFolders(lib, dirs)
+  const folderKeys = new Set(lib.folders.map(normalizeMediaPathKey))
+  const toPin = files.filter((f) => !folderKeys.has(normalizeMediaPathKey(dirname(f))))
+  if (toPin.length > 0) lib = addLibraryPinnedFiles(lib, toPin)
+  writeMediaLibrary(storePath, lib)
+
+  configureMediaViewContext(wcId, { playerMode: true })
+
+  let nextTrack: string | null = files[0] ?? null
+  if (!nextTrack) {
+    for (const dir of dirs) {
+      const scan = await scanDirectoryMedia(dir, 'folder')
+      if (scan.items.length > 0) {
+        nextTrack = scan.items[0]!.filePath
+        break
+      }
+    }
+  }
+  if (nextTrack) {
+    const entry = registerMediaSession(wcId, nextTrack)
+    recordPlayedTrackInLibrary(entry.filePath)
+    mediaFileChangedHook?.(wcId, entry.filePath)
+  }
+
+  const state = await buildMediaPlayerState(wcId)
+  return { ok: true, added: dirs.length + files.length, state }
+}
+
+export async function pinSessionFolderForView(
+  wcId: number,
+  dirPath: string,
+): Promise<MediaStateMutationResult> {
+  if (typeof dirPath !== 'string' || !dirPath.trim()) {
+    return { ok: false, error: 'Invalid directory path.' }
+  }
+  const resolved = resolve(dirPath.trim())
+  const ctx = viewContexts.get(wcId)
+  const key = normalizeMediaPathKey(resolved)
+  const inSession = ctx
+    ? Array.from(ctx.sessionDirs).some((d) => normalizeMediaPathKey(d) === key)
+    : false
+  const storePath = mediaLibraryStorePath()
+  let lib = readMediaLibrary(storePath)
+  const alreadyPersisted = lib.folders.some((f) => normalizeMediaPathKey(f) === key)
+  if (!inSession && !alreadyPersisted) {
+    return { ok: false, error: 'Only an active session directory can be pinned.' }
+  }
+  lib = addLibraryFolders(lib, [resolved])
+  writeMediaLibrary(storePath, lib)
+  const state = await buildMediaPlayerState(wcId)
+  return { ok: true, state }
+}
+
+export async function removePersistedFolderForView(
+  wcId: number,
+  dirPath: string,
+): Promise<MediaStateMutationResult> {
+  if (typeof dirPath !== 'string' || !dirPath.trim()) {
+    return { ok: false, error: 'Invalid directory path.' }
+  }
+  const resolved = resolve(dirPath.trim())
+  const storePath = mediaLibraryStorePath()
+  const lib = removeLibraryFolder(readMediaLibrary(storePath), resolved)
+  writeMediaLibrary(storePath, lib)
+
+  const ctx = viewContexts.get(wcId)
+  if (ctx) {
+    for (const dir of Array.from(ctx.sessionDirs)) {
+      if (normalizeMediaPathKey(dir) === normalizeMediaPathKey(resolved)) {
+        ctx.sessionDirs.delete(dir)
+      }
+    }
+  }
+  const state = await buildMediaPlayerState(wcId)
+  return { ok: true, state }
+}
+
+export async function removePinnedFileForView(
+  wcId: number,
+  filePath: string,
+): Promise<MediaStateMutationResult> {
+  if (typeof filePath !== 'string' || !filePath.trim()) {
+    return { ok: false, error: 'Invalid file path.' }
+  }
+  const resolved = resolve(filePath.trim())
+  const storePath = mediaLibraryStorePath()
+  const lib = removeLibraryPinnedFile(readMediaLibrary(storePath), resolved)
+  writeMediaLibrary(storePath, lib)
+  const state = await buildMediaPlayerState(wcId)
+  return { ok: true, state }
+}
+
 /** Register renderer-facing media IPC channels once per main-process run. */
 export function registerMediaIpc(): void {
   if (ipcRegistered) return
@@ -375,23 +1079,107 @@ export function registerMediaIpc(): void {
       if (!token) return null
       const entry = sessionsByToken.get(token)
       if (!entry || entry.wcId !== event.sender.id) return null
-      let sizeBytes = 0
-      try {
-        const info = await stat(entry.filePath)
-        if (info.isFile()) sizeBytes = info.size
-      } catch {
-        // Keep sizeBytes=0 so the renderer can display a friendly load error.
+      return buildMediaInfoForEntry(entry)
+    },
+  )
+
+  ipcMain.handle(
+    HOME_CHANNELS.mediaPlayerState,
+    async (event, rawToken: unknown): Promise<MediaPlayerStateSnapshot> => {
+      const token = typeof rawToken === 'string' ? rawToken.trim() : undefined
+      return buildMediaPlayerState(event.sender.id, token)
+    },
+  )
+
+  ipcMain.handle(
+    HOME_CHANNELS.mediaSwitchTrack,
+    async (event, rawPath: unknown): Promise<MediaStateMutationResult> => {
+      if (typeof rawPath !== 'string') return { ok: false, error: 'Invalid track path.' }
+      return switchMediaTrackForView(event.sender.id, rawPath)
+    },
+  )
+
+  ipcMain.handle(
+    HOME_CHANNELS.mediaAddFolder,
+    async (event): Promise<MediaStateMutationResult> => {
+      const win = BrowserWindow.fromWebContents(event.sender) ?? undefined
+      const options = { properties: ['openDirectory', 'multiSelections'] as Array<'openDirectory' | 'multiSelections'> }
+      const picked = win
+        ? await dialog.showOpenDialog(win, options)
+        : await dialog.showOpenDialog(options)
+      if (picked.canceled || picked.filePaths.length === 0) {
+        return { ok: false, cancelled: true }
       }
-      return {
-        token: entry.token,
-        streamUrl: mediaStreamUrl(entry.token),
-        filePath: entry.filePath,
-        fileName: entry.fileName,
-        ext: entry.ext,
-        mediaKind: entry.mediaKind,
-        mime: entry.mime,
-        sizeBytes,
+      return addMediaFoldersForView(event.sender.id, picked.filePaths)
+    },
+  )
+
+  ipcMain.handle(
+    HOME_CHANNELS.mediaAddFiles,
+    async (event): Promise<MediaStateMutationResult> => {
+      const win = BrowserWindow.fromWebContents(event.sender) ?? undefined
+      const options = {
+        properties: ['openFile', 'multiSelections'] as Array<'openFile' | 'multiSelections'>,
+        filters: [
+          {
+            name: 'Audio & Video',
+            extensions: [...AUDIO_MEDIA_EXTS, ...VIDEO_MEDIA_EXTS],
+          },
+        ],
       }
+      const picked = win
+        ? await dialog.showOpenDialog(win, options)
+        : await dialog.showOpenDialog(options)
+      if (picked.canceled || picked.filePaths.length === 0) {
+        return { ok: false, cancelled: true }
+      }
+      return addMediaFilesForView(event.sender.id, picked.filePaths)
+    },
+  )
+
+  ipcMain.handle(
+    HOME_CHANNELS.mediaPinFolder,
+    async (event, rawDir: unknown): Promise<MediaStateMutationResult> => {
+      if (typeof rawDir !== 'string') return { ok: false, error: 'Invalid directory path.' }
+      return pinSessionFolderForView(event.sender.id, rawDir)
+    },
+  )
+
+  ipcMain.handle(
+    HOME_CHANNELS.mediaRemoveFolder,
+    async (event, rawDir: unknown): Promise<MediaStateMutationResult> => {
+      if (typeof rawDir !== 'string') return { ok: false, error: 'Invalid directory path.' }
+      return removePersistedFolderForView(event.sender.id, rawDir)
+    },
+  )
+
+  ipcMain.handle(
+    HOME_CHANNELS.mediaRemovePinnedFile,
+    async (event, rawFile: unknown): Promise<MediaStateMutationResult> => {
+      if (typeof rawFile !== 'string') return { ok: false, error: 'Invalid file path.' }
+      return removePinnedFileForView(event.sender.id, rawFile)
+    },
+  )
+
+  ipcMain.handle(
+    HOME_CHANNELS.mediaImportDropped,
+    async (event, rawPaths: unknown): Promise<MediaStateMutationResult> => {
+      const list = Array.isArray(rawPaths)
+        ? rawPaths.filter((p): p is string => typeof p === 'string')
+        : []
+      return importDroppedMediaForView(event.sender.id, list)
+    },
+  )
+
+  ipcMain.handle(
+    HOME_CHANNELS.mediaSavePrefs,
+    (_event, rawPatch: unknown): { ok: boolean } => {
+      if (!rawPatch || typeof rawPatch !== 'object') return { ok: false }
+      const patch = rawPatch as MediaSavePrefsPatch
+      const storePath = mediaLibraryStorePath()
+      const next = updateLibraryPlayback(readMediaLibrary(storePath), patch)
+      writeMediaLibrary(storePath, next)
+      return { ok: true }
     },
   )
 
@@ -437,14 +1225,39 @@ export function createMediaView(filePath?: string): WebContentsView {
     return { action: 'deny' }
   })
   const wcId = view.webContents.id
-  const entry = filePath ? registerMediaSession(wcId, filePath) : undefined
+  let entry: MediaSessionEntry | undefined
+
+  if (filePath) {
+    entry = registerMediaSession(wcId, filePath)
+    if (entry.mediaKind === 'audio' || entry.mediaKind === 'video') {
+      configureMediaViewContext(wcId, {
+        sessionDir: dirname(entry.filePath),
+        playerMode: true,
+      })
+      recordPlayedTrackInLibrary(entry.filePath)
+    } else {
+      configureMediaViewContext(wcId, { playerMode: false })
+    }
+  } else {
+    configureMediaViewContext(wcId, { playerMode: true })
+    const lib = readMediaLibrary(mediaLibraryStorePath())
+    if (lib.lastFilePath && existsSync(lib.lastFilePath)) {
+      const ext = normalizeMediaExt(extname(lib.lastFilePath))
+      if (isPlayableMediaExt(ext)) {
+        entry = registerMediaSession(wcId, lib.lastFilePath)
+      }
+    }
+  }
+
   view.webContents.once('destroyed', () => {
     unregisterMediaSessionByWcId(wcId)
+    clearMediaViewContext(wcId)
   })
   void view.webContents.loadURL(
     rendererUrl(process.env.ELECTRON_RENDERER_URL, 'help', {
       view: 'media',
       ...(entry ? { token: entry.token } : {}),
+      ...(!filePath ? { mode: 'player' } : {}),
     }),
   )
   return view

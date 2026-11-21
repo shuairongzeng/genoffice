@@ -19,6 +19,7 @@ export type AppTile =
   | 'settings'
   | 'kb'
   | 'sessions'
+  | 'player'
 
 /**
  * One thing on the desktop, whichever source it came from — the model every
@@ -173,6 +174,7 @@ const APP_ENTRIES: readonly DesktopAppEntry[] = [
   { id: 'app:templates', tile: 'templates', titleKey: 'appTemplates' },
   { id: 'app:plugins', tile: 'plugins', titleKey: 'appPlugins' },
   { id: 'app:settings', tile: 'settings', titleKey: 'appSettings' },
+  { id: 'app:player', tile: 'player', titleKey: 'appPlayer' },
 ]
 
 /** the app an id names: its tile and strings key; null for any other id */
@@ -194,6 +196,7 @@ const APP_OPEN_VERBS: Readonly<Record<string, (host: DesktopAppOpenHost) => () =
   'app:templates': (host) => host.onOpenTemplates,
   'app:plugins': (host) => () => host.onOpenSettings({ section: 'plugins' }),
   'app:settings': (host) => () => host.onOpenSettings({ section: 'general' }),
+  'app:player': (host) => () => void host.api.openMediaPlayer?.(),
 }
 
 /**

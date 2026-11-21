@@ -1,14 +1,51 @@
-import { useEffect, useRef, useState } from 'react'
-import type { WheelEvent as ReactWheelEvent, PointerEvent as ReactPointerEvent } from 'react'
-import type { MediaInfo, MediaSnapshotReply, MediaSnapshotRequest } from '../../shared/home-api'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type {
+  DragEvent as ReactDragEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  WheelEvent as ReactWheelEvent,
+} from 'react'
+import type {
+  MediaFolderEntry,
+  MediaInfo,
+  MediaPlayMode,
+  MediaPlayerPrefs,
+  MediaPlayerStateSnapshot,
+  MediaPlaylistItem,
+  MediaSavePrefsPatch,
+  MediaSnapshotReply,
+  MediaSnapshotRequest,
+  MediaStateMutationResult,
+  MediaSubtitleTrack,
+} from '../../shared/home-api'
 import { useI18n } from './locale'
+import { getMediaPlayerStrings, playModeLabel } from './media-player-strings'
+import {
+  SPEED_PRESETS,
+  buildShuffleOrder,
+  filterPlaylistItems,
+  nextPlayMode,
+  resolveNextTrackIndex,
+  resolvePrevTrackIndex,
+  stepPlaybackSpeed,
+} from './media-playlist-engine'
 import './media-viewer.css'
 
 const MAX_AI_EDGE_PX = 1600
 const MAX_PNG_BASE64_BYTES = 2_400_000
-const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const
 const MIN_ZOOM = 0.1
 const MAX_ZOOM = 8
+const POSITION_SAVE_INTERVAL_MS = 4000
+const CONTROLS_IDLE_MS = 2500
+
+const DEFAULT_PREFS: MediaPlayerPrefs = {
+  playMode: 'list',
+  volume: 1,
+  muted: false,
+  playbackRate: 1,
+  playlistCollapsed: false,
+  autoPlay: true,
+}
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
@@ -174,11 +211,91 @@ function encodeNormalizedImage(
   return canvasToBase64(canvas, 'image/jpeg', 0.88)
 }
 
+function replaceUrlToken(token: string | undefined): void {
+  try {
+    const url = new URL(window.location.href)
+    if (token) url.searchParams.set('token', token)
+    else url.searchParams.delete('token')
+    window.history.replaceState(null, '', url.toString())
+  } catch {
+    // Ignore history errors in test environments.
+  }
+}
+
+function sameDir(a: string, b: string): boolean {
+  const isWin = typeof navigator !== 'undefined' && /win/i.test(navigator.userAgent)
+  return isWin ? a.toLowerCase() === b.toLowerCase() : a === b
+}
+
+function sameFile(a: string, b: string): boolean {
+  const isWin = typeof navigator !== 'undefined' && /win/i.test(navigator.userAgent)
+  return isWin ? a.toLowerCase() === b.toLowerCase() : a === b
+}
+
+function extractDroppedPaths(files: FileList): string[] {
+  const out: string[] = []
+  for (let i = 0; i < files.length; i += 1) {
+    const file = files.item(i)
+    if (!file) continue
+    let resolved = ''
+    try {
+      resolved = window.aiOffice?.pathForFile?.(file) ?? ''
+    } catch {
+      resolved = ''
+    }
+    const legacyPath = (file as unknown as { path?: unknown }).path
+    if (!resolved && typeof legacyPath === 'string') {
+      resolved = legacyPath
+    }
+    if (resolved) out.push(resolved)
+  }
+  return out
+}
+
+function ensureSharedAudioGraph(
+  ctxRef: React.MutableRefObject<AudioContext | null>,
+  analyserRef: React.MutableRefObject<AnalyserNode | null>,
+): { ctx: AudioContext; analyser: AnalyserNode } | null {
+  if (typeof AudioContext === 'undefined') return null
+  try {
+    let ctx = ctxRef.current
+    if (!ctx || ctx.state === 'closed') {
+      ctx = new AudioContext()
+      ctxRef.current = ctx
+      analyserRef.current = null
+    }
+    let analyser = analyserRef.current
+    if (!analyser) {
+      analyser = ctx.createAnalyser()
+      analyser.fftSize = 64
+      analyser.smoothingTimeConstant = 0.78
+      analyser.connect(ctx.destination)
+      analyserRef.current = analyser
+    }
+    return { ctx, analyser }
+  } catch {
+    return null
+  }
+}
+
 export function MediaViewer(): React.JSX.Element {
-  const { t } = useI18n()
+  const { lang, t } = useI18n()
+  const ps = getMediaPlayerStrings(lang)
+
   const [info, setInfo] = useState<MediaInfo | null>(null)
+  const [playerMode, setPlayerMode] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+
+  // Playlist & persisted library state
+  const [items, setItems] = useState<MediaPlaylistItem[]>([])
+  const [folders, setFolders] = useState<MediaFolderEntry[]>([])
+  const [subtitles, setSubtitles] = useState<MediaSubtitleTrack[]>([])
+  const [selectedSubId, setSelectedSubId] = useState<string | null>(null)
+  const [subtitlesEnabled, setSubtitlesEnabled] = useState(true)
+  const [folderFilter, setFolderFilter] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [dropActive, setDropActive] = useState(false)
 
   // Image viewport state
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null)
@@ -191,19 +308,32 @@ export function MediaViewer(): React.JSX.Element {
 
   // Audio / video playback state
   const [playing, setPlaying] = useState(false)
+  const [audioGraphTick, setAudioGraphTick] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [playbackRate, setPlaybackRate] = useState(1)
-  const [volume, setVolume] = useState(1)
-  const [muted, setMuted] = useState(false)
-  const [loop, setLoop] = useState(false)
+  const [bufferedEnd, setBufferedEnd] = useState(0)
+  const [hoverSeek, setHoverSeek] = useState<{ pct: number; sec: number } | null>(null)
+  const [playbackRate, setPlaybackRate] = useState(DEFAULT_PREFS.playbackRate)
+  const [volume, setVolume] = useState(DEFAULT_PREFS.volume)
+  const [muted, setMuted] = useState(DEFAULT_PREFS.muted)
+  const [playMode, setPlayMode] = useState<MediaPlayMode>(DEFAULT_PREFS.playMode)
+  const [playlistCollapsed, setPlaylistCollapsed] = useState(DEFAULT_PREFS.playlistCollapsed)
+  const [autoPlay, setAutoPlay] = useState(DEFAULT_PREFS.autoPlay)
   const [videoDims, setVideoDims] = useState<{ w: number; h: number } | null>(null)
   const [captureNotice, setCaptureNotice] = useState(false)
+  const [resumedNoticeSec, setResumedNoticeSec] = useState<number | null>(null)
+  const [controlsIdle, setControlsIdle] = useState(false)
 
   const imgRef = useRef<HTMLImageElement | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const spectrumCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const sharedAudioCtxRef = useRef<AudioContext | null>(null)
+  const sharedAnalyserRef = useRef<AnalyserNode | null>(null)
+  const connectedSourceRef = useRef<MediaElementAudioSourceNode | null>(null)
+  const connectedAudioElRef = useRef<HTMLAudioElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
+  const activeItemRef = useRef<HTMLButtonElement | null>(null)
   const dragOriginRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
   const handledRequestsRef = useRef<Set<string>>(new Set())
   const keyDownHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {})
@@ -212,9 +342,59 @@ export function MediaViewer(): React.JSX.Element {
   infoRef.current = info
   const loadErrorRef = useRef(loadError)
   loadErrorRef.current = loadError
+  const playerModeRef = useRef(playerMode)
+  playerModeRef.current = playerMode
+  const playModeRef = useRef(playMode)
+  playModeRef.current = playMode
+  const shuffleOrderRef = useRef<number[]>([])
+  const switchSeqRef = useRef(0)
+  const shouldAutoPlayRef = useRef(true)
+  const pendingResumeSecRef = useRef(0)
+  const lastPositionSaveAtRef = useRef(0)
+  const idleTimerRef = useRef<number | null>(null)
+  const wasPlayingBeforeDblClickRef = useRef<boolean | null>(null)
+
+  const persistPrefs = useCallback((patch: MediaSavePrefsPatch): void => {
+    void window.aiOffice?.mediaSavePrefs?.(patch)?.catch(() => undefined)
+  }, [])
+
+  const applyPlayerSnapshot = useCallback(
+    (snapshot: MediaPlayerStateSnapshot, autoPlayNext: boolean): void => {
+      setInfo(snapshot.current)
+      setPlayerMode(snapshot.playerMode)
+      setItems(snapshot.items)
+      setFolders(snapshot.folders)
+      setSubtitles(snapshot.subtitles)
+      setSelectedSubId(snapshot.subtitles[0]?.id ?? null)
+      setPlayMode(snapshot.prefs.playMode)
+      setVolume(snapshot.prefs.volume)
+      setMuted(snapshot.prefs.muted)
+      setPlaybackRate(snapshot.prefs.playbackRate)
+      setPlaylistCollapsed(snapshot.prefs.playlistCollapsed)
+      setAutoPlay(snapshot.prefs.autoPlay)
+      setLoadError(false)
+      setCurrentTime(0)
+      setDuration(0)
+      setBufferedEnd(0)
+      setVideoDims(null)
+      setPlaying(false)
+      shouldAutoPlayRef.current = autoPlayNext && snapshot.prefs.autoPlay
+      pendingResumeSecRef.current = snapshot.resumePositionSec > 0 ? snapshot.resumePositionSec : 0
+      setResumedNoticeSec(snapshot.resumePositionSec >= 5 ? snapshot.resumePositionSec : null)
+      replaceUrlToken(snapshot.current?.token)
+
+      const curIndex = snapshot.current
+        ? snapshot.items.findIndex((item) => sameFile(item.filePath, snapshot.current!.filePath))
+        : -1
+      shuffleOrderRef.current = buildShuffleOrder(snapshot.items.length, curIndex)
+    },
+    [],
+  )
 
   useEffect(() => {
-    const token = new URLSearchParams(window.location.search).get('token') ?? ''
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('token') ?? ''
+    const isExplicitPlayerMode = params.get('mode') === 'player'
     let cancelled = false
     setLoading(true)
     setLoadError(false)
@@ -227,28 +407,319 @@ export function MediaViewer(): React.JSX.Element {
     setPlaying(false)
     setCurrentTime(0)
     setDuration(0)
-    if (!token) {
-      setInfo(null)
-      setLoading(false)
-      return
-    }
-    void window.aiOffice
-      .mediaGetInfo(token)
-      .then((res) => {
+
+    const loadInitial = async (): Promise<void> => {
+      try {
+        if (typeof window.aiOffice?.mediaGetPlayerState === 'function') {
+          const snapshot = await window.aiOffice.mediaGetPlayerState(token || undefined)
+          if (cancelled) return
+          applyPlayerSnapshot(snapshot, true)
+          setLoading(false)
+          return
+        }
+        if (!token) {
+          if (cancelled) return
+          setInfo(null)
+          setPlayerMode(isExplicitPlayerMode)
+          setLoading(false)
+          return
+        }
+        const res = await window.aiOffice.mediaGetInfo(token)
         if (cancelled) return
-        setInfo(res)
+        const isPlayable = res?.mediaKind === 'audio' || res?.mediaKind === 'video'
+        applyPlayerSnapshot(
+          {
+            current: res,
+            subtitles: [],
+            items: [],
+            folders: [],
+            prefs: DEFAULT_PREFS,
+            resumePositionSec: 0,
+            playerMode: isExplicitPlayerMode || isPlayable,
+          },
+          true,
+        )
         setLoading(false)
-      })
-      .catch(() => {
+      } catch {
         if (cancelled) return
         setInfo(null)
         setLoading(false)
         setLoadError(true)
-      })
+      }
+    }
+
+    void loadInitial()
     return () => {
       cancelled = true
     }
+  }, [applyPlayerSnapshot])
+
+  const activeMediaElement = useCallback((): HTMLMediaElement | null => {
+    const kind = infoRef.current?.mediaKind
+    return kind === 'video' ? videoRef.current : kind === 'audio' ? audioRef.current : null
   }, [])
+
+  const flushPlaybackPosition = useCallback((): void => {
+    const cur = infoRef.current
+    const el = activeMediaElement()
+    if (!cur || !el || (cur.mediaKind !== 'audio' && cur.mediaKind !== 'video')) return
+    const sec = Number.isFinite(el.currentTime) ? el.currentTime : 0
+    const dur = Number.isFinite(el.duration) ? el.duration : 0
+    persistPrefs({
+      position: {
+        filePath: cur.filePath,
+        sec,
+        ...(dur > 0 ? { durationSec: dur } : {}),
+      },
+    })
+  }, [activeMediaElement, persistPrefs])
+
+  useEffect(() => {
+    const onPageHide = (): void => flushPlaybackPosition()
+    window.addEventListener('pagehide', onPageHide)
+    window.addEventListener('beforeunload', onPageHide)
+    return () => {
+      window.removeEventListener('pagehide', onPageHide)
+      window.removeEventListener('beforeunload', onPageHide)
+      flushPlaybackPosition()
+    }
+  }, [flushPlaybackPosition])
+
+  // Tear down shared Web Audio graph when unmounting the viewer
+  useEffect(() => {
+    return () => {
+      try {
+        connectedSourceRef.current?.disconnect()
+      } catch {
+        // Ignore errors when source node is already disconnected.
+      }
+      connectedSourceRef.current = null
+      connectedAudioElRef.current = null
+      try {
+        sharedAnalyserRef.current?.disconnect()
+      } catch {
+        // Ignore errors when analyser node is already disconnected.
+      }
+      sharedAnalyserRef.current = null
+      const ctx = sharedAudioCtxRef.current
+      sharedAudioCtxRef.current = null
+      if (ctx && typeof ctx.close === 'function' && ctx.state !== 'closed') {
+        void ctx.close().catch(() => undefined)
+      }
+    }
+  }, [])
+
+  // Auto-dismiss resume notice toast
+  useEffect(() => {
+    if (resumedNoticeSec === null) return
+    const timer = window.setTimeout(() => setResumedNoticeSec(null), 5000)
+    return () => window.clearTimeout(timer)
+  }, [resumedNoticeSec])
+
+  // Scroll the active track row into view when switching tracks
+  useEffect(() => {
+    activeItemRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [info?.filePath])
+
+  // Clear filter if the selected folder was removed
+  useEffect(() => {
+    if (folderFilter !== 'all' && !folders.some((f) => sameDir(f.path, folderFilter))) {
+      setFolderFilter('all')
+    }
+  }, [folderFilter, folders])
+
+  // Sync HTMLVideoElement textTracks visibility with selected subtitle toggle
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || info?.mediaKind !== 'video') return
+    const trackList = video.textTracks
+    if (!trackList) return
+    const targetIdx = subtitles.findIndex((s) => s.id === selectedSubId)
+    for (let i = 0; i < trackList.length; i += 1) {
+      const track = trackList[i]
+      if (!track) continue
+      track.mode = subtitlesEnabled && i === targetIdx ? 'showing' : 'disabled'
+    }
+  }, [info?.token, info?.mediaKind, subtitles, selectedSubId, subtitlesEnabled])
+
+  // Attempt safe autoplay whenever the bound stream URL changes
+  const safeStartAutoPlay = useCallback((el: HTMLMediaElement | null): void => {
+    if (!el || !shouldAutoPlayRef.current) return
+    shouldAutoPlayRef.current = false
+    const promise = el.play?.()
+    if (promise && typeof promise.catch === 'function') {
+      promise.catch(() => undefined)
+    }
+  }, [])
+
+  // Initialize audio properties and trigger autoplay once metadata is ready
+  const initializeMediaElement = useCallback(
+    (el: HTMLMediaElement): void => {
+      el.volume = volume
+      el.muted = muted
+      el.playbackRate = playbackRate
+      el.loop = playMode === 'loop-one'
+      const dur = Number.isFinite(el.duration) ? el.duration : 0
+      setDuration(dur)
+
+      if (pendingResumeSecRef.current > 0) {
+        const target =
+          dur > 0 ? Math.min(pendingResumeSecRef.current, Math.max(0, dur - 2)) : pendingResumeSecRef.current
+        pendingResumeSecRef.current = 0
+        if (target > 0) {
+          el.currentTime = target
+          setCurrentTime(target)
+        }
+      }
+      safeStartAutoPlay(el)
+    },
+    [volume, muted, playbackRate, playMode, safeStartAutoPlay],
+  )
+
+  // Web Audio API real-time frequency visualizer for audio playback
+  useEffect(() => {
+    const canvas = spectrumCanvasRef.current
+    const audio = audioRef.current
+    if (!canvas || !audio || info?.mediaKind !== 'audio' || loadError) {
+      if (connectedSourceRef.current && info?.mediaKind !== 'audio') {
+        try {
+          connectedSourceRef.current.disconnect()
+        } catch {
+          // Ignore disconnect errors when switching away from audio.
+        }
+        connectedSourceRef.current = null
+        connectedAudioElRef.current = null
+      }
+      return
+    }
+
+    const ctx2d = canvas.getContext('2d')
+    if (!ctx2d) return
+
+    let cancelled = false
+
+    const attachAudioIfRunning = async (): Promise<void> => {
+      if (!playing) return
+      const graph = ensureSharedAudioGraph(sharedAudioCtxRef, sharedAnalyserRef)
+      if (!graph) return
+      const { ctx, analyser } = graph
+      if (ctx.state === 'suspended') {
+        try {
+          await ctx.resume()
+        } catch {
+          return
+        }
+      }
+      // Never call createMediaElementSource while AudioContext is still suspended,
+      // otherwise Chromium routes audio into the suspended graph and mutes playback.
+      if (cancelled || ctx.state !== 'running' || audioRef.current !== audio) return
+      if (connectedAudioElRef.current !== audio) {
+        if (connectedSourceRef.current) {
+          try {
+            connectedSourceRef.current.disconnect()
+          } catch {
+            // Ignore cleanup errors for previous track source node.
+          }
+          connectedSourceRef.current = null
+          connectedAudioElRef.current = null
+        }
+        try {
+          const source = ctx.createMediaElementSource(audio)
+          source.connect(analyser)
+          connectedSourceRef.current = source
+          connectedAudioElRef.current = audio
+          setAudioGraphTick((n) => n + 1)
+        } catch {
+          // Keep native <audio> playback unmuted if Web Audio capture is disallowed.
+        }
+      }
+    }
+
+    void attachAudioIfRunning()
+
+    const onGestureResume = (): void => {
+      void attachAudioIfRunning()
+    }
+    window.addEventListener('pointerdown', onGestureResume, { capture: true })
+    window.addEventListener('keydown', onGestureResume, { capture: true })
+
+    let rafId = 0
+    const styles = window.getComputedStyle(canvas)
+    const accentColor = styles.getPropertyValue('--accent').trim() || 'currentColor'
+    const barCount = 24
+    const liveAnalyser =
+      sharedAudioCtxRef.current?.state === 'running' && connectedAudioElRef.current === audio
+        ? sharedAnalyserRef.current
+        : null
+    const bins = liveAnalyser ? new Uint8Array(liveAnalyser.frequencyBinCount) : null
+
+    const drawFrame = (): void => {
+      const w = canvas.width
+      const h = canvas.height
+      ctx2d.clearRect(0, 0, w, h)
+      const analyserReady =
+        sharedAudioCtxRef.current?.state === 'running' && connectedAudioElRef.current === audio
+      if (analyserReady && liveAnalyser && bins && playing) {
+        liveAnalyser.getByteFrequencyData(bins)
+      }
+      const gap = 3
+      const barW = Math.max(2, Math.floor((w - gap * (barCount - 1)) / barCount))
+      ctx2d.fillStyle = accentColor
+      const nowSec = typeof performance !== 'undefined' ? performance.now() / 220 : 0
+      for (let i = 0; i < barCount; i += 1) {
+        let norm: number
+        if (analyserReady && playing && bins && bins.length > 0) {
+          norm = (bins[i % bins.length] ?? 0) / 255
+        } else if (playing) {
+          // Gentle fallback animation when native <audio> plays without an active AudioContext.
+          norm = 0.14 + 0.16 * Math.abs(Math.sin(nowSec + i * 0.55))
+        } else {
+          norm = 0.08 + ((i % 4) * 0.03)
+        }
+        const barH = Math.max(3, Math.round(norm * (h - 4)))
+        const x = i * (barW + gap)
+        const y = h - barH
+        ctx2d.globalAlpha = playing ? 0.45 + norm * 0.55 : 0.25
+        ctx2d.fillRect(x, y, barW, barH)
+      }
+      ctx2d.globalAlpha = 1
+      if (playing) {
+        rafId = window.requestAnimationFrame(drawFrame)
+      }
+    }
+
+    drawFrame()
+    return () => {
+      cancelled = true
+      if (rafId) window.cancelAnimationFrame(rafId)
+      window.removeEventListener('pointerdown', onGestureResume, { capture: true })
+      window.removeEventListener('keydown', onGestureResume, { capture: true })
+    }
+  }, [info?.token, info?.mediaKind, playing, loadError, audioGraphTick])
+
+  // Idle auto-hide for video controls during playback
+  const resetControlsIdle = useCallback((): void => {
+    setControlsIdle(false)
+    if (idleTimerRef.current !== null) {
+      window.clearTimeout(idleTimerRef.current)
+      idleTimerRef.current = null
+    }
+    if (infoRef.current?.mediaKind === 'video' && playing) {
+      idleTimerRef.current = window.setTimeout(() => {
+        setControlsIdle(true)
+      }, CONTROLS_IDLE_MS)
+    }
+  }, [playing])
+
+  useEffect(() => {
+    resetControlsIdle()
+    return () => {
+      if (idleTimerRef.current !== null) {
+        window.clearTimeout(idleTimerRef.current)
+        idleTimerRef.current = null
+      }
+    }
+  }, [playing, info?.mediaKind, resetControlsIdle])
 
   // Handle AI agent read_media snapshot requests (with dedupe across 250ms main retries)
   useEffect(() => {
@@ -328,7 +799,6 @@ export function MediaViewer(): React.JSX.Element {
           }
         }
 
-        // Video snapshot
         const video = videoRef.current
         if (loadErrorRef.current || !video) {
           return {
@@ -341,7 +811,11 @@ export function MediaViewer(): React.JSX.Element {
           }
         }
         try {
-          if (typeof req.timestampSec === 'number' && Number.isFinite(req.timestampSec) && req.timestampSec >= 0) {
+          if (
+            typeof req.timestampSec === 'number' &&
+            Number.isFinite(req.timestampSec) &&
+            req.timestampSec >= 0
+          ) {
             await seekVideoTo(video, req.timestampSec)
           } else {
             await waitForMediaReady(video, 2, 5000)
@@ -384,56 +858,128 @@ export function MediaViewer(): React.JSX.Element {
     return unsubscribe
   }, [])
 
-  // Keyboard shortcuts for image inspection and audio/video playback
-  keyDownHandlerRef.current = (e: KeyboardEvent): void => {
-    const current = infoRef.current
-    if (!current || loadErrorRef.current) return
-    if (e.ctrlKey || e.metaKey || e.altKey) return
-    const target = e.target as HTMLElement | null
-    const tag = target?.tagName
-    if (target && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable)) {
-      return
-    }
-    if (current.mediaKind === 'image') {
-      if (e.key === '+' || e.key === '=') {
-        e.preventDefault()
-        stepZoom(1.25)
-      } else if (e.key === '-' || e.key === '_') {
-        e.preventDefault()
-        stepZoom(1 / 1.25)
-      } else if (e.key === '0') {
-        e.preventDefault()
-        resetToFit()
-      } else if (e.key === 'r' || e.key === 'R') {
-        e.preventDefault()
-        setRotation((r) => (r + 90) % 360)
+  const filteredItems = useMemo(
+    () => filterPlaylistItems(items, folderFilter, searchQuery),
+    [items, folderFilter, searchQuery],
+  )
+
+  const currentTrackIndex = useMemo(() => {
+    if (!info) return -1
+    const inFiltered = filteredItems.findIndex((item) => sameFile(item.filePath, info.filePath))
+    if (inFiltered >= 0) return inFiltered
+    return items.findIndex((item) => sameFile(item.filePath, info.filePath))
+  }, [info, filteredItems, items])
+
+  const navigationPool = useMemo(() => {
+    if (!info) return filteredItems.length > 0 ? filteredItems : items
+    if (filteredItems.some((item) => sameFile(item.filePath, info.filePath))) return filteredItems
+    return items
+  }, [info, filteredItems, items])
+
+  const switchToTrack = useCallback(
+    async (filePath: string): Promise<void> => {
+      if (info && sameFile(info.filePath, filePath)) {
+        const el = activeMediaElement()
+        if (el) {
+          if (el.ended) el.currentTime = 0
+          if (el.paused) void el.play?.().catch(() => undefined)
+        }
+        return
       }
-      return
-    }
-    const mediaEl = current.mediaKind === 'video' ? videoRef.current : audioRef.current
-    if (!mediaEl) return
-    if (e.code === 'Space') {
-      if (tag === 'BUTTON') return
-      e.preventDefault()
-      togglePlay()
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault()
-      handleSeek(Math.max(0, mediaEl.currentTime - 5))
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault()
-      const maxDur = Number.isFinite(mediaEl.duration) ? mediaEl.duration : mediaEl.currentTime + 5
-      handleSeek(Math.min(maxDur, mediaEl.currentTime + 5))
-    } else if (e.key === 'm' || e.key === 'M') {
-      e.preventDefault()
-      toggleMute()
-    }
+      flushPlaybackPosition()
+      const seq = ++switchSeqRef.current
+      if (typeof window.aiOffice?.mediaSwitchTrack !== 'function') return
+      const res = await window.aiOffice.mediaSwitchTrack(filePath)
+      if (seq !== switchSeqRef.current) return
+      if (res.ok && res.state) {
+        applyPlayerSnapshot(res.state, true)
+      }
+    },
+    [info, activeMediaElement, flushPlaybackPosition, applyPlayerSnapshot],
+  )
+
+  const handleTrackStep = useCallback(
+    (direction: 'next' | 'prev', reason: 'ended' | 'manual'): void => {
+      if (navigationPool.length === 0) return
+      const curIndex = info
+        ? navigationPool.findIndex((item) => sameFile(item.filePath, info.filePath))
+        : -1
+      const targetIndex =
+        direction === 'next'
+          ? resolveNextTrackIndex({
+              count: navigationPool.length,
+              currentIndex: curIndex,
+              mode: playModeRef.current,
+              reason,
+              shuffleOrder: shuffleOrderRef.current,
+            })
+          : resolvePrevTrackIndex({
+              count: navigationPool.length,
+              currentIndex: curIndex,
+              mode: playModeRef.current,
+              shuffleOrder: shuffleOrderRef.current,
+            })
+      if (targetIndex === null) return
+      const target = navigationPool[targetIndex]
+      if (!target) return
+      if (info && sameFile(target.filePath, info.filePath) && reason === 'ended') {
+        const el = activeMediaElement()
+        if (el) {
+          el.currentTime = 0
+          void el.play?.().catch(() => undefined)
+        }
+        return
+      }
+      void switchToTrack(target.filePath)
+    },
+    [navigationPool, info, activeMediaElement, switchToTrack],
+  )
+
+  const handleMutationResponse = useCallback(
+    (res: MediaStateMutationResult | undefined): void => {
+      if (!res?.ok || !res.state) return
+      const prevPath = infoRef.current?.filePath
+      const nextPath = res.state.current?.filePath
+      const trackChanged = Boolean(nextPath && (!prevPath || !sameFile(prevPath, nextPath)))
+      if (trackChanged) {
+        applyPlayerSnapshot(res.state, true)
+      } else {
+        setItems(res.state.items)
+        setFolders(res.state.folders)
+        setSubtitles(res.state.subtitles)
+        setPlayerMode(res.state.playerMode)
+        if (!res.state.current) {
+          setInfo(null)
+        }
+      }
+    },
+    [applyPlayerSnapshot],
+  )
+
+  const handleAddFolder = async (): Promise<void> => {
+    const res = await window.aiOffice?.mediaAddFolder?.()
+    handleMutationResponse(res)
   }
 
-  useEffect(() => {
-    const listener = (e: KeyboardEvent): void => keyDownHandlerRef.current(e)
-    window.addEventListener('keydown', listener)
-    return () => window.removeEventListener('keydown', listener)
-  }, [])
+  const handleAddFiles = async (): Promise<void> => {
+    const res = await window.aiOffice?.mediaAddFiles?.()
+    handleMutationResponse(res)
+  }
+
+  const handlePinFolder = async (dirPath: string): Promise<void> => {
+    const res = await window.aiOffice?.mediaPinFolder?.(dirPath)
+    handleMutationResponse(res)
+  }
+
+  const handleRemoveFolder = async (dirPath: string): Promise<void> => {
+    const res = await window.aiOffice?.mediaRemoveFolder?.(dirPath)
+    handleMutationResponse(res)
+  }
+
+  const handleRemovePinnedFile = async (filePath: string): Promise<void> => {
+    const res = await window.aiOffice?.mediaRemovePinnedFile?.(filePath)
+    handleMutationResponse(res)
+  }
 
   function effectiveZoomBase(): number {
     if (!fitMode || !imgRef.current || !naturalSize) return zoom
@@ -486,54 +1032,65 @@ export function MediaViewer(): React.JSX.Element {
     dragOriginRef.current = null
   }
 
-  function activeMediaElement(): HTMLMediaElement | null {
-    return info?.mediaKind === 'video' ? videoRef.current : audioRef.current
-  }
-
   function togglePlay(): void {
     const el = activeMediaElement()
     if (!el) return
-    if (el.paused) void el.play().catch(() => undefined)
+    if (el.paused) void el.play?.().catch(() => undefined)
     else el.pause()
   }
 
   function handleSeek(nextSec: number): void {
     const el = activeMediaElement()
     if (!el) return
-    el.currentTime = nextSec
-    setCurrentTime(nextSec)
+    const clamped = duration > 0 ? Math.min(duration, Math.max(0, nextSec)) : Math.max(0, nextSec)
+    el.currentTime = clamped
+    setCurrentTime(clamped)
   }
 
   function handleSpeedChange(rate: number): void {
     const el = activeMediaElement()
     if (el) el.playbackRate = rate
     setPlaybackRate(rate)
+    persistPrefs({ prefs: { playbackRate: rate } })
   }
 
   function handleVolumeChange(val: number): void {
+    const clamped = Math.min(1, Math.max(0, Number(val.toFixed(2))))
     const el = activeMediaElement()
     if (el) {
-      el.volume = val
-      el.muted = val === 0
+      el.volume = clamped
+      el.muted = clamped === 0
     }
-    setVolume(val)
-    setMuted(val === 0)
+    setVolume(clamped)
+    setMuted(clamped === 0)
+    persistPrefs({ prefs: { volume: clamped, muted: clamped === 0 } })
   }
 
   function toggleMute(): void {
     const el = activeMediaElement()
-    if (!el) return
-    const next = !el.muted
-    el.muted = next
+    const next = el ? !el.muted : !muted
+    if (el) el.muted = next
     setMuted(next)
+    persistPrefs({ prefs: { muted: next } })
   }
 
-  function toggleLoop(): void {
+  function cyclePlayMode(): void {
+    const next = nextPlayMode(playMode)
+    setPlayMode(next)
     const el = activeMediaElement()
-    if (!el) return
-    const next = !el.loop
-    el.loop = next
-    setLoop(next)
+    if (el) el.loop = next === 'loop-one'
+    if (next === 'shuffle') {
+      shuffleOrderRef.current = buildShuffleOrder(navigationPool.length, currentTrackIndex)
+    }
+    persistPrefs({ prefs: { playMode: next } })
+  }
+
+  function togglePlaylistCollapsed(): void {
+    setPlaylistCollapsed((prev) => {
+      const next = !prev
+      persistPrefs({ prefs: { playlistCollapsed: next } })
+      return next
+    })
   }
 
   function togglePictureInPicture(): void {
@@ -555,6 +1112,203 @@ export function MediaViewer(): React.JSX.Element {
       void container.requestFullscreen().catch(() => undefined)
     }
   }
+
+  function handleVideoClick(): void {
+    wasPlayingBeforeDblClickRef.current = !videoRef.current?.paused
+    togglePlay()
+  }
+
+  function handleVideoDoubleClick(): void {
+    const video = videoRef.current
+    if (video && wasPlayingBeforeDblClickRef.current !== null) {
+      if (wasPlayingBeforeDblClickRef.current && video.paused) {
+        void video.play?.().catch(() => undefined)
+      } else if (!wasPlayingBeforeDblClickRef.current && !video.paused) {
+        video.pause()
+      }
+      wasPlayingBeforeDblClickRef.current = null
+    }
+    toggleFullscreen()
+  }
+
+  function handleSeekMouseMove(e: ReactMouseEvent<HTMLInputElement>): void {
+    if (duration <= 0) {
+      setHoverSeek(null)
+      return
+    }
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (rect.width <= 0) return
+    const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+    setHoverSeek({ pct: pct * 100, sec: pct * duration })
+  }
+
+  function handleTimeUpdate(el: HTMLMediaElement): void {
+    const nextTime = el.currentTime || 0
+    const dur = Number.isFinite(el.duration) ? el.duration : 0
+    setCurrentTime(nextTime)
+    if (dur > 0 && dur !== duration) setDuration(dur)
+    if (el.buffered && el.buffered.length > 0) {
+      try {
+        setBufferedEnd(el.buffered.end(el.buffered.length - 1))
+      } catch {
+        // Ignore stale TimeRanges.
+      }
+    }
+    const now = Date.now()
+    if (now - lastPositionSaveAtRef.current >= POSITION_SAVE_INTERVAL_MS && infoRef.current) {
+      lastPositionSaveAtRef.current = now
+      persistPrefs({
+        position: {
+          filePath: infoRef.current.filePath,
+          sec: nextTime,
+          ...(dur > 0 ? { durationSec: dur } : {}),
+        },
+      })
+    }
+  }
+
+  function handleMediaEnded(): void {
+    const cur = infoRef.current
+    if (cur && playModeRef.current !== 'loop-one') {
+      const dur = activeMediaElement()?.duration ?? duration
+      persistPrefs({
+        position: {
+          filePath: cur.filePath,
+          sec: dur > 0 ? dur : 0,
+          ...(dur > 0 ? { durationSec: dur } : {}),
+        },
+      })
+    }
+    if (playModeRef.current === 'loop-one') {
+      const el = activeMediaElement()
+      if (el) {
+        el.currentTime = 0
+        void el.play?.().catch(() => undefined)
+      }
+      return
+    }
+    setPlaying(false)
+    handleTrackStep('next', 'ended')
+  }
+
+  // System MediaSession integration (OS hardware media keys / taskbar controls)
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator) || !info) return
+    if (info.mediaKind !== 'audio' && info.mediaKind !== 'video') return
+    try {
+      if (typeof MediaMetadata !== 'undefined') {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: info.fileName,
+          artist: items.find((i) => sameFile(i.filePath, info.filePath))?.dirName ?? '',
+        })
+      }
+      navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'
+      navigator.mediaSession.setActionHandler('play', () => {
+        void activeMediaElement()?.play?.().catch(() => undefined)
+      })
+      navigator.mediaSession.setActionHandler('pause', () => {
+        activeMediaElement()?.pause()
+      })
+      navigator.mediaSession.setActionHandler('previoustrack', () => handleTrackStep('prev', 'manual'))
+      navigator.mediaSession.setActionHandler('nexttrack', () => handleTrackStep('next', 'manual'))
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (typeof details.seekTime === 'number') handleSeek(details.seekTime)
+      })
+    } catch {
+      // Ignore MediaSession errors in unsupported contexts.
+    }
+  }, [info, items, playing, activeMediaElement, handleTrackStep])
+
+  // Keyboard shortcuts
+  keyDownHandlerRef.current = (e: KeyboardEvent): void => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+    const target = e.target as HTMLElement | null
+    const tag = target?.tagName
+    if (target && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable)) {
+      return
+    }
+    const current = infoRef.current
+    if (current?.mediaKind === 'image' && !playerModeRef.current) {
+      if (loadErrorRef.current) return
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault()
+        stepZoom(1.25)
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault()
+        stepZoom(1 / 1.25)
+      } else if (e.key === '0') {
+        e.preventDefault()
+        resetToFit()
+      } else if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault()
+        setRotation((r) => (r + 90) % 360)
+      }
+      return
+    }
+
+    if (e.key === 'b' || e.key === 'B') {
+      e.preventDefault()
+      togglePlaylistCollapsed()
+      return
+    }
+    if (e.key === 'n' || e.key === 'N') {
+      e.preventDefault()
+      handleTrackStep('next', 'manual')
+      return
+    }
+    if (e.key === 'p' || e.key === 'P') {
+      e.preventDefault()
+      handleTrackStep('prev', 'manual')
+      return
+    }
+
+    const mediaEl = activeMediaElement()
+    if (!mediaEl || loadErrorRef.current) return
+    if (e.code === 'Space' || e.key === 'k' || e.key === 'K') {
+      if (e.code === 'Space' && tag === 'BUTTON') return
+      e.preventDefault()
+      togglePlay()
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      handleSeek(mediaEl.currentTime - 5)
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      handleSeek(mediaEl.currentTime + 5)
+    } else if (e.key === 'j' || e.key === 'J') {
+      e.preventDefault()
+      handleSeek(mediaEl.currentTime - 10)
+    } else if (e.key === 'l' || e.key === 'L') {
+      e.preventDefault()
+      handleSeek(mediaEl.currentTime + 10)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      handleVolumeChange(volume + 0.05)
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      handleVolumeChange(volume - 0.05)
+    } else if (e.key === 'm' || e.key === 'M') {
+      e.preventDefault()
+      toggleMute()
+    } else if ((e.key === 'f' || e.key === 'F') && current?.mediaKind === 'video') {
+      e.preventDefault()
+      toggleFullscreen()
+    } else if (e.key === '[') {
+      e.preventDefault()
+      handleSpeedChange(stepPlaybackSpeed(playbackRate, -1))
+    } else if (e.key === ']') {
+      e.preventDefault()
+      handleSpeedChange(stepPlaybackSpeed(playbackRate, 1))
+    } else if ((e.key === 'c' || e.key === 'C') && subtitles.length > 0) {
+      e.preventDefault()
+      setSubtitlesEnabled((prev) => !prev)
+    }
+  }
+
+  useEffect(() => {
+    const listener = (e: KeyboardEvent): void => keyDownHandlerRef.current(e)
+    window.addEventListener('keydown', listener)
+    return () => window.removeEventListener('keydown', listener)
+  }, [])
 
   async function handleAskAi(): Promise<void> {
     if (!info) return
@@ -609,9 +1363,35 @@ export function MediaViewer(): React.JSX.Element {
     }, 'image/png')
   }
 
+  function onDragOverViewer(e: ReactDragEvent<HTMLDivElement>): void {
+    if (!playerMode && info?.mediaKind === 'image') return
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'copy'
+    setDropActive(true)
+  }
+
+  function onDragLeaveViewer(e: ReactDragEvent<HTMLDivElement>): void {
+    if (!dropActive) return
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+    setDropActive(false)
+  }
+
+  function onDropViewer(e: ReactDragEvent<HTMLDivElement>): void {
+    if (!playerMode && info?.mediaKind === 'image') return
+    if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    setDropActive(false)
+    const dropped = extractDroppedPaths(e.dataTransfer.files)
+    if (dropped.length === 0) return
+    void window.aiOffice?.mediaImportDropped?.(dropped)?.then(handleMutationResponse)
+  }
+
   if (loading) {
     return (
-      <div className="media-viewer">
+      <div className="media-viewer" data-testid="media-viewer">
         <div className="media-stage">
           <div className="media-empty-card neutral">
             <p>{t('mediaLoading')}</p>
@@ -621,9 +1401,149 @@ export function MediaViewer(): React.JSX.Element {
     )
   }
 
-  if (!info) {
+  // Image mode: preserve existing single-image inspection UI with zero regressions
+  if (info && info.mediaKind === 'image' && !playerMode) {
+    const displayedZoomPct = fitMode ? t('mediaZoomFit') : `${Math.round(zoom * 100)}%`
     return (
-      <div className="media-viewer">
+      <div className="media-viewer" data-testid="media-viewer">
+        <header className="media-header">
+          <div className="media-header-meta">
+            <span className="media-kind-badge">{t('mediaTypeImage')}</span>
+            <h1 className="media-title" title={info.filePath}>
+              {info.fileName}
+            </h1>
+            <span className="media-ext-pill">.{info.ext.toUpperCase()}</span>
+            <span className="media-status-readout">{formatBytes(info.sizeBytes)}</span>
+          </div>
+          <div className="media-header-actions">
+            <button
+              type="button"
+              className="media-btn primary"
+              data-testid="media-ask-ai"
+              onClick={() => void handleAskAi()}
+            >
+              {t('mediaAskAi')}
+            </button>
+            <button
+              type="button"
+              className="media-btn"
+              onClick={() => void window.aiOffice.mediaOpenSystem()}
+            >
+              {t('mediaOpenSystem')}
+            </button>
+          </div>
+        </header>
+
+        <main
+          ref={stageRef}
+          className={`media-stage${checkerboard ? ' checkerboard' : ''}`}
+          onWheel={onWheelStage}
+        >
+          {loadError ? (
+            <div className="media-empty-card">
+              <h2>{t('mediaUnsupportedTitle')}</h2>
+              <p>{t('mediaUnsupportedHint')}</p>
+              <button
+                type="button"
+                className="media-btn primary"
+                onClick={() => void window.aiOffice.mediaOpenSystem()}
+              >
+                {t('mediaOpenSystem')}
+              </button>
+            </div>
+          ) : (
+            <div
+              className={`media-stage-image-wrap${dragging ? ' dragging' : ''}`}
+              onPointerDown={onPointerDownImage}
+              onPointerMove={onPointerMoveImage}
+              onPointerUp={onPointerUpImage}
+              onPointerCancel={onPointerUpImage}
+              onDoubleClick={() => (fitMode ? setActualSize() : resetToFit())}
+            >
+              <img
+                ref={imgRef}
+                className={`media-stage-img${fitMode ? ' fit' : ''}${dragging ? ' no-transition' : ''}`}
+                crossOrigin="anonymous"
+                src={info.streamUrl}
+                alt={info.fileName}
+                draggable={false}
+                style={{
+                  transform: fitMode
+                    ? `translate(${pan.x}px, ${pan.y}px) rotate(${rotation}deg)`
+                    : `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`,
+                }}
+                onLoad={(e) => {
+                  const img = e.currentTarget
+                  setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight })
+                  setLoadError(false)
+                }}
+                onError={() => setLoadError(true)}
+              />
+            </div>
+          )}
+        </main>
+
+        {!loadError && (
+          <footer className="media-controls-bar">
+            <div className="media-controls-group">
+              <button type="button" className="media-btn" onClick={() => stepZoom(1 / 1.25)}>
+                {t('mediaZoomOut')}
+              </button>
+              <button
+                type="button"
+                className={`media-btn${fitMode ? ' active' : ''}`}
+                onClick={resetToFit}
+              >
+                {t('mediaZoomFit')}
+              </button>
+              <button
+                type="button"
+                className={`media-btn${!fitMode && zoom === 1 ? ' active' : ''}`}
+                onClick={setActualSize}
+              >
+                {t('mediaZoomActual')}
+              </button>
+              <button type="button" className="media-btn" onClick={() => stepZoom(1.25)}>
+                {t('mediaZoomIn')}
+              </button>
+              <button
+                type="button"
+                className="media-btn"
+                onClick={() => setRotation((r) => (r - 90) % 360)}
+              >
+                {t('mediaRotateLeft')}
+              </button>
+              <button
+                type="button"
+                className="media-btn"
+                onClick={() => setRotation((r) => (r + 90) % 360)}
+              >
+                {t('mediaRotateRight')}
+              </button>
+              <button
+                type="button"
+                className={`media-btn${checkerboard ? ' active' : ''}`}
+                onClick={() => setCheckerboard((prev) => !prev)}
+              >
+                {t('mediaCheckerboard')}
+              </button>
+            </div>
+            <div className="media-controls-group">
+              <span className="media-status-readout">
+                {naturalSize ? `${naturalSize.w} × ${naturalSize.h} px · ` : ''}
+                {displayedZoomPct}
+              </span>
+            </div>
+          </footer>
+        )}
+      </div>
+    )
+  }
+
+  // Non-player image/empty fallback when standalone mode was not requested
+  if (!info && !playerMode) {
+    return (
+      <div className="media-viewer" data-testid="media-viewer">
         <div className="media-stage">
           <div className="media-empty-card neutral">
             <h2>{t('mediaNoFile')}</h2>
@@ -633,327 +1553,553 @@ export function MediaViewer(): React.JSX.Element {
     )
   }
 
-  const kindLabel =
-    info.mediaKind === 'image'
-      ? t('mediaTypeImage')
-      : info.mediaKind === 'audio'
-        ? t('mediaTypeAudio')
-        : t('mediaTypeVideo')
-
-  const displayedZoomPct = fitMode ? t('mediaZoomFit') : `${Math.round(zoom * 100)}%`
+  const kindLabel = !info
+    ? ps.playerTitle
+    : info.mediaKind === 'audio'
+      ? t('mediaTypeAudio')
+      : t('mediaTypeVideo')
+  const hasPlaylistNav = navigationPool.length > 1
+  const currentItemMeta = info ? items.find((i) => sameFile(i.filePath, info.filePath)) : undefined
+  const bufferedPct = duration > 0 ? Math.min(100, Math.max(0, (bufferedEnd / duration) * 100)) : 0
+  const unpinnedSessionFolder = folders.find((f) => !f.persisted && !f.missing)
 
   return (
-    <div className="media-viewer">
+    <div
+      className={`media-viewer media-player-mode${dropActive ? ' dragover' : ''}`}
+      data-testid="media-viewer"
+      onDragOver={onDragOverViewer}
+      onDragLeave={onDragLeaveViewer}
+      onDrop={onDropViewer}
+      onMouseMove={resetControlsIdle}
+    >
       <header className="media-header">
         <div className="media-header-meta">
           <span className="media-kind-badge">{kindLabel}</span>
-          <h1 className="media-title" title={info.filePath}>
-            {info.fileName}
+          <h1 className="media-title" title={info?.filePath ?? ps.playerTitle}>
+            {info ? info.fileName : ps.playerTitle}
           </h1>
-          <span className="media-ext-pill">.{info.ext.toUpperCase()}</span>
-          <span className="media-status-readout">{formatBytes(info.sizeBytes)}</span>
+          {info && (
+            <>
+              <span className="media-ext-pill">.{info.ext.toUpperCase()}</span>
+              <span className="media-status-readout">{formatBytes(info.sizeBytes)}</span>
+            </>
+          )}
         </div>
         <div className="media-header-actions">
           <button
             type="button"
-            className="media-btn primary"
-            data-testid="media-ask-ai"
-            onClick={() => void handleAskAi()}
+            className={`media-btn${!playlistCollapsed ? ' active' : ''}`}
+            data-testid="media-playlist-toggle"
+            onClick={togglePlaylistCollapsed}
           >
-            {t('mediaAskAi')}
+            {ps.playlistToggle} ({items.length})
           </button>
-          <button
-            type="button"
-            className="media-btn"
-            onClick={() => void window.aiOffice.mediaOpenSystem()}
-          >
-            {t('mediaOpenSystem')}
-          </button>
-        </div>
-      </header>
-
-      <main
-        ref={stageRef}
-        className={`media-stage${info.mediaKind === 'image' && checkerboard ? ' checkerboard' : ''}`}
-        onWheel={onWheelStage}
-      >
-        {captureNotice && <div className="media-toast">{t('mediaCaptureDone')}</div>}
-
-        {loadError ? (
-          <div className="media-empty-card">
-            <h2>{t('mediaUnsupportedTitle')}</h2>
-            <p>{t('mediaUnsupportedHint')}</p>
-            <button
-              type="button"
-              className="media-btn primary"
-              onClick={() => void window.aiOffice.mediaOpenSystem()}
-            >
-              {t('mediaOpenSystem')}
-            </button>
-          </div>
-        ) : info.mediaKind === 'image' ? (
-          <div
-            className={`media-stage-image-wrap${dragging ? ' dragging' : ''}`}
-            onPointerDown={onPointerDownImage}
-            onPointerMove={onPointerMoveImage}
-            onPointerUp={onPointerUpImage}
-            onPointerCancel={onPointerUpImage}
-            onDoubleClick={() => (fitMode ? setActualSize() : resetToFit())}
-          >
-            <img
-              ref={imgRef}
-              className={`media-stage-img${fitMode ? ' fit' : ''}${dragging ? ' no-transition' : ''}`}
-              crossOrigin="anonymous"
-              src={info.streamUrl}
-              alt={info.fileName}
-              draggable={false}
-              style={{
-                transform: fitMode
-                  ? `translate(${pan.x}px, ${pan.y}px) rotate(${rotation}deg)`
-                  : `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)`,
-              }}
-              onLoad={(e) => {
-                const img = e.currentTarget
-                setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight })
-                setLoadError(false)
-              }}
-              onError={() => setLoadError(true)}
-            />
-          </div>
-        ) : info.mediaKind === 'audio' ? (
-          <section className="media-audio-card">
-            <div className="media-audio-hero">
-              <div className="media-audio-disc" aria-hidden="true">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M9 18V6l11-2v12"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <circle cx="6.5" cy="18.5" r="2.5" stroke="currentColor" strokeWidth="2" />
-                  <circle cx="17.5" cy="16.5" r="2.5" stroke="currentColor" strokeWidth="2" />
-                </svg>
-              </div>
-              <div>
-                <h2 className="media-audio-title">{info.fileName}</h2>
-                <p className="media-audio-sub">
-                  .{info.ext.toUpperCase()} · {formatBytes(info.sizeBytes)}
-                  {duration > 0 ? ` · ${formatTime(duration)}` : ''}
-                </p>
-              </div>
-            </div>
-
-            <audio
-              ref={audioRef}
-              src={info.streamUrl}
-              preload="metadata"
-              onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
-              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime || 0)}
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onEnded={() => setPlaying(false)}
-              onError={() => setLoadError(true)}
-            />
-
-            <div className="media-seek-row">
-              <span className="media-time-label">{formatTime(currentTime)}</span>
-              <input
-                type="range"
-                className="media-seek-slider"
-                aria-label={t('mediaSeek')}
-                min={0}
-                max={duration > 0 ? duration : 1}
-                step={0.1}
-                value={Math.min(currentTime, duration > 0 ? duration : 1)}
-                onChange={(e) => handleSeek(Number(e.target.value))}
-              />
-              <span className="media-time-label">{formatTime(duration)}</span>
-            </div>
-
-            <div className="media-controls-group">
-              <button type="button" className="media-btn primary" onClick={togglePlay}>
-                {playing ? t('mediaPause') : t('mediaPlay')}
+          {info && (
+            <>
+              <button
+                type="button"
+                className="media-btn primary"
+                data-testid="media-ask-ai"
+                onClick={() => void handleAskAi()}
+              >
+                {t('mediaAskAi')}
               </button>
               <button
                 type="button"
-                className={`media-btn${loop ? ' active' : ''}`}
-                onClick={toggleLoop}
+                className="media-btn"
+                onClick={() => void window.aiOffice.mediaOpenSystem()}
               >
-                {t('mediaLoop')}
+                {t('mediaOpenSystem')}
               </button>
-              <select
-                className="media-select"
-                aria-label={t('mediaSpeed')}
-                value={playbackRate}
-                onChange={(e) => handleSpeedChange(Number(e.target.value))}
-              >
-                {SPEED_OPTIONS.map((rate) => (
-                  <option key={rate} value={rate}>
-                    {rate}x
-                  </option>
-                ))}
-              </select>
-              <button type="button" className="media-btn" onClick={toggleMute}>
-                {muted ? t('mediaUnmute') : t('mediaMute')}
-              </button>
-              <input
-                type="range"
-                className="media-volume-slider"
-                aria-label={t('mediaVolume')}
-                min={0}
-                max={1}
-                step={0.05}
-                value={muted ? 0 : volume}
-                onChange={(e) => handleVolumeChange(Number(e.target.value))}
-              />
-            </div>
-          </section>
-        ) : (
-          <video
-            ref={videoRef}
-            className="media-stage-video"
-            crossOrigin="anonymous"
-            src={info.streamUrl}
-            preload="metadata"
-            playsInline
-            onClick={togglePlay}
-            onLoadedMetadata={(e) => {
-              const v = e.currentTarget
-              setDuration(v.duration || 0)
-              if (v.videoWidth > 0 && v.videoHeight > 0) {
-                setVideoDims({ w: v.videoWidth, h: v.videoHeight })
-              }
-            }}
-            onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime || 0)}
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
-            onEnded={() => setPlaying(false)}
-            onError={() => setLoadError(true)}
-          />
-        )}
-      </main>
+            </>
+          )}
+        </div>
+      </header>
 
-      {info.mediaKind === 'image' && !loadError && (
-        <footer className="media-controls-bar">
-          <div className="media-controls-group">
-            <button type="button" className="media-btn" onClick={() => stepZoom(1 / 1.25)}>
-              {t('mediaZoomOut')}
-            </button>
-            <button
-              type="button"
-              className={`media-btn${fitMode ? ' active' : ''}`}
-              onClick={resetToFit}
-            >
-              {t('mediaZoomFit')}
-            </button>
-            <button
-              type="button"
-              className={`media-btn${!fitMode && zoom === 1 ? ' active' : ''}`}
-              onClick={setActualSize}
-            >
-              {t('mediaZoomActual')}
-            </button>
-            <button type="button" className="media-btn" onClick={() => stepZoom(1.25)}>
-              {t('mediaZoomIn')}
-            </button>
-            <button
-              type="button"
-              className="media-btn"
-              onClick={() => setRotation((r) => (r - 90) % 360)}
-            >
-              {t('mediaRotateLeft')}
-            </button>
-            <button
-              type="button"
-              className="media-btn"
-              onClick={() => setRotation((r) => (r + 90) % 360)}
-            >
-              {t('mediaRotateRight')}
-            </button>
-            <button
-              type="button"
-              className={`media-btn${checkerboard ? ' active' : ''}`}
-              onClick={() => setCheckerboard((prev) => !prev)}
-            >
-              {t('mediaCheckerboard')}
-            </button>
-          </div>
-          <div className="media-controls-group">
-            <span className="media-status-readout">
-              {naturalSize ? `${naturalSize.w} × ${naturalSize.h} px · ` : ''}
-              {displayedZoomPct}
-            </span>
-          </div>
-        </footer>
-      )}
+      <div className="media-workspace">
+        <div className="media-stage-column">
+          <main
+            ref={stageRef}
+            className={`media-stage${info?.mediaKind === 'video' && controlsIdle ? ' controls-idle' : ''}`}
+          >
+            {captureNotice && <div className="media-toast">{t('mediaCaptureDone')}</div>}
+            {resumedNoticeSec !== null && (
+              <div className="media-toast resume" data-testid="media-resume-toast">
+                <span>{ps.resumedFrom.replace('{time}', formatTime(resumedNoticeSec))}</span>
+                <button
+                  type="button"
+                  className="media-toast-link"
+                  onClick={() => {
+                    handleSeek(0)
+                    setResumedNoticeSec(null)
+                  }}
+                >
+                  {ps.restartFromBeginning}
+                </button>
+              </div>
+            )}
 
-      {info.mediaKind === 'video' && !loadError && (
-        <footer className="media-controls-bar media-controls-video">
-          <div className="media-seek-row">
-            <span className="media-time-label">{formatTime(currentTime)}</span>
-            <input
-              type="range"
-              className="media-seek-slider"
-              aria-label={t('mediaSeek')}
-              min={0}
-              max={duration > 0 ? duration : 1}
-              step={0.1}
-              value={Math.min(currentTime, duration > 0 ? duration : 1)}
-              onChange={(e) => handleSeek(Number(e.target.value))}
-            />
-            <span className="media-time-label">{formatTime(duration)}</span>
-          </div>
-          <div className="media-controls-row">
-            <div className="media-controls-group">
-              <button type="button" className="media-btn primary" onClick={togglePlay}>
-                {playing ? t('mediaPause') : t('mediaPlay')}
-              </button>
-              <select
-                className="media-select"
-                aria-label={t('mediaSpeed')}
-                value={playbackRate}
-                onChange={(e) => handleSpeedChange(Number(e.target.value))}
+            {!info ? (
+              <div className="media-empty-card neutral" data-testid="media-empty-library">
+                <h2>{ps.emptyLibraryTitle}</h2>
+                <p>{ps.emptyLibraryHint}</p>
+                <div className="media-empty-actions">
+                  <button
+                    type="button"
+                    className="media-btn primary"
+                    data-testid="media-empty-add-folder"
+                    onClick={() => void handleAddFolder()}
+                  >
+                    {ps.addFolder}
+                  </button>
+                  <button
+                    type="button"
+                    className="media-btn"
+                    data-testid="media-empty-add-files"
+                    onClick={() => void handleAddFiles()}
+                  >
+                    {ps.addFiles}
+                  </button>
+                </div>
+              </div>
+            ) : loadError ? (
+              <div className="media-empty-card" data-testid="media-decode-error">
+                <h2>{t('mediaUnsupportedTitle')}</h2>
+                <p>{t('mediaUnsupportedHint')}</p>
+                <div className="media-empty-actions">
+                  <button
+                    type="button"
+                    className="media-btn primary"
+                    onClick={() => void window.aiOffice.mediaOpenSystem()}
+                  >
+                    {t('mediaOpenSystem')}
+                  </button>
+                  {hasPlaylistNav && (
+                    <button
+                      type="button"
+                      className="media-btn"
+                      onClick={() => handleTrackStep('next', 'manual')}
+                    >
+                      {ps.playNextItem}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : info.mediaKind === 'audio' ? (
+              <section className="media-audio-card">
+                <div className="media-audio-hero">
+                  <div
+                    className={`media-audio-disc${playing ? ' spinning' : ''}`}
+                    aria-hidden="true"
+                  >
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                      <path
+                        d="M9 18V6l11-2v12"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <circle cx="6.5" cy="18.5" r="2.5" stroke="currentColor" strokeWidth="2" />
+                      <circle cx="17.5" cy="16.5" r="2.5" stroke="currentColor" strokeWidth="2" />
+                    </svg>
+                  </div>
+                  <div className="media-audio-heading">
+                    <h2 className="media-audio-title">{info.fileName}</h2>
+                    <p className="media-audio-sub">
+                      .{info.ext.toUpperCase()} · {formatBytes(info.sizeBytes)}
+                      {duration > 0 ? ` · ${formatTime(duration)}` : ''}
+                      {currentItemMeta ? ` · ${currentItemMeta.dirName}` : ''}
+                    </p>
+                  </div>
+                </div>
+
+                <canvas
+                  ref={spectrumCanvasRef}
+                  className="media-audio-spectrum"
+                  width={480}
+                  height={44}
+                  aria-hidden="true"
+                />
+
+                <audio
+                  key={info.token}
+                  ref={audioRef}
+                  crossOrigin="anonymous"
+                  src={info.streamUrl}
+                  autoPlay={autoPlay}
+                  preload="metadata"
+                  onLoadedMetadata={(e) => initializeMediaElement(e.currentTarget)}
+                  onCanPlay={(e) => safeStartAutoPlay(e.currentTarget)}
+                  onTimeUpdate={(e) => handleTimeUpdate(e.currentTarget)}
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => {
+                    setPlaying(false)
+                    flushPlaybackPosition()
+                  }}
+                  onEnded={handleMediaEnded}
+                  onError={() => {
+                    setPlaying(false)
+                    setLoadError(true)
+                  }}
+                />
+              </section>
+            ) : (
+              <video
+                key={info.token}
+                ref={videoRef}
+                className="media-stage-video"
+                crossOrigin="anonymous"
+                src={info.streamUrl}
+                autoPlay={autoPlay}
+                preload="metadata"
+                playsInline
+                onClick={handleVideoClick}
+                onDoubleClick={handleVideoDoubleClick}
+                onLoadedMetadata={(e) => {
+                  const v = e.currentTarget
+                  initializeMediaElement(v)
+                  if (v.videoWidth > 0 && v.videoHeight > 0) {
+                    setVideoDims({ w: v.videoWidth, h: v.videoHeight })
+                  }
+                }}
+                onCanPlay={(e) => safeStartAutoPlay(e.currentTarget)}
+                onTimeUpdate={(e) => handleTimeUpdate(e.currentTarget)}
+                onPlay={() => setPlaying(true)}
+                onPause={() => {
+                  setPlaying(false)
+                  flushPlaybackPosition()
+                }}
+                onEnded={handleMediaEnded}
+                onError={() => {
+                  setPlaying(false)
+                  setLoadError(true)
+                }}
               >
-                {SPEED_OPTIONS.map((rate) => (
-                  <option key={rate} value={rate}>
-                    {rate}x
-                  </option>
-                ))}
-              </select>
-              <button type="button" className="media-btn" onClick={toggleMute}>
-                {muted ? t('mediaUnmute') : t('mediaMute')}
-              </button>
-              <input
-                type="range"
-                className="media-volume-slider"
-                aria-label={t('mediaVolume')}
-                min={0}
-                max={1}
-                step={0.05}
-                value={muted ? 0 : volume}
-                onChange={(e) => handleVolumeChange(Number(e.target.value))}
-              />
-            </div>
-            <div className="media-controls-group">
-              {videoDims && (
-                <span className="media-status-readout">
-                  {videoDims.w} × {videoDims.h}
+                {subtitlesEnabled &&
+                  subtitles.map((sub) => (
+                    <track
+                      key={sub.id}
+                      kind="subtitles"
+                      src={sub.url}
+                      label={sub.label}
+                      default={sub.id === selectedSubId}
+                    />
+                  ))}
+              </video>
+            )}
+          </main>
+
+          {info && !loadError && (
+            <footer
+              className={`media-controls-bar media-controls-player${
+                info.mediaKind === 'video' && controlsIdle ? ' idle-dim' : ''
+              }`}
+            >
+              <div className="media-seek-row">
+                <span className="media-time-label">{formatTime(currentTime)}</span>
+                <div className="media-seek-track-wrap">
+                  <div className="media-seek-buffer" style={{ width: `${bufferedPct}%` }} />
+                  {hoverSeek && (
+                    <span className="media-seek-preview" style={{ left: `${hoverSeek.pct}%` }}>
+                      {formatTime(hoverSeek.sec)}
+                    </span>
+                  )}
+                  <input
+                    type="range"
+                    className="media-seek-slider"
+                    aria-label={t('mediaSeek')}
+                    min={0}
+                    max={duration > 0 ? duration : 1}
+                    step={0.1}
+                    value={Math.min(currentTime, duration > 0 ? duration : 1)}
+                    onMouseMove={handleSeekMouseMove}
+                    onMouseLeave={() => setHoverSeek(null)}
+                    onChange={(e) => handleSeek(Number(e.target.value))}
+                  />
+                </div>
+                <span className="media-time-label">{formatTime(duration)}</span>
+              </div>
+
+              <div className="media-controls-row">
+                <div className="media-controls-group">
+                  <button
+                    type="button"
+                    className="media-btn"
+                    data-testid="media-prev-btn"
+                    disabled={!hasPlaylistNav}
+                    title={ps.prevTrack}
+                    onClick={() => handleTrackStep('prev', 'manual')}
+                  >
+                    {ps.prevTrack}
+                  </button>
+                  <button
+                    type="button"
+                    className="media-btn primary"
+                    data-testid="media-play-btn"
+                    onClick={togglePlay}
+                  >
+                    {playing ? t('mediaPause') : t('mediaPlay')}
+                  </button>
+                  <button
+                    type="button"
+                    className="media-btn"
+                    data-testid="media-next-btn"
+                    disabled={!hasPlaylistNav}
+                    title={ps.nextTrack}
+                    onClick={() => handleTrackStep('next', 'manual')}
+                  >
+                    {ps.nextTrack}
+                  </button>
+                  <button
+                    type="button"
+                    className={`media-btn${playMode !== 'list' ? ' active' : ''}`}
+                    data-testid="media-playmode-btn"
+                    onClick={cyclePlayMode}
+                  >
+                    {playModeLabel(ps, playMode)}
+                  </button>
+                  <select
+                    className="media-select"
+                    aria-label={t('mediaSpeed')}
+                    value={playbackRate}
+                    onChange={(e) => handleSpeedChange(Number(e.target.value))}
+                  >
+                    {SPEED_PRESETS.map((rate) => (
+                      <option key={rate} value={rate}>
+                        {rate}x
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="media-btn" onClick={toggleMute}>
+                    {muted ? t('mediaUnmute') : t('mediaMute')}
+                  </button>
+                  <input
+                    type="range"
+                    className="media-volume-slider"
+                    aria-label={t('mediaVolume')}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={muted ? 0 : volume}
+                    onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                  />
+                </div>
+
+                {info.mediaKind === 'video' && (
+                  <div className="media-controls-group">
+                    {videoDims && (
+                      <span className="media-status-readout">
+                        {videoDims.w} × {videoDims.h}
+                      </span>
+                    )}
+                    {subtitles.length > 0 && (
+                      <button
+                        type="button"
+                        className={`media-btn${subtitlesEnabled ? ' active' : ''}`}
+                        data-testid="media-subtitle-toggle"
+                        onClick={() => setSubtitlesEnabled((prev) => !prev)}
+                      >
+                        {subtitlesEnabled ? ps.subtitlesOn : ps.subtitlesOff}
+                      </button>
+                    )}
+                    <button type="button" className="media-btn" onClick={captureVideoFrame}>
+                      {t('mediaCaptureFrame')}
+                    </button>
+                    <button type="button" className="media-btn" onClick={togglePictureInPicture}>
+                      {t('mediaPip')}
+                    </button>
+                    <button type="button" className="media-btn" onClick={toggleFullscreen}>
+                      {t('mediaFullscreen')}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </footer>
+          )}
+        </div>
+
+        {!playlistCollapsed && (
+          <aside className="media-playlist-aside" data-testid="media-playlist-aside">
+            <div className="media-playlist-head">
+              <div className="media-playlist-title-row">
+                <span className="media-playlist-title">{ps.playlistTitle}</span>
+                <span className="media-playlist-count">
+                  {ps.playlistCount.replace('{n}', String(filteredItems.length))}
                 </span>
-              )}
-              <button type="button" className="media-btn" onClick={captureVideoFrame}>
-                {t('mediaCaptureFrame')}
-              </button>
-              <button type="button" className="media-btn" onClick={togglePictureInPicture}>
-                {t('mediaPip')}
-              </button>
-              <button type="button" className="media-btn" onClick={toggleFullscreen}>
-                {t('mediaFullscreen')}
-              </button>
+              </div>
+              <div className="media-playlist-actions">
+                <button
+                  type="button"
+                  className="media-btn"
+                  data-testid="media-add-folder"
+                  onClick={() => void handleAddFolder()}
+                >
+                  {ps.addFolder}
+                </button>
+                <button
+                  type="button"
+                  className="media-btn"
+                  data-testid="media-add-files"
+                  onClick={() => void handleAddFiles()}
+                >
+                  {ps.addFiles}
+                </button>
+              </div>
             </div>
-          </div>
-        </footer>
+
+            {unpinnedSessionFolder && (
+              <div className="media-playlist-pin-banner">
+                <span className="media-playlist-pin-name" title={unpinnedSessionFolder.path}>
+                  {unpinnedSessionFolder.name}
+                </span>
+                <button
+                  type="button"
+                  className="media-btn"
+                  data-testid="media-pin-session-folder"
+                  onClick={() => void handlePinFolder(unpinnedSessionFolder.path)}
+                >
+                  {ps.pinFolder}
+                </button>
+              </div>
+            )}
+
+            {folders.length > 0 && (
+              <div className="media-folder-chips" role="tablist" aria-label={ps.playlistTitle}>
+                <button
+                  type="button"
+                  className={`media-folder-chip${folderFilter === 'all' ? ' active' : ''}`}
+                  onClick={() => setFolderFilter('all')}
+                >
+                  {ps.allFolders} ({items.length})
+                </button>
+                {folders.map((folder) => {
+                  const selected = folderFilter !== 'all' && sameDir(folderFilter, folder.path)
+                  return (
+                    <span
+                      key={folder.path}
+                      className={`media-folder-chip-wrap${selected ? ' active' : ''}${
+                        folder.missing ? ' missing' : ''
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        className={`media-folder-chip${selected ? ' active' : ''}`}
+                        title={folder.missing ? `${folder.path} (${ps.missingFolder})` : folder.path}
+                        onClick={() => setFolderFilter(folder.path)}
+                      >
+                        {folder.name} ({folder.count})
+                      </button>
+                      {folder.persisted && (
+                        <button
+                          type="button"
+                          className="media-folder-remove"
+                          title={ps.removeFolderTitle}
+                          aria-label={ps.removeFolderTitle}
+                          onClick={() => void handleRemoveFolder(folder.path)}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+
+            <div className="media-playlist-search-wrap">
+              <input
+                type="search"
+                className="media-playlist-search"
+                data-testid="media-playlist-search"
+                placeholder={ps.searchPlaceholder}
+                aria-label={ps.searchPlaceholder}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            <div
+              className="media-playlist-list"
+              role="listbox"
+              aria-label={ps.playlistTitle}
+              title={ps.doubleClickHint}
+            >
+              {filteredItems.length === 0 ? (
+                <div className="media-playlist-empty">
+                  {items.length === 0 ? ps.emptyLibraryHint : ps.emptyFilterHint}
+                </div>
+              ) : (
+                filteredItems.map((item, idx) => {
+                  const isActive = Boolean(info && sameFile(info.filePath, item.filePath))
+                  return (
+                    <div
+                      key={item.filePath}
+                      className={`media-playlist-row${isActive ? ' active' : ''}`}
+                    >
+                      <button
+                        ref={isActive ? activeItemRef : undefined}
+                        type="button"
+                        role="option"
+                        aria-selected={isActive}
+                        data-testid="media-playlist-item"
+                        data-path={item.filePath}
+                        className="media-playlist-item-btn"
+                        title={item.filePath}
+                        onDoubleClick={() => void switchToTrack(item.filePath)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            void switchToTrack(item.filePath)
+                          }
+                        }}
+                      >
+                        <span className="media-playlist-index" aria-hidden="true">
+                          {isActive && playing ? (
+                            <span className="media-eq-bars">
+                              <i />
+                              <i />
+                              <i />
+                            </span>
+                          ) : (
+                            idx + 1
+                          )}
+                        </span>
+                        <span className="media-playlist-item-main">
+                          <span className="media-playlist-item-name">{item.fileName}</span>
+                          <span className="media-playlist-item-meta">
+                            {item.mediaKind === 'audio' ? ps.audioLabel : ps.videoLabel} · .
+                            {item.ext.toUpperCase()} · {formatBytes(item.sizeBytes)}
+                          </span>
+                        </span>
+                      </button>
+                      {item.source === 'pinned' && (
+                        <button
+                          type="button"
+                          className="media-playlist-row-remove"
+                          title={ps.removePinnedTitle}
+                          aria-label={ps.removePinnedTitle}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void handleRemovePinnedFile(item.filePath)
+                          }}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </aside>
+        )}
+      </div>
+
+      {dropActive && (
+        <div className="media-drop-overlay" aria-hidden="true">
+          <div className="media-drop-card">{ps.dropOverlayText}</div>
+        </div>
       )}
     </div>
   )

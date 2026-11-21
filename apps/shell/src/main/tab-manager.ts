@@ -1,9 +1,16 @@
-import { basename, join } from 'node:path'
+import { basename, extname, join } from 'node:path'
 import { realpathSync } from 'node:fs'
 import { app, BrowserWindow, shell, WebContentsView } from 'electron'
 import type { Rectangle, WebContents } from 'electron'
 
-import { appForKind, appIsDirty, documentApps, type AppCloseGuard } from './app-registry'
+import {
+  appForKind,
+  appIsDirty,
+  documentApps,
+  isPlayableMediaExt,
+  mediaFilePathForWebContents,
+  type AppCloseGuard,
+} from './app-registry'
 import type { AiDrawerOverlay } from './ai-drawer-view'
 import { createAiSlotTracker, type SlotRectReport } from './ai-slot-tracker'
 import type { DockOverlay } from './dock-overlay-view'
@@ -958,6 +965,28 @@ export class TabManager {
    *  until the shell's activation sync anchors it beside the chrome) */
   openBrowserTab(): string {
     return this.openDocumentTab('browser')
+  }
+
+  /** Open or focus the persistent desktop media player tab (reusing any open audio/video or standalone player tab). */
+  openMediaPlayerTab(): string {
+    const existing = this.tabs.find(
+      (t) =>
+        t.kind === 'media' &&
+        (!t.filePath || isPlayableMediaExt(extname(t.filePath))),
+    )
+    if (existing) {
+      this.activateTab(existing.id)
+      return existing.id
+    }
+    const id = this.openDocumentTab('media')
+    const wc = this.webContentsForTab(id)
+    if (wc && !wc.isDestroyed()) {
+      const initialPath = mediaFilePathForWebContents(wc.id)
+      if (initialPath) {
+        this.setTabFileFor(wc.id, initialPath)
+      }
+    }
+    return id
   }
 
   /** Present → New tab: a chrome-free html tab showing the owner tab's live preview */
