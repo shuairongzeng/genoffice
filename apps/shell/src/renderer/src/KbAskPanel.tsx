@@ -936,7 +936,6 @@ const AskMessageRow = memo(function AskMessageRow({
   onRetry,
   onSaveAnswer,
   onCopyAnswer,
-  onUndoCheckpoint,
 }: {
   m: AskMessage
   index: number
@@ -958,7 +957,6 @@ const AskMessageRow = memo(function AskMessageRow({
   onRetry: (instruction: string) => void
   onSaveAnswer: (index: number, format: CreateDocumentFormat) => void
   onCopyAnswer: (text: string) => Promise<boolean>
-  onUndoCheckpoint: (index: number, checkpointId: string) => void
 }): React.JSX.Element {
   const { t } = useI18n()
   /** the copy verb's brief 已复制 feedback (the honest answer to a click) */
@@ -1168,34 +1166,6 @@ const AskMessageRow = memo(function AskMessageRow({
       {m.role === 'assistant' && m.error && (
         <div className="kb-ask-error-banner" role="alert">
           {m.error}
-        </div>
-      )}
-      {m.role === 'assistant' && m.docCheckpoints && m.docCheckpoints.length > 0 && (
-        <div className="kb-ask-checkpoints" role="list">
-          {m.docCheckpoints.map((cp) => (
-            <div key={cp.checkpointId} className="kb-ask-checkpoint-row" role="listitem">
-              <span className="kb-ask-checkpoint-info" title={cp.title}>
-                {t('askDocUndoSummary', { title: cp.title, n: String(cp.editCount) })}
-              </span>
-              {cp.reverted ? (
-                <span className="kb-ask-checkpoint-done">{t('askDocUndoDone')}</span>
-              ) : (
-                <button
-                  type="button"
-                  className="kb-ask-checkpoint-undo"
-                  disabled={cp.reverting || busy}
-                  onClick={() => onUndoCheckpoint(index, cp.checkpointId)}
-                >
-                  {cp.reverting ? t('askDocUndoPending') : t('askDocUndoBtn')}
-                </button>
-              )}
-              {cp.error && (
-                <span className="kb-ask-checkpoint-error" title={cp.error}>
-                  {t('askDocUndoFailed', { error: cp.error })}
-                </span>
-              )}
-            </div>
-          ))}
         </div>
       )}
       {m.role === 'assistant' && m.usage && (
@@ -1532,9 +1502,9 @@ export function KbAskPanel({
    * the pin the run carries). A routing error shows as the line, so the
    * person knows before allowing that there is nothing to delegate to.
    */
-  const describeAgentTarget = async (): Promise<string> => {
+  const describeAgentTarget = async (tabId?: string): Promise<string> => {
     try {
-      const described = await window.aiOffice.documentAgentDescribe()
+      const described = await window.aiOffice.documentAgentDescribe(tabId)
       if ('tabId' in described) {
         agentTargetRef.current = {
           tabId: described.tabId,
@@ -3605,10 +3575,12 @@ export function KbAskPanel({
     // agent and streams its live status back over document-agent:progress.
     // The run carries the card-time target pin (a tab switch re-asks)
     const documentAgentSkill = createDocumentAgentSkill({
-      runAgentTask: (task) => {
+      runAgentTask: (task, options) => {
         const expectedTabId = agentTargetRef.current?.tabId
         agentTargetRef.current = null
-        return window.aiOffice.documentAgentRun(task, expectedTabId)
+        return options?.tabId !== undefined
+          ? window.aiOffice.documentAgentRun(task, expectedTabId, options.tabId)
+          : window.aiOffice.documentAgentRun(task, expectedTabId)
       },
       // the run's abort signal (Stop mid-task) reaches the sub-agent through
       // the skill's executor calling this
@@ -3811,7 +3783,13 @@ export function KbAskPanel({
             if (!toolHasSideEffect(call, tool)) return true
             let argsSummary: string | undefined
             if (call.name === EDIT_FILE_TOOL) argsSummary = await editFileArgsSummary(call.input)
-            else if (call.name === DOCUMENT_AGENT_TOOL) argsSummary = await describeAgentTarget()
+            else if (call.name === DOCUMENT_AGENT_TOOL) {
+              const requestedTabId =
+                typeof call.input.tabId === 'string' && call.input.tabId.trim()
+                  ? call.input.tabId.trim()
+                  : undefined
+              argsSummary = await describeAgentTarget(requestedTabId)
+            }
             return confirm.confirm(argsSummary === undefined ? call : { ...call, argsSummary }, {
               sessionAllowable: false,
             })
@@ -3826,7 +3804,11 @@ export function KbAskPanel({
           if (call.name === EDIT_FILE_TOOL) {
             argsSummary = await editFileArgsSummary(call.input)
           } else if (call.name === DOCUMENT_AGENT_TOOL) {
-            argsSummary = await describeAgentTarget()
+            const requestedTabId =
+              typeof call.input.tabId === 'string' && call.input.tabId.trim()
+                ? call.input.tabId.trim()
+                : undefined
+            argsSummary = await describeAgentTarget(requestedTabId)
           }
           return confirm.confirm(argsSummary === undefined ? call : { ...call, argsSummary }, {
             sessionAllowable: tool?.risk !== 'always-ask',
@@ -4854,12 +4836,9 @@ export function KbAskPanel({
     [mutateMessages],
   )
 
-  const undoDocCheckpoint = useCallback(
-    async (_index: number, checkpointId: string): Promise<void> => {
-      await rollbackToCheckpoint(checkpointId)
-    },
-    [rollbackToCheckpoint],
-  )
+  const checkpointTimeline = collectDocCheckpoints(messages)
+  const activeCheckpointCount = checkpointTimeline.filter((e) => !e.checkpoint.reverted).length
+  const anyReverting = checkpointTimeline.some((e) => e.checkpoint.reverting)
 
   const hasFiles = (e: React.DragEvent): boolean => e.dataTransfer.types.includes('Files')
   // files dropped on the panel attach to the question; stopPropagation keeps
@@ -4930,9 +4909,6 @@ export function KbAskPanel({
               : undefined),
           t('askThreadNew'),
         )
-        const checkpointTimeline = collectDocCheckpoints(messages)
-        const activeCheckpointCount = checkpointTimeline.filter((e) => !e.checkpoint.reverted).length
-        const anyReverting = checkpointTimeline.some((e) => e.checkpoint.reverting)
         const canSwitchSide =
           surfaceRole === 'docked' &&
           activeTabKind !== 'browser' &&
@@ -5675,7 +5651,6 @@ export function KbAskPanel({
                 onRetry={retryAsk}
                 onSaveAnswer={saveAnswer}
                 onCopyAnswer={copyAnswer}
-                onUndoCheckpoint={undoDocCheckpoint}
               />
             ))}
           </div>
@@ -5696,14 +5671,40 @@ export function KbAskPanel({
           </button>
         )}
       </div>
-      {messages.length > 0 && (
-        <p
-          className="kb-ask-nosave"
-          data-kind={effectiveDocPath !== null ? 'doc' : 'panel'}
+      {checkpointTimeline.length > 0 && (
+        <div
+          className="kb-ask-checkpoints"
+          data-testid="kb-ask-composer-checkpoints"
+          role="list"
         >
-          <IconInfo />
-          {t(effectiveDocPath !== null ? 'askDocSaved' : 'askNoSave')}
-        </p>
+          {checkpointTimeline.map((entry) => {
+            const cp = entry.checkpoint
+            return (
+              <div key={cp.checkpointId} className="kb-ask-checkpoint-row" role="listitem">
+                <span className="kb-ask-checkpoint-info" title={cp.title}>
+                  {t('askDocUndoSummary', { title: cp.title, n: String(cp.editCount) })}
+                </span>
+                {cp.reverted ? (
+                  <span className="kb-ask-checkpoint-done">{t('askDocUndoDone')}</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="kb-ask-checkpoint-undo"
+                    disabled={cp.reverting || anyReverting || busy}
+                    onClick={() => void rollbackToCheckpoint(cp.checkpointId)}
+                  >
+                    {cp.reverting ? t('askDocUndoPending') : t('askDocUndoBtn')}
+                  </button>
+                )}
+                {cp.error && (
+                  <span className="kb-ask-checkpoint-error" title={cp.error}>
+                    {t('askDocUndoFailed', { error: cp.error })}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
       )}
       {gskEmail === null && provider === 'genspark' && (
         <p className="kb-ask-login">{t('askNeedsLogin')}</p>
@@ -6091,24 +6092,6 @@ function IconFolder(): React.JSX.Element {
       aria-hidden="true"
     >
       <path d="M3.5 6.8A1.8 1.8 0 0 1 5.3 5h3.4l2 2.4h6A1.8 1.8 0 0 1 18.5 9.2v8A1.8 1.8 0 0 1 16.7 19H5.3a1.8 1.8 0 0 1-1.8-1.8z" />
-    </svg>
-  )
-}
-
-function IconInfo(): React.JSX.Element {
-  return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 8.2v.01M12 11.5V16" />
     </svg>
   )
 }

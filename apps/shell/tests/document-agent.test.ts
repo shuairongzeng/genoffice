@@ -77,10 +77,12 @@ const TAB = (over: Partial<DocumentAgentTab> = {}): DocumentAgentTab => ({
 let panel: FakeWc
 let docsTab: FakeWc
 let tabs: DocumentAgentTab[]
+let activateTabSpy: ReturnType<typeof vi.fn<(tabId: string) => boolean>>
 
 installDocumentAgentBridge({
   listDocumentTabs: () => tabs,
   webContentsFor: (tabId) => (tabId === 't1' ? (docsTab as unknown as WebContents) : undefined),
+  activateTab: (tabId) => activateTabSpy(tabId),
   panelWebContents: () => [panel as unknown as WebContents],
 })
 
@@ -89,6 +91,12 @@ beforeEach(() => {
   panel = makeWc(900)
   docsTab = makeWc(901)
   tabs = [TAB()]
+  activateTabSpy = vi.fn((tabId: string) => {
+    const target = tabs.find((t) => t.id === tabId)
+    if (!target) return false
+    tabs = tabs.map((t) => ({ ...t, active: t.id === tabId }))
+    return true
+  })
   announceReady(docsTab)
 })
 
@@ -161,6 +169,61 @@ describe('document-agent:run — the routing', () => {
         title: `sample.${kind}`,
       })
     }
+  })
+
+  it('auto-switches when tabId targets a background document tab and rejects invalid targets', async () => {
+    tabs = [
+      TAB({ id: 'home', kind: 'home', title: 'Home', active: true }),
+      TAB({ id: 't1', kind: 'markdown', title: 'Notes.md', active: false }),
+      TAB({ id: 'b1', kind: 'browser', title: 'Example', active: false }),
+    ]
+
+    const pending = handlers.get(DOCUMENT_AGENT_CHANNELS.run)!(eventOf(panel), {
+      task: 'append a paragraph',
+      tabId: 't1',
+    })
+    await flush()
+    expect(activateTabSpy).toHaveBeenCalledWith('t1')
+    expect(tabs.find((t) => t.id === 't1')?.active).toBe(true)
+    const taskId = taskIdOf(docsTab)
+    fireTask(HEADLESS_AGENT_CHANNELS.result, docsTab, { taskId, ok: true, summary: 'appended' })
+    await expect(pending).resolves.toMatchObject({
+      ok: true,
+      summary: 'appended',
+      tabId: 't1',
+      kind: 'markdown',
+    })
+
+    // Non-existent or non-document explicit tabId fails with clear guidance.
+    await expect(
+      handlers.get(DOCUMENT_AGENT_CHANNELS.run)!(eventOf(panel), {
+        task: 'x',
+        tabId: 'missing',
+      }),
+    ).rejects.toThrow(/no open tab has the id "missing"/)
+    await expect(
+      handlers.get(DOCUMENT_AGENT_CHANNELS.run)!(eventOf(panel), {
+        task: 'x',
+        tabId: 'b1',
+      }),
+    ).rejects.toThrow(/not a document/)
+
+    // Refuses if activateTab returns false.
+    tabs = [
+      TAB({ id: 'home', kind: 'home', title: 'Home', active: true }),
+      TAB({ id: 't1', kind: 'markdown', title: 'Notes.md', active: false }),
+    ]
+    activateTabSpy.mockReturnValueOnce(false)
+    await expect(
+      handlers.get(DOCUMENT_AGENT_CHANNELS.run)!(eventOf(panel), {
+        task: 'x',
+        tabId: 't1',
+      }),
+    ).rejects.toThrow(/could not switch to document tab "t1"/)
+
+    // Pure seam supports optional tabId too.
+    expect(documentAgentTargetError(tabs, 't1')).toBeUndefined()
+    expect(documentAgentTargetError(tabs, 'missing')).toMatch(/no open tab has the id "missing"/)
   })
 
   it('refuses a sender that is not a panel copy', async () => {
@@ -341,6 +404,18 @@ describe('the card-time describe and the target pin', () => {
       error: string
     }
     expect(answer.error).toMatch(/active tab is the Home desktop/)
+  })
+
+  it('describe targets the explicit document tabId even while Home is active', async () => {
+    tabs = [
+      TAB({ kind: 'home', id: 'home', active: true }),
+      TAB({ kind: 'markdown', id: 't1', title: 'Poems.md', active: false }),
+    ]
+    const answer = (await handlers.get(DOCUMENT_AGENT_CHANNELS.describe)!(eventOf(panel), {
+      tabId: 't1',
+    })) as { tabId: string; kind: string; title: string }
+    expect(answer).toEqual({ tabId: 't1', kind: 'markdown', title: 'Poems.md' })
+    expect(activateTabSpy).not.toHaveBeenCalled()
   })
 
   it('a run pinned to a different tab refuses instead of retargeting (MED-5)', async () => {

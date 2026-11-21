@@ -50,9 +50,9 @@ export interface WorkbenchToolsService {
     tool: string,
     input: Record<string, unknown>,
   ): ReturnType<typeof executeAppSkillFromMain>
-  describeDocumentAgent(): Promise<DocumentAgentTarget | { error: string }>
+  describeDocumentAgent(tabId?: string): Promise<DocumentAgentTarget | { error: string }>
   runDocumentAgent(
-    req: { task: string; expectedTabId?: string },
+    req: { task: string; tabId?: string; expectedTabId?: string },
     onProgress?: (event: { taskId: string; kind: string; status: AgentTaskStatus }) => void,
     callerKey?: string,
   ): Promise<AgentTaskResult>
@@ -102,7 +102,7 @@ export function createWorkbenchToolsService(
     runCli: (sessionId, raw) => requireKb().runCli({ sessionId, ...raw }),
     getAppSkillManifest: () => getAppSkillManifestFromMain(),
     executeAppSkill: (tool, input) => executeAppSkillFromMain(tool, input),
-    describeDocumentAgent: () => describeDocumentAgentFromMain(),
+    describeDocumentAgent: (tabId) => describeDocumentAgentFromMain(tabId),
     runDocumentAgent: (req, onProgress, callerKey) =>
       runDocumentAgentFromMain(req, onProgress, callerKey),
     cancelDocumentAgent: (callerKey) => cancelDocumentAgentFromMain(callerKey),

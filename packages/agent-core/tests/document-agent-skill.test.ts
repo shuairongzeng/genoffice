@@ -3,6 +3,7 @@ import type { AgentSkill } from '../src/skill'
 import type { AgentToolCall } from '../src/types'
 import {
   DOCUMENT_AGENT_TOOL,
+  MAX_AGENT_TAB_ID_CHARS,
   MAX_AGENT_TASK_CHARS,
   createDocumentAgentSkill,
   type AgentTaskResult,
@@ -23,7 +24,7 @@ interface Harness {
 }
 
 function skillWith(
-  runImpl: (task: string) => Promise<AgentTaskResult> = async () => ({
+  runImpl: (task: string, options?: { tabId?: string }) => Promise<AgentTaskResult> = async () => ({
     ok: true,
     summary: 'inserted two paragraphs and fixed the heading',
     edits: [
@@ -142,6 +143,24 @@ describe('the document-agent skill surface', () => {
       expect(execution.output, JSON.stringify(input)).toMatch(/`task` must be/)
     }
     expect(deps.runAgentTask).not.toHaveBeenCalled()
+  })
+
+  it('forwards valid optional tabId and omits options when tabId is absent', async () => {
+    const { skill, deps } = skillWith()
+    await skill.executeTool(call(DOCUMENT_AGENT_TOOL, { task: 'edit active doc' }))
+    expect(deps.runAgentTask).toHaveBeenLastCalledWith('edit active doc')
+
+    await skill.executeTool(call(DOCUMENT_AGENT_TOOL, { task: 'edit bg doc', tabId: ' t2 ' }))
+    expect(deps.runAgentTask).toHaveBeenLastCalledWith('edit bg doc', { tabId: 't2' })
+
+    for (const badTabId of ['', '   ', 42, 'x'.repeat(MAX_AGENT_TAB_ID_CHARS + 1)]) {
+      const execution = await skill.executeTool(
+        call(DOCUMENT_AGENT_TOOL, { task: 'edit', tabId: badTabId }),
+      )
+      expect(execution.isError, String(badTabId)).toBe(true)
+      expect(execution.output, String(badTabId)).toMatch(/`tabId` must be/)
+    }
+    expect(deps.runAgentTask).toHaveBeenCalledTimes(2)
   })
 
   it("the run's abort signal cancels the sub-agent, not just the wait", async () => {

@@ -453,14 +453,17 @@ const homeApi: HomeApi = {
   // the dock's document-agent delegation: the main side routes the task to
   // the active document tab's headless agent and streams its live progress
   // back over `document-agent:progress`
-  async documentAgentDescribe() {
-    return (await ipcRenderer.invoke('document-agent:describe')) as
-      DocumentAgentTarget | { error: string }
+  async documentAgentDescribe(tabId) {
+    return (await ipcRenderer.invoke(
+      'document-agent:describe',
+      ...(tabId !== undefined ? [{ tabId }] : []),
+    )) as DocumentAgentTarget | { error: string }
   },
-  async documentAgentRun(task, expectedTabId) {
+  async documentAgentRun(task, expectedTabId, tabId) {
     return (await ipcRenderer.invoke('document-agent:run', {
       task,
       ...(expectedTabId !== undefined ? { expectedTabId } : {}),
+      ...(tabId !== undefined ? { tabId } : {}),
     })) as AgentTaskResult
   },
   async documentAgentCancel() {

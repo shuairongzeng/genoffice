@@ -145,9 +145,10 @@ async function prepareDocumentAgentPin(
   workbench: WorkbenchToolsService,
   coord: WorkbenchExtensionCoord,
   toolCallId: string,
+  requestedTabId?: string,
 ): Promise<string> {
   try {
-    const described = await workbench.describeDocumentAgent()
+    const described = await workbench.describeDocumentAgent(requestedTabId)
     if ('tabId' in described) {
       coord.pinnedDocumentTabByCallId.set(toolCallId, described.tabId)
       return `works in "${described.title}"`
@@ -209,7 +210,16 @@ export function createGenofficePermissionExtension(
       if (toolName === EDIT_FILE_TOOL) {
         argsSummary = await computeEditFileSummary(deps.workbench, rawInput)
       } else if (toolName === DOCUMENT_AGENT_TOOL) {
-        argsSummary = await prepareDocumentAgentPin(deps.workbench, deps.coord, event.toolCallId)
+        const requestedTabId =
+          typeof rawInput.tabId === 'string' && rawInput.tabId.trim()
+            ? rawInput.tabId.trim()
+            : undefined
+        argsSummary = await prepareDocumentAgentPin(
+          deps.workbench,
+          deps.coord,
+          event.toolCallId,
+          requestedTabId,
+        )
       }
 
       const call: AgentToolCall = {

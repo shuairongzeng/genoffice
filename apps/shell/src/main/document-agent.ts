@@ -4,6 +4,7 @@ import type { WebContents } from 'electron'
 import {
   AGENT_DOCUMENT_KINDS,
   HEADLESS_AGENT_CHANNELS,
+  MAX_AGENT_TAB_ID_CHARS,
   MAX_AGENT_TASK_CHARS,
   type AgentTaskResult,
   type AgentTaskStatus,
@@ -80,6 +81,8 @@ export interface DocumentAgentBridgeDeps {
   listDocumentTabs(): readonly DocumentAgentTab[] | Promise<readonly DocumentAgentTab[]>
   /** the live webContents behind one tab id (undefined: closed or asleep) */
   webContentsFor(tabId: string): WebContents | undefined
+  /** activate a background or dormant document tab before delegating when requested by tabId */
+  activateTab?(tabId: string): boolean | Promise<boolean>
   /**
    * The webContents the run channel serves — both panel copies that host the
    * dock's AgentLoop (the shell window's renderer and the drawer overlay's
@@ -137,10 +140,45 @@ const KIND_LABEL: Record<string, string> = {
   home: 'the Home desktop',
 }
 
-/** resolve the tab a delegated task targets: strictly the ACTIVE supported document tab */
+function normalizeOptionalTabId(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  const trimmed = raw.trim()
+  if (!trimmed || trimmed.length > MAX_AGENT_TAB_ID_CHARS) return undefined
+  return trimmed
+}
+
+function parseOptionalTabId(raw: unknown): string | undefined {
+  if (raw === undefined) return undefined
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new Error('`tabId` must be a non-empty string when present (from shell:list_tabs)')
+  }
+  const trimmed = raw.trim()
+  if (trimmed.length > MAX_AGENT_TAB_ID_CHARS) {
+    throw new Error(`\`tabId\` must be at most ${MAX_AGENT_TAB_ID_CHARS} characters`)
+  }
+  return trimmed
+}
+
+/** resolve the tab a delegated task targets: explicit tabId when given, else the ACTIVE document tab */
 function resolveTarget(
   tabs: readonly DocumentAgentTab[],
+  requestedTabId?: string,
 ): { tab: DocumentAgentTab } | { error: string } {
+  if (requestedTabId !== undefined) {
+    const explicit = tabs.find((t) => t.id === requestedTabId)
+    if (!explicit) {
+      return {
+        error: `no open tab has the id "${requestedTabId}" — call shell:list_tabs and use an id from its list`,
+      }
+    }
+    if (!AGENT_DOCUMENT_KINDS.has(explicit.kind)) {
+      const label = KIND_LABEL[explicit.kind] ?? explicit.kind
+      return {
+        error: `tab "${requestedTabId}" is ${label}, not a document — pass an open document tab id from shell:list_tabs`,
+      }
+    }
+    return { tab: explicit }
+  }
   const active = tabs.find((t) => t.active)
   if (active && AGENT_DOCUMENT_KINDS.has(active.kind)) {
     return { tab: active }
@@ -273,15 +311,16 @@ async function runDocumentAgentCore(
   raw: unknown,
   onProgress?: (event: { taskId: string; kind: string; status: AgentTaskStatus }) => void,
 ): Promise<AgentTaskResult> {
-  const task = (raw ?? {}) as { task?: unknown; expectedTabId?: unknown }
+  const task = (raw ?? {}) as { task?: unknown; tabId?: unknown; expectedTabId?: unknown }
   if (typeof task.task !== 'string' || !task.task.trim()) {
     throw new Error('`task` must be a non-empty string')
   }
   if (task.task.length > MAX_AGENT_TASK_CHARS) {
     throw new Error(`\`task\` must be at most ${MAX_AGENT_TASK_CHARS} characters`)
   }
+  const requestedTabId = parseOptionalTabId(task.tabId)
 
-  const target = resolveTarget(await deps.listDocumentTabs())
+  const target = resolveTarget(await deps.listDocumentTabs(), requestedTabId)
   if ('error' in target) throw new Error(target.error)
 
   // target pinning: the card showed THIS document's title; a tab switch
@@ -291,6 +330,17 @@ async function runDocumentAgentCore(
       `the active document changed since the confirmation (it showed "${target.tab.title}") — ` +
         'switch back to it, or send the task again',
     )
+  }
+
+  // Activate a background or dormant target tab before resolving webContents so
+  // the view is woken up and visible to the user during delegation.
+  if (!target.tab.active && deps.activateTab) {
+    const switched = await Promise.resolve(deps.activateTab(target.tab.id))
+    if (!switched) {
+      throw new Error(
+        `could not switch to document tab "${target.tab.id}" — call shell:list_tabs and try again`,
+      )
+    }
   }
 
   const wc = deps.webContentsFor(target.tab.id)
@@ -402,17 +452,18 @@ async function undoDocumentAgentCore(
   })
 }
 
-export async function describeDocumentAgentFromMain(): Promise<
-  DocumentAgentTarget | { error: string }
-> {
+export async function describeDocumentAgentFromMain(
+  tabId?: string,
+): Promise<DocumentAgentTarget | { error: string }> {
   if (!installedDeps) return { error: 'document-agent bridge is not initialized' }
-  const target = resolveTarget(await installedDeps.listDocumentTabs())
+  const requestedTabId = normalizeOptionalTabId(tabId)
+  const target = resolveTarget(await installedDeps.listDocumentTabs(), requestedTabId)
   if ('error' in target) return { error: target.error }
   return { tabId: target.tab.id, kind: target.tab.kind, title: target.tab.title }
 }
 
 export async function runDocumentAgentFromMain(
-  req: { task: string; expectedTabId?: string },
+  req: { task: string; tabId?: string; expectedTabId?: string },
   onProgress?: (event: { taskId: string; kind: string; status: AgentTaskStatus }) => void,
   callerKey = 'main',
 ): Promise<AgentTaskResult> {
@@ -528,10 +579,12 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
   // Read-only — nothing runs, nothing is pinned beyond the answer itself
   ipcMain.handle(
     DOCUMENT_AGENT_CHANNELS.describe,
-    async (event): Promise<DocumentAgentTarget | { error: string }> => {
+    async (event, raw?: unknown): Promise<DocumentAgentTarget | { error: string }> => {
       if (!isPanel(event.sender))
         throw new Error('document-agent:describe is not callable from this sender')
-      const target = resolveTarget(await deps.listDocumentTabs())
+      const req = (raw ?? {}) as { tabId?: unknown }
+      const requestedTabId = normalizeOptionalTabId(req.tabId)
+      const target = resolveTarget(await deps.listDocumentTabs(), requestedTabId)
       if ('error' in target) return { error: target.error }
       return { tabId: target.tab.id, kind: target.tab.kind, title: target.tab.title }
     },
@@ -565,8 +618,11 @@ export function installDocumentAgentBridge(deps: DocumentAgentBridgeDeps): void 
 }
 
 /** test seam: the routing decision, pure over the tab list */
-export function documentAgentTargetError(tabs: readonly DocumentAgentTab[]): string | undefined {
-  const target = resolveTarget(tabs)
+export function documentAgentTargetError(
+  tabs: readonly DocumentAgentTab[],
+  requestedTabId?: string,
+): string | undefined {
+  const target = resolveTarget(tabs, requestedTabId)
   return 'error' in target ? target.error : undefined
 }
 

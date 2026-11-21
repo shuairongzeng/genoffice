@@ -6963,6 +6963,14 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       .filter((doc) => typeof doc.filePath === 'string' && doc.filePath !== '')
       .map((doc) => ({ path: doc.filePath as string, kind: doc.kind }))
   }
+  // Activate one tab across the strip or detached editor windows, revealing the
+  // shell window when a strip tab comes forward so the user sees every switch.
+  const activateSurfaceTab = (id: string): boolean => {
+    if (isDetachedTabId(id)) return activateDetached(id)
+    const ok = tabManager?.activateTab(id) === true
+    if (ok) revealShellWindow()
+    return ok
+  }
   registerBrowserSkillIpc({
     listBrowserTabs: async () => [
       ...(await detachedOpenDocuments()).filter((doc) => doc.kind === 'browser'),
@@ -6989,12 +6997,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     // a strip tab must come FORWARD when the model switches to it — the same
     // reveal the home tabs-activate path does: an activation nobody can see
     // would put the surface somewhere the person is not looking
-    activateTab: (id) => {
-      if (isDetachedTabId(id)) return activateDetached(id)
-      const ok = !!tabManager?.activateTab(id)
-      if (ok) revealShellWindow()
-      return ok
-    },
+    activateTab: activateSurfaceTab,
     listSurfaceTabs: () => collectSurfaceTabs(surfaceTabsSource()),
     // the open_path scope verdict: kb:read's corpus (starred / index / the
     // folders scope's roots) plus the round-scope location whitelist (folder
@@ -7183,7 +7186,9 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     },
     starFile: (path) => {
       if (!statMaybeFile(path)?.isFile()) return false
-      toggleStarredFile(path)
+      if (!readStarredFiles().includes(path)) {
+        toggleStarredFile(path)
+      }
       return true
     },
     unstarFile: (path) => {
@@ -7218,6 +7223,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       })),
     webContentsFor: (tabId) =>
       tabManager?.webContentsForTab(tabId) ?? detachedWebContentsFor(tabId),
+    activateTab: activateSurfaceTab,
     panelWebContents: askPanelWebContents,
   })
   const workbenchTools = createWorkbenchToolsService({

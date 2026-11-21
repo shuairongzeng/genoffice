@@ -203,7 +203,20 @@ describe('genoffice-permission-extension', () => {
       ),
     ).resolves.toBeUndefined()
 
+    expect(workbench.describeDocumentAgent).toHaveBeenCalledWith(undefined)
     expect(capturedReq.argsSummary).toBe('works in "Report.docx"')
     expect(coord.pinnedDocumentTabByCallId.get('c-doc-1')).toBe('tab-doc-9')
+
+    await expect(
+      onToolCall(
+        {
+          toolCallId: 'c-doc-2',
+          toolName: 'document_agent',
+          input: { task: 'Update notes', tabId: ' t-bg ' },
+        },
+        fakeCtx,
+      ),
+    ).resolves.toBeUndefined()
+    expect(workbench.describeDocumentAgent).toHaveBeenLastCalledWith('t-bg')
   })
 })

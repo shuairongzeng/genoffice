@@ -5310,17 +5310,6 @@ html[dir='rtl'] .quick-title-row {
   background: var(--bg-hover);
   color: var(--text);
 }
-.kb-ask-nosave {
-  margin: 0 2px 8px;
-  font-size: 12px;
-  color: var(--text-tertiary);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.kb-ask-nosave svg {
-  flex-shrink: 0;
-}
 
 .kb-ask-msg {
   font-size: 13px;
@@ -5383,12 +5372,15 @@ html[dir='rtl'] .quick-title-row {
   margin-left: 1px;
   letter-spacing: 1px;
 }
-/* Git-style document checkpoints: compact revert bar below mutated assistant turns */
+/* Git-style document checkpoints: compact revert list directly above the composer */
 .kb-ask-checkpoints {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  margin-top: 8px;
+  margin: 0 2px 8px;
+  max-height: 116px;
+  overflow-y: auto;
+  flex-shrink: 0;
 }
 .kb-ask-checkpoint-row {
   display: flex;

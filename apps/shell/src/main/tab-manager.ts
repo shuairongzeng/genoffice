@@ -980,9 +980,9 @@ export class TabManager {
     return id
   }
 
-  activateTab(id: string): void {
+  activateTab(id: string): boolean {
     const target = this.tabs.find((t) => t.id === id)
-    if (!target) return
+    if (!target) return false
     if (target.dormant) this.reviveTab(target)
     const now = Date.now()
     const previous = this.tabs.find((t) => t.id === this.activeId)
@@ -1028,6 +1028,7 @@ export class TabManager {
     // hot edge until something resizes
     this.syncDockOverlay()
     this.onChanged()
+    return true
   }
 
   /** Hand keyboard focus to the active tab's view. The click that opened or

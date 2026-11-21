@@ -125,6 +125,7 @@ export {
   AGENT_DOCUMENT_KINDS,
   DOCUMENT_AGENT_TOOL,
   HEADLESS_AGENT_CHANNELS,
+  MAX_AGENT_TAB_ID_CHARS,
   MAX_AGENT_TASK_CHARS,
   createDocumentAgentSkill,
   type AgentTaskResult,

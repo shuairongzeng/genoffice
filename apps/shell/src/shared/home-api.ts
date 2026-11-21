@@ -1344,15 +1344,15 @@ export interface HomeApi {
   // ---- the dock's document-agent delegation: hand a task to the active
   // document tab's headless agent (main/document-agent.ts routes it) ----
   /** read-only: which document a delegation would target right now (the card shows its title) */
-  documentAgentDescribe(): Promise<DocumentAgentTarget | { error: string }>
+  documentAgentDescribe(tabId?: string): Promise<DocumentAgentTarget | { error: string }>
   /**
-   * Run one delegated task on the active document tab — pinned to
-   * `expectedTabId` (the card-time describe) so a tab switch re-asks instead
-   * of retargeting; rejects with the routing/lifetime errors (no document,
-   * wrong kind, busy, timeout, closed, aborted) whose message is the
-   * model-facing tool result
+   * Run one delegated task on the target document tab (active by default, or
+   * `tabId` which activates it first) — pinned to `expectedTabId` (the
+   * card-time describe) so a tab switch re-asks instead of retargeting;
+   * rejects with the routing/lifetime errors (no document, wrong kind, busy,
+   * timeout, closed, aborted) whose message is the model-facing tool result
    */
-  documentAgentRun(task: string, expectedTabId?: string): Promise<AgentTaskResult>
+  documentAgentRun(task: string, expectedTabId?: string, tabId?: string): Promise<AgentTaskResult>
   /** abort this panel's in-flight delegated task (the run's Stop mid-task) */
   documentAgentCancel(): Promise<boolean>
   /** revert the mutations applied by a delegated task using its checkpointId */

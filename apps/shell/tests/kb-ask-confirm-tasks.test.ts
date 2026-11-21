@@ -783,7 +783,7 @@ describe("the three-state card and the conversation's session allows", () => {
     expect(documentAgentRun).not.toHaveBeenCalled()
   })
 
-  it('renders a Git-style undo button when checkpointId returns and reverts on click', async () => {
+  it('renders Git-style undo checkpoints directly above the composer instead of inside message bubbles', async () => {
     documentAgentDescribe.mockResolvedValueOnce({
       tabId: 't-sheet',
       kind: 'sheets',
@@ -804,13 +804,28 @@ describe("the three-state card and the conversation's session allows", () => {
     await ask('update sheet')
     click('.ai-confirm-allow')
     await settle()
-    const undoBtn = host.querySelector('.kb-ask-checkpoint-undo') as HTMLButtonElement | null
+
+    // Placed above the composer input box rather than inside assistant bubbles.
+    expect(host.querySelector('.kb-ask-msg .kb-ask-checkpoints')).toBeNull()
+    const composerCheckpoints = host.querySelector('[data-testid="kb-ask-composer-checkpoints"]')
+    const inputBox = host.querySelector('.ai-input-box')
+    expect(composerCheckpoints).not.toBeNull()
+    expect(inputBox).not.toBeNull()
+    expect(composerCheckpoints!.compareDocumentPosition(inputBox!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+
+    const undoBtn = composerCheckpoints!.querySelector(
+      '.kb-ask-checkpoint-undo',
+    ) as HTMLButtonElement | null
     expect(undoBtn).not.toBeNull()
-    expect(host.querySelector('.kb-ask-checkpoint-info')?.textContent).toContain('budget.xlsx')
+    expect(composerCheckpoints!.querySelector('.kb-ask-checkpoint-info')?.textContent).toContain(
+      'budget.xlsx',
+    )
     undoBtn!.click()
     await settle()
     expect(documentAgentUndo).toHaveBeenCalledWith('t-sheet', 'cp-sheet-1')
-    expect(host.querySelector('.kb-ask-checkpoint-done')?.textContent).toBe('Undone')
+    expect(composerCheckpoints!.querySelector('.kb-ask-checkpoint-done')?.textContent).toBe('Undone')
   })
 
   it('clears stale card-time tab pin when subsequent document_agent skips card (session-allow or auto)', async () => {

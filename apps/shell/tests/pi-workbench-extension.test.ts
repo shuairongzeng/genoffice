@@ -206,7 +206,7 @@ describe('genoffice-workbench-extension', () => {
     expect(workbench.deleteFile).toHaveBeenCalledWith({ path: 'D:/kb/notes.md', confirmed: true })
     expect(coord.approvedDeleteCallIds.has('call-auth')).toBe(false)
 
-    // 3. document_agent consumes pinned tabId and propagates checkpoint details.
+    // 3. document_agent consumes pinned tabId and forwards optional explicit tabId + checkpoint details.
     coord.pinnedDocumentTabByCallId.set('call-doc', 't-1')
     const docTool = tools.get('document_agent')
     const docRes = await docTool.execute('call-doc', { task: 'Rewrite intro' }, undefined, undefined, ctx)
@@ -217,6 +217,20 @@ describe('genoffice-workbench-extension', () => {
     )
     expect(docRes.details?.checkpoint?.checkpointId).toBe('cp-42')
     expect(checkpoints).toHaveLength(1)
+
+    coord.pinnedDocumentTabByCallId.set('call-doc-bg', 't-1')
+    await docTool.execute(
+      'call-doc-bg',
+      { task: 'Append outro', tabId: 't-1' },
+      undefined,
+      undefined,
+      ctx,
+    )
+    expect(workbench.runDocumentAgent).toHaveBeenLastCalledWith(
+      { task: 'Append outro', tabId: 't-1', expectedTabId: 't-1' },
+      undefined,
+      'pi:sess-2',
+    )
 
     // 4. browser:screenshot_page returns Pi ImageContent.
     const shotTool = tools.get(BROWSER_SCREENSHOT_TOOL)

@@ -297,6 +297,15 @@ function sliceTextReadResult(raw: unknown, offset: number, maxChars: number): un
   )
 }
 
+/** Accept `document` plus common aliases (`tabId`, `path`) so multi-tab reads never silently hit the wrong tab. */
+function pickTargetArg(input: Record<string, unknown>): string | undefined {
+  for (const key of ['document', 'tabId', 'path'] as const) {
+    const value = input[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return undefined
+}
+
 /** one prefixed read call, routed to its window; the read-only surface behind `appskill:execute` */
 export async function executeAppSkillRead(
   deps: AppSkillProxyDeps,
@@ -323,7 +332,7 @@ export async function executeAppSkillRead(
   const textSliceOpts =
     kind === 'markdown' || kind === 'html' ? readTextSliceOptions(input) : null
   const validatedPayload = readPayload(spec, input)
-  const document = typeof input.document === 'string' && input.document ? input.document : undefined
+  const document = pickTargetArg(input)
   const rawKindWindows = (await deps.listWindows()).filter((w) => w.kind === kind)
   const allKindWindows = rawKindWindows.map(windowOf)
   const preferredWindows = rawKindWindows.filter((w) => !w.present).map(windowOf)

@@ -128,7 +128,8 @@ export const TOOL_SPECS: Partial<Record<DocumentTabKind, readonly AppSkillToolSp
       name: 'markdown:read_text',
       description:
         'Read the markdown/plain-text content of a document the user has open in the GenOffice markdown/text editor. ' +
-        'Large documents slice at 24,000 characters by default; pass `offset` (0-based) and optional `maxChars` to paginate. ' +
+        'Omit `offset` and `maxChars` on the first call to read up to 24,000 characters in a single call; ' +
+        'only pass `offset` to paginate when the response explicitly says it was truncated. ' +
         'Read-only: to modify this open document, switch to its tab if needed (shell:switch_tab) and call document_agent.',
       inputSchema: {
         type: 'object',
@@ -136,11 +137,13 @@ export const TOOL_SPECS: Partial<Record<DocumentTabKind, readonly AppSkillToolSp
           ...PROXIED_APP_DOCUMENT_FIELD,
           offset: {
             type: 'integer',
-            description: '0-based starting character offset for large files (defaults to 0)',
+            description:
+              '0-based starting character offset; omit on the first call and only pass when continuing a truncated response',
           },
           maxChars: {
             type: 'integer',
-            description: 'maximum characters to return in one chunk (default 24,000, max 48,000)',
+            description:
+              'maximum characters per chunk (default 24,000, max 48,000); omit unless intentionally narrowing a huge read',
           },
         },
       },
@@ -153,7 +156,8 @@ export const TOOL_SPECS: Partial<Record<DocumentTabKind, readonly AppSkillToolSp
       name: 'html:read_text',
       description:
         'Read the HTML source text of a document the user has open in the GenOffice html editor. ' +
-        'Large documents slice at 24,000 characters by default; pass `offset` (0-based) and optional `maxChars` to paginate. ' +
+        'Omit `offset` and `maxChars` on the first call to read up to 24,000 characters in a single call; ' +
+        'only pass `offset` to paginate when the response explicitly says it was truncated. ' +
         'Read-only: to modify this open document, switch to its tab if needed (shell:switch_tab) and call document_agent.',
       inputSchema: {
         type: 'object',
@@ -161,11 +165,13 @@ export const TOOL_SPECS: Partial<Record<DocumentTabKind, readonly AppSkillToolSp
           ...PROXIED_APP_DOCUMENT_FIELD,
           offset: {
             type: 'integer',
-            description: '0-based starting character offset for large files (defaults to 0)',
+            description:
+              '0-based starting character offset; omit on the first call and only pass when continuing a truncated response',
           },
           maxChars: {
             type: 'integer',
-            description: 'maximum characters to return in one chunk (default 24,000, max 48,000)',
+            description:
+              'maximum characters per chunk (default 24,000, max 48,000); omit unless intentionally narrowing a huge read',
           },
         },
       },

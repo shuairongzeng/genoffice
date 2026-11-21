@@ -337,14 +337,18 @@ function buildExecutableWorkbenchSkill(
   })
 
   const documentAgentSkill = createDocumentAgentSkill({
-    runAgentTask: (task) => {
+    runAgentTask: (task, options) => {
       const state = getState()
       const callId = activeCallAls.getStore()?.toolCallId
       const expectedTabId = callId ? coord.pinnedDocumentTabByCallId.get(callId) : undefined
       if (callId) coord.pinnedDocumentTabByCallId.delete(callId)
       const callerKey = state ? `pi:${state.sessionKey}` : 'main'
       return workbench.runDocumentAgent(
-        { task, ...(expectedTabId ? { expectedTabId } : {}) },
+        {
+          task,
+          ...(options?.tabId ? { tabId: options.tabId } : {}),
+          ...(expectedTabId ? { expectedTabId } : {}),
+        },
         state?.onDocumentAgentProgress,
         callerKey,
       )

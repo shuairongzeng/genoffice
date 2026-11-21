@@ -42,6 +42,8 @@ export const HEADLESS_AGENT_CHANNELS = {
 
 /** longest task text the tool accepts (the whole text rides the card and the channel) */
 export const MAX_AGENT_TASK_CHARS = 4_000
+/** longest tab id accepted when targeting a specific open document tab */
+export const MAX_AGENT_TAB_ID_CHARS = 64
 
 /**
  * One live status of the sub-agent's work, as the panel renders it. The kind
@@ -82,12 +84,13 @@ export interface AgentTaskResult {
 
 export interface DocumentAgentDeps {
   /**
-   * Run one delegated task on the active document tab. Rejects with the
-   * routing and lifetime errors (no document open, non-document tab active,
-   * busy, timeout, tab closed mid-task, aborted) — the message is the
-   * model-facing tool result.
+   * Run one delegated task on the target document tab (active tab by default,
+   * or the tab named by `options.tabId`, switching to it first). Rejects with
+   * the routing and lifetime errors (no document open, non-document tab active,
+   * unknown tab id, busy, timeout, tab closed mid-task, aborted) — the message
+   * is the model-facing tool result.
    */
-  runAgentTask(task: string): Promise<AgentTaskResult>
+  runAgentTask(task: string, options?: { tabId?: string }): Promise<AgentTaskResult>
   /**
    * Ask the main side to abort the in-flight delegated task: wired to the
    * bridge's cancel channel and called when the run's abort signal fires, so
@@ -110,9 +113,11 @@ ONLY and DEFAULT way to edit or operate on any open document — NEVER tell the
 user to switch to the app's own AI panel, and NEVER rewrite the file on disk
 with create_document, edit_file or delete_file (that would fork disk state
 from the live editor):
-- Target: acts on the currently ACTIVE document tab. If the target document is
-  open in another tab, switch to it first with \`shell:switch_tab\` before
-  calling \`document_agent\`.
+- Target: acts on the currently ACTIVE document tab by default, or on the open
+  document tab identified by \`tabId\` (from the surface context or \`shell:list_tabs\`).
+  When \`tabId\` is provided and that tab is in the background, the desktop
+  switches to it automatically before running the task (you can also switch
+  first with \`shell:switch_tab\`).
 - Write the task as a complete, self-contained instruction: the assistant sees
   only the task text and the live document — none of this conversation. Include
   exact values, formulas, cell addresses, page numbers or section headings you
@@ -134,13 +139,14 @@ export function createDocumentAgentSkill(deps: DocumentAgentDeps): AgentSkill {
   const tool: AgentToolDef = {
     name: DOCUMENT_AGENT_TOOL,
     description:
-      'Delegate a task to the document assistant working inside the active open ' +
+      'Delegate a task to the document assistant working inside an open ' +
       'document tab (Word docs, spreadsheets, presentations, PDFs, Markdown/plain text, ' +
       'or HTML) — the FIRST choice for any edit, rewrite, formatting, formula, chart, ' +
       'slide change, PDF annotation/page operation, or text update on an open document. ' +
       'All edits create an undoable checkpoint automatically. The task must be ' +
       'self-contained (the assistant sees only the task and the live document). ' +
-      'If the target document is not active yet, call shell:switch_tab first. ' +
+      'Pass `tabId` (from surface context or shell:list_tabs) if targeting a background ' +
+      'document tab so it switches into view automatically, or call shell:switch_tab first. ' +
       'NEVER rewrite or replace a file an app has open behind the editor.',
     // one delegated task = one card: the sub-agent's own writes run under this mandate
     risk: 'high',
@@ -150,6 +156,11 @@ export function createDocumentAgentSkill(deps: DocumentAgentDeps): AgentSkill {
         task: {
           type: 'string',
           description: 'the complete, self-contained instruction for the document assistant',
+        },
+        tabId: {
+          type: 'string',
+          description:
+            'optional tab id (from surface context or shell:list_tabs) to target a specific open document tab; switches to it automatically if not active',
         },
       },
       required: ['task'],
@@ -170,11 +181,23 @@ export function createDocumentAgentSkill(deps: DocumentAgentDeps): AgentSkill {
       if (task.length > MAX_AGENT_TASK_CHARS) {
         return badInput(`\`task\` must be at most ${MAX_AGENT_TASK_CHARS} characters`)
       }
+      let tabId: string | undefined
+      if (call.input.tabId !== undefined) {
+        if (typeof call.input.tabId !== 'string' || !call.input.tabId.trim()) {
+          return badInput('`tabId` must be a non-empty string when present (from shell:list_tabs)')
+        }
+        tabId = call.input.tabId.trim()
+        if (tabId.length > MAX_AGENT_TAB_ID_CHARS) {
+          return badInput(`\`tabId\` must be at most ${MAX_AGENT_TAB_ID_CHARS} characters`)
+        }
+      }
       // the global run's abort reaches the sub-agent: a Stop mid-task stops
       // the document work too, not only the panel's wait for it
       const offAbort = deps.cancelAgentTask ? abortOn(signal, () => deps.cancelAgentTask?.()) : null
       try {
-        const result = await deps.runAgentTask(task)
+        const result = await (tabId !== undefined
+          ? deps.runAgentTask(task, { tabId })
+          : deps.runAgentTask(task))
         if (!result.ok) {
           return {
             output: `the document assistant did not finish the task: ${result.summary}`,

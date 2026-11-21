@@ -540,28 +540,23 @@ describe('the first-open suggestions', () => {
   })
 })
 
-describe('the footer copy per thread kind', () => {
-  it('doc-bound says saved-with-the-document; a free workbench thread says the panel copy', async () => {
+describe('removed footer persistence notice', () => {
+  it('omits the local persistence notice across doc-bound and free workbench threads', async () => {
     const id = chatIdForPath('/desk/a.docx')
     chats.set(id, [
-      { seq: 0, ts: '2026-11-03T09:00:00.000Z', role: 'user', text: 'a turn, so the footer shows' },
+      { seq: 0, ts: '2026-11-03T09:00:00.000Z', role: 'user', text: 'a turn in doc thread' },
     ])
     chats.set('kb-ask', [
-      { seq: 0, ts: '2026-11-03T09:00:00.000Z', role: 'user', text: 'a family turn' },
+      { seq: 0, ts: '2026-11-03T09:00:00.000Z', role: 'user', text: 'a turn in workbench thread' },
     ])
     surfaceTabs = [DOC_TAB('/desk/a.docx')]
     render()
     await settle()
-    const docFooter = host.querySelector('.kb-ask-nosave')
-    expect(docFooter).toBeTruthy()
-    expect(docFooter!.getAttribute('data-kind')).toBe('doc')
-    expect(docFooter!.textContent).toContain('saved with the document')
+    expect(host.querySelector('.kb-ask-nosave')).toBeNull()
 
-    // Switching tabs alone keeps docFooter as doc-bound.
     await switchTab([HOME_TAB])
-    expect(host.querySelector('.kb-ask-nosave')!.getAttribute('data-kind')).toBe('doc')
+    expect(host.querySelector('.kb-ask-nosave')).toBeNull()
 
-    // Explicitly opening a free thread from library switches footer to panel copy.
     await act(async () => {
       host.querySelector<HTMLElement>('.kb-ask-library-button')?.click()
     })
@@ -572,9 +567,7 @@ describe('the footer copy per thread kind', () => {
         ?.click()
     })
     await settle()
-    const panelFooter = host.querySelector('.kb-ask-nosave')
-    expect(panelFooter!.getAttribute('data-kind')).toBe('panel')
-    expect(panelFooter!.textContent).toContain('saved on this device')
+    expect(host.querySelector('.kb-ask-nosave')).toBeNull()
   })
 })
 

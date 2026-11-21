@@ -1273,6 +1273,42 @@ describe('the shell operator tools (ungated, validated)', () => {
     ).rejects.toThrow(/`id` must be/)
   })
 
+  it('switch_tab reveals the shell window only when tab activation returns true', async () => {
+    const openIds = new Set(['home', 't1'])
+    let activeId = 'home'
+    const revealShellWindow = vi.fn()
+    const tabManagerActivate = (id: string): boolean => {
+      if (!openIds.has(id)) return false
+      activeId = id
+      return true
+    }
+    const activateSurfaceTab = (id: string): boolean => {
+      const ok = tabManagerActivate(id) === true
+      if (ok) revealShellWindow()
+      return ok
+    }
+
+    const result = await executeBrowserSkillAction(
+      depsWith(makeWc(), makeWc(), [], { activateTab: activateSurfaceTab }),
+      SHELL_SWITCH_TAB_TOOL,
+      { id: 't1' },
+    )
+    expect(result).toEqual({ id: 't1' })
+    expect(activeId).toBe('t1')
+    expect(revealShellWindow).toHaveBeenCalledTimes(1)
+
+    revealShellWindow.mockClear()
+    await expect(
+      executeBrowserSkillAction(
+        depsWith(makeWc(), makeWc(), [], { activateTab: activateSurfaceTab }),
+        SHELL_SWITCH_TAB_TOOL,
+        { id: 'missing' },
+      ),
+    ).rejects.toThrow(/no open tab has the id "missing"/)
+    expect(activeId).toBe('t1')
+    expect(revealShellWindow).not.toHaveBeenCalled()
+  })
+
   it('open_path routes an in-scope file (verdict on the path and its realpath)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'genoffice-open-path-'))
     try {

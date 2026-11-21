@@ -121,6 +121,39 @@ describe('executeAppSkillRead routing', () => {
     expect(result.target.id).toBe('tab-2')
   })
 
+  it('routes path and tabId aliases to the intended background tab and prefers document over aliases', async () => {
+    const mdWindows: DesktopWindowInfo[] = [
+      { id: 'tab-1', kind: 'markdown', title: 'first.md', filePath: '/kb/first.md', active: true },
+      { id: 'tab-2', kind: 'markdown', title: 'second.md', filePath: '/kb/second.md', active: false },
+    ]
+    const deps: AppSkillProxyDeps = {
+      listWindows: () => mdWindows,
+      webContentsFor: (id) => (id === 'tab-1' ? contentsFor(1) : id === 'tab-2' ? contentsFor(2) : undefined),
+      readers: {
+        markdown: async (wc) => (wc.id === 1 ? 'FIRST_BODY' : 'SECOND_BODY'),
+      },
+    }
+
+    const byPath = await executeAppSkillRead(deps, 'markdown:read_text', {
+      path: '/kb/second.md',
+    })
+    expect(byPath.target.id).toBe('tab-2')
+    expect(byPath.result).toBe('SECOND_BODY')
+
+    const byTabId = await executeAppSkillRead(deps, 'markdown:read_text', {
+      tabId: 'tab-2',
+    })
+    expect(byTabId.target.id).toBe('tab-2')
+    expect(byTabId.result).toBe('SECOND_BODY')
+
+    const preferredDoc = await executeAppSkillRead(deps, 'markdown:read_text', {
+      document: 'tab-1',
+      path: '/kb/second.md',
+    })
+    expect(preferredDoc.target.id).toBe('tab-1')
+    expect(preferredDoc.result).toBe('FIRST_BODY')
+  })
+
   it('forwards and validates the sheets read payload', async () => {
     const read = vi.fn(async () => ({}))
     const deps = {

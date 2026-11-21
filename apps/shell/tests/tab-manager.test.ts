@@ -740,11 +740,17 @@ describe('activation', () => {
     expect(docsView.webContents.focus).toHaveBeenCalledTimes(1)
   })
 
-  it('ignores activation of unknown tab ids', () => {
+  it('ignores activation of unknown tab ids and returns activation status booleans', () => {
+    const docsId = manager.openDocsTab()
+    expect(manager.activateTab('home')).toBe(true)
     onChanged.mockClear()
-    manager.activateTab('nope')
+    expect(manager.activateTab('nope')).toBe(false)
     expect(onChanged).not.toHaveBeenCalled()
     expect(manager.list()[0].active).toBe(true)
+
+    expect(manager.activateTab(docsId)).toBe(true)
+    expect(manager.activeTabId()).toBe(docsId)
+    expect(onChanged).toHaveBeenCalledTimes(1)
   })
 
   it('routes the active webContents to the matching module', () => {
