@@ -17,40 +17,92 @@ runInNewContext(readFileSync(resolve(import.meta.dirname, '../electron-builder.c
     id === 'node:fs' ? { ...require(id), existsSync: () => true } : require(id),
 })
 const config = configModule.exports
+const installerNsh = readFileSync(resolve(import.meta.dirname, '../build/installer.nsh'), 'utf8')
+
+type AssociationEntry = {
+  ext: string
+  name: string
+  description?: string
+  mimeType?: string
+}
+
+// Mirror PlatformPackager.get fileAssociations() in app-builder-lib, which
+// concatenates top-level fileAssociations with the platform-specific list.
+function effectiveAssociations(platform: 'win' | 'mac' | 'linux'): AssociationEntry[] {
+  return [
+    ...((config.fileAssociations ?? []) as AssociationEntry[]),
+    ...((config[platform]?.fileAssociations ?? []) as AssociationEntry[]),
+  ]
+}
 
 describe('packaged file associations', () => {
-  // The OS can only offer GenOffice in "Open With" (mac CFBundleDocumentTypes,
-  // the Linux desktop MimeType list, the NSIS ProgIds) for types the bundle
-  // declares. A routing entry without a matching declaration means a file the
-  // app opens fine can never reach it from Finder/Explorer — the .txt/.json
-  // gap this closes.
-  it('advertises every extension the app launches', () => {
-    for (const ext of LAUNCHABLE_EXTS) {
-      const association = config.fileAssociations.find(
-        (entry: { ext: string }) => entry.ext === ext,
+  it('advertises every launchable extension uniquely with descriptions and mimeTypes on mac and linux', () => {
+    for (const platform of ['mac', 'linux'] as const) {
+      const list = effectiveAssociations(platform)
+      const exts = list.map((entry) => entry.ext)
+      expect(new Set(exts).size, `${platform} has duplicate fileAssociations`).toBe(exts.length)
+      expect(exts).toHaveLength(LAUNCHABLE_EXTS.length)
+      for (const ext of LAUNCHABLE_EXTS) {
+        const entry = list.find((item) => item.ext === ext)
+        expect(entry, `no file association declared for .${ext} on ${platform}`).toBeTruthy()
+        expect(entry?.description, `.${ext} missing description`).toBeTruthy()
+        expect(entry?.mimeType, `.${ext} missing mimeType on ${platform}`).toBeTruthy()
+      }
+    }
+  })
+
+  it('resolves Windows to 55 unique associations without duplicating entries or leaking .bat', () => {
+    const winList = effectiveAssociations('win')
+    const winExts = winList.map((entry) => entry.ext)
+    const expectedWinExts = LAUNCHABLE_EXTS.filter((ext) => ext !== 'bat')
+
+    expect(config.win.fileAssociations).toBeUndefined()
+    expect(new Set(winExts).size).toBe(winExts.length)
+    expect(winExts).not.toContain('bat')
+    expect(winExts).toHaveLength(expectedWinExts.length)
+    for (const ext of expectedWinExts) {
+      const entry = winList.find((item) => item.ext === ext)
+      expect(entry, `.${ext} missing from Windows associations`).toBeTruthy()
+      expect(entry?.description, `.${ext} missing Windows description`).toBeTruthy()
+    }
+  })
+
+  it('keeps installer.nsh capabilities and context verbs aligned with Windows associations', () => {
+    const winList = effectiveAssociations('win')
+    const capMatches = [
+      ...installerNsh.matchAll(/!insertmacro\s+GenOfficeRegisterCapability\s+"([^"]+)"\s+"([^"]+)"/g),
+    ]
+    const registeredCaps = new Map(capMatches.map((m) => [m[1], m[2]]))
+    expect(capMatches).toHaveLength(winList.length)
+
+    for (const entry of winList) {
+      expect(registeredCaps.get(entry.ext), `mismatch for .${entry.ext} capability ProgID`).toBe(
+        entry.name,
       )
-      expect(association, `no file association declared for .${ext}`).toBeTruthy()
     }
-  })
 
-  it('gives every association the mimeType the Linux desktop entry needs', () => {
-    for (const association of config.fileAssociations) {
-      expect(
-        association.mimeType,
-        `.${association.ext} declares no mimeType — the Linux target drops it`,
-      ).toBeTruthy()
-    }
-  })
+    const addVerbs = new Set(
+      [...installerNsh.matchAll(/!insertmacro\s+GenOfficeRegisterOpenVerb\s+"([^"]+)"/g)].map(
+        (m) => m[1],
+      ),
+    )
+    const delVerbs = new Set(
+      [...installerNsh.matchAll(/!insertmacro\s+GenOfficeUnregisterOpenVerb\s+"([^"]+)"/g)].map(
+        (m) => m[1],
+      ),
+    )
 
-  it('keeps plain text, JSON, and media types off the Windows list, where NSIS would make the app their default', () => {
-    const winExts = config.win.fileAssociations.map((entry: { ext: string }) => entry.ext)
-    expect(winExts).not.toContain('txt')
-    expect(winExts).not.toContain('json')
-    for (const ext of ['png', 'jpg', 'svg', 'mp3', 'wav', 'mp4', 'mkv', 'py', 'ts', 'js', 'sql', 'sh', 'bat']) {
-      expect(winExts, `.${ext} should stay open-with-only on Windows`).not.toContain(ext)
+    for (const ext of LAUNCHABLE_EXTS) {
+      expect(addVerbs.has(ext), `.${ext} missing GenOfficeRegisterOpenVerb`).toBe(true)
+      expect(delVerbs.has(ext), `.${ext} missing GenOfficeUnregisterOpenVerb`).toBe(true)
     }
-    for (const ext of ['docx', 'xlsx', 'pptx', 'pdf', 'md', 'html']) {
-      expect(winExts, `.${ext} missing from the Windows associations`).toContain(ext)
-    }
+
+    expect(installerNsh).toContain(
+      'WriteRegStr SHELL_CONTEXT "Software\\RegisteredApplications" "GenOffice" "Software\\GenOffice\\Capabilities"',
+    )
+    expect(installerNsh).toContain(
+      'DeleteRegValue SHELL_CONTEXT "Software\\RegisteredApplications" "GenOffice"',
+    )
+    expect(installerNsh).toContain('DeleteRegKey SHELL_CONTEXT "Software\\GenOffice\\Capabilities"')
   })
 })

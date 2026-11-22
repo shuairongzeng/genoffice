@@ -311,50 +311,10 @@ function ensureThirdPartyNotices() {
 }
 
 /** @type {import('electron-builder').Configuration} */
-// NSIS makes every declared ProgId the extension's default opener; for the
-// office types that is the point, for plain text and JSON it would hijack the
-// system editor, so Windows leaves those two out (mac/Linux only offer them
-// in Open With).
-const WIN_OPEN_WITH_ONLY_EXTS = new Set([
-  'txt',
-  'json',
-  'log',
-  'yaml',
-  'yml',
-  'xml',
-  'ini',
-  'toml',
-  'py',
-  'ts',
-  'tsx',
-  'js',
-  'jsx',
-  'css',
-  'sql',
-  'sh',
-  'bat',
-  'png',
-  'jpg',
-  'jpeg',
-  'webp',
-  'gif',
-  'svg',
-  'bmp',
-  'ico',
-  'avif',
-  'mp3',
-  'wav',
-  'm4a',
-  'aac',
-  'ogg',
-  'flac',
-  'opus',
-  'mp4',
-  'webm',
-  'mov',
-  'm4v',
-  'mkv',
-])
+// NSIS registers every declared Windows association with a ProgId and `.ext`
+// default association. Keep `.bat` open-with-only so double-clicking a batch
+// script continues to execute it in Windows instead of opening an editor.
+const WIN_OPEN_WITH_ONLY_EXTS = new Set(['bat'])
 const FILE_ASSOCIATIONS = [
   {
     ext: 'docx',
@@ -646,7 +606,14 @@ const FILE_ASSOCIATIONS = [
   { ext: 'mov', name: 'QuickTime Video', role: 'Viewer', icon: 'icon', mimeType: 'video/quicktime' },
   { ext: 'm4v', name: 'M4V Video', role: 'Viewer', icon: 'icon', mimeType: 'video/x-m4v' },
   { ext: 'mkv', name: 'Matroska Video', role: 'Viewer', icon: 'icon', mimeType: 'video/x-matroska' },
-]
+].map((entry) => ({ description: entry.name, ...entry }))
+
+const SHARED_FILE_ASSOCIATIONS = FILE_ASSOCIATIONS.filter(
+  (entry) => !WIN_OPEN_WITH_ONLY_EXTS.has(entry.ext),
+)
+const NON_WIN_EXTRA_FILE_ASSOCIATIONS = FILE_ASSOCIATIONS.filter((entry) =>
+  WIN_OPEN_WITH_ONLY_EXTS.has(entry.ext),
+)
 
 const config = {
   appId: 'com.genoffice.app',
@@ -797,7 +764,11 @@ const config = {
   // bare GenOffice logo instead of a per-type document icon. The icns/ico
   // pairs are generated from the shell renderer's file-type tiles by
   // tools/gen-file-association-icons.mjs.
-  fileAssociations: FILE_ASSOCIATIONS,
+  // app-builder-lib concatenates top-level `fileAssociations` with each platform
+  // target's own `fileAssociations` instead of overriding. Keep the 55 safe
+  // shared associations at top level and append Windows-excluded types (`.bat`)
+  // only on mac/linux so Windows neither duplicates NSIS macros nor hijacks `.bat`.
+  fileAssociations: SHARED_FILE_ASSOCIATIONS,
   // The genoffice:// deep link (src/main/system-presence.ts: genoffice://ask?q=… →
   // Home's Ask AI). electron-builder writes CFBundleURLTypes into the macOS
   // plist and the Windows registry URL-protocol key; the runtime
@@ -805,6 +776,7 @@ const config = {
   protocols: [{ name: 'GenOffice', schemes: ['genoffice'] }],
   npmRebuild: false,
   mac: {
+    fileAssociations: NON_WIN_EXTRA_FILE_ASSOCIATIONS,
     // Two separate arch packages (NOT universal): arm64 keeps the exact
     // artifact names and update-feed entries it always had, x64 (opt-in via
     // GENOFFICE_MAC_X64=1, see includeMacX64 above) adds Intel support with
@@ -842,7 +814,8 @@ const config = {
         arch: [winArch],
       },
     ],
-    fileAssociations: FILE_ASSOCIATIONS.filter((a) => !WIN_OPEN_WITH_ONLY_EXTS.has(a.ext)),
+    // Intentionally omit `fileAssociations`: Windows receives the 55 top-level
+    // SHARED_FILE_ASSOCIATIONS entries once (zero duplicate ProgIDs, no `.bat`).
     extraResources: [
       {
         from: WIN_SIDECAR,
@@ -866,6 +839,7 @@ const config = {
   // sidecar was actually built for. Packaging arm64 on an x64 host, or the
   // reverse, needs a matching `cargo build --target` first.
   linux: {
+    fileAssociations: NON_WIN_EXTRA_FILE_ASSOCIATIONS,
     // AppImage (self-contained, any distro) + deb (apt install, pulls in the
     // GTK/NSS runtime deps) + rpm (dnf/zypper install on Fedora / RHEL /
     // openSUSE). Default artifact names are kept on purpose —
