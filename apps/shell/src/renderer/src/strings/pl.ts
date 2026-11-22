@@ -1007,4 +1007,6 @@ export const pl: Dict = {
   setButlerVoiceAuto: 'Automatycznie (zgodnie z językiem interfejsu)',
   setButlerVoicePreview: 'Odsłuchaj',
   setButlerVoicePreviewText: '{honorific}, jestem {name}, zawsze do Twoich usług.',
+  setButlerVoiceNone:
+    'Nie wykryto głosów systemowych — komunikaty głosowe pozostaną wyciszone. W Windows dodaj pakiet głosowy w Ustawienia › Czas i język › Mowa; w macOS pobierz głos w Ustawienia systemowe › Dostępność › Mówiona zawartość.',
 }

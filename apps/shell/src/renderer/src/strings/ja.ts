@@ -1013,4 +1013,6 @@ export const ja: Dict = {
   setButlerVoiceAuto: '自動（表示言語に合わせる）',
   setButlerVoicePreview: '試聴',
   setButlerVoicePreviewText: '{honorific}、私は{name}です。いつでもお申し付けください。',
+  setButlerVoiceNone:
+    'システム音声が見つからないため、音声読み上げは無音になります。Windows は「設定 › 時刻と言語 › 音声認識」で音声パッケージを追加し、macOS は「システム設定 › アクセシビリティ › 読み上げコンテンツ」から音声をダウンロードしてください。',
 }

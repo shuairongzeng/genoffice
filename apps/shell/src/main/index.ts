@@ -125,6 +125,7 @@ import {
 import { clearCloudProjectsStore } from './cloud-projects'
 import { handleDroppedFiles } from './dropped-files'
 import { collectLaunchPaths } from './launch-paths'
+import { shouldReclaimDevLock } from './dev-lock-policy'
 import {
   configureUserDataPath,
   createBootTelemetry,
@@ -6880,7 +6881,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
         ? { launchPath: pendingLaunchPaths[0], launchPaths: pendingLaunchPaths }
         : {}
     let hasLock = app.requestSingleInstanceLock(lockData())
-    if (!hasLock && !app.isPackaged) {
+    if (!hasLock && !app.isPackaged && shouldReclaimDevLock(process.argv, pendingLaunchPaths)) {
       hasLock = await reclaimDevSingleInstanceLock(() => app.requestSingleInstanceLock(lockData()))
     }
     if (!hasLock) {

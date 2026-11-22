@@ -991,4 +991,6 @@ export const ar: Dict = {
   setButlerVoiceAuto: 'تلقائي (يتبع لغة الواجهة)',
   setButlerVoicePreview: 'معاينة',
   setButlerVoicePreviewText: '{honorific}، أنا {name}، في خدمتك في أي وقت.',
+  setButlerVoiceNone:
+    'لم يتم اكتشاف أي أصوات للنظام — ستظل الإعلانات الصوتية صامتة. في Windows أضف حزمة صوت من الإعدادات › الوقت واللغة › الكلام؛ وفي macOS نزّل صوتًا من إعدادات النظام › تسهيلات الاستخدام › المحتوى المنطوق.',
 }

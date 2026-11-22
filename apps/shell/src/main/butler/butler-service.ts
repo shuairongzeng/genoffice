@@ -67,6 +67,7 @@ interface LiveTaskRecord {
   readonly fromButler: boolean
   lastText: string
   errorMsg: string
+  sawActivity: boolean
   aborted: boolean
   finished: boolean
 }
@@ -200,6 +201,7 @@ export function createButlerService(deps: ButlerServiceDeps): ButlerService {
         fromButler: input.chatId.startsWith('butler-') || wasPending,
         lastText: '',
         errorMsg: '',
+        sawActivity: false,
         aborted: false,
         finished: false,
       }
@@ -219,12 +221,14 @@ export function createButlerService(deps: ButlerServiceDeps): ButlerService {
               ? (event.payload as { name?: unknown }).name
               : undefined
           if (typeof toolName === 'string' && toolName.trim().length > 0) {
+            record.sawActivity = true
             record.step = { tool: toolName, kind: stepKindForTool(toolName) }
             pushUpdate(toUpdate(record))
           }
           break
         }
         case 'reasoning': {
+          record.sawActivity = true
           if (record.step === null) {
             record.step = { tool: 'thinking', kind: 'think' }
             pushUpdate(toUpdate(record))
@@ -297,6 +301,10 @@ export function createButlerService(deps: ButlerServiceDeps): ButlerService {
         record.status = 'done'
         pushUpdate(toUpdate(record))
         return
+      }
+
+      if (!record.errorMsg && !record.lastText.trim() && !record.sawActivity) {
+        record.errorMsg = tButler(deps.lang(), 'errorEmptyReply')
       }
 
       const now = deps.now()

@@ -999,4 +999,6 @@ export const ko: Dict = {
   setButlerVoiceAuto: '자동(UI 언어 따름)',
   setButlerVoicePreview: '미리 듣기',
   setButlerVoicePreviewText: '{honorific}, 저는 {name}입니다. 언제든 말씀하세요.',
+  setButlerVoiceNone:
+    '시스템 음성이 감지되지 않아 음성 안내가 무음으로 유지됩니다. Windows는 "설정 › 시간 및 언어 › 음성"에서 음성 팩을 추가하고, macOS는 "시스템 설정 › 손쉬운 사용 › 콘텐츠 말하기"에서 음성을 다운로드하세요.',
 }

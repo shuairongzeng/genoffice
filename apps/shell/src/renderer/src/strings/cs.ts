@@ -996,4 +996,6 @@ export const cs: Dict = {
   setButlerVoiceAuto: 'Automaticky (podle jazyka rozhraní)',
   setButlerVoicePreview: 'Přehrát ukázku',
   setButlerVoicePreviewText: '{honorific}, jsem {name}, kdykoli k vašim službám.',
+  setButlerVoiceNone:
+    'Nebyly nalezeny žádné systémové hlasy — hlasová oznámení zůstanou ztlumená. Ve Windows přidejte hlasový balíček v Nastavení › Čas a jazyk › Řeč; v macOS stáhněte hlas v Nastavení systému › Zpřístupnění › Předčítaný obsah.',
 }

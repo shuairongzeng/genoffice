@@ -1001,4 +1001,6 @@ export const hi: Dict = {
   setButlerVoiceAuto: 'स्वतः (UI भाषा के अनुसार)',
   setButlerVoicePreview: 'सुनकर देखें',
   setButlerVoicePreviewText: '{honorific}, मैं {name} हूँ, हर समय आपकी सेवा में तत्पर।',
+  setButlerVoiceNone:
+    'कोई सिस्टम वॉइस नहीं मिली — वॉइस घोषणाएँ मौन रहेंगी। Windows में सेटिंग्स › समय और भाषा › वाक् में वॉइस पैक जोड़ें; macOS में सिस्टम सेटिंग्स › सुगम्यता › बोली जाने वाली सामग्री से वॉइस डाउनलोड करें।',
 }

@@ -84,6 +84,7 @@ export function ButlerSettingsPane({ t }: { t: TFunc }): React.JSX.Element {
   maxPerHourDraftRef.current = maxPerHourDraft
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
+  const [voicesLoaded, setVoicesLoaded] = useState(false)
   const aliveRef = useRef(true)
 
   useEffect(() => {
@@ -121,9 +122,14 @@ export function ButlerSettingsPane({ t }: { t: TFunc }): React.JSX.Element {
 
     void listVoices()
       .then((available) => {
-        if (aliveRef.current) setVoices(available)
+        if (aliveRef.current) {
+          setVoices(available)
+          setVoicesLoaded(true)
+        }
       })
-      .catch(() => undefined)
+      .catch(() => {
+        if (aliveRef.current) setVoicesLoaded(true)
+      })
 
     return () => {
       aliveRef.current = false
@@ -579,6 +585,9 @@ export function ButlerSettingsPane({ t }: { t: TFunc }): React.JSX.Element {
             </button>
           </div>
         </div>
+        {voicesLoaded && voices.length === 0 && (
+          <p className="set-field-desc">{t('setButlerVoiceNone')}</p>
+        )}
       </section>
     </div>
   )

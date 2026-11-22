@@ -1022,4 +1022,6 @@ export const it: Dict = {
   setButlerVoiceAuto: 'Automatico (segui lingua interfaccia)',
   setButlerVoicePreview: 'Ascolta anteprima',
   setButlerVoicePreviewText: '{honorific}, sono {name}, sempre al tuo servizio.',
+  setButlerVoiceNone:
+    'Nessuna voce di sistema rilevata: gli annunci vocali resteranno silenziosi. Su Windows aggiungi un pacchetto vocale in Impostazioni › Data/ora e lingua › Voce; su macOS scarica una voce in Impostazioni di Sistema › Accessibilità › Contenuto letto.',
 }

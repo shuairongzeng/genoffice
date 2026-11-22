@@ -1031,4 +1031,6 @@ export const de: Dict = {
   setButlerVoiceAuto: 'Automatisch (Oberflächensprache folgen)',
   setButlerVoicePreview: 'Probehören',
   setButlerVoicePreviewText: '{honorific}, ich bin {name}, stets zu Ihren Diensten.',
+  setButlerVoiceNone:
+    'Keine Systemstimmen erkannt – Sprachansagen bleiben stumm. Unter Windows fügen Sie ein Sprachpaket unter Einstellungen › Zeit und Sprache › Spracherkennung hinzu; unter macOS laden Sie eine Stimme unter Systemeinstellungen › Bedienungshilfen › Gesprochene Inhalte.',
 }

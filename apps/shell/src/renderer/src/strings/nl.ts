@@ -1013,4 +1013,6 @@ export const nl: Dict = {
   setButlerVoiceAuto: 'Automatisch (volg interfacetaal)',
   setButlerVoicePreview: 'Voorbeeld',
   setButlerVoicePreviewText: '{honorific}, ik ben {name}, altijd tot uw dienst.',
+  setButlerVoiceNone:
+    'Geen systeemstemmen gevonden — gesproken meldingen blijven stil. Voeg in Windows een spraakpakket toe via Instellingen › Tijd en taal › Spraak; download op macOS een stem via Systeeminstellingen › Toegankelijkheid › Gesproken materiaal.',
 }

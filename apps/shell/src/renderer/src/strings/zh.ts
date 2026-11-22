@@ -954,6 +954,8 @@ export const zh = {
   setButlerVoiceAuto: '自动（跟随界面语言）',
   setButlerVoicePreview: '试听',
   setButlerVoicePreviewText: '{honorific}，我是{name}，随时为你效劳。',
+  setButlerVoiceNone:
+    '未检测到系统语音，语音播报将保持静默。Windows 可在「设置 › 时间和语言 › 语音」添加语音包；macOS 可在「系统设置 › 辅助功能 › 朗读内容」下载语音。',
 }
 
 export type Dict = typeof zh

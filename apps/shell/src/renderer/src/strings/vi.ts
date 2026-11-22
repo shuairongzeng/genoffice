@@ -1000,4 +1000,6 @@ export const vi: Dict = {
   setButlerVoiceAuto: 'Tự động (theo ngôn ngữ giao diện)',
   setButlerVoicePreview: 'Nghe thử',
   setButlerVoicePreviewText: '{honorific}, tôi là {name}, luôn sẵn sàng phục vụ.',
+  setButlerVoiceNone:
+    'Không tìm thấy giọng nói hệ thống — thông báo bằng giọng nói sẽ giữ im lặng. Trên Windows, hãy thêm gói giọng nói tại Cài đặt › Thời gian & ngôn ngữ › Giọng nói; trên macOS, tải giọng nói tại Cài đặt hệ thống › Trợ năng › Nội dung được đọc.',
 }

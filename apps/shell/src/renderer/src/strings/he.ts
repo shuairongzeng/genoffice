@@ -966,4 +966,6 @@ export const he: Dict = {
   setButlerVoiceAuto: 'אוטומטי (לפי שפת הממשק)',
   setButlerVoicePreview: 'השמעה מקדימה',
   setButlerVoicePreviewText: '{honorific}, אני {name}, לשירותכם בכל עת.',
+  setButlerVoiceNone:
+    'לא זוהו קולות מערכת — הכרזות קוליות יישארו מושתקות. ב-Windows הוסף חבילת קול תחת הגדרות › זמן ושפה › דיבור; ב-macOS הורד קול תחת הגדרות המערכת › נגישות › תוכן מדובר.',
 }

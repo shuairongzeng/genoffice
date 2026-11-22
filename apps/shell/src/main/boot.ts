@@ -10,6 +10,7 @@ import {
   registerShellPrivilegedSchemes,
 } from './boot-env'
 import { collectLaunchPaths } from './launch-paths'
+import { shouldReclaimDevLock } from './dev-lock-policy'
 import { shouldShowSplash } from './splash-state'
 import { createSplashWindow, type SplashHandle } from './splash-window'
 import { readShellWindowState } from './window-bounds'
@@ -99,7 +100,7 @@ void app.whenReady().then(async () => {
     initialPaths.length > 0 ? { launchPath: initialPaths[0], launchPaths: initialPaths } : {}
 
   let hasLock = app.requestSingleInstanceLock(lockData())
-  if (!hasLock && !app.isPackaged) {
+  if (!hasLock && !app.isPackaged && shouldReclaimDevLock(process.argv, initialPaths)) {
     hasLock = await reclaimDevSingleInstanceLock(() => app.requestSingleInstanceLock(lockData()))
   }
   if (!hasLock) {

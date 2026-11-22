@@ -648,4 +648,59 @@ describe('butler-service submit & hudState', () => {
       'default:butler-done-4',
     ])
   })
+
+  it('flags an empty run without text, tool, or reasoning as error', () => {
+    const h = makeHarness()
+    const { observer } = h.service
+    const sk = 'default:butler-empty'
+
+    observer.onBegin?.({
+      sessionKey: sk,
+      projectId: 'default',
+      chatId: 'butler-empty',
+      docPath: null,
+      userText: '测试空回复',
+    })
+    observer.onFinish?.(sk)
+
+    const finalUpdate = h.hudMessages
+      .filter((m) => m.channel === HOME_CHANNELS.butlerTaskUpdate)
+      .map((m) => m.payload as ButlerTaskUpdate)
+      .at(-1)!
+    expect(finalUpdate.status).toBe('error')
+    expect(finalUpdate.error).toBe(
+      '没有收到任何回复，可能被记忆插件拒绝或模型未输出，请在 AI 面板查看详情',
+    )
+    expect(h.getState().tasks[0]!.status).toBe('error')
+    expect(h.hudMessages.filter((m) => m.channel === HOME_CHANNELS.butlerSpeak)).toEqual([
+      {
+        channel: HOME_CHANNELS.butlerSpeak,
+        payload: { text: '先生，「测试空回复」没能完成。' },
+      },
+    ])
+  })
+
+  it('keeps tool-driven run without final text as done rather than error', () => {
+    const h = makeHarness()
+    const { observer } = h.service
+    const sk = 'default:butler-tool-only'
+
+    observer.onBegin?.({
+      sessionKey: sk,
+      projectId: 'default',
+      chatId: 'butler-tool-only',
+      docPath: null,
+      userText: '静默执行工具',
+    })
+    observer.onEvent?.({ type: 'tool-start', sessionKey: sk, payload: { name: 'bash' } })
+    observer.onFinish?.(sk)
+
+    const finalUpdate = h.hudMessages
+      .filter((m) => m.channel === HOME_CHANNELS.butlerTaskUpdate)
+      .map((m) => m.payload as ButlerTaskUpdate)
+      .at(-1)!
+    expect(finalUpdate.status).toBe('done')
+    expect(finalUpdate.error).toBeUndefined()
+    expect(h.getState().tasks[0]!.status).toBe('done')
+  })
 })

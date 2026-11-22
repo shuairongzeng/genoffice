@@ -1019,4 +1019,6 @@ export const id: Dict = {
   setButlerVoiceAuto: 'Otomatis (ikuti bahasa antarmuka)',
   setButlerVoicePreview: 'Pratinjau',
   setButlerVoicePreviewText: '{honorific}, saya {name}, siap melayani Anda kapan saja.',
+  setButlerVoiceNone:
+    'Suara sistem tidak terdeteksi — pengumuman suara akan tetap hening. Di Windows, tambahkan paket suara di Pengaturan › Waktu & bahasa › Suara; di macOS, unduh suara di Pengaturan Sistem › Aksesibilitas › Konten Lisan.',
 }

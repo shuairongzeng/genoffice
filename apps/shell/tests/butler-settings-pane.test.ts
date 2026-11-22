@@ -13,6 +13,7 @@ import {
 } from '../src/shared/butler-prefs'
 import type { HomeApi, SystemPresenceSettings } from '../src/shared/home-api'
 import { ButlerSettingsPane } from '../src/renderer/src/ButlerSettingsPane'
+import * as butlerVoice from '../src/renderer/src/butler-voice'
 import { hotkeyPresets } from '../src/renderer/src/hotkey-recorder'
 import { LocaleProvider, type TFunc } from '../src/renderer/src/locale'
 import { loadStrings, translate } from '../src/renderer/src/strings'
@@ -453,5 +454,15 @@ describe('ButlerSettingsPane', () => {
       lang: 'en-US',
     })
     expect(spokenUtterances[0]?.voice?.name).toBe('Microsoft Zira')
+  })
+
+  it('shows guidance message when no system speech voices are available', async () => {
+    vi.spyOn(butlerVoice, 'listVoices').mockResolvedValueOnce([])
+    await renderPane()
+
+    const descriptions = [...host.querySelectorAll('.set-field-desc')].map((el) =>
+      el.textContent?.trim(),
+    )
+    expect(descriptions).toContain(t('setButlerVoiceNone'))
   })
 })

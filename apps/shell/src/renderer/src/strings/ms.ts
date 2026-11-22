@@ -1012,4 +1012,6 @@ export const ms: Dict = {
   setButlerVoiceAuto: 'Automatik (ikut bahasa antara muka)',
   setButlerVoicePreview: 'Pradengar',
   setButlerVoicePreviewText: '{honorific}, saya {name}, sedia berkhidmat untuk anda.',
+  setButlerVoiceNone:
+    'Tiada suara sistem dikesan — pengumuman suara akan kekal senyap. Pada Windows, tambah pek suara di Tetapan › Masa & bahasa › Pertuturan; pada macOS, muat turun suara di Seting Sistem › Kebolehcapaian › Kandungan Dituturkan.',
 }

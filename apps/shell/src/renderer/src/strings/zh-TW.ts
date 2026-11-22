@@ -947,4 +947,6 @@ export const zhTW: Dict = {
   setButlerVoiceAuto: '自動（跟隨介面語言）',
   setButlerVoicePreview: '試聽',
   setButlerVoicePreviewText: '{honorific}，我是 {name}，隨時為您效勞。',
+  setButlerVoiceNone:
+    '未偵測到系統語音，語音播報將保持靜音。Windows 可在「設定 › 時間與語言 › 語音」新增語音套件；macOS 可在「系統設定 › 輔助使用 › 朗讀內容」下載語音。',
 }

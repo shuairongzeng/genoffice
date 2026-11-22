@@ -1009,4 +1009,6 @@ export const ru: Dict = {
   setButlerVoiceAuto: 'Авто (по языку интерфейса)',
   setButlerVoicePreview: 'Прослушать',
   setButlerVoicePreviewText: '{honorific}, я {name}, всегда к вашим услугам.',
+  setButlerVoiceNone:
+    'Системные голоса не обнаружены — голосовые уведомления будут отключены. В Windows добавьте голосовой пакет в «Параметры › Время и язык › Речь»; в macOS загрузите голос в «Системные настройки › Универсальный доступ › Устный контент».',
 }

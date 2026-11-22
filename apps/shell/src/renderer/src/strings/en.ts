@@ -1003,4 +1003,6 @@ export const en: Dict = {
   setButlerVoiceAuto: 'Auto (follow UI language)',
   setButlerVoicePreview: 'Preview',
   setButlerVoicePreviewText: '{honorific}, I am {name}, at your service.',
+  setButlerVoiceNone:
+    'No system voices detected — voice announcements will stay silent. On Windows, add a voice pack in Settings › Time & language › Speech; on macOS, download a voice in System Settings › Accessibility › Spoken Content.',
 }
