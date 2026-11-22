@@ -468,6 +468,22 @@ export interface TodoItem {
   done: boolean
 }
 
+export type DesktopBoxColor = 'glass' | 'blue' | 'emerald' | 'amber' | 'rose' | 'violet'
+
+/** A user-created desktop container box that organizes desktop icons inside a collapsible surface card. */
+export interface DesktopGroupBox {
+  readonly id: string
+  readonly title: string
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+  readonly collapsed: boolean
+  readonly color: DesktopBoxColor
+  readonly locked?: boolean
+  readonly itemIds: readonly string[]
+}
+
 /**
  * The Home desktop's persisted surface. `positions` maps icon id
  * (`app:docs`, `file:<path>`, `folder:<path>`, `alias:<path>`) to its saved
@@ -480,6 +496,8 @@ export interface DesktopLayout {
   positions: Record<string, { x: number; y: number }>
   /** real file/folder paths pinned as desktop aliases, first-added first */
   readonly aliases: readonly string[]
+  /** user-created desktop grouping boxes, rendered in z-order (last = topmost) */
+  readonly boxes?: readonly DesktopGroupBox[]
 }
 
 /**
@@ -508,7 +526,9 @@ export interface KbScopedSearchResult {
  * the main-process side. An `aliases` field in the payload is ignored by the
  * save (kept for a stale preload that still sends it), never written.
  */
-export type DesktopLayoutSave = Pick<DesktopLayout, 'positions'>
+export type DesktopLayoutSave = Pick<DesktopLayout, 'positions'> & {
+  readonly boxes?: readonly DesktopGroupBox[]
+}
 
 /** the editor kinds a tab can be pinned to the desktop as a live widget */
 export type DesktopPinKind = 'docs' | 'sheets' | 'slides' | 'pdf' | 'markdown' | 'html'
@@ -725,6 +745,24 @@ export interface DesktopPrefs {
   useStacks?: boolean
   /** recent file paths hidden from desktop surface without removing from global recents */
   hiddenRecentPaths?: string[]
+  /** auto-hide the shell window top tab bar and window header when maximized or fullscreen (defaults to true) */
+  autoHideTopBarOnMaximize?: boolean
+}
+
+/** Main-window chrome visibility and top-bar auto-hide state pushed to renderers. */
+export interface WindowChromeState {
+  readonly maximized: boolean
+  readonly fullScreen: boolean
+  readonly autoHideEnabled: boolean
+  readonly autoHideActive: boolean
+  readonly revealed: boolean
+}
+
+/** Renderer -> main hot-edge transitions for the top tab strip while maximized auto-hide is active. */
+export interface TopBarHotEdgeReport {
+  enter?: boolean
+  leave?: boolean
+  pin?: boolean
 }
 
 // The dock prefs' shape and clamps live in desktop-geometry.ts, shared with
@@ -1049,6 +1087,12 @@ export interface HomeApi {
   onDeepLink(handler: (payload: DeepLinkPayload) => void): () => void
   /** the desktop prefs were changed outside this renderer (CLI / MCP desktop domain) */
   onDesktopPrefsChanged(handler: (prefs: DesktopPrefs) => void): () => void
+  /** current shell window chrome state (maximized, fullscreen, auto-hide active/revealed) */
+  getWindowChromeState?(): Promise<WindowChromeState>
+  /** subscribe to shell window chrome state updates from main */
+  onWindowChromeStateChanged?(handler: (state: WindowChromeState) => void): () => void
+  /** report pointer enter/leave/pin on the top bar edge while maximized auto-hide is active */
+  topBarHotEdge?(report: TopBarHotEdgeReport): void
   // ---- the AI drawer's prefs (app-settings.json `aiDock`) ----
   // Optional so partial test stubs (and a preload from before the workbench)
   // keep typing: the renderer clamps whatever it reads and falls back to a
@@ -2048,6 +2092,10 @@ export const HOME_CHANNELS = {
    *  `enter` from the strip summons the dock (or cancels a pending hide),
    *  `leave` from the revealed dock arms the grace timer */
   dockHotEdge: 'home:dock-hot-edge',
+  /** main ↔ renderer: shell window chrome auto-hide state & top-bar hot-edge reports */
+  windowChromeState: 'home:window-chrome-state',
+  windowChromeStateChanged: 'home:window-chrome-state-changed',
+  topBarHotEdge: 'home:top-bar-hot-edge',
   /** renderer → main: one routed doc-mode dock action (nav / settings /
    *  templates / close) — main activates the Home tab and delivers the
    *  intent (a close intent is delivered WITHOUT the tab raise) */

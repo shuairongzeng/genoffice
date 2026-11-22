@@ -41,6 +41,7 @@ export interface DesktopWindowProps {
   readonly minHeight?: number
   readonly labels: DesktopWindowLabels
   readonly headerActions?: ReactNode
+  readonly autoHideHeaderOnMaximize?: boolean
   readonly onFocus: () => void
   readonly onRectChange: (rect: WindowRect, snap?: DesktopWindowSnap) => void
   readonly onMiniPosChange?: (pos: { x: number; y: number }) => void
@@ -74,6 +75,7 @@ export function DesktopWindow({
   minHeight,
   labels,
   headerActions,
+  autoHideHeaderOnMaximize = true,
   onFocus,
   onRectChange,
   onMiniPosChange,
@@ -108,6 +110,46 @@ export function DesktopWindow({
 
   const dragCleanupRef = useRef<(() => void) | null>(null)
   useEffect(() => () => dragCleanupRef.current?.(), [])
+
+  const isAutoHideHeader = mode === 'maximized' && autoHideHeaderOnMaximize
+  const [headerRevealed, setHeaderRevealed] = useState(false)
+  const hideHeaderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pointerOverHeaderRef = useRef(false)
+  const headerFocusPinnedRef = useRef(false)
+
+  const clearHideHeaderTimer = (): void => {
+    if (hideHeaderTimerRef.current !== null) {
+      clearTimeout(hideHeaderTimerRef.current)
+      hideHeaderTimerRef.current = null
+    }
+  }
+
+  useEffect(() => {
+    if (!isAutoHideHeader) {
+      clearHideHeaderTimer()
+      pointerOverHeaderRef.current = false
+      headerFocusPinnedRef.current = false
+      setHeaderRevealed(false)
+    }
+    return () => clearHideHeaderTimer()
+  }, [isAutoHideHeader])
+
+  const revealMaxHeader = (): void => {
+    if (!isAutoHideHeader) return
+    clearHideHeaderTimer()
+    setHeaderRevealed(true)
+  }
+
+  const scheduleHideMaxHeader = (): void => {
+    clearHideHeaderTimer()
+    if (!isAutoHideHeader || pointerOverHeaderRef.current || headerFocusPinnedRef.current) return
+    hideHeaderTimerRef.current = setTimeout(() => {
+      hideHeaderTimerRef.current = null
+      if (!pointerOverHeaderRef.current && !headerFocusPinnedRef.current) {
+        setHeaderRevealed(false)
+      }
+    }, 280)
+  }
 
   const startTitleDrag = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0) return
@@ -356,6 +398,8 @@ export function DesktopWindow({
     'desktop-window',
     focused ? 'is-focused' : '',
     mode === 'maximized' ? 'is-maximized' : '',
+    isAutoHideHeader ? 'is-autohide-header' : '',
+    isAutoHideHeader && (headerRevealed || interacting) ? 'is-header-revealed' : '',
     mode === 'mini' ? 'is-mini' : '',
     isHidden ? 'is-minimized' : '',
     interacting ? 'is-interacting' : '',
@@ -402,10 +446,43 @@ export function DesktopWindow({
           if (mode === 'mini') startMiniDrag(event)
         }}
       >
+        {isAutoHideHeader && !isHidden && (
+          <div
+            key="top-hotedge"
+            className="desktop-window-top-hotedge"
+            data-testid={`${testId}-top-hotedge`}
+            onPointerEnter={() => {
+              pointerOverHeaderRef.current = true
+              revealMaxHeader()
+            }}
+          />
+        )}
         {mode !== 'mini' && (
           <header
             key="titlebar"
             className="desktop-window-titlebar"
+            onPointerEnter={() => {
+              if (!isAutoHideHeader) return
+              pointerOverHeaderRef.current = true
+              revealMaxHeader()
+            }}
+            onPointerLeave={() => {
+              if (!isAutoHideHeader) return
+              pointerOverHeaderRef.current = false
+              scheduleHideMaxHeader()
+            }}
+            onFocusCapture={() => {
+              if (!isAutoHideHeader) return
+              headerFocusPinnedRef.current = true
+              revealMaxHeader()
+            }}
+            onBlurCapture={(event) => {
+              if (!isAutoHideHeader) return
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                headerFocusPinnedRef.current = false
+                scheduleHideMaxHeader()
+              }
+            }}
             onPointerDown={startTitleDrag}
             onDoubleClick={(event) => {
               const target = event.target as HTMLElement | null

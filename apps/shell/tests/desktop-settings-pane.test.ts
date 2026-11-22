@@ -139,5 +139,24 @@ describe('SettingsModal — Desktop & Wallpaper pane', () => {
         .querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Use stacks"]')!
         .getAttribute('aria-checked'),
     ).toBe('true')
+
+    // Toggle auto-hide top bar when maximized (defaults to enabled)
+    const autoHideSwitch = host.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="Auto-hide top bar when maximized"]',
+    )!
+    expect(autoHideSwitch.getAttribute('aria-checked')).toBe('true')
+    await act(async () => {
+      autoHideSwitch.click()
+      await Promise.resolve()
+    })
+    expect(saves.at(-1)).toMatchObject({ autoHideTopBarOnMaximize: false })
+
+    await act(async () => {
+      for (const h of pushHandlers) {
+        h({ ...currentPrefs, autoHideTopBarOnMaximize: true })
+      }
+      await Promise.resolve()
+    })
+    expect(autoHideSwitch.getAttribute('aria-checked')).toBe('true')
   })
 })

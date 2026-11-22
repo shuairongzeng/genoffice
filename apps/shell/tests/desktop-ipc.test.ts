@@ -269,6 +269,91 @@ describe('home:desktop-layout-save', () => {
       aliases: [],
     })
   })
+
+  it('normalizes and persists desktop group boxes while preserving boxes when positions-only saves omit them', async () => {
+    await saveLayout({
+      positions: { 'app:docs': at(12, 12) },
+      boxes: [
+        {
+          id: 'box:1',
+          title: '  Work Docs  ',
+          x: -50,
+          y: 20,
+          width: 100,
+          height: 80,
+          collapsed: false,
+          color: 'invalid-color',
+          itemIds: ['app:docs', 'app:docs', 'app:sheets'],
+        },
+        {
+          id: 'box:2',
+          title: 'Second Box',
+          x: 400,
+          y: 60,
+          width: 340,
+          height: 260,
+          collapsed: true,
+          locked: true,
+          color: 'blue',
+          itemIds: ['app:sheets', 'app:pdf'],
+        },
+      ],
+    })
+
+    const saved = (await readLayout()) as {
+      positions: Record<string, { x: number; y: number }>
+      boxes?: Array<{
+        id: string
+        title: string
+        x: number
+        y: number
+        width: number
+        height: number
+        color: string
+        collapsed: boolean
+        locked?: boolean
+        itemIds: string[]
+      }>
+    }
+    expect(saved.boxes).toHaveLength(2)
+    expect(saved.boxes?.[0]).toEqual({
+      id: 'box:1',
+      title: 'Work Docs',
+      x: 0,
+      y: 20,
+      width: 220,
+      height: 156,
+      collapsed: false,
+      color: 'glass',
+      itemIds: ['app:docs', 'app:sheets'],
+    })
+    // Duplicate itemIds claimed by an earlier box are stripped so ownership stays unique
+    expect(saved.boxes?.[1]).toEqual({
+      id: 'box:2',
+      title: 'Second Box',
+      x: 400,
+      y: 60,
+      width: 340,
+      height: 260,
+      collapsed: true,
+      locked: true,
+      color: 'blue',
+      itemIds: ['app:pdf'],
+    })
+
+    // Positions-only save without `boxes` key keeps persisted boxes intact
+    await saveLayout({ positions: { 'app:docs': at(108, 12) } })
+    const afterPosOnly = (await readLayout()) as typeof saved
+    expect(afterPosOnly.positions).toEqual({ 'app:docs': at(108, 12) })
+    expect(afterPosOnly.boxes).toHaveLength(2)
+
+    // Saving explicit empty boxes removes the key cleanly
+    await saveLayout({ positions: { 'app:docs': at(108, 12) }, boxes: [] })
+    await expect(readLayout()).resolves.toEqual({
+      positions: { 'app:docs': at(108, 12) },
+      aliases: [],
+    })
+  })
 })
 
 describe('the file is never half-written', () => {
@@ -490,13 +575,14 @@ describe('home:desktop-prefs-save', () => {
     })
   })
 
-  it('refuses invalid optional recentsMode, useStacks, or hiddenRecentPaths fields', async () => {
+  it('refuses invalid optional recentsMode, useStacks, autoHideTopBarOnMaximize, or hiddenRecentPaths fields', async () => {
     await savePrefs(VALID)
     const before = readFileSync(desktopPrefsPath(userData), 'utf8')
     for (const bad of [
       { ...VALID, recentsMode: 'bogus' },
       { ...VALID, recentsMode: 123 },
       { ...VALID, useStacks: 'yes' },
+      { ...VALID, autoHideTopBarOnMaximize: 'yes' },
       { ...VALID, hiddenRecentPaths: '/not/an/array' },
       { ...VALID, hiddenRecentPaths: [''] },
       { ...VALID, hiddenRecentPaths: [42] },
@@ -504,6 +590,9 @@ describe('home:desktop-prefs-save', () => {
       await expect(savePrefs(bad), `${JSON.stringify(bad)} should refuse`).rejects.toThrow()
     }
     expect(readFileSync(desktopPrefsPath(userData), 'utf8')).toBe(before)
+
+    await savePrefs({ ...VALID, autoHideTopBarOnMaximize: false })
+    await expect(readPrefs()).resolves.toMatchObject({ autoHideTopBarOnMaximize: false })
   })
 
   it('broadcasts desktop-prefs-changed to live webContents after saving and skips destroyed ones', async () => {

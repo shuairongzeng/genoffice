@@ -23,8 +23,53 @@
 import type { Rect } from './tab-drag-geometry'
 import { DOCK_BASE_DEFAULT, DOCK_MAX_SCALE_DEFAULT } from './dock-prefs'
 
-/** Fallback height of the desktop's header band — the embedded tab strip. Must
- *  stay in sync with `.work-tabs` in the renderer's home.css (44px today). */
+/** Thickness of the invisible hot trigger strip at the top edge when maximized auto-hide is active, CSS px. */
+export const TOP_BAR_OVERLAY_STRIP = 4
+
+/**
+ * Computes the two bounds rects for the doc-mode top-bar native overlay in window pixels:
+ * - `strip`: thin 4px top-edge trigger band that lets document content render right under the top edge
+ * - `bar`: full-width revealed tab strip (`desktopHeaderHeight(scale)` tall)
+ */
+export function topBarOverlayBounds(
+  window: { width: number; height: number },
+  scale = 1,
+): { strip: Rect; bar: Rect } {
+  const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1
+  const winW = Math.max(0, Math.round(window.width))
+  const stripH = Math.max(2, Math.round(TOP_BAR_OVERLAY_STRIP * safeScale))
+  const barH = Math.max(stripH, desktopHeaderHeight(safeScale))
+  return {
+    strip: { x: 0, y: 0, width: winW, height: stripH },
+    bar: { x: 0, y: 0, width: winW, height: barH },
+  }
+}
+
+/**
+ * Checks whether a screen-space cursor coordinate sits inside the shell window's
+ * revealed top-bar band (plus a small vertical tolerance for caption button hitboxes).
+ */
+export function isPointInTopBarBand(
+  point: { x: number; y: number },
+  contentBounds: Rect,
+  headerHeight: number,
+  slack = 8,
+): boolean {
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return false
+  if (contentBounds.width <= 0 || contentBounds.height <= 0) return false
+  const bandBottom = contentBounds.y + Math.max(1, Math.round(headerHeight)) + Math.max(0, slack)
+  return (
+    point.x >= contentBounds.x &&
+    point.x <= contentBounds.x + contentBounds.width &&
+    point.y >= contentBounds.y - Math.max(0, slack) &&
+    point.y <= bandBottom
+  )
+}
+
+/**
+ * Fallback height of the desktop's header band — the embedded tab strip. Must
+ * stay in sync with `.work-tabs` in the renderer's home.css (44px today).
+ */
 export const DESKTOP_HEADER_HEIGHT = 44
 
 /**

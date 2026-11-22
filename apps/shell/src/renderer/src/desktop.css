@@ -1645,7 +1645,366 @@
   .desktop-stack-layer,
   .desktop-stack-face,
   .desktop-props-toggle-pill,
-  .desktop-props-toggle-pill::after {
+  .desktop-props-toggle-pill::after,
+  .desktop-box {
     transition: none;
   }
+}
+
+/* ── user-defined desktop group boxes ─────────────────── */
+
+.desktop-boxes-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.desktop-box {
+  --desktop-box-tint: var(--surface);
+  --desktop-box-accent: var(--accent);
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--desktop-box-tint) 76%, transparent);
+  border: 1px solid color-mix(in srgb, var(--desktop-box-accent) 26%, var(--border-strong));
+  box-shadow: var(--shadow-menu);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  backdrop-filter: blur(20px) saturate(1.25);
+  overflow: hidden;
+  transition:
+    border-color 0.14s ease,
+    box-shadow 0.14s ease,
+    height 0.16s ease;
+}
+
+.desktop-box.is-interacting {
+  transition: none;
+  user-select: none;
+}
+
+.desktop-box[data-box-color='glass'] {
+  --desktop-box-tint: var(--surface);
+  --desktop-box-accent: var(--border-strong);
+}
+
+.desktop-box[data-box-color='blue'] {
+  --desktop-box-tint: color-mix(in srgb, var(--desktop-tile-docs) 14%, var(--surface));
+  --desktop-box-accent: var(--desktop-tile-docs);
+}
+
+.desktop-box[data-box-color='emerald'] {
+  --desktop-box-tint: color-mix(in srgb, var(--desktop-tile-sheets) 14%, var(--surface));
+  --desktop-box-accent: var(--desktop-tile-sheets);
+}
+
+.desktop-box[data-box-color='amber'] {
+  --desktop-box-tint: color-mix(in srgb, var(--desktop-tile-plugins) 14%, var(--surface));
+  --desktop-box-accent: var(--desktop-tile-plugins);
+}
+
+.desktop-box[data-box-color='rose'] {
+  --desktop-box-tint: color-mix(in srgb, var(--desktop-tile-player) 14%, var(--surface));
+  --desktop-box-accent: var(--desktop-tile-player);
+}
+
+.desktop-box[data-box-color='violet'] {
+  --desktop-box-tint: color-mix(in srgb, var(--desktop-tile-markdown) 14%, var(--surface));
+  --desktop-box-accent: var(--desktop-tile-markdown);
+}
+
+.home.desktop-mode[data-wallpaper-tone='dark'] .desktop-box {
+  background: color-mix(in srgb, var(--desktop-box-tint) 62%, transparent);
+}
+
+.desktop-box.is-drop-target {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    var(--shadow-menu);
+}
+
+.desktop-box-header {
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--desktop-box-accent) 18%, var(--border));
+  background: color-mix(in srgb, var(--desktop-box-tint) 42%, transparent);
+  cursor: grab;
+  user-select: none;
+}
+
+.desktop-box.is-collapsed .desktop-box-header {
+  border-bottom-color: transparent;
+}
+
+.desktop-box.is-locked .desktop-box-header {
+  cursor: default;
+}
+
+.desktop-box.is-interacting .desktop-box-header {
+  cursor: grabbing;
+}
+
+.desktop-box-color-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--desktop-box-accent);
+}
+
+.desktop-box-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.desktop-box-title-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-content);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  outline: none;
+}
+
+.desktop-box-count {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.desktop-box-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.desktop-box-ctrl-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.desktop-box-ctrl-btn:hover,
+.desktop-box-ctrl-btn.active {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text);
+}
+
+.desktop-box-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+  scrollbar-width: thin;
+}
+
+.desktop-box-empty {
+  height: 100%;
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px dashed color-mix(in srgb, var(--border-strong) 70%, transparent);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.desktop-box-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(82px * var(--desktop-icon-scale)), 1fr));
+  gap: 6px;
+}
+
+.desktop-box-cell {
+  display: flex;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.desktop-box-cell .desktop-icon-item {
+  width: 100%;
+}
+
+.desktop-box-cell.selected .desktop-icon-item {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.desktop-box-cell.drag-source {
+  opacity: 0.25;
+}
+
+.desktop-box-resize {
+  position: absolute;
+  z-index: 6;
+}
+
+.desktop-box-resize.n {
+  top: 0;
+  left: 8px;
+  right: 8px;
+  height: 5px;
+  cursor: ns-resize;
+}
+
+.desktop-box-resize.s {
+  bottom: 0;
+  left: 8px;
+  right: 8px;
+  height: 5px;
+  cursor: ns-resize;
+}
+
+.desktop-box-resize.e {
+  top: 8px;
+  bottom: 8px;
+  right: 0;
+  width: 5px;
+  cursor: ew-resize;
+}
+
+.desktop-box-resize.w {
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 5px;
+  cursor: ew-resize;
+}
+
+.desktop-box-resize.nw {
+  top: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nwse-resize;
+}
+
+.desktop-box-resize.ne {
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nesw-resize;
+}
+
+.desktop-box-resize.se {
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nwse-resize;
+}
+
+.desktop-box-resize.sw {
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nesw-resize;
+}
+
+/* Box color swatches inside box context menu */
+.desktop-box-color-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 9px;
+}
+
+.desktop-box-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+
+.desktop-box-swatch[data-box-color='glass'] {
+  background: var(--border-strong);
+}
+
+.desktop-box-swatch[data-box-color='blue'] {
+  background: var(--desktop-tile-docs);
+}
+
+.desktop-box-swatch[data-box-color='emerald'] {
+  background: var(--desktop-tile-sheets);
+}
+
+.desktop-box-swatch[data-box-color='amber'] {
+  background: var(--desktop-tile-plugins);
+}
+
+.desktop-box-swatch[data-box-color='rose'] {
+  background: var(--desktop-tile-player);
+}
+
+.desktop-box-swatch[data-box-color='violet'] {
+  background: var(--desktop-tile-markdown);
+}
+
+.desktop-box-swatch[aria-pressed='true'] {
+  border-color: var(--text);
+  transform: scale(1.12);
+}
+
+.desktop-icon-menu-row {
+  position: relative;
+}
+
+.desktop-icon-menu-row > button::after {
+  content: '▸';
+  float: inline-end;
+  margin-inline-start: 16px;
+  color: var(--text-tertiary);
+}
+
+[dir='rtl'] .desktop-icon-menu-row > button::after {
+  content: '◂';
+}
+
+.desktop-icon-menu-row > .desktop-submenu {
+  max-height: 260px;
+  overflow-y: auto;
 }

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent } from 'react'
 import {
   AiDock,
@@ -48,6 +48,7 @@ import type {
   RecentEntry,
   FileSearchPage,
   FileSearchRerank,
+  WindowChromeState,
 } from '../../shared/home-api'
 import type { TabsApi } from '../../shared/tabs-api'
 import type { IntegrationsApi } from '../../shared/integrations-api'
@@ -439,6 +440,59 @@ export function Home() {
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
     height: typeof window !== 'undefined' ? window.innerHeight : 800,
   }))
+  const [windowChromeState, setWindowChromeState] = useState<WindowChromeState>({
+    maximized: false,
+    fullScreen: false,
+    autoHideEnabled: true,
+    autoHideActive: false,
+    revealed: false,
+  })
+  const [autoHideTopBarEnabled, setAutoHideTopBarEnabled] = useState(true)
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    let alive = true
+    void api.getWindowChromeState?.().then((state) => {
+      if (alive) setWindowChromeState(state)
+    }, () => undefined)
+    const offChrome = api.onWindowChromeStateChanged?.((state) => {
+      if (alive) setWindowChromeState(state)
+    })
+    void api.desktopPrefs?.().then((prefs) => {
+      if (alive) setAutoHideTopBarEnabled(prefs.autoHideTopBarOnMaximize !== false)
+    }, () => undefined)
+    const offPrefs = api.onDesktopPrefsChanged?.((prefs) => {
+      if (alive) setAutoHideTopBarEnabled(prefs.autoHideTopBarOnMaximize !== false)
+    })
+    return () => {
+      alive = false
+      offChrome?.()
+      offPrefs?.()
+    }
+  }, [])
+  const topBarAutoHide = windowChromeState.autoHideActive
+  const topBarRevealed = topBarAutoHide && windowChromeState.revealed
+  useEffect(() => {
+    if (!topBarAutoHide || !topBarRevealed) return
+    let leaveReported = false
+    const handlePointerMove = (event: PointerEvent) => {
+      const tabsRect = document.querySelector('.work-tabs')?.getBoundingClientRect()
+      const bandBottom = Math.max(52, Math.round((tabsRect?.bottom ?? 44) + 12))
+      if (event.clientY > bandBottom) {
+        if (!leaveReported) {
+          leaveReported = true
+          window.aiOffice.topBarHotEdge?.({ leave: true })
+        }
+      } else {
+        leaveReported = false
+      }
+    }
+    window.addEventListener('pointermove', handlePointerMove, { passive: true })
+    return () => window.removeEventListener('pointermove', handlePointerMove)
+  }, [topBarAutoHide, topBarRevealed])
+  const effectivePlayerStage = useMemo<StageBounds>(
+    () => (topBarAutoHide ? { ...windowStage, topInset: 8 } : windowStage),
+    [topBarAutoHide, windowStage],
+  )
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
     const stage = stageRef.current
@@ -2855,7 +2909,9 @@ export function Home() {
   dockGroupsRef.current = dockGroups
 
   return (
-    <div className={`home${desktopMode ? ' desktop-mode' : ''}`}>
+    <div
+      className={`home${desktopMode ? ' desktop-mode' : ''}${topBarAutoHide ? ' topbar-autohide' : ''}${topBarRevealed ? ' topbar-revealed' : ''}`}
+    >
       {desktopMode && (
         <div className="home-desktop-backdrop" aria-hidden="true" ref={setBackdropHost} />
       )}
@@ -2865,8 +2921,9 @@ export function Home() {
           lang={lang}
           visible={desktopMode && !docTabActive}
           focused={playerFocused}
-          stage={windowStage}
+          stage={effectivePlayerStage}
           mode={playerMode}
+          autoHideHeaderOnMaximize={autoHideTopBarEnabled}
           loadRequest={playerLoadReq}
           command={playerCmd}
           onFocus={() => setPlayerFocused(true)}
@@ -2931,6 +2988,14 @@ export function Home() {
         />
       )}
       <div className="home-body">
+        {topBarAutoHide && !docTabActive && (
+          <div
+            className="work-tabs-hotedge"
+            data-testid="topbar-hotedge"
+            aria-hidden="true"
+            onPointerEnter={() => window.aiOffice.topBarHotEdge?.({ enter: true })}
+          />
+        )}
         <HomeTabs
           lang={lang}
           tabs={workTabs}
@@ -2938,6 +3003,12 @@ export function Home() {
           onShowDesktop={showDesktopTab}
           onActivate={activateWorkTab}
           onClose={closeWorkTab}
+          onPointerEnter={
+            topBarAutoHide ? () => window.aiOffice.topBarHotEdge?.({ enter: true }) : undefined
+          }
+          onPointerLeave={
+            topBarAutoHide ? () => window.aiOffice.topBarHotEdge?.({ leave: true }) : undefined
+          }
         />
         {/* the content stage: the desktop or a list view while nothing else
          *  owns it, and the exact rect the main process bounds the active

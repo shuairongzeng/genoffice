@@ -15,6 +15,8 @@ import {
 } from './knowledge-base'
 import {
   HOME_CHANNELS,
+  type DesktopBoxColor,
+  type DesktopGroupBox,
   type DesktopLayout,
   type DesktopPinRecord,
   type DesktopPrefs,
@@ -74,6 +76,22 @@ const WALLPAPER_FITS: ReadonlySet<string> = new Set([
 const LABEL_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 const RECENTS_MODES: ReadonlySet<string> = new Set(['stack', 'spread', 'off'])
 const MAX_HIDDEN_RECENTS = 200
+const MAX_BOXES = 24
+const MAX_BOX_ITEMS = 120
+const MAX_BOX_TITLE_CHARS = 80
+const MAX_BOX_ID_CHARS = 80
+const BOX_MIN_WIDTH = 220
+const BOX_MAX_WIDTH = 1400
+const BOX_MIN_HEIGHT = 156
+const BOX_MAX_HEIGHT = 1000
+const BOX_COLORS: ReadonlySet<DesktopBoxColor> = new Set([
+  'glass',
+  'blue',
+  'emerald',
+  'amber',
+  'rose',
+  'violet',
+])
 
 /** what a fresh profile (or a corrupt file) gets */
 export const DEFAULT_DESKTOP_PREFS: DesktopPrefs = {
@@ -106,6 +124,64 @@ const clampCoord = (value: number): number => Math.min(MAX_COORD, Math.max(0, va
  * is not an object is the empty layout; entries that lost their shape are
  * dropped individually so one bad line never costs the rest of the map.
  */
+function normalizeBoxes(raw: unknown): DesktopGroupBox[] {
+  if (!Array.isArray(raw)) return []
+  const out: DesktopGroupBox[] = []
+  const seenBoxIds = new Set<string>()
+  const seenItems = new Set<string>()
+  for (const entry of raw) {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const b = entry as Record<string, unknown>
+    if (typeof b.id !== 'string') continue
+    const id = b.id.trim().slice(0, MAX_BOX_ID_CHARS)
+    if (!id || seenBoxIds.has(id)) continue
+    if (
+      typeof b.x !== 'number' ||
+      !Number.isFinite(b.x) ||
+      typeof b.y !== 'number' ||
+      !Number.isFinite(b.y) ||
+      typeof b.width !== 'number' ||
+      !Number.isFinite(b.width) ||
+      typeof b.height !== 'number' ||
+      !Number.isFinite(b.height)
+    ) {
+      continue
+    }
+    const rawTitle = typeof b.title === 'string' ? b.title.trim() : ''
+    const title = (rawTitle || 'Group').slice(0, MAX_BOX_TITLE_CHARS)
+    const color: DesktopBoxColor =
+      typeof b.color === 'string' && BOX_COLORS.has(b.color as DesktopBoxColor)
+        ? (b.color as DesktopBoxColor)
+        : 'glass'
+    const itemIds: string[] = []
+    if (Array.isArray(b.itemIds)) {
+      for (const rawItemId of b.itemIds) {
+        if (typeof rawItemId !== 'string') continue
+        const itemId = rawItemId.trim()
+        if (!itemId || itemId.length > MAX_ALIAS_CHARS || seenItems.has(itemId)) continue
+        seenItems.add(itemId)
+        itemIds.push(itemId)
+        if (itemIds.length >= MAX_BOX_ITEMS) break
+      }
+    }
+    seenBoxIds.add(id)
+    out.push({
+      id,
+      title,
+      x: Math.round(clampCoord(b.x)),
+      y: Math.round(clampCoord(b.y)),
+      width: clampInt(Math.round(b.width), BOX_MIN_WIDTH, BOX_MAX_WIDTH),
+      height: clampInt(Math.round(b.height), BOX_MIN_HEIGHT, BOX_MAX_HEIGHT),
+      collapsed: b.collapsed === true,
+      color,
+      ...(b.locked === true ? { locked: true } : {}),
+      itemIds,
+    })
+    if (out.length >= MAX_BOXES) break
+  }
+  return out
+}
+
 function normalizeLayout(raw: unknown): DesktopLayout {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return emptyLayout()
   const source = (raw as { positions?: unknown }).positions
@@ -118,7 +194,13 @@ function normalizeLayout(raw: unknown): DesktopLayout {
     positions[id] = { x: clampCoord(value.x), y: clampCoord(value.y) }
     if (Object.keys(positions).length >= MAX_ENTRIES) break
   }
-  return { positions, aliases: normalizeAliases((raw as { aliases?: unknown }).aliases) }
+  const rawBoxes = (raw as { boxes?: unknown }).boxes
+  const boxes = Array.isArray(rawBoxes) ? normalizeBoxes(rawBoxes) : undefined
+  return {
+    positions,
+    aliases: normalizeAliases((raw as { aliases?: unknown }).aliases),
+    ...(boxes && boxes.length > 0 ? { boxes } : {}),
+  }
 }
 
 /** the layout an absent, corrupt or foreign file reads as */
@@ -420,6 +502,8 @@ export interface DesktopIpcDeps {
   userDataDir?: () => string
   /** the wallpaper image picker; default opens the OS dialog on the caller's window */
   pickImage?: (event: IpcMainInvokeEvent) => Promise<string | null>
+  /** optional hook notified whenever desktopPrefsSave commits normalized preferences */
+  onDesktopPrefsChanged?: (prefs: DesktopPrefs) => void
 }
 
 /** dev ships the wallpapers from the app's own build tree; the packaged app
@@ -510,12 +594,22 @@ export function registerDesktopIpc(deps: DesktopIpcDeps = {}): void {
         throw new Error('every desktop position must be { x: number, y: number }')
       }
     }
+    const rawBoxes = (raw as { boxes?: unknown }).boxes
+    if (rawBoxes !== undefined && !Array.isArray(rawBoxes)) {
+      throw new Error('desktop layout boxes must be an array when present')
+    }
     await queueLayoutWrite(async () => {
       // the alias list is owned by the add/remove channels: whatever an
       // `aliases` field carries, the stored list survives this save untouched
       // (ignored, not refused, for the stale-preload reason above)
       const stored = readDesktopLayout(userDataDir())
-      await writeLayout(userDataDir(), { ...normalizeLayout(raw), aliases: stored.aliases })
+      const next = normalizeLayout(raw)
+      const boxes = rawBoxes !== undefined ? next.boxes : stored.boxes
+      await writeLayout(userDataDir(), {
+        positions: next.positions,
+        aliases: stored.aliases,
+        ...(boxes && boxes.length > 0 ? { boxes } : {}),
+      })
     })
   })
 
@@ -633,6 +727,7 @@ export function registerDesktopIpc(deps: DesktopIpcDeps = {}): void {
     }
     const normalized = normalizePrefs(raw)
     await writeDesktopPrefs(userDataDir(), normalized)
+    deps.onDesktopPrefsChanged?.(normalized)
     for (const wc of webContents.getAllWebContents()) {
       if (!wc.isDestroyed()) wc.send(HOME_CHANNELS.desktopPrefsChanged, normalized)
     }
@@ -819,6 +914,9 @@ export function normalizePrefs(raw: unknown): DesktopPrefs {
   if (Array.isArray(source.hiddenRecentPaths)) {
     prefs.hiddenRecentPaths = normalizeHiddenRecentPaths(source.hiddenRecentPaths)
   }
+  if (typeof source.autoHideTopBarOnMaximize === 'boolean') {
+    prefs.autoHideTopBarOnMaximize = source.autoHideTopBarOnMaximize
+  }
   return prefs
 }
 
@@ -848,6 +946,12 @@ function isDesktopPrefs(value: unknown): value is DesktopPrefs {
     ) {
       return false
     }
+  }
+  if (
+    prefs.autoHideTopBarOnMaximize !== undefined &&
+    typeof prefs.autoHideTopBarOnMaximize !== 'boolean'
+  ) {
+    return false
   }
   return (
     typeof prefs.wallpaper === 'string' &&

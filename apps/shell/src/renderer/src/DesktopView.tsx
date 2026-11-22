@@ -11,6 +11,8 @@ import { createPortal } from 'react-dom'
 import { htmlDir, type Lang } from '@genoffice/i18n'
 import { useDismissablePopover } from '@genoffice/ui'
 import type {
+  DesktopBoxColor,
+  DesktopGroupBox as DesktopGroupBoxModel,
   DesktopPinInfo,
   DesktopPrefs,
   DesktopRecentsMode,
@@ -20,6 +22,19 @@ import type {
 } from '../../shared/home-api'
 import type { DockCustomAddStatus, DockCustomCandidate } from '../../shared/dock-prefs'
 import type { DockGhostFrom } from './dock-ghost'
+import { DesktopGroupBox } from './DesktopGroupBox'
+import {
+  assignItemsToBox,
+  bringBoxToFront,
+  clampBoxRect,
+  createGroupBox,
+  DESKTOP_BOX_COLORS,
+  dissolveBox,
+  findBoxAtPoint,
+  MAX_DESKTOP_BOXES,
+  partitionDesktopItems,
+  removeItemsFromBoxes,
+} from './desktop-boxes'
 import { DesktopPropsDialog, IconPropsDialog } from './DesktopProperties'
 import type { DesktopPropsTarget } from './DesktopProperties'
 import {
@@ -473,13 +488,16 @@ function quantizePositions(
   return out
 }
 
-/** stable serialized form of a positions map, for change detection */
-function serializePositions(positions: Readonly<Record<string, IconPos>>): string {
-  return JSON.stringify(
-    Object.keys(positions)
-      .sort()
-      .map((id) => [id, positions[id]!.x, positions[id]!.y]),
-  )
+/** stable serialized form of positions + optional group boxes, for change detection */
+function serializeLayoutSnapshot(
+  positions: Readonly<Record<string, IconPos>>,
+  boxes: readonly DesktopGroupBoxModel[],
+  includeBoxes: boolean,
+): string {
+  const posList = Object.keys(positions)
+    .sort()
+    .map((id) => [id, positions[id]!.x, positions[id]!.y])
+  return JSON.stringify(includeBoxes ? { positions: posList, boxes } : { positions: posList })
 }
 
 /** the read-only sort flows pin nothing: every icon flows in sorted order */
@@ -577,6 +595,15 @@ export function DesktopView({
   // ── layout state ──
   /** saved positions only: what the file holds, what a drag or reset edits */
   const [positions, setPositions] = useState<Readonly<Record<string, IconPos>>>({})
+  const [boxes, setBoxes] = useState<readonly DesktopGroupBoxModel[]>([])
+  const boxesRef = useRef(boxes)
+  boxesRef.current = boxes
+  const boxesTouchedRef = useRef(false)
+  const [hoverBoxId, setHoverBoxId] = useState<string | null>(null)
+  const [editingBoxId, setEditingBoxId] = useState<string | null>(null)
+  const [boxMenu, setBoxMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [iconBoxSubOpen, setIconBoxSubOpen] = useState(false)
+  const boxMenuRef = useRef<HTMLDivElement | null>(null)
   const [loaded, setLoaded] = useState(false)
 
   // ── the selection layer (render state only — nothing persists) ──
@@ -775,6 +802,12 @@ export function DesktopView({
     [rawItems, recentsMode, useStacks, hiddenRecentSet, s, openStackPopover],
   )
   const icons = useMemo(() => items.filter((item) => item.kind !== 'widget'), [items])
+  const { looseItems, boxItems, ownerByItemId } = useMemo(
+    () => partitionDesktopItems(icons, boxes),
+    [icons, boxes],
+  )
+  const ownerByItemIdRef = useRef(ownerByItemId)
+  ownerByItemIdRef.current = ownerByItemId
   const widgetCount = items.length - icons.length
   const openStackItem = useMemo(
     () =>
@@ -859,7 +892,7 @@ export function DesktopView({
     const api = window.aiOffice as Partial<HomeApi>
     const layoutRequest = api.desktopLayout?.()
     if (!layoutRequest) {
-      savedRef.current = serializePositions({})
+      savedRef.current = serializeLayoutSnapshot({}, [], false)
       setLoaded(true)
     } else {
       layoutRequest.then(
@@ -867,16 +900,20 @@ export function DesktopView({
           if (!alive) return
           const loaded = quantizePositions(layout?.positions, cellRef.current.w, cellRef.current.h)
           const aliases = layout?.aliases ?? []
+          const loadedBoxes = layout?.boxes ?? []
+          const hasBoxes = loadedBoxes.length > 0
+          if (hasBoxes) boxesTouchedRef.current = true
           // the loaded map is what is on disk: reloading it must not rewrite it
-          savedRef.current = serializePositions(loaded)
+          savedRef.current = serializeLayoutSnapshot(loaded, loadedBoxes, hasBoxes)
           setPositions(loaded)
+          setBoxes(loadedBoxes)
           setAliasList(aliases)
           statAliases(aliases)
           setLoaded(true)
         },
         () => {
           if (alive) {
-            savedRef.current = serializePositions({})
+            savedRef.current = serializeLayoutSnapshot({}, [], false)
             setLoaded(true)
           }
         },
@@ -952,19 +989,27 @@ export function DesktopView({
         retryTimerRef.current = window.setTimeout(() => void flush(), SAVE_DEBOUNCE_MS)
         return
       }
-      const snapshot = serializePositions(positionsRef.current)
+      const includeBoxes = boxesTouchedRef.current || boxesRef.current.length > 0
+      const snapshot = serializeLayoutSnapshot(
+        positionsRef.current,
+        boxesRef.current,
+        includeBoxes,
+      )
       if (snapshot === savedRef.current) return
       savingRef.current = true
       try {
-        // positions only: the alias list is written by the dedicated
-        // add/remove channels, which validate on the main-process side —
-        // a layout save can no longer carry alias paths
         await (window.aiOffice as Partial<HomeApi>).desktopLayoutSave?.({
           positions: positionsRef.current,
+          ...(includeBoxes ? { boxes: boxesRef.current } : {}),
         })
         savedRef.current = snapshot
-        // a change landed mid-flight: write the newest map right away
-        if (serializePositions(positionsRef.current) !== savedRef.current) {
+        if (
+          serializeLayoutSnapshot(
+            positionsRef.current,
+            boxesRef.current,
+            boxesTouchedRef.current || boxesRef.current.length > 0,
+          ) !== savedRef.current
+        ) {
           retryTimerRef.current = window.setTimeout(() => void flush(), 0)
         }
       } catch {
@@ -973,7 +1018,7 @@ export function DesktopView({
         savingRef.current = false
       }
     }
-  }, [positions, loaded])
+  }, [positions, boxes, loaded])
 
   useEffect(() => () => window.clearTimeout(retryTimerRef.current), [])
 
@@ -1236,6 +1281,10 @@ export function DesktopView({
   /** the read-only sort flows reorder the icon set and ignore the saved map;
    * choosing Custom restores it untouched */
   const orderedIcons = useMemo(
+    () => sortDesktopIcons(looseItems, prefs.sortMode),
+    [looseItems, prefs.sortMode],
+  )
+  const allOrderedIcons = useMemo(
     () => sortDesktopIcons(icons, prefs.sortMode),
     [icons, prefs.sortMode],
   )
@@ -1315,10 +1364,11 @@ export function DesktopView({
     const cells: GridCell[] = []
     for (const icon of iconsRef.current) {
       const pos = effectiveRef.current.get(icon.id)
+      if (!pos) continue
       cells.push({
         id: icon.id,
-        col: Math.round(((pos?.x ?? DESKTOP_PAD_X) - DESKTOP_PAD_X) / cellW),
-        row: Math.round(((pos?.y ?? DESKTOP_PAD_Y) - DESKTOP_PAD_Y) / cellH),
+        col: Math.round((pos.x - DESKTOP_PAD_X) / cellW),
+        row: Math.round((pos.y - DESKTOP_PAD_Y) / cellH),
       })
     }
     return cells
@@ -1425,8 +1475,12 @@ export function DesktopView({
         y: DESKTOP_PAD_Y + row * pitchH,
       }
       const from = effectiveRef.current.get(id)
-      if (!from || (from.x === target.x && from.y === target.y)) return
+      if (from && from.x === target.x && from.y === target.y) return
       if (group === null || group.length < 2) {
+        if (!from) {
+          setPositions((prev) => ({ ...prev, [id]: target }))
+          return
+        }
         // whoever sits at the target cell takes the dragged icon's old cell
         let occupant: string | null = null
         for (const [otherId, pos] of effectiveRef.current) {
@@ -1443,11 +1497,21 @@ export function DesktopView({
         })
         return
       }
+      if (!from) {
+        setPositions((prev) => {
+          const next: Record<string, IconPos> = { ...prev }
+          for (const member of group) {
+            next[member] = target
+          }
+          return next
+        })
+        return
+      }
       const dx = target.x - from.x
       const dy = target.y - from.y
-      const snapped = (x: number, y: number): IconPos => {
-        const mcol = clampInt(Math.round((x - DESKTOP_PAD_X) / pitchW), 0, colsRef.current - 1)
-        const mrow = clampInt(Math.round((y - DESKTOP_PAD_Y) / pitchH), 0, rowsRef.current - 1)
+      const snapped = (px: number, py: number): IconPos => {
+        const mcol = clampInt(Math.round((px - DESKTOP_PAD_X) / pitchW), 0, colsRef.current - 1)
+        const mrow = clampInt(Math.round((py - DESKTOP_PAD_Y) / pitchH), 0, rowsRef.current - 1)
         return { x: DESKTOP_PAD_X + mcol * pitchW, y: DESKTOP_PAD_Y + mrow * pitchH }
       }
       setPositions((prev) => {
@@ -1467,6 +1531,7 @@ export function DesktopView({
     const d = press
     let moved = false
     let last: { x: number; y: number } | null = null
+    let lastSurfacePt: { x: number; y: number } | null = null
     const onMove = (event: PointerEvent) => {
       if (pointerIdOf(event) !== d.pointerId) return
       const surface = surfaceRef.current
@@ -1476,11 +1541,16 @@ export function DesktopView({
         moved = true
       }
       const rect = surface.getBoundingClientRect()
+      const sx = event.clientX - rect.left + surface.scrollLeft
+      const sy = event.clientY - rect.top
+      lastSurfacePt = { x: sx, y: sy }
       last = {
-        x: Math.max(0, event.clientX - rect.left + surface.scrollLeft - d.grabX),
-        y: Math.max(0, event.clientY - rect.top - d.grabY),
+        x: Math.max(0, sx - d.grabX),
+        y: Math.max(0, sy - d.grabY),
       }
       setDrag({ id: d.id, x: last.x, y: last.y })
+      const hitBox = findBoxAtPoint(boxesRef.current, sx, sy)
+      setHoverBoxId((prev) => (prev === (hitBox?.id ?? null) ? prev : (hitBox?.id ?? null)))
       // the drag-over insert preview: while the carried icon is over the
       // pill, the host wants the pointer's x (the dock opens the gap the
       // drop would land in); off the pill, the gap closes. Read through the
@@ -1544,6 +1614,7 @@ export function DesktopView({
       // on a dock drop the real slot takes the spacer's place)
       gestureRef.current.onDockHover?.(null)
       setDragOverDock(false)
+      setHoverBoxId(null)
       if (commit && moved && last) {
         if (client && dockDropAt(client, d.group)) {
           dropGuardRef.current = Date.now() + DROP_DBLCLICK_GUARD_MS
@@ -1552,6 +1623,27 @@ export function DesktopView({
           return
         }
         dropGuardRef.current = Date.now() + DROP_DBLCLICK_GUARD_MS
+        const movingIds = (d.group !== null && d.group.length >= 2 ? d.group : [d.id]).filter(
+          (id) => {
+            const item = iconsRef.current.find((candidate) => candidate.id === id)
+            return item !== undefined && item.kind !== 'widget'
+          },
+        )
+        const dropBox = lastSurfacePt
+          ? findBoxAtPoint(boxesRef.current, lastSurfacePt.x, lastSurfacePt.y)
+          : null
+        if (dropBox && movingIds.length > 0) {
+          boxesTouchedRef.current = true
+          setBoxes((prev) => assignItemsToBox(prev, dropBox.id, movingIds))
+          setPress(null)
+          setDrag(null)
+          return
+        }
+        const cameFromBox = movingIds.some((id) => ownerByItemIdRef.current.has(id))
+        if (cameFromBox && movingIds.length > 0) {
+          boxesTouchedRef.current = true
+          setBoxes((prev) => removeItemsFromBoxes(prev, movingIds))
+        }
         if (gestureRef.current.freeLayout) commitDrop(d.id, last.x, last.y, d.group)
       }
       setPress(null)
@@ -1691,13 +1783,16 @@ export function DesktopView({
       }
       setMenu(null)
       setSurfaceMenu(null)
-      // Read-only sort modes still allow single-icon drags toward the dock while
+      setBoxMenu(null)
+      setIconBoxSubOpen(false)
+      // Read-only sort modes still allow drags toward the dock or group boxes while
       // leaving desktop grid reordering disabled (`finish` skips `commitDrop`).
       const canDragToDock =
         Boolean(dockPillRef?.current && onDockDrop) &&
         (group === null || group.length < 2) &&
         candidateForIcon(icon) !== null
-      if (!freeLayout && !canDragToDock) return
+      const canDragBoxes = boxesRef.current.length > 0
+      if (!freeLayout && !canDragToDock && !canDragBoxes) return
       const surface = surfaceRef.current
       if (!surface) return
       const rect = surface.getBoundingClientRect()
@@ -1731,10 +1826,10 @@ export function DesktopView({
   /** the selection's open action (Enter, the multi-menu): every icon, in grid order */
   const openSelection = useCallback(() => {
     if (selectedIds.size === 0) return
-    for (const icon of orderedIcons) {
+    for (const icon of allOrderedIcons) {
       if (selectedIds.has(icon.id)) icon.open()
     }
-  }, [selectedIds, orderedIcons])
+  }, [selectedIds, allOrderedIcons])
 
   // ── the selection's batch actions ──
 
@@ -1748,7 +1843,7 @@ export function DesktopView({
     (star: boolean) => {
       setMenu(null)
       const api = window.aiOffice as Partial<HomeApi>
-      const files = orderedIcons
+      const files = allOrderedIcons
         .filter((icon) => selectedIds.has(icon.id) && icon.kind === 'file' && icon.path !== null)
         .map((icon) => ({ path: icon.path!, starred: icon.starred === true }))
       if (files.length === 0) return
@@ -1768,7 +1863,7 @@ export function DesktopView({
         () => undefined,
       )
     },
-    [selectedIds, orderedIcons, reloadRecents, statAliases],
+    [selectedIds, allOrderedIcons, reloadRecents, statAliases],
   )
 
   /**
@@ -1807,6 +1902,14 @@ export function DesktopView({
         }
         return changed ? next : prev
       })
+      setBoxes((prev) => {
+        const next = removeItemsFromBoxes(prev, [...ids])
+        if (next.length !== prev.length || next.some((b, i) => b !== prev[i])) {
+          boxesTouchedRef.current = true
+          return next
+        }
+        return prev
+      })
       setSelectedIds((prev) => {
         let changed = false
         const next = new Set(prev)
@@ -1820,9 +1923,16 @@ export function DesktopView({
 
   // ── context menus (Home's .folder-menu conventions) ──
 
-  useDismissablePopover(menu !== null, () => setMenu(null), {
-    inside: () => [menuRef.current],
-  })
+  useDismissablePopover(
+    menu !== null,
+    () => {
+      setMenu(null)
+      setIconBoxSubOpen(false)
+    },
+    {
+      inside: () => [menuRef.current],
+    },
+  )
 
   useDismissablePopover(
     surfaceMenu !== null,
@@ -1832,6 +1942,10 @@ export function DesktopView({
     },
     { inside: () => [surfaceMenuRef.current] },
   )
+
+  useDismissablePopover(boxMenu !== null, () => setBoxMenu(null), {
+    inside: () => [boxMenuRef.current],
+  })
 
   useDismissablePopover(openStackItem !== null, () => setOpenStackId(null), {
     inside: () => [stackPopoverRef.current, stackOwnerRef.current],
@@ -1850,7 +1964,29 @@ export function DesktopView({
     )
     el.style.left = `${left}px`
     el.style.top = `${top}px`
-  }, [menu])
+    const flipped = submenuFlipsOutOfView(
+      left,
+      el.offsetWidth,
+      document.documentElement.clientWidth,
+      htmlDir(lang),
+    )
+    el.classList.toggle('flip-sub', flipped)
+  }, [menu, lang])
+
+  useLayoutEffect(() => {
+    const el = boxMenuRef.current
+    if (!boxMenu || !el) return
+    const { left, top } = placeFolderMenu(
+      { x: boxMenu.x, y: boxMenu.y, above: boxMenu.y, align: 'start' },
+      { width: el.offsetWidth, height: el.offsetHeight },
+      {
+        width: document.documentElement.clientWidth,
+        height: document.documentElement.clientHeight,
+      },
+    )
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
+  }, [boxMenu])
 
   useLayoutEffect(() => {
     const el = surfaceMenuRef.current
@@ -1937,20 +2073,35 @@ export function DesktopView({
       ?.focus()
   }, [surfaceSub])
 
+  useLayoutEffect(() => {
+    if (boxMenu === null) return
+    const active = document.activeElement
+    if (
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      !boxMenuRef.current?.contains(active)
+    ) {
+      menuInvokerRef.current = active
+    }
+    boxMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+  }, [boxMenu])
+
   // every close path funnels here: restore the invoker unless focus is
   // already somewhere (Tab carried it on, another surface took it) or the
   // invoker is gone from the document
   useLayoutEffect(() => {
-    if (menu !== null || surfaceMenu !== null) return
+    if (menu !== null || surfaceMenu !== null || boxMenu !== null) return
     const invoker = menuInvokerRef.current
     menuInvokerRef.current = null
     const viaTab = menuTabDismissRef.current
     menuTabDismissRef.current = false
     if (viaTab || invoker === null || !invoker.isConnected) return
     if (document.activeElement === document.body) invoker.focus()
-  }, [menu, surfaceMenu])
+  }, [menu, surfaceMenu, boxMenu])
 
   const menuIcon = menu ? icons.find((icon) => icon.id === menu.id) : undefined
+  const menuOwnerBoxId = menu ? (ownerByItemId.get(menu.id) ?? null) : null
+  const menuTargetBoxes = boxes.filter((box) => box.id !== menuOwnerBoxId)
   // reveal applies to file icons and to aliases of either kind — a real file
   // or folder is on disk behind them (app icons and folder roots offer none)
   const menuPath = menuIcon && (menuIcon.kind === 'file' || menuIcon.alias) ? menuIcon.path : null
@@ -1980,8 +2131,8 @@ export function DesktopView({
   // over a selection the ask side would silently truncate.
   const menuMulti = menu !== null && selectedIds.has(menu.id) && selectedIds.size > 1
   const menuSelection = useMemo(
-    () => (menuMulti ? orderedIcons.filter((icon) => selectedIds.has(icon.id)) : []),
-    [menuMulti, orderedIcons, selectedIds, menu],
+    () => (menuMulti ? allOrderedIcons.filter((icon) => selectedIds.has(icon.id)) : []),
+    [menuMulti, allOrderedIcons, selectedIds, menu],
   )
   const menuFiles = menuSelection.filter((icon) => icon.kind === 'file' && icon.path !== null)
   const menuAllStarred = menuFiles.length > 0 && menuFiles.every((icon) => icon.starred === true)
@@ -2016,10 +2167,27 @@ export function DesktopView({
    * surface notice while the paths that still fit land normally.
    */
   const addAliases = useCallback(
-    (paths: readonly string[], at?: { clientX: number; clientY: number }) => {
+    (
+      paths: readonly string[],
+      at?: { clientX: number; clientY: number },
+      targetBoxId?: string,
+    ) => {
       const known = aliasListRef.current
+      const alreadyKnown = paths.filter((path) => known.includes(path))
       const fresh = paths.filter((path) => !known.includes(path))
-      if (fresh.length === 0) return
+      if (fresh.length === 0) {
+        if (targetBoxId && alreadyKnown.length > 0) {
+          boxesTouchedRef.current = true
+          setBoxes((prev) =>
+            assignItemsToBox(
+              prev,
+              targetBoxId,
+              alreadyKnown.map((path) => `alias:${path}`),
+            ),
+          )
+        }
+        return
+      }
       const add = (window.aiOffice as Partial<HomeApi>).desktopAddAlias
       // a preload without the add channel cannot grow the store, and the view
       // no longer writes aliases itself — the drop is a no-op
@@ -2030,7 +2198,19 @@ export function DesktopView({
         const fitting = Math.max(0, MAX_ALIASES - known.length)
         toAdd = fresh.slice(0, fitting)
         showNotice(s.noticeAliasLimit)
-        if (toAdd.length === 0) return
+        if (toAdd.length === 0) {
+          if (targetBoxId && alreadyKnown.length > 0) {
+            boxesTouchedRef.current = true
+            setBoxes((prev) =>
+              assignItemsToBox(
+                prev,
+                targetBoxId,
+                alreadyKnown.map((path) => `alias:${path}`),
+              ),
+            )
+          }
+          return
+        }
       }
       void (async () => {
         let latest: readonly string[] | null = null
@@ -2044,9 +2224,23 @@ export function DesktopView({
         }
         if (latest === null) return
         const added = toAdd.filter((path) => latest.includes(path))
+        const targetPaths = [...alreadyKnown, ...added]
+        if (added.length > 0) {
+          setAliasList(latest)
+          statAliases(latest)
+        }
+        if (targetBoxId && targetPaths.length > 0) {
+          boxesTouchedRef.current = true
+          setBoxes((prev) =>
+            assignItemsToBox(
+              prev,
+              targetBoxId,
+              targetPaths.map((path) => `alias:${path}`),
+            ),
+          )
+          return
+        }
         if (added.length === 0) return
-        setAliasList(latest)
-        statAliases(latest)
         const surface = surfaceRef.current
         if (at && surface) {
           const rect = surface.getBoundingClientRect()
@@ -2100,6 +2294,14 @@ export function DesktopView({
       delete next[icon.id]
       return next
     })
+    setBoxes((prev) => {
+      const next = removeItemsFromBoxes(prev, [icon.id])
+      if (next.length !== prev.length || next.some((b, i) => b !== prev[i])) {
+        boxesTouchedRef.current = true
+        return next
+      }
+      return prev
+    })
     setSelectedIds((prev) => {
       if (!prev.has(icon.id)) return prev
       const next = new Set(prev)
@@ -2107,6 +2309,173 @@ export function DesktopView({
       return next
     })
   }, [])
+
+  // ── custom group box actions ──
+
+  const createGroupBoxAction = useCallback(
+    (opts?: { clientX?: number; clientY?: number; itemIds?: readonly string[]; autoRename?: boolean }) => {
+      clearSubHoverTimer()
+      setSurfaceMenu(null)
+      setSurfaceSub(null)
+      setMenu(null)
+      setIconBoxSubOpen(false)
+      if (boxesRef.current.length >= MAX_DESKTOP_BOXES) {
+        showNotice(s.boxLimitNotice.replace('{n}', String(MAX_DESKTOP_BOXES)))
+        return null
+      }
+      const surface = surfaceRef.current
+      const rect = surface?.getBoundingClientRect()
+      const stageWidth = surfaceSize.w || (typeof document !== 'undefined' ? document.documentElement.clientWidth : 1200) || 1200
+      const stageHeight = surfaceSize.h || (typeof document !== 'undefined' ? document.documentElement.clientHeight : 800) || 800
+      const x =
+        typeof opts?.clientX === 'number' && rect
+          ? opts.clientX - rect.left + (surface?.scrollLeft ?? 0)
+          : undefined
+      const y =
+        typeof opts?.clientY === 'number' && rect
+          ? opts.clientY - rect.top
+          : undefined
+      const itemIds = (opts?.itemIds ?? []).filter((id) => {
+        const icon = iconsRef.current.find((candidate) => candidate.id === id)
+        return icon !== undefined && icon.kind !== 'widget'
+      })
+      const created = createGroupBox(boxesRef.current, {
+        title: s.boxDefaultTitle,
+        x,
+        y,
+        itemIds,
+        stageWidth,
+        stageHeight,
+      })
+      boxesTouchedRef.current = true
+      setBoxes((prev) => {
+        const cleaned = itemIds.length > 0 ? removeItemsFromBoxes(prev, itemIds) : [...prev]
+        return [...cleaned, created]
+      })
+      if (opts?.autoRename !== false) {
+        setEditingBoxId(created.id)
+      }
+      return created
+    },
+    [clearSubHoverTimer, showNotice, s, surfaceSize],
+  )
+
+  const handleMoveItemsToBox = useCallback((targetBoxId: string, itemIds: readonly string[]) => {
+    setMenu(null)
+    setIconBoxSubOpen(false)
+    const eligible = itemIds.filter((id) => {
+      const icon = iconsRef.current.find((candidate) => candidate.id === id)
+      return icon !== undefined && icon.kind !== 'widget'
+    })
+    if (eligible.length === 0) return
+    boxesTouchedRef.current = true
+    setBoxes((prev) => assignItemsToBox(prev, targetBoxId, eligible))
+  }, [])
+
+  const handleRemoveItemsFromBox = useCallback((itemIds: readonly string[]) => {
+    setMenu(null)
+    setIconBoxSubOpen(false)
+    if (itemIds.length === 0) return
+    boxesTouchedRef.current = true
+    setBoxes((prev) => removeItemsFromBoxes(prev, itemIds))
+  }, [])
+
+  const handleBringBoxToFront = useCallback((boxId: string) => {
+    setBoxes((prev) => {
+      const next = bringBoxToFront(prev, boxId)
+      const changed = next.length === prev.length && next.some((b, i) => b !== prev[i])
+      if (!changed) return prev
+      boxesTouchedRef.current = true
+      return next
+    })
+  }, [])
+
+  const handleBoxMoveCommit = useCallback(
+    (boxId: string, x: number, y: number) => {
+      boxesTouchedRef.current = true
+      const stageWidth = surfaceSize.w || 1200
+      const stageHeight = surfaceSize.h || 800
+      setBoxes((prev) =>
+        prev.map((box) => {
+          if (box.id !== boxId) return box
+          const clamped = clampBoxRect(
+            { x, y, width: box.width, height: box.height },
+            { width: stageWidth, height: stageHeight },
+            box.collapsed,
+          )
+          return { ...box, x: clamped.x, y: clamped.y }
+        }),
+      )
+    },
+    [surfaceSize],
+  )
+
+  const handleBoxResizeCommit = useCallback(
+    (boxId: string, rect: { x: number; y: number; width: number; height: number }) => {
+      boxesTouchedRef.current = true
+      const stageWidth = surfaceSize.w || 1200
+      const stageHeight = surfaceSize.h || 800
+      setBoxes((prev) =>
+        prev.map((box) => {
+          if (box.id !== boxId) return box
+          const clamped = clampBoxRect(rect, { width: stageWidth, height: stageHeight }, box.collapsed)
+          return { ...box, ...clamped }
+        }),
+      )
+    },
+    [surfaceSize],
+  )
+
+  const handleToggleBoxCollapse = useCallback((boxId: string) => {
+    setBoxMenu(null)
+    boxesTouchedRef.current = true
+    setBoxes((prev) =>
+      prev.map((box) => (box.id === boxId ? { ...box, collapsed: !box.collapsed } : box)),
+    )
+  }, [])
+
+  const handleToggleBoxLock = useCallback((boxId: string) => {
+    setBoxMenu(null)
+    boxesTouchedRef.current = true
+    setBoxes((prev) =>
+      prev.map((box) => (box.id === boxId ? { ...box, locked: !box.locked } : box)),
+    )
+  }, [])
+
+  const handleRenameBoxCommit = useCallback((boxId: string, title: string) => {
+    boxesTouchedRef.current = true
+    const trimmed = title.trim().slice(0, 80)
+    setBoxes((prev) =>
+      prev.map((box) => (box.id === boxId ? { ...box, title: trimmed || box.title } : box)),
+    )
+    setEditingBoxId((prev) => (prev === boxId ? null : prev))
+  }, [])
+
+  const handleBoxColorChange = useCallback((boxId: string, color: DesktopBoxColor) => {
+    boxesTouchedRef.current = true
+    setBoxes((prev) => prev.map((box) => (box.id === boxId ? { ...box, color } : box)))
+  }, [])
+
+  const handleDissolveBox = useCallback((boxId: string) => {
+    setBoxMenu(null)
+    setEditingBoxId((prev) => (prev === boxId ? null : prev))
+    boxesTouchedRef.current = true
+    setBoxes((prev) => dissolveBox(prev, boxId))
+  }, [])
+
+  const handleBoxExternalDrop = useCallback(
+    (boxId: string, event: ReactDragEvent<HTMLElement>) => {
+      dragDepthRef.current = 0
+      setDragOver(false)
+      const transfer = event.dataTransfer
+      if (!transfer || !Array.from(transfer.types).includes('Files')) return
+      const api = window.aiOffice as Partial<HomeApi>
+      const paths = droppedFilePaths(Array.from(transfer.files), (file) => api.pathForFile?.(file))
+      if (paths.length === 0) return
+      addAliases(paths, undefined, boxId)
+    },
+    [addAliases],
+  )
 
   // an OS file drag over the surface: allow the drop and show the affordance.
   // dragover fires continuously and only cancels the event; the enter/leave
@@ -2141,7 +2510,17 @@ export function DesktopView({
     const api = window.aiOffice as Partial<HomeApi>
     const paths = droppedFilePaths(Array.from(transfer.files), (file) => api.pathForFile?.(file))
     if (paths.length === 0) return
-    addAliases(paths, { clientX: event.clientX, clientY: event.clientY })
+    const surface = surfaceRef.current
+    const rect = surface?.getBoundingClientRect()
+    const hitBox =
+      surface && rect
+        ? findBoxAtPoint(
+            boxesRef.current,
+            event.clientX - rect.left + surface.scrollLeft,
+            event.clientY - rect.top,
+          )
+        : null
+    addAliases(paths, { clientX: event.clientX, clientY: event.clientY }, hitBox?.id)
   }
 
   // ── surface-menu actions ──
@@ -2258,6 +2637,8 @@ export function DesktopView({
         }
         if (confirmRemove !== null) setConfirmRemove(null)
         else if (openStackId !== null) setOpenStackId(null)
+        else if (boxMenu !== null) setBoxMenu(null)
+        else if (editingBoxId !== null) setEditingBoxId(null)
         else if (surfaceMenu !== null) setSurfaceMenu(null)
         else if (menu !== null) setMenu(null)
         else if (selectedIds.size > 0 || anchorId !== null) {
@@ -2309,6 +2690,7 @@ export function DesktopView({
       if (
         menu === null &&
         surfaceMenu === null &&
+        boxMenu === null &&
         ownsKeyboard &&
         ((event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.key === 'Enter') ||
           ((event.metaKey || event.ctrlKey) &&
@@ -2319,7 +2701,7 @@ export function DesktopView({
         event.preventDefault()
         if (selectedIds.size === 1) {
           const [onlyId] = selectedIds
-          const hit = orderedIcons.find((icon) => icon.id === onlyId)
+          const hit = allOrderedIcons.find((icon) => icon.id === onlyId)
           if (hit && (hit.kind === 'file' || hit.kind === 'folder') && hit.path !== null) {
             openIconProps(hit)
             return
@@ -2336,12 +2718,13 @@ export function DesktopView({
       // (a Tab from before the menu handled it, or a press that blurred it):
       // the menu closes and Tab's default action carries focus on, so no open
       // menu ever strands the keyboard behind it
-      if (menu !== null || surfaceMenu !== null) {
+      if (menu !== null || surfaceMenu !== null || boxMenu !== null) {
         if (event.key === 'Tab') {
           menuTabDismissRef.current = true
           setMenu(null)
           setSurfaceMenu(null)
           setSurfaceSub(null)
+          setBoxMenu(null)
         }
         return
       }
@@ -2378,7 +2761,7 @@ export function DesktopView({
         selectedIds.size === 1
       ) {
         const [onlyId] = selectedIds
-        const hit = orderedIcons.find((icon) => icon.id === onlyId)
+        const hit = allOrderedIcons.find((icon) => icon.id === onlyId)
         if (isPlayableMediaItem(hit)) {
           event.preventDefault()
           hit!.open()
@@ -2389,7 +2772,7 @@ export function DesktopView({
       // removal of the selected aliases, guarded by the confirm dialog
       if (event.key === 'Backspace' || event.key === 'Delete') {
         if (selectedIds.size === 0) return
-        const aliasPaths = orderedIcons
+        const aliasPaths = allOrderedIcons
           .filter((icon) => selectedIds.has(icon.id) && icon.alias && icon.path !== null)
           .map((icon) => icon.path!)
         if (aliasPaths.length === 0) return
@@ -2404,7 +2787,7 @@ export function DesktopView({
         const buf = now - typeAheadRef.current.at > 800 ? '' : typeAheadRef.current.text
         const next = (buf + event.key).toLowerCase()
         typeAheadRef.current = { text: next, at: now }
-        const hit = orderedIcons.find((i) => i.title.toLowerCase().startsWith(next))
+        const hit = allOrderedIcons.find((i) => i.title.toLowerCase().startsWith(next))
         if (hit) {
           event.preventDefault()
           setSelectedIds(new Set([hit.id]))
@@ -2417,10 +2800,12 @@ export function DesktopView({
   }, [
     menu,
     surfaceMenu,
+    boxMenu,
+    editingBoxId,
     selectedIds,
     anchorId,
     icons,
-    orderedIcons,
+    allOrderedIcons,
     dialogOpen,
     confirmRemove,
     openStackId,
@@ -2488,14 +2873,16 @@ export function DesktopView({
 
   const stackPopoverStyle = useMemo<CSSProperties | undefined>(() => {
     if (!openStackItem) return undefined
-    const entry = resolved.find((candidate) => candidate.icon.id === openStackItem.id)
-    if (!entry) return undefined
-    const surface = surfaceRef.current
-    const rect = surface?.getBoundingClientRect()
     const vw = document.documentElement.clientWidth || 1200
     const vh = document.documentElement.clientHeight || 800
     const popW = Math.min(420, Math.max(260, vw - 24))
     const popH = Math.min(440, Math.max(200, vh - 132))
+    const entry = resolved.find((candidate) => candidate.icon.id === openStackItem.id)
+    if (!entry) {
+      return { left: Math.round((vw - popW) / 2), top: 80, width: popW }
+    }
+    const surface = surfaceRef.current
+    const rect = surface?.getBoundingClientRect()
     const tileViewportLeft = (rect?.left ?? 0) + entry.pos.x - (surface?.scrollLeft ?? 0)
     const tileViewportTop = (rect?.top ?? 0) + entry.pos.y
     const preferRight = tileViewportLeft + cellW + 8
@@ -2610,7 +2997,7 @@ export function DesktopView({
   }
 
   const dragSnapPos =
-    drag !== null && freeLayout && !dragOverDock
+    drag !== null && freeLayout && !dragOverDock && hoverBoxId === null
       ? {
           x:
             DESKTOP_PAD_X +
@@ -2620,6 +3007,8 @@ export function DesktopView({
             clampInt(Math.round((drag.y - DESKTOP_PAD_Y) / cellH), 0, rowsRef.current - 1) * cellH,
         }
       : null
+
+  const activeBoxMenuTarget = boxMenu ? boxes.find((b) => b.id === boxMenu.id) : undefined
 
   return (
     <main className={`content desktop-content icons-${prefs.iconSize}`} style={labelStyle}>
@@ -2639,6 +3028,9 @@ export function DesktopView({
           setMenu(null)
           setSurfaceMenu(null)
           setSurfaceSub(null)
+          setBoxMenu(null)
+          setIconBoxSubOpen(false)
+          setEditingBoxId(null)
           // only a left press on the empty surface arms the rubber band — a
           // press on an icon is the icon's own drag; the modifier the press
           // carries freezes the band's merge mode for its whole gesture
@@ -2672,6 +3064,9 @@ export function DesktopView({
           setSelectedIds(EMPTY_SELECTION)
           setAnchorId(null)
           setMenu(null)
+          setBoxMenu(null)
+          setIconBoxSubOpen(false)
+          setEditingBoxId(null)
           setSurfaceMenu({ x: event.clientX + 2, y: event.clientY + 2 })
           setSurfaceSub(null)
         }}
@@ -2755,6 +3150,8 @@ export function DesktopView({
                     }
                     setSurfaceMenu(null)
                     setSurfaceSub(null)
+                    setBoxMenu(null)
+                    setIconBoxSubOpen(false)
                     setMenu({ id: icon.id, x: event.clientX + 2, y: event.clientY + 2 })
                   }}
                 >
@@ -2765,6 +3162,70 @@ export function DesktopView({
             )
           })}
         </ul>
+        {boxes.length > 0 && (
+          <div className="desktop-boxes-layer">
+            {boxes.map((box) => (
+              <DesktopGroupBox
+                key={box.id}
+                box={box}
+                items={boxItems.get(box.id) ?? []}
+                iconScale={iconScale}
+                labelStyle={labelStyle}
+                strings={s}
+                selectedIds={selectedIds}
+                draggingId={drag?.id ?? null}
+                isDropTarget={hoverBoxId === box.id}
+                editingTitle={editingBoxId === box.id}
+                stageBounds={{
+                  width: surfaceSize.w || 1200,
+                  height: surfaceSize.h || 800,
+                }}
+                renderTile={renderTile}
+                onBringToFront={handleBringBoxToFront}
+                onMoveCommit={handleBoxMoveCommit}
+                onResizeCommit={handleBoxResizeCommit}
+                onToggleCollapse={handleToggleBoxCollapse}
+                onToggleLock={handleToggleBoxLock}
+                onRenameStart={(id) => setEditingBoxId(id)}
+                onRenameCommit={handleRenameBoxCommit}
+                onRenameCancel={() => setEditingBoxId(null)}
+                onBoxContextMenu={(id, clientX, clientY) => {
+                  clearSubHoverTimer()
+                  setMenu(null)
+                  setSurfaceMenu(null)
+                  setSurfaceSub(null)
+                  setIconBoxSubOpen(false)
+                  setBoxMenu({ id, x: clientX, y: clientY })
+                }}
+                onIconPointerDown={onIconPointerDown}
+                onIconClick={(event, icon) => {
+                  if (icon.kind !== 'stack') return
+                  if (event.shiftKey || event.metaKey || event.ctrlKey) return
+                  if (Date.now() < dropGuardRef.current) return
+                  icon.open()
+                }}
+                onIconDoubleClick={(icon) => {
+                  if (Date.now() < dropGuardRef.current) return
+                  icon.open()
+                }}
+                onIconContextMenu={(event, icon) => {
+                  onSurfaceFocus?.()
+                  clearSubHoverTimer()
+                  if (!(selectedIds.has(icon.id) && selectedIds.size > 1)) {
+                    setSelectedIds(new Set([icon.id]))
+                    setAnchorId(icon.id)
+                  }
+                  setSurfaceMenu(null)
+                  setSurfaceSub(null)
+                  setBoxMenu(null)
+                  setIconBoxSubOpen(false)
+                  setMenu({ id: icon.id, x: event.clientX + 2, y: event.clientY + 2 })
+                }}
+                onExternalDrop={handleBoxExternalDrop}
+              />
+            ))}
+          </div>
+        )}
         {marqueeBand !== null && (
           <div
             className="desktop-marquee"
@@ -3064,6 +3525,53 @@ export function DesktopView({
                 {s.menuPinToDock}
               </button>
             )}
+            {menuIcon !== undefined && menuIcon.kind !== 'widget' && (
+              <>
+                {menuOwnerBoxId !== null && (
+                  <button role="menuitem" onClick={() => handleRemoveItemsFromBox([menu.id])}>
+                    {s.menuRemoveFromBox}
+                  </button>
+                )}
+                <div
+                  className="desktop-icon-menu-row"
+                  onMouseEnter={() => setIconBoxSubOpen(true)}
+                  onMouseLeave={() => setIconBoxSubOpen(false)}
+                >
+                  <button
+                    role="menuitem"
+                    aria-haspopup="menu"
+                    aria-expanded={iconBoxSubOpen}
+                    onClick={() => setIconBoxSubOpen((open) => !open)}
+                  >
+                    {s.menuMoveToBox}
+                  </button>
+                  {iconBoxSubOpen && (
+                    <div className="desktop-submenu" role="menu">
+                      {menuTargetBoxes.map((box) => (
+                        <button
+                          key={box.id}
+                          role="menuitem"
+                          onClick={() => handleMoveItemsToBox(box.id, [menu.id])}
+                        >
+                          {box.title}
+                        </button>
+                      ))}
+                      {menuTargetBoxes.length > 0 && <div className="row-menu-divider" />}
+                      <button
+                        role="menuitem"
+                        onClick={() =>
+                          createGroupBoxAction({
+                            itemIds: [menu.id],
+                          })
+                        }
+                      >
+                        {s.menuNewGroupBox}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
             {menuIcon?.kind === 'file' && !menuIcon.alias && menuIcon.path !== null && (
               <>
                 <button
@@ -3127,6 +3635,16 @@ export function DesktopView({
               }}
             >
               {s.menuOpen}
+            </button>
+            <button
+              role="menuitem"
+              onClick={() =>
+                createGroupBoxAction({
+                  itemIds: [...selectedIds],
+                })
+              }
+            >
+              {s.menuGroupIntoNewBox}
             </button>
             {menuFiles.length > 0 && (
               <button role="menuitem" onClick={() => applyStar(!menuAllStarred)}>
@@ -3248,6 +3766,17 @@ export function DesktopView({
                     }}
                   >
                     {s.menuNewFolder}
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() =>
+                      createGroupBoxAction({
+                        clientX: surfaceMenu.x,
+                        clientY: surfaceMenu.y,
+                      })
+                    }
+                  >
+                    {s.menuNewGroupBox}
                   </button>
                 </div>
               )}
@@ -3399,6 +3928,20 @@ export function DesktopView({
               onMouseEnter={(event) =>
                 scheduleSubmenu(null, { x: event.clientX, y: event.clientY })
               }
+              onClick={() =>
+                createGroupBoxAction({
+                  clientX: surfaceMenu.x,
+                  clientY: surfaceMenu.y,
+                })
+              }
+            >
+              {s.menuNewGroupBox}
+            </button>
+            <button
+              role="menuitem"
+              onMouseEnter={(event) =>
+                scheduleSubmenu(null, { x: event.clientX, y: event.clientY })
+              }
               onClick={openWallpaperCenter}
             >
               {s.menuWallpaper}
@@ -3425,6 +3968,76 @@ export function DesktopView({
               onClick={openDesktopProps}
             >
               {s.menuProps}
+            </button>
+          </div>
+        )}
+        {boxMenu && activeBoxMenuTarget && (
+          <div
+            className="folder-menu desktop-menu desktop-box-menu"
+            role="menu"
+            aria-label={activeBoxMenuTarget.title}
+            data-testid="desktop-box-menu"
+            ref={(el) => {
+              boxMenuRef.current = el
+            }}
+            onKeyDown={(event) => {
+              handleMenuKeyDown(event, event.currentTarget, {
+                openSub: null,
+                onOpenSubmenu: () => {},
+                onCloseSubmenu: () => {},
+                onDismiss: () => {
+                  menuTabDismissRef.current = true
+                  setBoxMenu(null)
+                },
+                dir: htmlDir(lang),
+              })
+            }}
+          >
+            <button
+              role="menuitem"
+              onClick={() => {
+                const targetId = activeBoxMenuTarget.id
+                setBoxMenu(null)
+                setEditingBoxId(targetId)
+              }}
+            >
+              {s.boxRename}
+            </button>
+            <button
+              role="menuitem"
+              onClick={() => handleToggleBoxCollapse(activeBoxMenuTarget.id)}
+            >
+              {activeBoxMenuTarget.collapsed ? s.boxExpand : s.boxCollapse}
+            </button>
+            <button
+              role="menuitem"
+              onClick={() => handleToggleBoxLock(activeBoxMenuTarget.id)}
+            >
+              {activeBoxMenuTarget.locked ? s.boxUnlock : s.boxLock}
+            </button>
+            <div className="row-menu-divider" />
+            <div className="desktop-box-color-row" role="group" aria-label={s.boxColor}>
+              {DESKTOP_BOX_COLORS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  className="desktop-box-swatch"
+                  data-box-color={color}
+                  aria-label={color}
+                  aria-pressed={activeBoxMenuTarget.color === color}
+                  onClick={() => {
+                    handleBoxColorChange(activeBoxMenuTarget.id, color)
+                    setBoxMenu(null)
+                  }}
+                />
+              ))}
+            </div>
+            <div className="row-menu-divider" />
+            <button
+              role="menuitem"
+              onClick={() => handleDissolveBox(activeBoxMenuTarget.id)}
+            >
+              {s.boxDissolve}
             </button>
           </div>
         )}

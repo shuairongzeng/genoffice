@@ -54,6 +54,7 @@ export interface DesktopMediaPlayerWindowProps {
   readonly focused: boolean
   readonly stage: StageBounds
   readonly mode: DesktopWindowMode
+  readonly autoHideHeaderOnMaximize?: boolean
   readonly loadRequest: MediaExternalLoadRequest | null
   readonly command: MediaExternalCommand | null
   readonly onFocus: () => void
@@ -69,6 +70,7 @@ export function DesktopMediaPlayerWindow({
   focused,
   stage,
   mode,
+  autoHideHeaderOnMaximize = true,
   loadRequest,
   command,
   onFocus,
@@ -154,6 +156,7 @@ export function DesktopMediaPlayerWindow({
         miniPos={miniPos}
         stage={stage}
         focused={focused}
+        autoHideHeaderOnMaximize={autoHideHeaderOnMaximize}
         visualHidden={!visible}
         minWidth={520}
         minHeight={360}

@@ -269,6 +269,8 @@ export interface HomeTabsProps {
   onShowDesktop: () => void
   onActivate: (id: string) => void
   onClose: (id: string) => void
+  onPointerEnter?: () => void
+  onPointerLeave?: () => void
 }
 
 export function HomeTabs({
@@ -278,12 +280,20 @@ export function HomeTabs({
   onShowDesktop,
   onActivate,
   onClose,
+  onPointerEnter,
+  onPointerLeave,
 }: HomeTabsProps): ReactElement {
   const { t } = useI18n()
   const showAppMenu =
     typeof navigator !== 'undefined' && !navigator.platform.toLowerCase().includes('mac')
   return (
-    <div className="work-tabs" role="tablist" aria-label={t('workTabsAria')}>
+    <div
+      className="work-tabs"
+      role="tablist"
+      aria-label={t('workTabsAria')}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+    >
       {showAppMenu && (
         <button
           type="button"

@@ -67,11 +67,16 @@ import {
   setHtmlDocxExportPrepareHook,
   setHtmlDocxExportedHook,
 } from './app-registry'
-import { readDesktopPins } from './desktop-ipc'
+import { readDesktopPins, readDesktopPrefs } from './desktop-ipc'
 import { readAiDock } from './ai-dock'
 import { readDockPrefs } from './dock-prefs'
 import { createAiDrawerOverlay } from './ai-drawer-view'
 import { createDockOverlay } from './dock-overlay-view'
+import {
+  createTopBarAutoHideController,
+  createTopBarOverlay,
+  windowTopBarHostSensors,
+} from './top-bar-overlay-view'
 import {
   collectHomeTabsState,
   createHomeTabsBroadcaster,
@@ -192,6 +197,9 @@ export function createShellWindow(deps: ShellWindowDeps): void {
     screen.getAllDisplays().map((display) => display.workArea),
   )
   const shouldMaximize = Boolean(restored?.maximized)
+  const initialDesktopPrefs = readDesktopPrefs(deps.userDataDir())
+  const initialTopBarHidden =
+    shouldMaximize && initialDesktopPrefs.autoHideTopBarOnMaximize !== false
   const bootSnapshot = deps.bootSnapshot?.()
   const bootArg = bootSnapshot
     ? [`--genoffice-boot=${Buffer.from(JSON.stringify(bootSnapshot)).toString('base64url')}`]
@@ -225,7 +233,11 @@ export function createShellWindow(deps: ShellWindowDeps): void {
           // stays registered for its accelerators and opens from the strip's
           // menu button (Alt still reveals the native bar where one exists)
           titleBarStyle: 'hidden' as const,
-          titleBarOverlay: tabStripOverlay(nativeTheme.shouldUseDarkColors, deps.uiScale()),
+          titleBarOverlay: tabStripOverlay(
+            nativeTheme.shouldUseDarkColors,
+            deps.uiScale(),
+            initialTopBarHidden,
+          ),
           autoHideMenuBar: true,
         }),
     webPreferences: {
@@ -295,16 +307,52 @@ export function createShellWindow(deps: ShellWindowDeps): void {
   // the full list even when nothing changed since.
   const pushHomeTabs: HomeTabsPush = createHomeTabsBroadcaster({
     collect: () => collectHomeTabsState(manager, detachedOpenDocuments),
-    // dual-target: the Home strip in the shell renderer, and the drawer
-    // overlay's panel copy — the doc-bound thread claim follows the tab
-    // pushes, so a document opened while the drawer stays open switches the
-    // panel's conversation to it (tabsChangedDualSend's contract)
-    send: tabsChangedDualSend(deps.sendToShellRenderer, () => manager.drawerOverlayWebContents()),
+    // Triple-target: Home strip, drawer overlay, and top-bar overlay while maximized auto-hide runs.
+    send: tabsChangedDualSend(
+      deps.sendToShellRenderer,
+      () => manager.drawerOverlayWebContents(),
+      () => manager.topBarOverlayWebContents(),
+    ),
   })
   installHomeTabsPush(pushHomeTabs)
+  const topBarController = createTopBarAutoHideController({
+    initialMaximized: shouldMaximize,
+    initialFullScreen: win.isFullScreen(),
+    initialAutoHideEnabled: initialDesktopPrefs.autoHideTopBarOnMaximize !== false,
+    ...windowTopBarHostSensors(win, deps.uiScale),
+    onStateChange: (chromeState) => {
+      manager.setWindowChromeState(chromeState)
+      deps.refreshTitleBarOverlay()
+      if (process.platform === 'darwin' && typeof win.setWindowButtonVisibility === 'function') {
+        win.setWindowButtonVisibility(!chromeState.autoHideActive || chromeState.revealed)
+      }
+      if (!win.isDestroyed()) {
+        win.webContents.send(HOME_CHANNELS.windowChromeStateChanged, chromeState)
+      }
+      const topBarWc = manager.topBarOverlayWebContents()
+      if (topBarWc && !topBarWc.isDestroyed()) {
+        topBarWc.send(HOME_CHANNELS.windowChromeStateChanged, chromeState)
+      }
+    },
+  })
+  manager.setTopBarController(topBarController)
+  if (process.platform === 'darwin' && typeof win.setWindowButtonVisibility === 'function') {
+    const initialChromeState = topBarController.getState()
+    win.setWindowButtonVisibility(!initialChromeState.autoHideActive || initialChromeState.revealed)
+  }
+  win.on('maximize', () => topBarController.setMaximized(true))
+  win.on('unmaximize', () => topBarController.setMaximized(false))
+  win.on('enter-full-screen', () => topBarController.setFullScreen(true))
+  win.on('leave-full-screen', () => topBarController.setFullScreen(false))
+  win.on('blur', () => topBarController.onBlurOrMinimize())
+  win.on('minimize', () => topBarController.onBlurOrMinimize())
+  win.once('closed', () => topBarController.destroy())
   let prewarmTimer: ReturnType<typeof setTimeout> | null = null
   win.webContents.on('did-finish-load', () => {
     pushHomeTabs.push(true)
+    if (!win.isDestroyed()) {
+      win.webContents.send(HOME_CHANNELS.windowChromeStateChanged, topBarController.getState())
+    }
     if (prewarmTimer === null && !win.isDestroyed()) {
       prewarmTimer = setTimeout(() => {
         prewarmTimer = null
@@ -342,6 +390,16 @@ export function createShellWindow(deps: ShellWindowDeps): void {
   // pet stay above the dock reveal. Its renderer reports over
   // home:dock-hot-edge; its routed clicks ride home:dock-action.
   manager.setDockOverlay(createDockOverlay(win))
+  manager.setTopBarOverlay(
+    createTopBarOverlay(win, {
+      onDidFinishLoad: (wc) => {
+        pushHomeTabs.push(true)
+        if (!wc.isDestroyed()) {
+          wc.send(HOME_CHANNELS.windowChromeStateChanged, topBarController.getState())
+        }
+      },
+    }),
+  )
   deps.setTabManager(manager)
   const stopSleepSweeper = manager.startSleepSweeper(deps.tabSleepEnabled)
   win.once('closed', stopSleepSweeper)

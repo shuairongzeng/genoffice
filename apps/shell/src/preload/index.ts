@@ -56,6 +56,8 @@ import type {
   DesktopPinInfo,
   DesktopPrefs,
   DeepLinkPayload,
+  TopBarHotEdgeReport,
+  WindowChromeState,
   SystemPresenceSettings,
   KbScope,
   UiLanguage,
@@ -992,6 +994,27 @@ const homeApi: HomeApi = {
   dockHotEdge(report) {
     ipcRenderer.send(HOME_CHANNELS.dockHotEdge, report)
   },
+  async getWindowChromeState() {
+    const raw: unknown = await ipcRenderer.invoke(HOME_CHANNELS.windowChromeState)
+    return asWindowChromeState(raw) ?? {
+      maximized: false,
+      fullScreen: false,
+      autoHideEnabled: true,
+      autoHideActive: false,
+      revealed: false,
+    }
+  },
+  onWindowChromeStateChanged(handler) {
+    const listener = (_event: IpcRendererEvent, payload: unknown) => {
+      const state = asWindowChromeState(payload)
+      if (state) handler(state)
+    }
+    ipcRenderer.on(HOME_CHANNELS.windowChromeStateChanged, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.windowChromeStateChanged, listener)
+  },
+  topBarHotEdge(report: TopBarHotEdgeReport) {
+    ipcRenderer.send(HOME_CHANNELS.topBarHotEdge, report)
+  },
   // a routed dock action: invoke (main validates, activates Home and
   // delivers the intent there) — the round trip is the click's ack
   async dockAction(intent) {
@@ -1583,6 +1606,27 @@ const homeApi: HomeApi = {
     firstPaintSignaled = true
     ipcRenderer.send(HOME_CHANNELS.firstPaintReady)
   },
+}
+
+function asWindowChromeState(value: unknown): WindowChromeState | null {
+  if (!value || typeof value !== 'object') return null
+  const r = value as Partial<WindowChromeState>
+  if (
+    typeof r.maximized !== 'boolean' ||
+    typeof r.fullScreen !== 'boolean' ||
+    typeof r.autoHideEnabled !== 'boolean' ||
+    typeof r.autoHideActive !== 'boolean' ||
+    typeof r.revealed !== 'boolean'
+  ) {
+    return null
+  }
+  return {
+    maximized: r.maximized,
+    fullScreen: r.fullScreen,
+    autoHideEnabled: r.autoHideEnabled,
+    autoHideActive: r.autoHideActive,
+    revealed: r.revealed,
+  }
 }
 
 function asCloudProjectsSnapshot(result: unknown): CloudProjectsSnapshot | null {

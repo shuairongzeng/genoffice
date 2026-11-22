@@ -14,6 +14,8 @@ import type {
   DockNavIntent,
   DockOpenState,
   HomeTabsState,
+  TopBarHotEdgeReport,
+  WindowChromeState,
 } from '../shared/home-api'
 import type { PiAgentConfirmRequest } from '../shared/pi-agent-api'
 import {
@@ -185,11 +187,14 @@ export function createHomeTabsBroadcaster(deps: {
 export function tabsChangedDualSend(
   sendToShellRenderer: (channel: string, payload?: unknown) => void,
   overlayWebContents: () => WebContents | undefined,
+  extraOverlayWebContents?: () => WebContents | undefined,
 ): (state: HomeTabsState) => void {
   return (state) => {
     sendToShellRenderer(HOME_CHANNELS.tabsChanged, state)
     const wc = overlayWebContents()
     if (wc && !wc.isDestroyed()) wc.send(HOME_CHANNELS.tabsChanged, state)
+    const extraWc = extraOverlayWebContents?.()
+    if (extraWc && !extraWc.isDestroyed()) extraWc.send(HOME_CHANNELS.tabsChanged, state)
   }
 }
 
@@ -467,6 +472,28 @@ function asDockHotEdgeReport(value: unknown): DockHotEdgeReport | null {
   const leave = raw.leave === true
   if (!enter && !leave) return null
   return { ...(enter ? { enter: true } : {}), ...(leave ? { leave: true } : {}) }
+}
+
+function asTopBarHotEdgeReport(value: unknown): TopBarHotEdgeReport | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Partial<{ enter: unknown; leave: unknown; pin: unknown }>
+  if (raw.enter !== undefined && typeof raw.enter !== 'boolean') return null
+  if (raw.leave !== undefined && typeof raw.leave !== 'boolean') return null
+  if (raw.pin !== undefined && typeof raw.pin !== 'boolean') return null
+  if (raw.enter === undefined && raw.leave === undefined && raw.pin === undefined) return null
+  return {
+    ...(typeof raw.enter === 'boolean' ? { enter: raw.enter } : {}),
+    ...(typeof raw.leave === 'boolean' ? { leave: raw.leave } : {}),
+    ...(typeof raw.pin === 'boolean' ? { pin: raw.pin } : {}),
+  }
+}
+
+const DEFAULT_WINDOW_CHROME_STATE: WindowChromeState = {
+  maximized: false,
+  fullScreen: false,
+  autoHideEnabled: true,
+  autoHideActive: false,
+  revealed: false,
 }
 
 /** the nav views a dock action may name */
@@ -789,6 +816,14 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
   ipcMain.on(HOME_CHANNELS.dockHotEdge, (event, raw: unknown) => {
     const report = asDockHotEdgeReport(raw)
     if (report) deps.reportDockHotEdge(event.sender, report)
+  })
+  ipcMain.handle(HOME_CHANNELS.windowChromeState, (): WindowChromeState => {
+    return deps.getTabManager()?.getWindowChromeState() ?? DEFAULT_WINDOW_CHROME_STATE
+  })
+  ipcMain.on(HOME_CHANNELS.topBarHotEdge, (event, raw: unknown) => {
+    if (deps.isShellWindowSender && !deps.isShellWindowSender(event.sender)) return
+    const report = asTopBarHotEdgeReport(raw)
+    if (report) deps.getTabManager()?.reportTopBarHotEdge(report)
   })
   ipcMain.handle(HOME_CHANNELS.dockAction, (_event, raw: unknown) => {
     const intent = asDockNavIntent(raw)

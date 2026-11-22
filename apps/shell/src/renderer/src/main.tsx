@@ -5,6 +5,7 @@ import { AppFrame } from './AppFrame'
 import { LocaleProvider } from './locale'
 import { AskPanelEntry, isAskPanelView } from './panel-entry'
 import { DockEntry, isDockView } from './dock-entry'
+import { TopBarEntry, isTopBarView } from './topbar-entry'
 import '@genoffice/ui/tokens.css'
 import '@genoffice/ui/screentip.css'
 import '@genoffice/ui/dropdown.css'
@@ -43,8 +44,12 @@ const isAskPanel = isAskPanelView()
 // ready ping (the ask panel's buffered-message handshake is not this
 // surface's contract; its shape is main's state machine)
 const isDock = isDockView()
+const isTopBar = isTopBarView()
 
-const snap = !isHelp && !isMedia && !isAskPanel && !isDock ? window.aiOffice.bootSnapshot : undefined
+const snap =
+  !isHelp && !isMedia && !isAskPanel && !isDock && !isTopBar
+    ? window.aiOffice.bootSnapshot
+    : undefined
 
 const bootPrefsPromise = snap
   ? Promise.resolve([snap.lang, snap.onboardingSeen, snap.theme] as const)
@@ -101,6 +106,8 @@ void bootPrefsPromise.then(async ([lang, onboardingSeen, theme]) => {
           <AskPanelEntry />
         ) : isDock ? (
           <DockEntry />
+        ) : isTopBar ? (
+          <TopBarEntry />
         ) : isMedia ? (
           <React.Suspense fallback={<div className="boot" />}>
             <MediaViewer />

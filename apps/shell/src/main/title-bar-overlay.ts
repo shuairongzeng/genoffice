@@ -17,7 +17,14 @@ import { desktopHeaderHeight } from '../shared/desktop-geometry'
 /// it (min/max/close on Windows/Linux; the traffic lights are native macOS
 /// chrome) — the desktop owns the tab strip's visuals, never these buttons.
 
-export function tabStripOverlay(dark: boolean, uiScale = 1): TitleBarOverlay {
+export function tabStripOverlay(dark: boolean, uiScale = 1, hidden = false): TitleBarOverlay {
+  if (hidden) {
+    return {
+      color: '#00000000',
+      symbolColor: '#00000000',
+      height: 1,
+    }
+  }
   return {
     color: '#00000000',
     symbolColor: dark ? '#f2f2f5' : '#454746',

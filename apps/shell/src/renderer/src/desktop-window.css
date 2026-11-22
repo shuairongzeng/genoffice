@@ -87,6 +87,38 @@
   border-bottom: 1px solid var(--border);
   cursor: grab;
   user-select: none;
+  transition:
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.16s ease;
+}
+
+.desktop-window-top-hotedge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  z-index: 9;
+  background: transparent;
+}
+
+.desktop-window.is-maximized.is-autohide-header .desktop-window-titlebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 8;
+  background: var(--bg-content);
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.desktop-window.is-maximized.is-autohide-header.is-header-revealed .desktop-window-titlebar {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+  box-shadow: var(--dw-shadow-idle);
 }
 
 .desktop-window.is-interacting .desktop-window-titlebar {
@@ -307,6 +339,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .desktop-window,
+  .desktop-window-titlebar,
   .desktop-window-light,
   .desktop-window-light svg {
     transition: none;

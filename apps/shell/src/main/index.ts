@@ -4221,8 +4221,13 @@ let desktopTitleBarDark = false
 
 function refreshTitleBarOverlay(): void {
   if (process.platform === 'darwin' || !shellWindow || shellWindow.isDestroyed()) return
+  const hidden = tabManager?.shouldHideTitleBarOverlay() ?? false
   shellWindow.setTitleBarOverlay(
-    tabStripOverlay(nativeTheme.shouldUseDarkColors || desktopTitleBarDark, currentUiScale),
+    tabStripOverlay(
+      nativeTheme.shouldUseDarkColors || desktopTitleBarDark,
+      currentUiScale,
+      hidden,
+    ),
   )
 }
 
@@ -5309,11 +5314,17 @@ function registerTabsIpc(): void {
   // would cover any DOM dropdown the shell renderer draws below the tab strip
   ipcMain.handle(TABS_CHANNELS.showAppMenu, (_event, x: unknown, y: unknown) => {
     if (!shellWindow) return
-    Menu.getApplicationMenu()?.popup({
+    const appMenu = Menu.getApplicationMenu()
+    if (!appMenu) return
+    tabManager?.reportTopBarHotEdge({ pin: true })
+    appMenu.popup({
       window: shellWindow,
       ...(typeof x === 'number' && typeof y === 'number'
         ? { x: Math.round(x), y: Math.round(y) }
         : {}),
+      callback: () => {
+        setImmediate(() => tabManager?.reportTopBarHotEdge({ pin: false }))
+      },
     })
   })
   ipcMain.handle(TABS_CHANNELS.showMenu, (_event, x: unknown, y: unknown) => {
@@ -6698,7 +6709,11 @@ registerUserSkillsIpc({
 registerPluginsIpc({ window: () => shellWindow })
 registerTemplatesIpc()
 registerTodosIpc()
-registerDesktopIpc()
+registerDesktopIpc({
+  onDesktopPrefsChanged: (prefs) => {
+    tabManager?.setTopBarAutoHideEnabled(prefs.autoHideTopBarOnMaximize !== false)
+  },
+})
 registerDetachedPinsIpc()
 registerSystemPresenceIpc(() => systemPresence)
 
@@ -6732,6 +6747,7 @@ const desktopControlDeps: DesktopControlDeps = {
   customWallpapersDir: () => join(app.getPath('userData'), 'wallpapers'),
   listWindows: listDesktopWindows,
   notifyDesktopPrefsChanged: (prefs) => {
+    tabManager?.setTopBarAutoHideEnabled(prefs.autoHideTopBarOnMaximize !== false)
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send(HOME_CHANNELS.desktopPrefsChanged, prefs)
     }

@@ -133,6 +133,7 @@ export function DesktopSettingsPane(): ReactElement {
   const useStacks = prefs.useStacks !== false
   const recentsMode: DesktopRecentsMode = prefs.recentsMode ?? 'stack'
   const hiddenCount = prefs.hiddenRecentPaths?.length ?? 0
+  const autoHideTopBar = prefs.autoHideTopBarOnMaximize !== false
 
   return (
     <div className="desktop-settings-pane" data-testid="desktop-settings-pane">
@@ -202,6 +203,20 @@ export function DesktopSettingsPane(): ReactElement {
             { value: 'off', label: s.recentsOff },
           ]}
           onPick={(value) => applyPrefs({ recentsMode: value as DesktopRecentsMode })}
+        />
+      </div>
+
+      <div className="set-field">
+        <div className="set-field-text">
+          <div className="set-field-label">{s.autoHideTopBarLabel}</div>
+        </div>
+        <button
+          type="button"
+          className="set-switch"
+          role="switch"
+          aria-checked={autoHideTopBar}
+          aria-label={s.autoHideTopBarLabel}
+          onClick={() => applyPrefs({ autoHideTopBarOnMaximize: !autoHideTopBar })}
         />
       </div>
 

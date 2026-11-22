@@ -14,11 +14,18 @@ import {
 import type { AiDrawerOverlay } from './ai-drawer-view'
 import { createAiSlotTracker, type SlotRectReport } from './ai-slot-tracker'
 import type { DockOverlay } from './dock-overlay-view'
+import type { TopBarAutoHideController, TopBarOverlay } from './top-bar-overlay-view'
 import type { AiDocContent } from '../../../docs/src/shared/ipc'
 import { rendererUrl, safeExternalUrl } from '@genoffice/electron-utils'
 import { HOME_CHANNELS } from '../shared/home-api'
-import type { AiPanelResizeGeometry, AiPanelResizeReport, AiPetDragReport } from '../shared/home-api'
-import type { DockHotEdgeReport } from '../shared/home-api'
+import type {
+  AiPanelResizeGeometry,
+  AiPanelResizeReport,
+  AiPetDragReport,
+  DockHotEdgeReport,
+  TopBarHotEdgeReport,
+  WindowChromeState,
+} from '../shared/home-api'
 import {
   aiDockWidth,
   desktopHeaderHeight,
@@ -194,6 +201,15 @@ export class TabManager {
    * and any host that does not want it.
    */
   private dockOverlay: DockOverlay | null = null
+  private topBarOverlay: TopBarOverlay | null = null
+  private topBarController: TopBarAutoHideController | null = null
+  private windowChromeState: WindowChromeState = {
+    maximized: false,
+    fullScreen: false,
+    autoHideEnabled: true,
+    autoHideActive: false,
+    revealed: false,
+  }
 
   /**
    * The command palette's global summon: Ctrl/Cmd+K in any of the shell
@@ -357,6 +373,12 @@ export class TabManager {
     if (active?.view && this.bleedWcIds.has(active.view.webContents.id)) {
       return { x: 0, y: 0, width, height }
     }
+    // While top-bar auto-hide is engaged on maximize/fullscreen, let document views fill
+    // the entire window vertically (`y: 0`, full `height`) so revealing the top bar
+    // never reflows the document underneath.
+    if (this.windowChromeState.autoHideActive) {
+      return { x: 0, y: 0, width, height }
+    }
     // The renderer's measured stage rect wins: the desktop's own layout (the
     // embedded strip, the sidebar, the docked panel) is the truth of where a
     // document belongs, and it reports the exact numbers. A degenerate report
@@ -423,6 +445,51 @@ export class TabManager {
     this.syncDockOverlay()
   }
 
+  /** Install the doc-mode top-bar auto-hide controller driving window chrome state. */
+  setTopBarController(controller: TopBarAutoHideController | null): void {
+    this.topBarController = controller
+    if (controller) {
+      this.windowChromeState = controller.getState()
+    }
+  }
+
+  /** Install the doc-mode top-bar native overlay host above covering document views. */
+  setTopBarOverlay(overlay: TopBarOverlay | null): void {
+    this.topBarOverlay = overlay
+    this.syncTopBarOverlay()
+  }
+
+  topBarOverlayWebContents(): WebContents | undefined {
+    return this.topBarOverlay?.webContents()
+  }
+
+  getWindowChromeState(): WindowChromeState {
+    return this.windowChromeState
+  }
+
+  setWindowChromeState(state: WindowChromeState): void {
+    const wasAutoHide = this.windowChromeState.autoHideActive
+    const wasRevealed = this.windowChromeState.revealed
+    this.windowChromeState = state
+    if (wasAutoHide !== state.autoHideActive) {
+      this.layout()
+    } else if (wasRevealed !== state.revealed) {
+      this.syncTopBarOverlay()
+    }
+  }
+
+  shouldHideTitleBarOverlay(): boolean {
+    return this.windowChromeState.autoHideActive && !this.windowChromeState.revealed
+  }
+
+  reportTopBarHotEdge(report: TopBarHotEdgeReport): void {
+    this.topBarController?.reportHotEdge(report)
+  }
+
+  setTopBarAutoHideEnabled(enabled: boolean): void {
+    this.topBarController?.setAutoHideEnabled(enabled)
+  }
+
   /**
    * Whether the AI drawer's native overlay is the drawer's live host right
    * now (P0-2): a non-Home tab is active and its view is not presenting over
@@ -478,7 +545,7 @@ export class TabManager {
     const inset = this.browserDrawerInset()
     if (inset <= 0) return null
     const { width, height } = this.shellWindow.getContentBounds()
-    const top = desktopHeaderHeight(this.uiScale())
+    const top = this.windowChromeState.autoHideActive ? 0 : desktopHeaderHeight(this.uiScale())
     return {
       x: Math.max(0, width - inset),
       y: top,
@@ -673,6 +740,21 @@ export class TabManager {
     })
   }
 
+  private syncTopBarOverlay(): void {
+    const overlay = this.topBarOverlay
+    if (!overlay || this.shellWindow.isDestroyed()) return
+    const { width, height } = this.shellWindow.getContentBounds()
+    const active = this.tabs.find((t) => t.id === this.activeId)
+    overlay.sync({
+      docActive: active !== undefined && active.kind !== 'home',
+      autoHideActive: this.windowChromeState.autoHideActive,
+      revealed: this.windowChromeState.revealed,
+      suppressed: this.drawerOverlaySuppressed(),
+      scale: this.uiScale(),
+      window: { width, height },
+    })
+  }
+
   /** the active tab's view is covering the whole window (a presentation) */
   private drawerOverlaySuppressed(): boolean {
     if (this.htmlFullScreenId !== null && this.htmlFullScreenId === this.activeId) return true
@@ -747,6 +829,7 @@ export class TabManager {
     // cost is the 3px strip riding above the drawer overlay's own bottom
     // edge — chrome nobody clicks
     this.syncDockOverlay()
+    this.syncTopBarOverlay()
   }
 
   /**
@@ -1056,6 +1139,7 @@ export class TabManager {
     // activation with no layout trigger (openBrowser, a tab click) mounts no
     // hot edge until something resizes
     this.syncDockOverlay()
+    this.syncTopBarOverlay()
     this.onChanged()
     return true
   }

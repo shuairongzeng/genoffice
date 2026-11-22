@@ -6,7 +6,13 @@ import { createRoot } from 'react-dom/client'
 import type { Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LANGS, type Lang } from '@genoffice/i18n'
-import type { DesktopPrefs, FolderRoot, HomeApi, RecentEntry } from '../src/shared/home-api'
+import type {
+  DesktopGroupBox,
+  DesktopPrefs,
+  FolderRoot,
+  HomeApi,
+  RecentEntry,
+} from '../src/shared/home-api'
 import type { DockCustomCandidate } from '../src/shared/dock-prefs'
 import type { DockGhostFrom } from '../src/renderer/src/dock-ghost'
 import {
@@ -36,9 +42,16 @@ actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
 let host: HTMLDivElement
 let root: Root
 /** the layout the bridge hands back on load */
-let stored: { positions: Record<string, { x: number; y: number }>; aliases?: readonly string[] }
+let stored: {
+  positions: Record<string, { x: number; y: number }>
+  aliases?: readonly string[]
+  boxes?: readonly DesktopGroupBox[]
+}
 /** every save, in order, with the exact map it carried */
-let saves: Array<{ positions: Record<string, { x: number; y: number }> }>
+let saves: Array<{
+  positions: Record<string, { x: number; y: number }>
+  boxes?: readonly DesktopGroupBox[]
+}>
 /** every alias add/remove the bridge saw, in order */
 let aliasAdds: string[]
 let aliasRemoves: string[]
@@ -192,7 +205,10 @@ beforeEach(() => {
   window.aiOffice = {
     desktopLayout: vi.fn(async () => stored),
     desktopLayoutSave: vi.fn(
-      async (layout: { positions: Record<string, { x: number; y: number }> }) => {
+      async (layout: {
+        positions: Record<string, { x: number; y: number }>
+        boxes?: readonly DesktopGroupBox[]
+      }) => {
         saves.push(layout)
         return undefined
       },
@@ -1317,6 +1333,7 @@ describe('DesktopView — context menu', () => {
       'Open',
       'Reveal in folder',
       'Properties',
+      'Move to group box',
       'Pin to desktop',
       'Hide from desktop',
       'Reset position',
@@ -1333,13 +1350,14 @@ describe('DesktopView — context menu', () => {
   it('offers no reveal on app icons, and properties only on file and folder icons', async () => {
     await render()
     await contextMenu('Docs')
-    expect(menuButtons()).toEqual(['Open', 'Reset position'])
+    expect(menuButtons()).toEqual(['Open', 'Move to group box', 'Reset position'])
     await contextMenu('Work')
     // a folder ROOT carries the remove-from-desktop verb (the retired
     // tree's ⋯ entry, moved onto the root's own icon)
     expect(menuButtons()).toEqual([
       'Open',
       'Properties',
+      'Move to group box',
       'Remove folder from desktop',
       'Reset position',
     ])
@@ -1564,6 +1582,7 @@ describe('DesktopView — context menu', () => {
       'Markdown',
       'Web Page',
       'New folder…',
+      'New group box',
     ])
     expect(focusedMenuLabel()).toBe('Docs')
     // ArrowLeft from inside the flyout: it closes, focus returns to its trigger
@@ -1574,10 +1593,12 @@ describe('DesktopView — context menu', () => {
     await menuKey('ArrowRight')
     await menuKey('ArrowDown')
     expect(focusedMenuLabel()).toBe('Sheets')
-    // 7 rows in the flyout now (the six types + the folder verb): five downs
-    // reach the folder verb, the sixth steps out onto Sort by
+    // 8 rows in the flyout now (the six types + the folder verb + group box):
+    // five downs reach the folder verb, one more reaches New group box, then Sort by
     for (let i = 0; i < 5; i++) await menuKey('ArrowDown')
     expect(focusedMenuLabel()).toBe('New folder…')
+    await menuKey('ArrowDown')
+    expect(focusedMenuLabel()).toBe('New group box')
     await menuKey('ArrowDown')
     expect(focusedMenuLabel()).toBe('Sort by')
     // ArrowLeft from outside the flyout still closes it; focus stays put
@@ -1683,6 +1704,7 @@ describe('DesktopView — the empty-surface menu', () => {
       'View',
       'Refresh',
       'Add folder to desktop…',
+      'New group box',
       'Change wallpaper',
       'Tidy up icons',
       'Properties',
@@ -1722,6 +1744,7 @@ describe('DesktopView — the empty-surface menu', () => {
       'Markdown',
       'Web Page',
       'New folder…',
+      'New group box',
     ])
     // the click-opened flyout takes focus on its first item too — the same
     // effect serves the mouse path, not just the inline-end arrow
@@ -2431,23 +2454,23 @@ describe('DesktopView — dropping files from the OS', () => {
 
 describe('DesktopView — opening and removing aliases', () => {
   it('double-click opens a known alias through openPath, an unknown one through the OS', async () => {
-    stored = { positions: {}, aliases: ['/docs/report.docx', '/docs/photo.png'] }
+    stored = { positions: {}, aliases: ['/docs/report.docx', '/docs/archive.zip'] }
     await render()
     await flushAsync()
     await doubleClick('report.docx')
     expect(openPath).toHaveBeenCalledWith('/docs/report.docx')
-    await doubleClick('photo.png')
-    expect(desktopOpenExternal).toHaveBeenCalledWith('/docs/photo.png')
+    await doubleClick('archive.zip')
+    expect(desktopOpenExternal).toHaveBeenCalledWith('/docs/archive.zip')
   })
 
   it('a double-click the OS gate refuses shows the transient notice, then clears', async () => {
-    stored = { positions: {}, aliases: ['/docs/photo.png'] }
+    stored = { positions: {}, aliases: ['/docs/archive.zip'] }
     // the main process's refusal shape: the gate answers false, nothing opens
     desktopOpenExternal.mockResolvedValueOnce(false)
     await render()
     await flushAsync()
     expect(host.querySelector('.desktop-notice')).toBeNull()
-    await doubleClick('photo.png')
+    await doubleClick('archive.zip')
     await flushAsync()
     const notice = host.querySelector<HTMLElement>('.desktop-notice')
     expect(notice).toBeTruthy()
@@ -2459,7 +2482,7 @@ describe('DesktopView — opening and removing aliases', () => {
     })
     expect(host.querySelector('.desktop-notice')).toBeNull()
     // a later successful open shows nothing
-    await doubleClick('photo.png')
+    await doubleClick('archive.zip')
     await flushAsync()
     expect(host.querySelector('.desktop-notice')).toBeNull()
   })
@@ -2477,6 +2500,7 @@ describe('DesktopView — opening and removing aliases', () => {
       'Open',
       'Reveal in folder',
       'Properties',
+      'Move to group box',
       'Remove from desktop',
       'Reset position',
     ])
@@ -2528,6 +2552,7 @@ describe('DesktopView — opening and removing aliases', () => {
       'Open',
       'Reveal in folder',
       'Properties',
+      'Move to group box',
       'Remove from desktop',
       'Reset position',
     ])
@@ -2902,6 +2927,7 @@ describe('DesktopView — the multi-selection menu', () => {
     expect(multi).toBeTruthy()
     expect(menuButtons()).toEqual([
       'Open',
+      'Group selected into new box',
       'Star',
       'Reveal in folder',
       'Remove from desktop',
@@ -2922,6 +2948,7 @@ describe('DesktopView — the multi-selection menu', () => {
       'Open',
       'Reveal in folder',
       'Properties',
+      'Move to group box',
       'Pin to desktop',
       'Hide from desktop',
       'Reset position',
@@ -2935,6 +2962,8 @@ describe('DesktopView — the multi-selection menu', () => {
     await cmdClick('beta.xlsx')
     await contextMenu('beta.xlsx')
     expect(focusedMenuLabel()).toBe('Open')
+    await menuKey('ArrowDown')
+    expect(focusedMenuLabel()).toBe('Group selected into new box')
     await menuKey('ArrowDown')
     expect(focusedMenuLabel()).toBe('Star')
     await menuKey('ArrowDown')
@@ -3036,7 +3065,7 @@ describe('DesktopView — the multi-selection menu', () => {
     await cmdClick('Docs')
     await cmdClick('Sheets')
     await contextMenu('Docs')
-    expect(menuButtons()).toEqual(['Open', 'Remove from desktop'])
+    expect(menuButtons()).toEqual(['Open', 'Group selected into new box', 'Remove from desktop'])
     expect(host.querySelector('.desktop-menu-hint')).toBeTruthy()
   })
 
@@ -3349,5 +3378,100 @@ describe('DesktopView — hover submenus, wheel zoom, shortcuts, tidy up & pin t
       await Promise.resolve()
     })
     expect(saves.at(-1)).toEqual({ positions: {} })
+  })
+})
+
+describe('DesktopView — custom group boxes', () => {
+  it('creates, renames, styles, collapses, populates, and dissolves custom group boxes', async () => {
+    await render('en')
+
+    // Create a group box from empty surface right-click menu
+    await surfaceContextMenuAt(220, 180)
+    await clickSurfaceButton('New group box')
+    expect(host.querySelectorAll('.desktop-box')).toHaveLength(1)
+
+    // New box enters inline rename immediately -> commit custom title
+    const titleInput = host.querySelector<HTMLInputElement>('.desktop-box-title-input')!
+    expect(titleInput).toBeTruthy()
+    await typeInto(titleInput, 'Design Hub')
+    await act(async () => {
+      titleInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await Promise.resolve()
+    })
+    expect(host.querySelector('.desktop-box-title')?.textContent).toBe('Design Hub')
+
+    await tick()
+    expect(saves.at(-1)?.boxes).toHaveLength(1)
+    expect(saves.at(-1)?.boxes?.[0]).toMatchObject({ title: 'Design Hub' })
+
+    // Move an icon into the newly created group box from icon right-click menu
+    await contextMenu('Docs')
+    await clickIconMenuButton('Move to group box')
+    const boxChoice = [
+      ...host.querySelectorAll<HTMLButtonElement>('.desktop-icon-menu-row .desktop-submenu button'),
+    ].find((b) => b.textContent === 'Design Hub')
+    await click(boxChoice)
+
+    expect(host.querySelector('.desktop-box-grid [aria-label="Docs"]')).toBeTruthy()
+    expect(host.querySelector('.desktop-icons [aria-label="Docs"]')).toBeNull()
+
+    // Now icon context menu shows "Remove from group box" and puts it back on desktop
+    await contextMenu('Docs')
+    await clickIconMenuButton('Remove from group box')
+    expect(host.querySelector('.desktop-box-grid [aria-label="Docs"]')).toBeNull()
+    expect(host.querySelector('.desktop-icons [aria-label="Docs"]')).toBeTruthy()
+
+    // Multi-select Docs & Sheets -> group selected into a second box
+    await clickIcon('Docs')
+    await cmdClick('Sheets')
+    await contextMenu('Sheets')
+    const groupSelectedBtn = [
+      ...host.querySelectorAll<HTMLButtonElement>('.desktop-menu-multi button'),
+    ].find((b) => b.textContent === 'Group selected into new box')
+    await click(groupSelectedBtn)
+
+    expect(host.querySelectorAll('.desktop-box')).toHaveLength(2)
+    // Dismiss inline rename on second box and flush persistence
+    const box2Input = host.querySelector<HTMLInputElement>('.desktop-box-title-input')
+    if (box2Input) {
+      await act(async () => {
+        box2Input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+        await Promise.resolve()
+      })
+    }
+    await tick()
+    const latestBoxes = saves.at(-1)?.boxes ?? []
+    expect(latestBoxes).toHaveLength(2)
+    expect(latestBoxes[1]?.itemIds).toEqual(expect.arrayContaining(['app:docs', 'app:sheets']))
+
+    // Box context menu: change color, collapse, lock, and dissolve without losing icons
+    const boxes = [...host.querySelectorAll<HTMLElement>('.desktop-box')]
+    const secondBoxEl = boxes[1]!
+    await act(async () => {
+      secondBoxEl.dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 280, clientY: 160 }),
+      )
+      await Promise.resolve()
+    })
+    const boxMenu = host.querySelector<HTMLElement>('[data-testid="desktop-box-menu"]')!
+    expect(boxMenu).toBeTruthy()
+
+    await click(boxMenu.querySelector<HTMLButtonElement>('[data-box-color="violet"]'))
+    expect(secondBoxEl.getAttribute('data-box-color')).toBe('violet')
+
+    await act(async () => {
+      secondBoxEl.dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 280, clientY: 160 }),
+      )
+      await Promise.resolve()
+    })
+    const dissolveBtn = [
+      ...host.querySelectorAll<HTMLButtonElement>('[data-testid="desktop-box-menu"] button'),
+    ].find((b) => b.textContent === 'Dissolve group box')
+    await click(dissolveBtn)
+
+    expect(host.querySelectorAll('.desktop-box')).toHaveLength(1)
+    expect(host.querySelector('.desktop-icons [aria-label="Docs"]')).toBeTruthy()
+    expect(host.querySelector('.desktop-icons [aria-label="Sheets"]')).toBeTruthy()
   })
 })

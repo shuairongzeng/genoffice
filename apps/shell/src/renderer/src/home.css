@@ -1043,8 +1043,80 @@ html.dock-view body {
 /* while a Home popover is open the chrome bands must deliver presses (drag
    regions swallow them), so outside-press dismissal can see presses on the
    blank track and the drawer head */
+/* html.genoffice-popover-open overrides -webkit-app-region above */
 html.genoffice-popover-open .work-tabs {
   -webkit-app-region: no-drag;
+}
+
+/* Auto-hide top bar in maximized/fullscreen Home surfaces */
+.home.topbar-autohide .work-tabs {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 44;
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.16s ease;
+}
+
+.home.topbar-autohide.topbar-revealed .work-tabs {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+  box-shadow: var(--shadow-menu);
+}
+
+.work-tabs-hotedge {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  z-index: 43;
+  background: transparent;
+}
+
+.home.topbar-autohide.topbar-revealed .work-tabs-hotedge {
+  pointer-events: none;
+}
+
+/* Doc-mode native top-bar overlay (?view=topbar) */
+html.topbar-view,
+html.topbar-view body {
+  height: 100%;
+  background: transparent;
+  margin: 0;
+}
+
+.topbar-view-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.topbar-view-root .work-tabs {
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg-content));
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-menu);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.topbar-view-root:not(.is-revealed) .work-tabs {
+  opacity: 0;
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home.topbar-autohide .work-tabs {
+    transition: none;
+  }
 }
 
 .work-tab {
