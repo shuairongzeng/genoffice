@@ -1,6 +1,8 @@
 /**
  * @vitest-environment jsdom
  */
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Root } from 'react-dom/client'
@@ -552,6 +554,23 @@ describe('TodoWidget — a write from outside (todos-changed)', () => {
     await add('still works')
     await tick()
     expect(textsOf(saves[0]!)).toEqual(['still works'])
+  })
+  it('exposes the full task description in the text title attribute for clamped rows', async () => {
+    const longText =
+      '周一 14:00-15:30 开会（提前 15 分钟进会议室/连线，会前把材料过一遍以免遗漏关键议程）'
+    stored = [item('long-1', longText)]
+    await render()
+    const span = host.querySelector<HTMLElement>('.todo-text')
+    expect(span?.getAttribute('title')).toBe(longText)
+  })
+
+  it('clips multi-line .todo-text with overflow: hidden alongside -webkit-line-clamp', () => {
+    const css = readFileSync(resolve(__dirname, '../src/renderer/src/home.css'), 'utf8')
+    const match = css.match(/\.todo-text\s*\{([^}]*)\}/)
+    expect(match, '.todo-text CSS rule should exist').toBeTruthy()
+    const body = match![1]!
+    expect(body).toMatch(/overflow\s*:\s*hidden\s*;/)
+    expect(body).toMatch(/-webkit-line-clamp\s*:\s*2\s*;/)
   })
 })
 

@@ -222,7 +222,9 @@ export function TodoWidget({ lang }: TodoWidgetProps) {
               onClick={(event) => event.stopPropagation()}
               aria-label={item.text}
             />
-            <span className={`todo-text${item.done ? ' done' : ''}`}>{item.text}</span>
+            <span className={`todo-text${item.done ? ' done' : ''}`} title={item.text}>
+              {item.text}
+            </span>
             <button
               className="todo-remove"
               aria-label={s.delete}
