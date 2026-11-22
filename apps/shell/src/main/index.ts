@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import {
   BrowserWindow,
   Menu,
+  Notification,
   app,
   clipboard,
   dialog,
@@ -57,6 +58,7 @@ import {
   installRendererProtocol,
   AUTHOR_NAME_KEY,
   readAuthorNameSetting,
+  rendererUrl,
   sanitizeAuthorName,
   systemAuthorName,
 } from '@genoffice/electron-utils'
@@ -159,7 +161,8 @@ import {
 import { registerHomeFileIpc, stringPaths } from './home-ipc'
 import { openEditorOf as openEditorGuard, openDocumentRefusal } from './open-editor-guard'
 import { isValidRawRenameName } from './rename-validation'
-import { addTodo, broadcastTodosChanged, registerTodosIpc } from './todos-ipc'
+import { addTodo, broadcastTodosChanged, registerTodosIpc, readTodos } from './todos-ipc'
+import { statPathEntries } from './recent-files'
 import { runEditorCommand as dispatchEditorCommand } from './editor-command-dispatch'
 import {
   genofficeLogout,
@@ -338,10 +341,23 @@ import { DOCK_OPEN_NONE } from '../shared/dock-prefs'
 import { DOCK_ITEM_COUNT, normalizeAiDock } from '../shared/desktop-geometry'
 import {
   clearAskSessionInMain,
+  getLiveAskRunHub,
   notifyHomeTabsChanged,
   registerHomeTabsIpc,
   registerHomeWorkbenchIpc,
 } from './home-tabs-ipc'
+import { addAskRunObserver } from './ask-run-observer'
+import { buildButlerPersonaSection } from './butler/butler-persona'
+import { createButlerHudWindow, type ButlerHudWindow } from './butler/butler-hud-window'
+import { registerButlerIpc } from './butler/butler-ipc'
+import {
+  readButlerPrefs,
+  readButlerState,
+  watchButlerPrefs,
+  writeButlerState,
+} from './butler/butler-prefs-store'
+import { createButlerService } from './butler/butler-service'
+import type { ButlerOpenTarget } from '../shared/butler-api'
 import { isUserVisibleFile, type FileTargetSources } from './file-targets'
 import { pdfSaveAsTarget } from './rename-validation'
 import { FolderWatcher, isInsideRoot, pathsUnder, rebasePath, uniqueNameIn } from './folder-tree'
@@ -3864,6 +3880,13 @@ async function confirmBrowserPageAction(request: BrowserPageActionConfirm): Prom
 // ---- system presence: tray, global hotkey, login item, genoffice:// deep links ----
 
 let systemPresence: SystemPresence | null = null
+let butlerHud: ButlerHudWindow | null = null
+
+function summonButler(): boolean {
+  if (!readButlerPrefs(APP_SETTINGS_PATH()).enabled || !butlerHud) return false
+  butlerHud.toggle()
+  return true
+}
 
 /**
  * Push an event to the shell (Home) renderer once it can listen: immediately
@@ -3909,6 +3932,7 @@ const deepLinkRouter = makeDeepLinkRouter({
   revealShellWindow: () => revealShellWindow(),
   summonHome,
   summonPalette,
+  summonButler,
   routeDocumentPath,
   sendToShellRenderer,
 })
@@ -4223,11 +4247,7 @@ function refreshTitleBarOverlay(): void {
   if (process.platform === 'darwin' || !shellWindow || shellWindow.isDestroyed()) return
   const hidden = tabManager?.shouldHideTitleBarOverlay() ?? false
   shellWindow.setTitleBarOverlay(
-    tabStripOverlay(
-      nativeTheme.shouldUseDarkColors || desktopTitleBarDark,
-      currentUiScale,
-      hidden,
-    ),
+    tabStripOverlay(nativeTheme.shouldUseDarkColors || desktopTitleBarDark, currentUiScale, hidden),
   )
 }
 
@@ -6394,7 +6414,7 @@ installDeepLinkListener(deliverDeepLink)
 installNavigationGuard(app)
 installContextMenu(app, () => contextMenuLabels(currentLang()))
 registerAiIpc()
-const openHomeSettings = (section: 'aiModel' | 'skills' | 'aiPet'): void => {
+const openHomeSettings = (section: 'aiModel' | 'skills' | 'aiPet' | 'butler'): void => {
   const win = shellWindow
   if (!win || win.isDestroyed()) return
   // the request may come from a detached window or while the shell is minimized
@@ -6824,6 +6844,7 @@ export interface ShellBootHandoff {
 }
 
 export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
+  if (process.platform === 'win32') app.setAppUserModelId('com.genoffice.app')
   if (handoff) {
     handoff.detachEarlyListeners()
     for (const filePath of handoff.earlyOpenFiles) {
@@ -6991,7 +7012,8 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       'media:analyze_media': async (wc, payload) => {
         const filePath = mediaFilePathForWebContents(wc.id)
         if (!filePath) throw new Error('the media tab has no backing file on disk')
-        const requirements = typeof payload.requirements === 'string' ? payload.requirements.trim() : ''
+        const requirements =
+          typeof payload.requirements === 'string' ? payload.requirements.trim() : ''
         const outcome = await analyzeMediaTool(
           AI_SETTINGS_PATH(),
           { mediaUrls: [filePath], requirements },
@@ -7296,8 +7318,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
   // active flag), and the sender gate serves the same panel copies the
   // browser skill's channel does.
   const askPanelWebContents = (): WebContents[] => {
-    const shellWc =
-      shellWindow && !shellWindow.isDestroyed() ? shellWindow.webContents : undefined
+    const shellWc = shellWindow && !shellWindow.isDestroyed() ? shellWindow.webContents : undefined
     const overlayWc = tabManager?.drawerOverlayWebContents()
     return [shellWc, overlayWc].filter((wc): wc is WebContents => !!wc && !wc.isDestroyed())
   }
@@ -7330,6 +7351,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     sessionAllows: aiSessionAllows,
     workbench: workbenchTools,
     getProjectStore: () => getSharedProjectStoreFromMain(),
+    getPersonaSection: () => buildButlerPersonaSection(readButlerPrefs(APP_SETTINGS_PATH())),
     sendConfirmRequest: (req) => {
       for (const wc of askPanelWebContents()) {
         wc.send(PI_AGENT_CHANNELS.confirmRequest, req)
@@ -7347,9 +7369,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     },
     resolveSkillPathsByName: (names) => {
       const root = skillsRoot(app.getPath('userData'))
-      return names
-        .map((name) => join(root, name, 'SKILL.md'))
-        .filter((p) => existsSync(p))
+      return names.map((name) => join(root, name, 'SKILL.md')).filter((p) => existsSync(p))
     },
   })
   piRuntime = piRuntimeInstance
@@ -7371,6 +7391,88 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.webContents === sender),
     runtime: piRuntimeInstance,
     ecosystem: piEcosystem,
+  })
+  const hudWindow = createButlerHudWindow({
+    url: () => rendererUrl(process.env.ELECTRON_RENDERER_URL, 'help', { view: 'butler-hud' }),
+    workArea: () => screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea,
+  })
+  butlerHud = hudWindow
+  const openButlerSession = (sessionKey: string): void => {
+    const sep = sessionKey.indexOf(':')
+    const projectId = sep > 0 ? sessionKey.slice(0, sep) : 'default'
+    const chatId = sep >= 0 ? sessionKey.slice(sep + 1) : sessionKey
+    summonHome()
+    if (chatId) {
+      getLiveAskRunHub()?.setActiveSession({ projectId, chatId, docPath: null })
+    }
+    deliverDeepLink({ view: 'ask' })
+  }
+  const butlerService = createButlerService({
+    readPrefs: () => readButlerPrefs(APP_SETTINGS_PATH()),
+    readState: () => readButlerState(app.getPath('userData')),
+    writeState: (state) => writeButlerState(app.getPath('userData'), state),
+    now: () => Date.now(),
+    lang: () => currentLang(),
+    isShellFocused: () =>
+      Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.isFocused()),
+    activeSessionKey: () => {
+      const sessionTarget = getLiveAskRunHub()?.getActiveState().session
+      return sessionTarget ? `${sessionTarget.projectId}:${sessionTarget.chatId}` : null
+    },
+    notify: ({ title, body, onClick }) => {
+      if (!Notification.isSupported()) return
+      const notification = new Notification({ title, body, silent: false })
+      notification.on('click', () => onClick())
+      notification.show()
+    },
+    flashFrame: (on) => {
+      if (shellWindow && !shellWindow.isDestroyed()) shellWindow.flashFrame(on)
+    },
+    hud: hudWindow,
+    openSession: openButlerSession,
+    prompt: (req) => piRuntimeInstance.prompt(req),
+    engine: () =>
+      isEnvLegacyEngineForced() || readPiAgentPrefs(APP_SETTINGS_PATH()).engine === 'legacy'
+        ? 'legacy'
+        : 'pi',
+    ensureDefaultProject: () => {
+      getSharedProjectStoreFromMain()?.ensureDefaultProject()
+    },
+    readTodos: () => readTodos(app.getPath('userData')),
+    readRecents: () =>
+      statPathEntries(readRecentFiles().slice(0, 20), new Set()).map((entry) => ({
+        path: entry.path,
+        name: entry.name,
+        mtimeMs: entry.mtimeMs,
+        ...(entry.missing ? { missing: true } : {}),
+      })),
+    hotkey: () => {
+      const sp = systemPresence?.settings()
+      return sp && sp.hotkey.enabled && sp.hotkeyActive ? sp.hotkey.accelerator : null
+    },
+  })
+  addAskRunObserver(butlerService.observer)
+  registerButlerIpc({
+    settingsPath: APP_SETTINGS_PATH,
+    service: butlerService,
+    isHudSender: (wc) => hudWindow.isHudSender(wc),
+    isShellSender: (wc) =>
+      Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.webContents === wc),
+    openTarget: (target: ButlerOpenTarget) => {
+      if (target.type === 'file') {
+        routeDocumentPath(target.path)
+        revealShellWindow()
+      } else if (target.type === 'session') {
+        openButlerSession(target.sessionKey)
+      } else if (target.type === 'todo') {
+        deliverDeepLink({ view: 'desktop' })
+      } else if (target.type === 'settings') {
+        openHomeSettings('butler')
+      }
+      hudWindow.hide()
+    },
+    hideHud: () => hudWindow.hide(),
+    resizeHud: (height) => hudWindow.setHeight(height),
   })
   setProjectChatLifecycleHooks({
     onDeleteChat: ({ projectId, chatId }) => {
@@ -7514,6 +7616,11 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     tabManager?.drawerOverlayWebContents()?.send(PI_AGENT_CHANNELS.prefsChanged, effective)
     piRuntime?.syncEnvironmentAndConfig()
   })
+  watchButlerPrefs(APP_SETTINGS_PATH(), (prefs) => {
+    sendToShellRenderer(HOME_CHANNELS.butlerChanged, prefs)
+    tabManager?.drawerOverlayWebContents()?.send(HOME_CHANNELS.butlerChanged, prefs)
+    butlerHud?.send(HOME_CHANNELS.butlerChanged, prefs)
+  })
   let deferredScheduled = false
   let deferredExecuted = false
   const runDeferredStartupTasks = (): void => {
@@ -7580,6 +7687,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       },
       showMainWindow: summonHome,
       summonPalette,
+      summonButler,
       openAsk: (query) => deliverDeepLink(query ? { view: 'ask', query } : { view: 'ask' }),
     })
     registerDeepLinkClient()
@@ -7589,6 +7697,10 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     indexTimer.unref?.()
     const cliTimer = setTimeout(() => installCliLinkBestEffort(APP_SETTINGS_PATH()), 3000)
     cliTimer.unref?.()
+    if (readButlerPrefs(APP_SETTINGS_PATH()).enabled) {
+      const prewarmButlerTimer = setTimeout(() => butlerHud?.prewarm(), 2500)
+      prewarmButlerTimer.unref?.()
+    }
   }
 
   scheduleDeferredStartupTasks = () => {
@@ -7633,6 +7745,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
   // focus is a free moment to try again (retryHotkey no-ops while active)
   app.on('browser-window-focus', () => {
     systemPresence?.retryHotkey()
+    if (shellWindow && !shellWindow.isDestroyed()) shellWindow.flashFrame(false)
   })
 
   app.on('activate', () => {
@@ -7684,6 +7797,8 @@ app.on('will-quit', () => {
   // global shortcuts and the tray icon must not outlive the process
   systemPresence?.dispose()
   systemPresence = null
+  butlerHud?.dispose()
+  butlerHud = null
   // a second instance that lost the lock quits too; it must not delete the running editor's list
   if (ownsOpenDocumentsRegistry) clearOpenDocuments(OPEN_DOCUMENTS_PATH())
 })

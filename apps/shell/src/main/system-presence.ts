@@ -30,7 +30,7 @@ export interface SystemPresencePrefs {
   /** launch at login (macOS/Windows; Linux has no single API — see applyLoginItem) */
   loginItem: boolean
   hotkeyEnabled: boolean
-  /** Electron accelerator, e.g. 'CommandOrControl+Shift+Space' */
+  /** Electron accelerator, e.g. 'Ctrl+Alt+Space' or 'Alt+Space' */
   hotkeyAccelerator: string
   /**
    * Keep running after the last window closes (Windows/Linux): the tray and
@@ -41,13 +41,15 @@ export interface SystemPresencePrefs {
   closeToTray: boolean
 }
 
+export const DEFAULT_HOTKEY = process.platform === 'darwin' ? 'Alt+Space' : 'Ctrl+Alt+Space'
+
 export const DEFAULT_SYSTEM_PRESENCE_PREFS: SystemPresencePrefs = {
   loginItem: false,
   hotkeyEnabled: true,
-  // the system window-menu accelerator on Windows and the non-breaking space
-  // in macOS text fields (also Raycast's default) — a modifier-heavy combo
-  // nobody else claims is the safer default
-  hotkeyAccelerator: 'CommandOrControl+Shift+Space',
+  // Platform-tuned one-handed default: Alt+Space is frequently claimed by
+  // third-party launchers/IMEs on Windows (confirmed via RegisterHotKey 1409),
+  // whereas Ctrl+Alt+Space works reliably one-handed; macOS keeps Option+Space.
+  hotkeyAccelerator: DEFAULT_HOTKEY,
   // off on macOS only: window-all-closed never quits there, so the pref would
   // be a toggle that changes nothing
   closeToTray: process.platform !== 'darwin',
@@ -104,7 +106,10 @@ export function normalizeSystemPresencePrefs(raw: unknown): SystemPresencePrefs 
   if (typeof source.closeToTray === 'boolean') prefs.closeToTray = source.closeToTray
   if (typeof source.hotkeyEnabled === 'boolean') prefs.hotkeyEnabled = source.hotkeyEnabled
   if (isAcceleratorLike(source.hotkeyAccelerator)) {
-    prefs.hotkeyAccelerator = source.hotkeyAccelerator.trim()
+    const trimmed = source.hotkeyAccelerator.trim()
+    // Smoothly migrate the legacy default accelerator to DEFAULT_HOTKEY while
+    // preserving explicit user customizations (e.g. 'Ctrl+Shift+Space', 'Alt+P').
+    prefs.hotkeyAccelerator = trimmed === 'CommandOrControl+Shift+Space' ? DEFAULT_HOTKEY : trimmed
   }
   return prefs
 }
@@ -118,126 +123,147 @@ export function readSystemPresencePrefs(settingsPath: string): SystemPresencePre
 const tPresence = createI18n({
   zh: {
     trayShow: '显示 GenOffice',
+    trayButler: '唤起 AI 管家',
     trayPalette: '命令面板',
     trayAsk: 'AI 问答',
     trayQuit: '退出 GenOffice',
   },
   en: {
     trayShow: 'Show GenOffice',
+    trayButler: 'Summon AI Butler',
     trayPalette: 'Command Palette',
     trayAsk: 'Ask AI',
     trayQuit: 'Quit GenOffice',
   },
   ja: {
     trayShow: 'GenOffice を表示',
+    trayButler: 'AI バトラーを呼び出す',
     trayPalette: 'コマンドパレット',
     trayAsk: 'AI に聞く',
     trayQuit: 'GenOffice を終了',
   },
   ko: {
     trayShow: 'GenOffice 표시',
+    trayButler: 'AI 집사 호출',
     trayPalette: '명령 팔레트',
     trayAsk: 'AI에게 묻기',
     trayQuit: 'GenOffice 종료',
   },
   fr: {
     trayShow: 'Afficher GenOffice',
+    trayButler: 'Appeler le majordome IA',
     trayPalette: 'Palette de commandes',
     trayAsk: 'Demander à l’IA',
     trayQuit: 'Quitter GenOffice',
   },
   de: {
     trayShow: 'GenOffice anzeigen',
+    trayButler: 'KI-Butler aufrufen',
     trayPalette: 'Befehlspalette',
     trayAsk: 'KI fragen',
     trayQuit: 'GenOffice beenden',
   },
   es: {
     trayShow: 'Mostrar GenOffice',
+    trayButler: 'Invocar mayordomo IA',
     trayPalette: 'Paleta de comandos',
     trayAsk: 'Preguntar a la IA',
     trayQuit: 'Salir de GenOffice',
   },
   th: {
     trayShow: 'แสดง GenOffice',
+    trayButler: 'เรียกผู้ช่วย AI ส่วนตัว',
     trayPalette: 'พาเลตคำสั่ง',
     trayAsk: 'ถาม AI',
     trayQuit: 'ออกจาก GenOffice',
   },
   id: {
     trayShow: 'Tampilkan GenOffice',
+    trayButler: 'Panggil Pelayan AI',
     trayPalette: 'Palet Perintah',
     trayAsk: 'Tanya AI',
     trayQuit: 'Keluar dari GenOffice',
   },
   ru: {
     trayShow: 'Показать GenOffice',
+    trayButler: 'Вызвать ИИ-дворецкого',
     trayPalette: 'Палитра команд',
     trayAsk: 'Спросить ИИ',
     trayQuit: 'Выйти из GenOffice',
   },
   ar: {
     trayShow: 'إظهار GenOffice',
+    trayButler: 'استدعاء المساعد الشخصي',
     trayPalette: 'لوحة الأوامر',
     trayAsk: 'اسأل الذكاء الاصطناعي',
     trayQuit: 'إنهاء GenOffice',
   },
   pt: {
     trayShow: 'Mostrar GenOffice',
+    trayButler: 'Chamar Mordomo IA',
     trayPalette: 'Paleta de comandos',
     trayAsk: 'Perguntar à IA',
     trayQuit: 'Sair do GenOffice',
   },
   it: {
     trayShow: 'Mostra GenOffice',
+    trayButler: 'Richiama Maggiordomo IA',
     trayPalette: 'Tavolozza dei comandi',
     trayAsk: 'Chiedi all’IA',
     trayQuit: 'Esci da GenOffice',
   },
   pl: {
     trayShow: 'Pokaż GenOffice',
+    trayButler: 'Przywołaj lokaja AI',
     trayPalette: 'Paleta poleceń',
     trayAsk: 'Zapytaj AI',
     trayQuit: 'Zakończ GenOffice',
   },
   cs: {
     trayShow: 'Zobrazit GenOffice',
+    trayButler: 'Vyvolat AI komorníka',
     trayPalette: 'Paleta příkazů',
     trayAsk: 'Zeptat se AI',
     trayQuit: 'Ukončit GenOffice',
   },
   nl: {
     trayShow: 'GenOffice weergeven',
+    trayButler: 'AI-butler oproepen',
     trayPalette: 'Opdrachtenpalet',
     trayAsk: 'Vraag AI',
     trayQuit: 'GenOffice afsluiten',
   },
   ms: {
     trayShow: 'Tunjukkan GenOffice',
+    trayButler: 'Panggil Pembantu AI',
     trayPalette: 'Palet Perintah',
     trayAsk: 'Tanya AI',
     trayQuit: 'Keluar GenOffice',
   },
   he: {
     trayShow: 'הצגת GenOffice',
+    trayButler: 'זימון עוזר AI אישי',
     trayPalette: 'לוח הפקודות',
     trayAsk: 'שאל את ה-AI',
     trayQuit: 'יציאה מ-GenOffice',
   },
   hi: {
     trayShow: 'GenOffice दिखाएँ',
+    trayButler: 'AI बटलर बुलाएँ',
     trayPalette: 'कमांड पैलेट',
     trayAsk: 'AI से पूछें',
     trayQuit: 'GenOffice से बाहर निकलें',
   },
   'zh-TW': {
     trayShow: '顯示 GenOffice',
+    trayButler: '喚起 AI 管家',
     trayPalette: '命令選板',
     trayAsk: 'AI 問答',
     trayQuit: '結束 GenOffice',
   },
   vi: {
     trayShow: 'Hiện GenOffice',
+    trayButler: 'Gọi Quản gia AI',
     trayPalette: 'Bảng lệnh',
     trayAsk: 'Hỏi AI',
     trayQuit: 'Thoát GenOffice',
@@ -249,9 +275,10 @@ const tPresence = createI18n({
 export const DEEP_LINK_SCHEME = 'genoffice'
 
 /**
- * Parse one deep-link URL. Four verbs exist:
+ * Parse one deep-link URL. Five verbs exist:
  * genoffice://ask?q=hello → { view: 'ask', query: 'hello' },
  * genoffice://palette → { view: 'palette' },
+ * genoffice://butler → { view: 'butler' },
  * genoffice://open?path=%2F… → { view: 'open', path: '…' },
  * genoffice://desktop → { view: 'desktop' }. Anything else is not a deep
  * link (null) rather than an error.
@@ -270,6 +297,7 @@ export function parseDeepLink(raw: string): DeepLinkPayload | null {
     return { view: 'ask', ...(query ? { query } : {}) }
   }
   if (host === 'palette') return { view: 'palette' }
+  if (host === 'butler') return { view: 'butler' }
   if (host === 'desktop') return { view: 'desktop' }
   if (host === 'open') {
     // a link without a path has nothing to open; refusing it beats guessing
@@ -323,6 +351,8 @@ export interface SystemPresenceDeps {
   showMainWindow: () => void
   /** focus Home and open the command palette (the Ctrl/Cmd+K path) */
   summonPalette: () => void
+  /** summon the AI Butler HUD; returns true if handled, or false to fall back to the palette */
+  summonButler?: () => boolean
   /** focus the main window on Home's Ask AI view, optionally with a query */
   openAsk: (query?: string) => void
   /** default app.quit() */
@@ -361,10 +391,17 @@ export function installSystemPresence(deps: SystemPresenceDeps): SystemPresence 
 
   const rebuildMenu = (): void => {
     const lang = deps.lang()
-    const t = (key: 'trayShow' | 'trayPalette' | 'trayAsk' | 'trayQuit') => tPresence(lang, key)
+    const t = (key: 'trayShow' | 'trayButler' | 'trayPalette' | 'trayAsk' | 'trayQuit') =>
+      tPresence(lang, key)
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: t('trayShow'), click: () => deps.showMainWindow() },
+        {
+          label: t('trayButler'),
+          click: () => {
+            if (!deps.summonButler?.()) deps.summonPalette()
+          },
+        },
         { label: t('trayPalette'), click: () => deps.summonPalette() },
         { label: t('trayAsk'), click: () => deps.openAsk() },
         { type: 'separator' },
@@ -381,7 +418,9 @@ export function installSystemPresence(deps: SystemPresenceDeps): SystemPresence 
     }
     if (!prefs.hotkeyEnabled) return false
     try {
-      const ok = globalShortcut.register(prefs.hotkeyAccelerator, () => deps.summonPalette())
+      const ok = globalShortcut.register(prefs.hotkeyAccelerator, () => {
+        if (!deps.summonButler?.()) deps.summonPalette()
+      })
       if (ok) registeredHotkey = prefs.hotkeyAccelerator
       return ok
     } catch {
@@ -514,7 +553,7 @@ export function registerSystemPresenceIpc(presence: () => SystemPresence | null)
       }
       if (patch.accelerator !== undefined && !isAcceleratorLike(patch.accelerator)) {
         throw new Error(
-          'the hotkey accelerator must be modifiers + one key, e.g. "CommandOrControl+Shift+Space" or "Alt+P"',
+          'the hotkey accelerator must be modifiers + one key, e.g. "Ctrl+Alt+Space" or "Alt+J"',
         )
       }
       const p = presence()

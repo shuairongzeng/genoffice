@@ -15,18 +15,22 @@ interface Recording {
   calls: string[]
   deepLinkSends: unknown[][]
   palette: number
+  butler: number
+  butlerAllowed: boolean
   home: number
   reveals: number
   routed: string[]
 }
 
 /** a router over recorded deps; set `ready` to flip the pre-ready path */
-function makeRouter(ready = true) {
+function makeRouter(ready = true, opts?: { butlerAllowed?: boolean; omitButler?: boolean }) {
   const rec: Recording = {
     ready,
     calls: [],
     deepLinkSends: [],
     palette: 0,
+    butler: 0,
+    butlerAllowed: opts?.butlerAllowed ?? true,
     home: 0,
     reveals: 0,
     routed: [],
@@ -45,6 +49,15 @@ function makeRouter(ready = true) {
       rec.palette += 1
       rec.calls.push('palette')
     },
+    ...(opts?.omitButler
+      ? {}
+      : {
+          summonButler: () => {
+            rec.butler += 1
+            rec.calls.push('butler')
+            return rec.butlerAllowed
+          },
+        }),
     routeDocumentPath: (path) => {
       rec.routed.push(path)
       rec.calls.push(`route:${path}`)
@@ -96,6 +109,23 @@ describe('makeDeepLinkRouter routing matrix', () => {
     expect(rec.deepLinkSends).toEqual([])
     // the reveal happens before the routing, so a background launch surfaces
     expect(rec.calls.indexOf('reveal')).toBeLessThan(rec.calls.indexOf('route:/tmp/report.docx'))
+  })
+
+  it('routes butler main-side when enabled and falls back to palette when disabled or absent', () => {
+    const enabled = makeRouter(true, { butlerAllowed: true })
+    enabled.router.deliver({ view: 'butler' })
+    expect(enabled.rec.butler).toBe(1)
+    expect(enabled.rec.palette).toBe(0)
+    expect(enabled.rec.home).toBe(0)
+
+    const disabled = makeRouter(true, { butlerAllowed: false })
+    disabled.router.deliver({ view: 'butler' })
+    expect(disabled.rec.butler).toBe(1)
+    expect(disabled.rec.palette).toBe(1)
+
+    const omitted = makeRouter(true, { omitButler: true })
+    omitted.router.deliver({ view: 'butler' })
+    expect(omitted.rec.palette).toBe(1)
   })
 
   it('reveals the shell for an open verb with no path, routing nothing', () => {

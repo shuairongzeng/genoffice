@@ -22,6 +22,8 @@ export interface DeepLinkRouterDeps {
   summonHome: () => void
   /** Home with the command palette open */
   summonPalette: () => void
+  /** Toggle the AI Butler floating HUD (returns false when Butler is disabled) */
+  summonButler?: () => boolean
   /** open a document in its owning app */
   routeDocumentPath: (path: string) => void
   /** one message to the shell renderer */
@@ -49,6 +51,10 @@ export function makeDeepLinkRouter(deps: DeepLinkRouterDeps): DeepLinkRouter {
     }
     if (payload.view === 'palette') {
       deps.summonPalette()
+      return
+    }
+    if (payload.view === 'butler') {
+      if (!deps.summonButler?.()) deps.summonPalette()
       return
     }
     if (payload.view === 'open') {

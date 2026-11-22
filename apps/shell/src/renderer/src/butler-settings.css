@@ -1,0 +1,284 @@
+/* AI Butler settings pane: summon shortcut, persona, proactive updates, and voice.
+ * All colors rely strictly on semantic tokens from packages/ui/src/tokens.css. */
+
+.butler-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.butler-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.butler-header .set-pane-title {
+  margin-bottom: 0;
+}
+
+.butler-intro {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.butler-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.butler-section .set-pane-subtitle {
+  margin: 4px 0 6px;
+}
+
+.butler-hotkey-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 6px 0 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-12);
+  background: var(--surface-subtle);
+}
+
+.butler-hotkey-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.butler-keycaps {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.butler-keycap-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.butler-keycap-plus {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.butler-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-6);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.butler-hotkey-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.butler-hotkey-status.is-active {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.butler-hotkey-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.butler-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.butler-preset-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.butler-preset-chip:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover, var(--border-strong));
+}
+
+.butler-preset-chip.is-active {
+  border-color: var(--accent, var(--color-brand-secondary));
+  background: var(--accent-soft, var(--bg-hover));
+  color: var(--accent, var(--text-primary));
+}
+
+.butler-preset-chip:focus-visible,
+.butler-record-btn:focus-visible,
+.butler-select:focus-visible {
+  outline: 2px solid var(--accent, var(--color-brand-secondary));
+  outline-offset: 2px;
+}
+
+.butler-preset-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.butler-preset-chip.is-active .butler-preset-badge {
+  background: var(--surface);
+  color: var(--accent, var(--text-primary));
+}
+
+.butler-hotkey-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.butler-record-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-8);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.butler-record-btn:hover {
+  background: var(--bg-hover);
+}
+
+.butler-record-btn.is-recording {
+  border-color: var(--accent, var(--color-brand-secondary));
+  background: var(--accent-soft, var(--bg-hover));
+  color: var(--accent, var(--text-primary));
+}
+
+.butler-hotkey-error {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--danger);
+}
+
+.butler-hotkey-blocked {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-8);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.butler-voice-rate-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.butler-voice-rate-val {
+  min-width: 38px;
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.butler-voice-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.butler-select {
+  min-width: 200px;
+  max-width: 280px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-6);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.butler-select:focus {
+  outline: none;
+  border-color: var(--accent, var(--text-primary));
+}
+
+@media (max-width: 640px) {
+  .butler-hotkey-blocked {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .butler-voice-picker {
+    flex-wrap: wrap;
+  }
+
+  .butler-select {
+    max-width: 100%;
+  }
+}

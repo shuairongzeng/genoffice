@@ -1,11 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -29,7 +22,6 @@ import type {
 import type { AiPermissionMode } from '@genoffice/ui/ai-permission-mode'
 
 import {
-  PI_AGENT_CHANNELS,
   type PiAgentCommandInfo,
   type PiAgentConfirmReply,
   type PiAgentConfirmRequest,
@@ -40,6 +32,7 @@ import {
 } from '../../shared/pi-agent-api'
 import type { PiAgentPrefs } from '../../shared/pi-agent-prefs'
 import type { AiSessionAllows } from '../ai-session-allows'
+import { appendButlerPersona } from '../butler/butler-persona'
 import {
   beginPiRunInMain,
   broadcastAskRunEventFromMain,
@@ -66,7 +59,11 @@ import {
 import { resolvePiRuntimePaths, type PiRuntimePaths } from './pi-agent-paths'
 import { readMagicContextStats } from './pi-memory-store'
 import { syncPiProviderAndMagicContextConfig } from './pi-provider-sync'
-import { applyPiRuntimeEnv, ensurePiSubagentShim, installPiSubagentSpawnHook } from './pi-subagent-shim'
+import {
+  applyPiRuntimeEnv,
+  ensurePiSubagentShim,
+  installPiSubagentSpawnHook,
+} from './pi-subagent-shim'
 
 const MAX_CACHED_SESSIONS = 8
 const BACKFILL_MESSAGE_LIMIT = 40
@@ -213,7 +210,9 @@ export function filterAgentContextFiles<T extends { path: string }>(
   })
 }
 
-export function buildExcludeBuiltinTools(prefs: Pick<PiAgentPrefs, 'enablePiReadTools' | 'enablePiWriteTools'>): string[] {
+export function buildExcludeBuiltinTools(
+  prefs: Pick<PiAgentPrefs, 'enablePiReadTools' | 'enablePiWriteTools'>,
+): string[] {
   const excluded: string[] = []
   if (!prefs.enablePiReadTools) {
     excluded.push('read', 'grep', 'find', 'ls')
@@ -378,6 +377,7 @@ export interface PiRuntimeManagerDeps {
   readonly sendStatusEvent: (status: PiAgentStatusPayload) => void
   readonly sendNoticeEvent: (notice: PiAgentNoticePayload) => void
   readonly resolveSkillPathsByName?: (names: readonly string[]) => readonly string[]
+  readonly getPersonaSection?: () => string
 }
 
 interface CachedSessionRecord {
@@ -436,7 +436,7 @@ function resolveBundledSkillDirs(opts: {
   return dirs
 }
 
-function prefsReloadKey(prefs: PiAgentPrefs, storageMode: string): string {
+export function prefsReloadKey(prefs: PiAgentPrefs, storageMode: string, persona = ''): string {
   return JSON.stringify([
     prefs.magicContextEnabled,
     storageMode,
@@ -449,6 +449,7 @@ function prefsReloadKey(prefs: PiAgentPrefs, storageMode: string): string {
     prefs.historianModel,
     prefs.dreamerModel,
     prefs.systemPrompt,
+    persona,
   ])
 }
 
@@ -592,8 +593,9 @@ export class PiAgentRuntimeManager {
     settingsManager: SettingsManager
     coord: WorkbenchExtensionCoord
     getToolAnnotations?: Parameters<typeof createGenofficePermissionExtension>[1]
+    persona?: string
   }) {
-    const { sdk, paths, prefs, cwd, settingsManager, coord, getToolAnnotations } = opts
+    const { sdk, paths, prefs, cwd, settingsManager, coord, getToolAnnotations, persona } = opts
     return new sdk.DefaultResourceLoader({
       cwd,
       agentDir: paths.agentDir,
@@ -618,7 +620,8 @@ export class PiAgentRuntimeManager {
           getToolAnnotations,
         ),
       ],
-      systemPromptOverride: (base) => resolveGenofficeSystemPrompt(base, prefs.systemPrompt),
+      systemPromptOverride: (base) =>
+        appendButlerPersona(resolveGenofficeSystemPrompt(base, prefs.systemPrompt), persona ?? ''),
       agentsFilesOverride: ({ agentsFiles }) => ({
         agentsFiles: filterAgentContextFiles(agentsFiles, paths.agentDir),
       }),
@@ -717,7 +720,8 @@ export class PiAgentRuntimeManager {
       )
     }
 
-    const currentPrefsKey = prefsReloadKey(prefs, prefs.magicContextStorageMode)
+    const persona = this.deps.getPersonaSection?.() ?? ''
+    const currentPrefsKey = prefsReloadKey(prefs, prefs.magicContextStorageMode, persona)
     const cached = this.cache.get(req.sessionKey)
     if (cached) {
       if (cached.prefsKey === currentPrefsKey) {
@@ -755,6 +759,7 @@ export class PiAgentRuntimeManager {
       cwd,
       settingsManager,
       coord,
+      persona,
       getToolAnnotations: (toolName) =>
         sessionRef?.extensionRunner.getToolDefinition(toolName)?.annotations,
     })
@@ -898,7 +903,9 @@ export class PiAgentRuntimeManager {
       contextTokens: usage?.tokens ?? null,
       contextWindow: usage?.contextWindow ?? 128_000,
       contextPercent: usage?.percent ?? null,
-      ...(counts ? { memoryCount: counts.memoryCount, compartmentCount: counts.compartmentCount } : {}),
+      ...(counts
+        ? { memoryCount: counts.memoryCount, compartmentCount: counts.compartmentCount }
+        : {}),
       magicContextActive: prefs.magicContextEnabled,
       ...(statusText !== undefined ? { statusText } : {}),
       engine: 'pi',

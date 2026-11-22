@@ -65,12 +65,20 @@ import type {
   FileSearchPage,
   FileSearchRerank,
   FileSearchSettings,
+  ButlerHudState,
+  ButlerOpenTarget,
+  ButlerPrefs,
+  ButlerPrefsPatch,
+  ButlerSpeakRequest,
+  ButlerSubmitResult,
+  ButlerTaskUpdate,
 } from '../shared/home-api'
 import type { ProjectApi } from '@genoffice/project-store'
 import { HOME_CHANNELS, HOME_TAB_KINDS } from '../shared/home-api'
 import { normalizeForwardedAskQuery, type PendingAskQuery } from '../shared/ask-forward'
 import { normalizeAiDock } from '../shared/desktop-geometry'
 import { normalizeAiPetPrefs } from '../shared/ai-pet-prefs'
+import { normalizeButlerPrefs } from '../shared/butler-prefs'
 import { PI_AGENT_CHANNELS } from '../shared/pi-agent-api'
 import type {
   PiAgentCommandInfo,
@@ -957,6 +965,52 @@ const homeApi: HomeApi = {
   async openAiPetSettings() {
     await ipcRenderer.invoke(HOME_CHANNELS.openAiPetSettings)
   },
+  async getButlerPrefs(): Promise<ButlerPrefs> {
+    return normalizeButlerPrefs(await ipcRenderer.invoke(HOME_CHANNELS.butlerGet))
+  },
+  async setButlerPrefs(patch: ButlerPrefsPatch): Promise<ButlerPrefs> {
+    return normalizeButlerPrefs(await ipcRenderer.invoke(HOME_CHANNELS.butlerSet, patch))
+  },
+  onButlerPrefsChanged(handler) {
+    const listener = (_event: IpcRendererEvent, prefs: unknown): void => {
+      handler(normalizeButlerPrefs(prefs))
+    }
+    ipcRenderer.on(HOME_CHANNELS.butlerChanged, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.butlerChanged, listener)
+  },
+  async butlerHudState(opts?: {
+    forceBriefing?: boolean
+    peek?: boolean
+  }): Promise<ButlerHudState> {
+    return ipcRenderer.invoke(HOME_CHANNELS.butlerHudState, opts)
+  },
+  async butlerSubmit(text: string): Promise<ButlerSubmitResult> {
+    return ipcRenderer.invoke(HOME_CHANNELS.butlerSubmit, text)
+  },
+  async butlerOpen(target: ButlerOpenTarget): Promise<void> {
+    await ipcRenderer.invoke(HOME_CHANNELS.butlerOpen, target)
+  },
+  butlerHide() {
+    ipcRenderer.send(HOME_CHANNELS.butlerHide)
+  },
+  butlerResize(height: number) {
+    ipcRenderer.send(HOME_CHANNELS.butlerResize, height)
+  },
+  onButlerTaskUpdate(handler) {
+    const listener = (_event: IpcRendererEvent, update: ButlerTaskUpdate) => handler(update)
+    ipcRenderer.on(HOME_CHANNELS.butlerTaskUpdate, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.butlerTaskUpdate, listener)
+  },
+  onButlerShown(handler) {
+    const listener = () => handler()
+    ipcRenderer.on(HOME_CHANNELS.butlerShown, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.butlerShown, listener)
+  },
+  onButlerSpeak(handler) {
+    const listener = (_event: IpcRendererEvent, req: ButlerSpeakRequest) => handler(req)
+    ipcRenderer.on(HOME_CHANNELS.butlerSpeak, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.butlerSpeak, listener)
+  },
   // the loop's pub/sub backbone: Home's loop publishes run events, the
   // mirror mounts subscribe — a closed mount never receives one
   askRunEvent(event) {
@@ -996,13 +1050,15 @@ const homeApi: HomeApi = {
   },
   async getWindowChromeState() {
     const raw: unknown = await ipcRenderer.invoke(HOME_CHANNELS.windowChromeState)
-    return asWindowChromeState(raw) ?? {
-      maximized: false,
-      fullScreen: false,
-      autoHideEnabled: true,
-      autoHideActive: false,
-      revealed: false,
-    }
+    return (
+      asWindowChromeState(raw) ?? {
+        maximized: false,
+        fullScreen: false,
+        autoHideEnabled: true,
+        autoHideActive: false,
+        revealed: false,
+      }
+    )
   },
   onWindowChromeStateChanged(handler) {
     const listener = (_event: IpcRendererEvent, payload: unknown) => {
@@ -1133,13 +1189,22 @@ const homeApi: HomeApi = {
     return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.ecosystemOverview)) as PiEcosystemOverview
   },
   async piAgentPackageInstall(source) {
-    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.packageInstall, source)) as PiPackageActionResult
+    return (await ipcRenderer.invoke(
+      PI_AGENT_CHANNELS.packageInstall,
+      source,
+    )) as PiPackageActionResult
   },
   async piAgentPackageRemove(source) {
-    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.packageRemove, source)) as PiPackageActionResult
+    return (await ipcRenderer.invoke(
+      PI_AGENT_CHANNELS.packageRemove,
+      source,
+    )) as PiPackageActionResult
   },
   async piAgentPackageUpdate(source) {
-    return (await ipcRenderer.invoke(PI_AGENT_CHANNELS.packageUpdate, source)) as PiPackageActionResult
+    return (await ipcRenderer.invoke(
+      PI_AGENT_CHANNELS.packageUpdate,
+      source,
+    )) as PiPackageActionResult
   },
   async piAgentReload() {
     await ipcRenderer.invoke(PI_AGENT_CHANNELS.reload)

@@ -60,6 +60,7 @@ import { ProviderLogo } from './provider-logos'
 import { IntegrationsPane, skillUpdateDue } from './IntegrationsPane'
 import { FoundSkills } from './FoundSkills'
 import { PluginsPane } from './PluginsPane'
+import { ButlerSettingsPane } from './ButlerSettingsPane'
 import { AiPetSettingsPane } from './AiPetSettingsPane'
 import { PiEcosystemSettingsPane } from './PiEcosystemSettingsPane'
 import { DesktopSettingsPane } from './DesktopSettingsPane'
@@ -207,6 +208,7 @@ export type SectionId =
   | 'general'
   | 'dock'
   | 'desktop'
+  | 'butler'
   | 'aiPet'
   | 'piAgent'
   | 'integrations'
@@ -221,6 +223,7 @@ export const SECTIONS: readonly { id: SectionId; labelKey: StringKey }[] = [
   { id: 'general', labelKey: 'setSecGeneral' },
   { id: 'dock', labelKey: 'setSecDock' },
   { id: 'desktop', labelKey: 'setSecDesktop' },
+  { id: 'butler', labelKey: 'setSecButler' },
   { id: 'aiPet', labelKey: 'setSecAiPet' },
   { id: 'piAgent', labelKey: 'setSecPiAgent' },
   { id: 'integrations', labelKey: 'setSecIntegrations' },
@@ -347,7 +350,15 @@ function SectionIcon({ id }: { id: SectionId }) {
   if (id === 'desktop') {
     return (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <rect x="1.8" y="2.5" width="12.4" height="9" rx="1.6" stroke="currentColor" strokeWidth="1.3" />
+        <rect
+          x="1.8"
+          y="2.5"
+          width="12.4"
+          height="9"
+          rx="1.6"
+          stroke="currentColor"
+          strokeWidth="1.3"
+        />
         <path
           d="M2.5 9.6 5.6 6.8l2.3 2.1 2.1-1.9 3.5 2.8M6.2 13.8h3.6"
           stroke="currentColor"
@@ -376,6 +387,15 @@ function SectionIcon({ id }: { id: SectionId }) {
           strokeWidth="1.8"
           strokeLinecap="round"
         />
+      </svg>
+    )
+  }
+  if (id === 'butler') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="5.8" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="8" cy="8" r="2.7" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="8" cy="8" r="0.9" fill="currentColor" />
       </svg>
     )
   }
@@ -2086,8 +2106,6 @@ export function SettingsModal({
   const [aiPrefs, setAiPrefs] = useState<AiPanelPrefs>(DEFAULT_AI_PANEL_PREFS)
   const [authorName, setAuthorName] = useState<AuthorNameSetting>({ value: '', fallback: '' })
   const [presence, setPresence] = useState<SystemPresenceSettings | null>(null)
-  /** the hotkey accelerator being typed; null = showing the persisted one */
-  const [hotkeyDraft, setHotkeyDraft] = useState<string | null>(null)
   /** the Ask AI corpus scope; null until the bridge served the stored value */
   const [kbScope, setKbScope] = useState<KbScopeValue | null>(null)
   /** the 'folders' scope's root list; null until the bridge answers */
@@ -2648,102 +2666,6 @@ export function SettingsModal({
                         />
                       </div>
                     )}
-                    <div className="set-field">
-                      <div className="set-field-text">
-                        <div className="set-field-stack">
-                          <div className="set-field-label">{t('setGlobalHotkey')}</div>
-                          <div className="set-field-desc">{t('setGlobalHotkeyDesc')}</div>
-                        </div>
-                      </div>
-                      <button
-                        className="set-switch"
-                        role="switch"
-                        aria-checked={presence.hotkey.enabled}
-                        aria-label={t('setGlobalHotkey')}
-                        onClick={() => {
-                          void window.aiOffice
-                            .setGlobalHotkey?.({ enabled: !presence.hotkey.enabled })
-                            .then((sp) => {
-                              if (sp) setPresence(sp)
-                            })
-                            .catch(() => {})
-                        }}
-                      />
-                    </div>
-                    {presence.hotkey.enabled && (
-                      <div className="set-field">
-                        <div className="set-field-text">
-                          <div className="set-field-stack">
-                            <label className="set-field-label" htmlFor="set-hotkey-accelerator">
-                              {t('setGlobalHotkeyAccelerator')}
-                            </label>
-                            <div className="set-field-desc">
-                              {t('setGlobalHotkeyAcceleratorDesc')}
-                            </div>
-                          </div>
-                        </div>
-                        <input
-                          id="set-hotkey-accelerator"
-                          className="set-input"
-                          type="text"
-                          value={hotkeyDraft ?? presence.hotkey.accelerator}
-                          spellCheck={false}
-                          autoComplete="off"
-                          onChange={(e) => setHotkeyDraft(e.target.value)}
-                          onBlur={() => {
-                            const draft = hotkeyDraft
-                            setHotkeyDraft(null)
-                            if (draft === null) return
-                            const next = draft.trim()
-                            if (!next || next === presence.hotkey.accelerator) return
-                            // an accelerator the main process rejects leaves the
-                            // persisted value in place; the input reverts to it
-                            void window.aiOffice
-                              .setGlobalHotkey?.({ accelerator: next })
-                              .then((sp) => {
-                                if (sp) setPresence(sp)
-                              })
-                              .catch(() => {})
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') e.currentTarget.blur()
-                          }}
-                        />
-                      </div>
-                    )}
-                    {/* a taken accelerator is a live state, not a settings
-                        failure: the switch says "on" while the OS says no, so
-                        the field below says which one is telling the truth and
-                        offers the retry (the holding app may have quit) */}
-                    {presence.hotkey.enabled && !presence.hotkeyActive && (
-                      <div className="set-field">
-                        <div className="set-field-text">
-                          <div className="set-field-stack">
-                            <div className="set-field-desc">{t('setGlobalHotkeyBlocked')}</div>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="set-btn"
-                          onClick={() => {
-                            // re-applying the current prefs re-registers the
-                            // accelerator; the answered snapshot is the truth —
-                            // it may report the retry failed again
-                            void window.aiOffice
-                              .setGlobalHotkey?.({
-                                enabled: true,
-                                accelerator: presence.hotkey.accelerator,
-                              })
-                              .then((sp) => {
-                                if (sp) setPresence(sp)
-                              })
-                              .catch(() => {})
-                          }}
-                        >
-                          {t('setGlobalHotkeyRetry')}
-                        </button>
-                      </div>
-                    )}
                   </>
                 )}
                 {kbScope !== null && (
@@ -2945,6 +2867,7 @@ export function SettingsModal({
                 </div>
               </>
             )}
+            {section === 'butler' && <ButlerSettingsPane t={t} />}
             {section === 'aiPet' && <AiPetSettingsPane t={t} />}
             {section === 'piAgent' && <PiEcosystemSettingsPane t={t} />}
             {section === 'integrations' && (

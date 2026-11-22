@@ -12,9 +12,11 @@ import {
   createOrdinalPrefixStripper,
   filterAgentContextFiles,
   messageUsageDelta,
+  prefsReloadKey,
   resolveGenofficeSystemPrompt,
   stripOrdinalPrefix,
 } from '../src/main/pi-agent/pi-runtime'
+import { appendButlerPersona } from '../src/main/butler/butler-persona'
 import {
   STATIC_WORKBENCH_SYSTEM_PROMPT,
   createGenofficeWorkbenchExtension,
@@ -341,5 +343,42 @@ describe('pi-runtime helpers', () => {
     expect(settingsLoader.getSystemPrompt()).toBe('SETTINGS_CONFIGURED_SYSTEM_PROMPT')
     expect(settingsLoader.getAppendSystemPrompt()).toEqual(['USER_APPEND_RULE'])
     expect(settingsLoader.getSkills().skills.map((s) => s.name)).toContain('office-brief')
+  })
+
+  it('produces distinct prefsReloadKey values when persona changes and keeps empty default compatible', () => {
+    const baseDefault = prefsReloadKey(DEFAULT_PI_AGENT_PREFS, 'sqlite')
+    const explicitEmpty = prefsReloadKey(DEFAULT_PI_AGENT_PREFS, 'sqlite', '')
+    const personaA = prefsReloadKey(
+      DEFAULT_PI_AGENT_PREFS,
+      'sqlite',
+      '## Butler persona\nYou are Jarvis.',
+    )
+    const personaB = prefsReloadKey(
+      DEFAULT_PI_AGENT_PREFS,
+      'sqlite',
+      '## Butler persona\nYou are Alfred.',
+    )
+
+    expect(explicitEmpty).toBe(baseDefault)
+    expect(personaA).not.toBe(baseDefault)
+    expect(personaB).not.toBe(baseDefault)
+    expect(personaA).not.toBe(personaB)
+  })
+
+  it('appends non-empty persona deterministically to the resolved system prompt and keeps empty persona byte-identical', () => {
+    const resolvedDefault = resolveGenofficeSystemPrompt(undefined)
+    const resolvedConfigured = resolveGenofficeSystemPrompt('Custom SYSTEM.md', 'Configured prompt')
+
+    expect(appendButlerPersona(resolvedDefault, '')).toBe(resolvedDefault)
+    expect(appendButlerPersona(resolvedConfigured, '')).toBe(resolvedConfigured)
+
+    const persona = '## Butler persona\nYou are Jarvis.'
+    const withDefault = appendButlerPersona(resolvedDefault, persona)
+    const withConfigured = appendButlerPersona(resolvedConfigured, persona)
+
+    expect(withDefault).toBe(`${resolvedDefault}\n\n${persona}`)
+    expect(withDefault.endsWith(persona)).toBe(true)
+    expect(withConfigured).toBe(`${resolvedConfigured}\n\n${persona}`)
+    expect(withConfigured.endsWith(persona)).toBe(true)
   })
 })

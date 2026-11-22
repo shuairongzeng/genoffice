@@ -37,6 +37,12 @@ import { asSessionAllowTool, type AiSessionAllows } from './ai-session-allows'
 import { asAiPermissionMode, type AiPermissionMode } from '@genoffice/ui/ai-permission-mode'
 import type { AiLineageEntry, AiLineageStore } from './ai-lineage'
 import { writeAppSetting } from './app-settings'
+import {
+  notifyRunBegin,
+  notifyRunConfirm,
+  notifyRunEvent,
+  notifyRunFinish,
+} from './ask-run-observer'
 import type { TabManager } from './tab-manager'
 
 /**
@@ -76,10 +82,12 @@ export function getLiveAskRunHub(): AskRunHub | null {
 
 export function broadcastAskRunEventFromMain(payload: AskRunEvent): void {
   liveAskRunHub?.applyPiEvent(payload)
+  notifyRunEvent(payload)
 }
 
 export function beginPiRunInMain(input: PiRunStartInput): void {
   liveAskRunHub?.beginPiRun(input)
+  notifyRunBegin(input)
 }
 
 export function markPiUserPersistedInMain(sessionKey: string): void {
@@ -90,15 +98,14 @@ export function markPiAssistantPersistedInMain(sessionKey: string): void {
   liveAskRunHub?.markPiAssistantPersisted(sessionKey)
 }
 
-export function setPiConfirmInMain(
-  sessionKey: string,
-  req: PiAgentConfirmRequest | null,
-): void {
+export function setPiConfirmInMain(sessionKey: string, req: PiAgentConfirmRequest | null): void {
   liveAskRunHub?.setPiConfirm(sessionKey, req)
+  notifyRunConfirm(sessionKey, req)
 }
 
 export function finishPiRunInMain(sessionKey: string): void {
   liveAskRunHub?.finishPiRun(sessionKey)
+  notifyRunFinish(sessionKey)
 }
 
 export function clearAskSessionInMain(sessionKey: string): void {
@@ -351,11 +358,7 @@ export interface HomeWorkbenchIpcDeps {
    */
   takeDockOpen: () => DockOpenState
   /** Read persisted chat turns from the project store for live snapshot catch-up. */
-  loadStoredChat?: (
-    projectId: string,
-    chatId: string,
-    limit: number,
-  ) => readonly StoredChatEntry[]
+  loadStoredChat?: (projectId: string, chatId: string, limit: number) => readonly StoredChatEntry[]
 }
 
 /** longest lineage path/task/summary the record channel accepts (the store caps the task itself) */
@@ -803,9 +806,7 @@ export function registerHomeWorkbenchIpc(deps: HomeWorkbenchIpcDeps): void {
   ipcMain.handle(HOME_CHANNELS.askActiveSessionGet, () => askRunHub.getActiveState())
   ipcMain.handle(HOME_CHANNELS.askActiveSessionSet, (event, rawTarget: unknown) => {
     const target =
-      rawTarget && typeof rawTarget === 'object'
-        ? (rawTarget as AskActiveSessionTarget)
-        : null
+      rawTarget && typeof rawTarget === 'object' ? (rawTarget as AskActiveSessionTarget) : null
     return askRunHub.setActiveSession(target, event.sender)
   })
   // a mirror mount's question: Home's loop is the single executor, so this

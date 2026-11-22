@@ -18,6 +18,14 @@ import type { DesktopArrangeMode } from '@genoffice/cli/control-protocol'
 import type { AiDockPrefs } from './desktop-geometry'
 import type { DockCustomItem, DockOpenState, DockPrefs } from './dock-prefs'
 import type { AiPetBondStage, AiPetId, AiPetPrefs, AiPetPrefsPatch } from './ai-pet-prefs'
+import type { ButlerPrefs, ButlerPrefsPatch } from './butler-prefs'
+import type {
+  ButlerHudState,
+  ButlerOpenTarget,
+  ButlerSpeakRequest,
+  ButlerSubmitResult,
+  ButlerTaskUpdate,
+} from './butler-api'
 import type {
   PiAgentCommandInfo,
   PiAgentConfirmReply,
@@ -60,12 +68,24 @@ export type {
   DockOpenState,
   DockPrefs,
 } from './dock-prefs'
+export type { AiPetBondStage, AiPetId, AiPetPrefs, AiPetPrefsPatch } from './ai-pet-prefs'
+export type { ButlerPrefs, ButlerPrefsPatch } from './butler-prefs'
 export type {
-  AiPetBondStage,
-  AiPetId,
-  AiPetPrefs,
-  AiPetPrefsPatch,
-} from './ai-pet-prefs'
+  ButlerBriefing,
+  ButlerBriefingItem,
+  ButlerBriefingKind,
+  ButlerBriefingRef,
+  ButlerHudState,
+  ButlerOpenTarget,
+  ButlerPartOfDay,
+  ButlerSpeakRequest,
+  ButlerStep,
+  ButlerStepKind,
+  ButlerSubmitError,
+  ButlerSubmitResult,
+  ButlerTaskStatus,
+  ButlerTaskUpdate,
+} from './butler-api'
 export type {
   MagicContextEmbeddingMode,
   MagicContextStorageMode,
@@ -778,7 +798,7 @@ export type { AiDockPrefs } from './desktop-geometry'
  * are Home view state); the main process handles the other two itself.
  */
 export interface DeepLinkPayload {
-  view: 'ask' | 'palette' | 'open' | 'desktop'
+  view: 'ask' | 'palette' | 'open' | 'desktop' | 'butler'
   /** ask: the query text the link embedded */
   query?: string
   /** open: absolute path of the document to open */
@@ -831,18 +851,17 @@ export interface AiPanelResizeReport {
 
 /** Snapshot returned on resize start so the overlay can preview bounds across the full window. */
 export interface AiPanelResizeGeometry {
-  readonly panel: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
+  readonly panel: {
+    readonly x: number
+    readonly y: number
+    readonly width: number
+    readonly height: number
+  }
   readonly window: { readonly width: number; readonly height: number }
 }
 
 export type AiPetMenuAction =
-  | 'toggle'
-  | 'feed'
-  | 'play'
-  | 'sleep'
-  | 'next-pet'
-  | 'settings'
-  | 'reset'
+  'toggle' | 'feed' | 'play' | 'sleep' | 'next-pet' | 'settings' | 'reset'
 
 /** Native context menu request sent by the compact transparent overlay pet view */
 export interface AiPetMenuRequest {
@@ -1182,6 +1201,28 @@ export interface HomeApi {
   onAiPetPrefsChanged?(handler: (prefs: AiPetPrefs) => void): () => void
   /** Open Settings directly on the AI Pets section (`home:open-ai-pet-settings`). */
   openAiPetSettings?(): Promise<void>
+  /** Read the persisted AI butler preferences (`home:butler-get`). */
+  getButlerPrefs?(): Promise<ButlerPrefs>
+  /** Persist a partial patch for AI butler preferences (`home:butler-set`). */
+  setButlerPrefs?(patch: ButlerPrefsPatch): Promise<ButlerPrefs>
+  /** Subscribe to AI butler preference updates (`home:butler-changed`). */
+  onButlerPrefsChanged?(handler: (prefs: ButlerPrefs) => void): () => void
+  /** Fetch the initial or refreshed Butler HUD snapshot (`home:butler-hud-state`). */
+  butlerHudState?(opts?: { forceBriefing?: boolean; peek?: boolean }): Promise<ButlerHudState>
+  /** Dispatch a prompt directly from the Butler HUD (`home:butler-submit`). */
+  butlerSubmit?(text: string): Promise<ButlerSubmitResult>
+  /** Open a briefing item, running task, or settings section from Butler (`home:butler-open`). */
+  butlerOpen?(target: ButlerOpenTarget): Promise<void>
+  /** Hide the Butler HUD window (`home:butler-hide`). */
+  butlerHide?(): void
+  /** Resize the Butler HUD window height to match content (`home:butler-resize`). */
+  butlerResize?(height: number): void
+  /** Subscribe to live Butler task progress updates (`home:butler-task-update`). */
+  onButlerTaskUpdate?(handler: (update: ButlerTaskUpdate) => void): () => void
+  /** Subscribe to HUD show events so input focus and refresh run on reveal (`home:butler-shown`). */
+  onButlerShown?(handler: () => void): () => void
+  /** Subscribe to Butler voice announcement requests (`home:butler-speak`). */
+  onButlerSpeak?(handler: (req: ButlerSpeakRequest) => void): () => void
   /**
    * Publish one of the Home loop's run events (or a message-list snapshot)
    * over `home:ask-run-event`: main relays it to every OTHER renderer, so a
@@ -2088,6 +2129,22 @@ export const HOME_CHANNELS = {
   aiPetChanged: 'home:ai-pet-changed',
   /** renderer -> main: open the shell Settings modal on the AI Pets section */
   openAiPetSettings: 'home:open-ai-pet-settings',
+  /** renderer <-> main: read / persist the AI butler prefs (app-settings.json `butler`) */
+  butlerGet: 'home:butler-get',
+  butlerSet: 'home:butler-set',
+  /** main -> renderer: the AI butler prefs changed in app-settings.json */
+  butlerChanged: 'home:butler-changed',
+  /** Butler HUD <-> main: fetch state, dispatch instruction, open referenced target */
+  butlerHudState: 'home:butler-hud-state',
+  butlerSubmit: 'home:butler-submit',
+  butlerOpen: 'home:butler-open',
+  /** Butler HUD -> main: dismiss or resize the floating HUD window */
+  butlerHide: 'home:butler-hide',
+  butlerResize: 'home:butler-resize',
+  /** main -> Butler HUD: task update, shown signal, and TTS speak trigger */
+  butlerTaskUpdate: 'home:butler-task-update',
+  butlerShown: 'home:butler-shown',
+  butlerSpeak: 'home:butler-speak',
   /** renderer → main: the doc-mode dock overlay's hot-edge transitions —
    *  `enter` from the strip summons the dock (or cancels a pending hide),
    *  `leave` from the revealed dock arms the grace timer */

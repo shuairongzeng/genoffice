@@ -87,6 +87,7 @@ vi.mock('electron', () => ({
 
 import { HOME_CHANNELS } from '../src/shared/home-api'
 import {
+  DEFAULT_HOTKEY,
   DEFAULT_SYSTEM_PRESENCE_PREFS,
   deepLinksFromArgv,
   installDeepLinkListener,
@@ -155,8 +156,9 @@ describe('parseDeepLink', () => {
     expect(parseDeepLink('genoffice://ask')).toEqual({ view: 'ask' })
   })
 
-  it('parses the palette, desktop and open verbs', () => {
+  it('parses the palette, butler, desktop and open verbs', () => {
     expect(parseDeepLink('genoffice://palette')).toEqual({ view: 'palette' })
+    expect(parseDeepLink('genoffice://butler')).toEqual({ view: 'butler' })
     expect(parseDeepLink('genoffice://desktop')).toEqual({ view: 'desktop' })
     expect(parseDeepLink('genoffice://open?path=%2Ftmp%2Fa.docx')).toEqual({
       view: 'open',
@@ -241,6 +243,27 @@ describe('normalizeSystemPresencePrefs', () => {
       hotkeyAccelerator: 'Control+Shift+P',
     })
   })
+
+  it('migrates legacy CommandOrControl+Shift+Space default to DEFAULT_HOTKEY while preserving custom shortcuts', () => {
+    expect(DEFAULT_SYSTEM_PRESENCE_PREFS.hotkeyAccelerator).toBe(DEFAULT_HOTKEY)
+    if (process.platform === 'win32') {
+      expect(DEFAULT_HOTKEY).toBe('Ctrl+Alt+Space')
+    }
+    expect(
+      normalizeSystemPresencePrefs({ hotkeyAccelerator: 'CommandOrControl+Shift+Space' })
+        .hotkeyAccelerator,
+    ).toBe(DEFAULT_HOTKEY)
+    expect(
+      normalizeSystemPresencePrefs({ hotkeyAccelerator: ' CommandOrControl+Shift+Space ' })
+        .hotkeyAccelerator,
+    ).toBe(DEFAULT_HOTKEY)
+    expect(
+      normalizeSystemPresencePrefs({ hotkeyAccelerator: 'Ctrl+Shift+Space' }).hotkeyAccelerator,
+    ).toBe('Ctrl+Shift+Space')
+    expect(normalizeSystemPresencePrefs({ hotkeyAccelerator: 'Alt+P' }).hotkeyAccelerator).toBe(
+      'Alt+P',
+    )
+  })
 })
 
 describe('installSystemPresence', () => {
@@ -251,12 +274,13 @@ describe('installSystemPresence', () => {
     const menu = state.trays[0]!.menu as Array<{ label?: string; type?: string }>
     expect(menu.map((item) => item.label ?? item.type)).toEqual([
       'Show GenOffice',
+      'Summon AI Butler',
       'Command Palette',
       'Ask AI',
       'separator',
       'Quit GenOffice',
     ])
-    expect([...state.registered.keys()]).toEqual(['CommandOrControl+Shift+Space'])
+    expect([...state.registered.keys()]).toEqual([DEFAULT_HOTKEY])
     expect(presence.settings().hotkeyActive).toBe(true)
     presence.dispose()
   })
@@ -266,15 +290,53 @@ describe('installSystemPresence', () => {
     const menu = state.trays[0]!.menu as Array<{ label?: string; click?: () => void }>
     menu[0]!.click!()
     expect(calls.show).toBe(1)
-    menu[1]!.click!()
-    expect(calls.palette).toBe(1)
     menu[2]!.click!()
+    expect(calls.palette).toBe(1)
+    menu[3]!.click!()
     expect(calls.ask).toEqual([undefined])
-    menu[4]!.click!()
+    menu[5]!.click!()
     expect(state.quitCalls).toBe(1)
-    // the registered hotkey summons the palette
-    state.registered.get('CommandOrControl+Shift+Space')!()
+    // the registered hotkey falls back to summoning the palette when summonButler is absent
+    state.registered.get(DEFAULT_HOTKEY)!()
     expect(calls.palette).toBe(2)
+    // clicking trayButler also falls back to summonPalette when summonButler is absent
+    menu[1]!.click!()
+    expect(calls.palette).toBe(3)
+    presence.dispose()
+  })
+
+  it('routes hotkey and trayButler to summonButler when handled and falls back to summonPalette otherwise', () => {
+    let butlerHandled = true
+    let butlerCalls = 0
+    const { presence, calls } = makePresence({
+      summonButler: () => {
+        butlerCalls += 1
+        return butlerHandled
+      },
+    })
+    const menu = state.trays[0]!.menu as Array<{ label?: string; click?: () => void }>
+    const labels = menu.map((item) => item.label)
+    expect(labels.indexOf('Summon AI Butler')).toBeGreaterThan(-1)
+    expect(labels.indexOf('Summon AI Butler')).toBeLessThan(labels.indexOf('Command Palette'))
+
+    const hotkeyCb = state.registered.get(DEFAULT_HOTKEY)!
+    hotkeyCb()
+    expect(butlerCalls).toBe(1)
+    expect(calls.palette).toBe(0)
+
+    menu[labels.indexOf('Summon AI Butler')]!.click!()
+    expect(butlerCalls).toBe(2)
+    expect(calls.palette).toBe(0)
+
+    butlerHandled = false
+    hotkeyCb()
+    expect(butlerCalls).toBe(3)
+    expect(calls.palette).toBe(1)
+
+    menu[labels.indexOf('Summon AI Butler')]!.click!()
+    expect(butlerCalls).toBe(4)
+    expect(calls.palette).toBe(2)
+
     presence.dispose()
   })
 
@@ -306,7 +368,7 @@ describe('installSystemPresence', () => {
       hotkeyEnabled: true,
       hotkeyAccelerator: 'Control+Shift+K',
     })
-    expect(state.registered.has('CommandOrControl+Shift+Space')).toBe(false)
+    expect(state.registered.has('Alt+Space')).toBe(false)
     expect([...state.registered.keys()]).toEqual(['Control+Shift+K'])
     expect(next.hotkey).toEqual({ enabled: true, accelerator: 'Control+Shift+K' })
     const onDisk = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<string, unknown>
@@ -378,7 +440,7 @@ describe('installSystemPresence', () => {
     state.refuseRegistrations = false
     const retried = presence.retryHotkey()
     expect(retried.hotkeyActive).toBe(true)
-    expect([...state.registered.keys()]).toEqual(['CommandOrControl+Shift+Space'])
+    expect([...state.registered.keys()]).toEqual([DEFAULT_HOTKEY])
 
     // an already-active hotkey is left alone: no unregister/re-register churn
     const unregistersBefore = state.unregisterCalls
@@ -398,7 +460,7 @@ describe('registerSystemPresenceIpc', () => {
     }
     expect(initial.hotkey).toEqual({
       enabled: true,
-      accelerator: 'CommandOrControl+Shift+Space',
+      accelerator: DEFAULT_HOTKEY,
     })
 
     const afterLogin = (await invoke(HOME_CHANNELS.systemPresenceSetLoginItem, true)) as {
@@ -407,10 +469,10 @@ describe('registerSystemPresenceIpc', () => {
     expect(afterLogin.loginItem).toBe(true)
 
     const afterHotkey = (await invoke(HOME_CHANNELS.systemPresenceSetHotkey, {
-      accelerator: 'CommandOrControl+Shift+Space',
+      accelerator: DEFAULT_HOTKEY,
     })) as { hotkey: { enabled: boolean; accelerator: string } }
-    expect(afterHotkey.hotkey.accelerator).toBe('CommandOrControl+Shift+Space')
-    expect([...state.registered.keys()]).toEqual(['CommandOrControl+Shift+Space'])
+    expect(afterHotkey.hotkey.accelerator).toBe(DEFAULT_HOTKEY)
+    expect([...state.registered.keys()]).toEqual([DEFAULT_HOTKEY])
 
     await expect(invoke(HOME_CHANNELS.systemPresenceSetLoginItem, 'yes')).rejects.toThrow(/boolean/)
     await expect(
@@ -424,7 +486,7 @@ describe('registerSystemPresenceIpc', () => {
       string,
       { hotkeyAccelerator: string }
     >
-    expect(onDisk[SYSTEM_PRESENCE_KEY]!.hotkeyAccelerator).toBe('CommandOrControl+Shift+Space')
+    expect(onDisk[SYSTEM_PRESENCE_KEY]!.hotkeyAccelerator).toBe(DEFAULT_HOTKEY)
     presence.dispose()
   })
 

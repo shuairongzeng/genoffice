@@ -16,6 +16,7 @@ import '@genoffice/ui/ai-panel.css'
 import '@genoffice/ui/ai-confirm-card.css'
 import '@genoffice/ui/scrollbar.css'
 import './home.css'
+import { ButlerHudEntry, isButlerHudView } from './butler-hud-entry'
 import { applyAiPanelPrefs, installScreenTips } from '@genoffice/ui'
 import { loadStrings } from './strings'
 
@@ -45,9 +46,10 @@ const isAskPanel = isAskPanelView()
 // surface's contract; its shape is main's state machine)
 const isDock = isDockView()
 const isTopBar = isTopBarView()
+const isButlerHud = isButlerHudView()
 
 const snap =
-  !isHelp && !isMedia && !isAskPanel && !isDock && !isTopBar
+  !isHelp && !isMedia && !isAskPanel && !isDock && !isTopBar && !isButlerHud
     ? window.aiOffice.bootSnapshot
     : undefined
 
@@ -108,6 +110,8 @@ void bootPrefsPromise.then(async ([lang, onboardingSeen, theme]) => {
           <DockEntry />
         ) : isTopBar ? (
           <TopBarEntry />
+        ) : isButlerHud ? (
+          <ButlerHudEntry />
         ) : isMedia ? (
           <React.Suspense fallback={<div className="boot" />}>
             <MediaViewer />
