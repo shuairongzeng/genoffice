@@ -117,6 +117,7 @@ export const TAB_MENU_ICON: Record<TabKind, keyof MenuIconSet> = {
   browser: 'html',
   help: 'home',
   compare: 'docx',
+  terminal: 'home',
 }
 
 /**

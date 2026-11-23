@@ -12,7 +12,7 @@ const repoRoot = resolve(shellRoot, '../..')
 const rootModules = join(repoRoot, 'node_modules')
 const outModules = join(shellRoot, 'out', 'pi-runtime', 'node_modules')
 
-const SEEDS = ['@earendil-works/pi-coding-agent', '@cortexkit/pi-magic-context']
+const SEEDS = ['@earendil-works/pi-coding-agent', '@cortexkit/pi-magic-context', '@lydell/node-pty']
 const SKIP_PACKAGES = new Set(['sharp', 'onnxruntime-node'])
 
 function resolvePkg(name, from) {
@@ -28,15 +28,21 @@ function resolvePkg(name, from) {
 
 const collected = new Map()
 
-function walk(name, from) {
+function walk(name, from, { optional = false } = {}) {
   if (SKIP_PACKAGES.has(name) || name.startsWith('@img/')) return
   const dir = resolvePkg(name, from)
-  if (!dir) throw new Error(`pi-runtime deps: cannot resolve ${name} from ${from}`)
+  if (!dir) {
+    if (optional) return
+    throw new Error(`pi-runtime deps: cannot resolve ${name} from ${from}`)
+  }
   if (collected.has(dir)) return
   const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
   collected.set(dir, pkg.name || name)
   for (const dep of Object.keys(pkg.dependencies ?? {})) {
     walk(dep, dir)
+  }
+  for (const optDep of Object.keys(pkg.optionalDependencies ?? {})) {
+    walk(optDep, dir, { optional: true })
   }
 }
 
@@ -50,9 +56,7 @@ mkdirSync(outModules, { recursive: true })
 for (const [dir, pkgName] of collected.entries()) {
   const relFromRoot = relative(rootModules, dir)
   const relDest =
-    !relFromRoot.startsWith('..') && !relFromRoot.includes(`..${sep}`)
-      ? relFromRoot
-      : pkgName
+    !relFromRoot.startsWith('..') && !relFromRoot.includes(`..${sep}`) ? relFromRoot : pkgName
   cpSync(dir, join(outModules, relDest), {
     recursive: true,
     dereference: true,

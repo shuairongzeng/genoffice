@@ -17,6 +17,8 @@ export default defineConfig({
           'node:sqlite',
           '@earendil-works/pi-coding-agent',
           '@cortexkit/pi-magic-context',
+          '@lydell/node-pty',
+          /^@lydell\/node-pty/,
         ],
         // Keep split chunks in out/main/ alongside index.js so existing
         // join(__dirname, '../renderer/...') and '../preload/...' lookups resolve correctly.

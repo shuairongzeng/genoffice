@@ -298,6 +298,9 @@ import type { PendingAskQuery } from '../shared/ask-forward'
 import { SplitScrollSyncController } from './split-scroll-sync'
 import { createDocumentTextExtractor } from './compare/document-text-extractor'
 import { registerCompareIpc } from './compare/compare-ipc'
+import { TERMINAL_CHANNELS } from '../shared/terminal-api'
+import { TerminalSessionManager } from './terminal/terminal-session-manager'
+import { registerTerminalIpc } from './terminal/terminal-ipc'
 import { installDocumentAgentBridge } from './document-agent'
 import { collectSurfaceTabs, urlOfWith, type SurfaceContextDeps } from './surface-context'
 import { registerSelectionStore, selectionForWebContents } from './selection-store'
@@ -541,6 +544,7 @@ const OPEN_DOCUMENTS_PATH = () => join(app.getPath('userData'), OPEN_DOCUMENTS_F
 let ownsOpenDocumentsRegistry = false
 let stopAuthWatch: (() => void) | null = null
 let piRuntime: PiAgentRuntimeManager | null = null
+let terminalManager: TerminalSessionManager | null = null
 let stopAiSettingsSync: (() => void) | null = null
 const publishOpenDocumentsIfOwner = (paths: readonly string[]) => {
   if (ownsOpenDocumentsRegistry) publishOpenDocuments(OPEN_DOCUMENTS_PATH(), paths)
@@ -845,6 +849,7 @@ const tMain = createI18n({
     untitledPdf: '未命名 PDF',
     untitledBrowser: '浏览器',
     untitledCompare: '文档对比',
+    untitledTerminal: '终端控制台',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -986,6 +991,7 @@ const tMain = createI18n({
     untitledPdf: 'Untitled PDF',
     untitledBrowser: 'Browser',
     untitledCompare: 'Document Compare',
+    untitledTerminal: 'Terminal',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1129,6 +1135,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF chưa có tiêu đề',
     untitledBrowser: 'Trình duyệt',
     untitledCompare: 'So sánh tài liệu',
+    untitledTerminal: 'Thiết bị đầu cuối',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1276,6 +1283,7 @@ const tMain = createI18n({
     untitledPdf: '無題の PDF',
     untitledBrowser: 'ブラウザ',
     untitledCompare: 'ドキュメント比較',
+    untitledTerminal: 'ターミナル',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1423,6 +1431,7 @@ const tMain = createI18n({
     untitledPdf: '제목 없는 PDF',
     untitledBrowser: '브라우저',
     untitledCompare: '문서 비교',
+    untitledTerminal: '터미널',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1569,6 +1578,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF sans titre',
     untitledBrowser: 'Navigateur',
     untitledCompare: 'Comparaison de documents',
+    untitledTerminal: 'Terminal',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1717,6 +1727,7 @@ const tMain = createI18n({
     untitledPdf: 'Unbenanntes PDF',
     untitledBrowser: 'Browser',
     untitledCompare: 'Dokumentvergleich',
+    untitledTerminal: 'Terminal',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1866,6 +1877,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF sin título',
     untitledBrowser: 'Navegador',
     untitledCompare: 'Comparación de documentos',
+    untitledTerminal: 'Terminal',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2015,6 +2027,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF ไม่มีชื่อ',
     untitledBrowser: 'เบราว์เซอร์',
     untitledCompare: 'เปรียบเทียบเอกสาร',
+    untitledTerminal: 'เทอร์มินัล',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2159,6 +2172,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF tanpa judul',
     untitledBrowser: 'Peramban',
     untitledCompare: 'Perbandingan Dokumen',
+    untitledTerminal: 'Terminal',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2307,6 +2321,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF без названия',
     untitledBrowser: 'Браузер',
     untitledCompare: 'Сравнение документов',
+    untitledTerminal: 'Терминал',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2455,6 +2470,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF بدون عنوان',
     untitledBrowser: 'المتصفح',
     untitledCompare: 'مقارنة المستندات',
+    untitledTerminal: 'الطرفية',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2599,6 +2615,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF sem título',
     untitledBrowser: 'Navegador',
     untitledCompare: 'Comparação de documentos',
+    untitledTerminal: 'Terminal',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2747,6 +2764,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF senza titolo',
     untitledBrowser: 'Browser',
     untitledCompare: 'Confronto documenti',
+    untitledTerminal: 'Terminale',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2895,6 +2913,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF bez tytułu',
     untitledBrowser: 'Przeglądarka',
     untitledCompare: 'Porównanie dokumentów',
+    untitledTerminal: 'Terminal',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3043,6 +3062,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF bez názvu',
     untitledBrowser: 'Prohlížeč',
     untitledCompare: 'Porovnání dokumentů',
+    untitledTerminal: 'Terminál',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3189,6 +3209,7 @@ const tMain = createI18n({
     untitledPdf: 'Naamloze PDF',
     untitledBrowser: 'Browser',
     untitledCompare: 'Documentvergelijking',
+    untitledTerminal: 'Terminal',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3337,6 +3358,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF tanpa tajuk',
     untitledBrowser: 'Pelayar',
     untitledCompare: 'Perbandingan Dokumen',
+    untitledTerminal: 'Terminal',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3484,6 +3506,7 @@ const tMain = createI18n({
     untitledPdf: 'PDF ללא שם',
     untitledBrowser: 'דפדפן',
     untitledCompare: 'השוואת מסמכים',
+    untitledTerminal: 'מסוף',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3628,6 +3651,7 @@ const tMain = createI18n({
     untitledPdf: 'अनाम PDF',
     untitledBrowser: 'ब्राउज़र',
     untitledCompare: 'दस्तावेज़ तुलना',
+    untitledTerminal: 'टर्मिनल',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3776,6 +3800,7 @@ const tMain = createI18n({
     untitledPdf: '未命名 PDF',
     untitledBrowser: '瀏覽器',
     untitledCompare: '文件比較',
+    untitledTerminal: '終端機',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -4351,9 +4376,11 @@ const shellWindowDeps: ShellWindowDeps = {
       ? tm('menuUserGuide')
       : kind === 'compare'
         ? tm('untitledCompare')
-        : appForKind(kind)
-          ? tm(appForKind(kind)!.untitledTitleKey)
-          : tm('untitledSheet'),
+        : kind === 'terminal'
+          ? tm('untitledTerminal')
+          : appForKind(kind)
+            ? tm(appForKind(kind)!.untitledTitleKey)
+            : tm('untitledSheet'),
   applyMenuFor,
   getTabManager: () => tabManager,
   setTabManager: (manager) => {
@@ -5378,7 +5405,12 @@ function openCompareForTab(id: string): void {
     .list()
     .filter(
       (t) =>
-        t.id !== id && t.kind !== 'home' && t.kind !== 'compare' && t.kind !== 'help' && !t.present,
+        t.id !== id &&
+        t.kind !== 'home' &&
+        t.kind !== 'compare' &&
+        t.kind !== 'help' &&
+        t.kind !== 'terminal' &&
+        !t.present,
     )
     .sort((a, b) => (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0))
   const other = candidates.find((t) => t.id === activeId) ?? candidates[0]
@@ -5537,7 +5569,7 @@ function registerTabsIpc(): void {
       canDetach: tabManager.canDetachTab(id),
       split: tabManager.getSplitState(),
       canSplitInWindow: allTabs.filter((t) => t.kind !== 'home').length >= 2,
-      canCompare: tab.kind !== 'compare',
+      canCompare: tab.kind !== 'compare' && tab.kind !== 'terminal',
       fileExists: !!tab.filePath && existsSync(tab.filePath),
       canReopen: recentlyClosed.getEntries().length > 0,
       tm,
@@ -7245,6 +7277,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
               t.kind !== 'compare' &&
               t.kind !== 'help' &&
               t.kind !== 'media' &&
+              t.kind !== 'terminal' &&
               !t.present,
           )
           .map((t) => ({
@@ -7307,6 +7340,67 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
         })
       }
       const prompt = `Please summarize the key text differences between "${payload.leftLabel}" and "${payload.rightLabel}":\n\n${payload.summaryMarkdown}`
+      const query: PendingAskQuery = {
+        text: prompt,
+        seq: Date.now(),
+        origin: 'palette',
+      }
+      if (tabManager?.drawerOverlayLive()) {
+        tabManager.deliverToDrawerOverlay(HOME_CHANNELS.askForwarded, query)
+      } else {
+        sendToShellRenderer(HOME_CHANNELS.askForwarded, query)
+      }
+    },
+  })
+  terminalManager = new TerminalSessionManager({
+    defaultCwd: () => defaultSaveDir(),
+    emit: (event) => {
+      for (const wc of webContents.getAllWebContents()) {
+        if (!wc.isDestroyed()) wc.send(TERMINAL_CHANNELS.event, event)
+      }
+    },
+  })
+  registerTerminalIpc({
+    manager: terminalManager,
+    openTerminalTab: (opts) => {
+      const id = ensureTabManager().openTerminalTab(opts)
+      sendToShellRenderer(TERMINAL_CHANNELS.drawerCommand, { action: 'close' })
+      return id
+    },
+    dockToDrawer: (sessionId) => {
+      tabManager?.closeTerminalTabs()
+      sendToShellRenderer(TERMINAL_CHANNELS.drawerCommand, {
+        action: 'open',
+        sessionId,
+      })
+    },
+    requestDrawer: (req) => {
+      sendToShellRenderer(TERMINAL_CHANNELS.drawerCommand, req)
+    },
+    pickDirectory: async (defaultPath) => {
+      const opts: Electron.OpenDialogOptions = {
+        properties: ['openDirectory'],
+        ...(defaultPath ? { defaultPath } : {}),
+      }
+      const picked =
+        shellWindow && !shellWindow.isDestroyed()
+          ? await dialog.showOpenDialog(shellWindow, opts)
+          : await dialog.showOpenDialog(opts)
+      return picked.canceled ? null : (picked.filePaths[0] ?? null)
+    },
+    askAi: (payload) => {
+      const currentDock = readAiDock(APP_SETTINGS_PATH())
+      if (currentDock.collapsed) {
+        writeAppSetting(APP_SETTINGS_PATH(), AI_DOCK_KEY, {
+          ...currentDock,
+          collapsed: false,
+        })
+      }
+      const clippedOutput =
+        payload.output.length > 6000
+          ? `${payload.output.slice(0, 6000)}\n...(truncated)`
+          : payload.output
+      const prompt = `Please help diagnose this failed terminal command and suggest a fix:\n\n- Working Directory: \`${payload.cwd}\`\n- Exit Code: ${payload.exitCode}\n- Command:\n\`\`\`sh\n${payload.command}\n\`\`\`\n- Output:\n\`\`\`text\n${clippedOutput}\n\`\`\``
       const query: PendingAskQuery = {
         text: prompt,
         seq: Date.now(),
@@ -8072,6 +8166,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   piRuntime?.disposeAll()
+  terminalManager?.disposeAll()
   stopAiSettingsSync?.()
   stopAiSettingsSync = null
   // No close prompt may fall through to "Save" during shutdown
@@ -8084,6 +8179,8 @@ app.on('before-quit', () => {
 
 // after every window has closed, so the shell window's own 'closed' republish cannot revive the file
 app.on('will-quit', () => {
+  terminalManager?.disposeAll()
+  terminalManager = null
   fileIndexer?.stop()
   fileIndexStore?.close()
   stopAuthWatch?.()

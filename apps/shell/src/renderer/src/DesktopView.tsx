@@ -44,11 +44,7 @@ import {
 } from './DesktopWallpaperCenter'
 import { FileBadge } from './file-badge'
 import { placeFolderMenu, submenuFlipsOutOfView } from './folder-menu-position'
-import {
-  computeSubmenuTopOffset,
-  isMovingTowardSubmenu,
-  type Point2D,
-} from './menu-hover-intent'
+import { computeSubmenuTopOffset, isMovingTowardSubmenu, type Point2D } from './menu-hover-intent'
 import { handleMenuKeyDown } from './menu-keyboard'
 import type { SettingsTarget } from './SettingsModal'
 import {
@@ -67,6 +63,7 @@ import {
   SlidesGlyph,
   SparkGlyph,
   TemplatesGlyph,
+  TerminalGlyph,
 } from './app-glyphs'
 import {
   defaultDesktopProviders,
@@ -249,6 +246,8 @@ export interface DesktopViewProps {
   readonly onOpenTemplates: () => void
   /** open Home's settings modal on a section */
   readonly onOpenSettings: (target: SettingsTarget) => void
+  /** open the bottom terminal drawer */
+  readonly onOpenTerminal?: () => void
   /** open one folder root's list view */
   readonly onOpenFolder: (root: FolderRoot) => void
   /**
@@ -566,6 +565,7 @@ export function DesktopView({
   onAskAboutPaths,
   onOpenTemplates,
   onOpenSettings,
+  onOpenTerminal,
   onOpenFolder,
   onAddFolderRoot,
   onRemoveFolderRoot,
@@ -653,7 +653,10 @@ export function DesktopView({
       }
       const submenuRect = submenuElRef.current?.getBoundingClientRect()
       const hasVisibleSub =
-        currentSub !== null && submenuRect !== undefined && submenuRect.width > 0 && submenuRect.height > 0
+        currentSub !== null &&
+        submenuRect !== undefined &&
+        submenuRect.width > 0 &&
+        submenuRect.height > 0
       const pt = pointer ?? lastMenuPointerRef.current
       if (
         hasVisibleSub &&
@@ -770,6 +773,7 @@ export function DesktopView({
         onOpenSessions,
         onOpenTemplates,
         onOpenSettings,
+        onOpenTerminal,
         onOpenFolder,
         onOpenExternalFailed,
       }),
@@ -786,6 +790,7 @@ export function DesktopView({
       onOpenSessions,
       onOpenTemplates,
       onOpenSettings,
+      onOpenTerminal,
       onOpenFolder,
       onOpenExternalFailed,
     ],
@@ -990,11 +995,7 @@ export function DesktopView({
         return
       }
       const includeBoxes = boxesTouchedRef.current || boxesRef.current.length > 0
-      const snapshot = serializeLayoutSnapshot(
-        positionsRef.current,
-        boxesRef.current,
-        includeBoxes,
-      )
+      const snapshot = serializeLayoutSnapshot(positionsRef.current, boxesRef.current, includeBoxes)
       if (snapshot === savedRef.current) return
       savingRef.current = true
       try {
@@ -2167,11 +2168,7 @@ export function DesktopView({
    * surface notice while the paths that still fit land normally.
    */
   const addAliases = useCallback(
-    (
-      paths: readonly string[],
-      at?: { clientX: number; clientY: number },
-      targetBoxId?: string,
-    ) => {
+    (paths: readonly string[], at?: { clientX: number; clientY: number }, targetBoxId?: string) => {
       const known = aliasListRef.current
       const alreadyKnown = paths.filter((path) => known.includes(path))
       const fresh = paths.filter((path) => !known.includes(path))
@@ -2313,7 +2310,12 @@ export function DesktopView({
   // ── custom group box actions ──
 
   const createGroupBoxAction = useCallback(
-    (opts?: { clientX?: number; clientY?: number; itemIds?: readonly string[]; autoRename?: boolean }) => {
+    (opts?: {
+      clientX?: number
+      clientY?: number
+      itemIds?: readonly string[]
+      autoRename?: boolean
+    }) => {
       clearSubHoverTimer()
       setSurfaceMenu(null)
       setSurfaceSub(null)
@@ -2325,16 +2327,19 @@ export function DesktopView({
       }
       const surface = surfaceRef.current
       const rect = surface?.getBoundingClientRect()
-      const stageWidth = surfaceSize.w || (typeof document !== 'undefined' ? document.documentElement.clientWidth : 1200) || 1200
-      const stageHeight = surfaceSize.h || (typeof document !== 'undefined' ? document.documentElement.clientHeight : 800) || 800
+      const stageWidth =
+        surfaceSize.w ||
+        (typeof document !== 'undefined' ? document.documentElement.clientWidth : 1200) ||
+        1200
+      const stageHeight =
+        surfaceSize.h ||
+        (typeof document !== 'undefined' ? document.documentElement.clientHeight : 800) ||
+        800
       const x =
         typeof opts?.clientX === 'number' && rect
           ? opts.clientX - rect.left + (surface?.scrollLeft ?? 0)
           : undefined
-      const y =
-        typeof opts?.clientY === 'number' && rect
-          ? opts.clientY - rect.top
-          : undefined
+      const y = typeof opts?.clientY === 'number' && rect ? opts.clientY - rect.top : undefined
       const itemIds = (opts?.itemIds ?? []).filter((id) => {
         const icon = iconsRef.current.find((candidate) => candidate.id === id)
         return icon !== undefined && icon.kind !== 'widget'
@@ -2418,7 +2423,11 @@ export function DesktopView({
       setBoxes((prev) =>
         prev.map((box) => {
           if (box.id !== boxId) return box
-          const clamped = clampBoxRect(rect, { width: stageWidth, height: stageHeight }, box.collapsed)
+          const clamped = clampBoxRect(
+            rect,
+            { width: stageWidth, height: stageHeight },
+            box.collapsed,
+          )
           return { ...box, ...clamped }
         }),
       )
@@ -2692,7 +2701,11 @@ export function DesktopView({
         surfaceMenu === null &&
         boxMenu === null &&
         ownsKeyboard &&
-        ((event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.key === 'Enter') ||
+        ((event.altKey &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.shiftKey &&
+          event.key === 'Enter') ||
           ((event.metaKey || event.ctrlKey) &&
             !event.altKey &&
             !event.shiftKey &&
@@ -2936,6 +2949,7 @@ export function DesktopView({
         {icon.tile === 'kb' && <KbGlyph />}
         {icon.tile === 'sessions' && <SessionsGlyph />}
         {icon.tile === 'player' && <PlayerGlyph />}
+        {icon.tile === 'terminal' && <TerminalGlyph />}
       </span>
     )
   }
@@ -2989,7 +3003,12 @@ export function DesktopView({
       return
     }
     const surface = surfaceRef.current
-    if (!surface || surface.scrollWidth <= surface.clientWidth || event.deltaX !== 0 || event.deltaY === 0) {
+    if (
+      !surface ||
+      surface.scrollWidth <= surface.clientWidth ||
+      event.deltaX !== 0 ||
+      event.deltaY === 0
+    ) {
       return
     }
     event.preventDefault()
@@ -3349,7 +3368,13 @@ export function DesktopView({
                             aria-label={s.menuPinToDesktop}
                             onClick={() => addAliases([entry.path!])}
                           >
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 16 16"
+                              fill="none"
+                              aria-hidden="true"
+                            >
                               <path
                                 d="M5.5 2.5h5l-.8 4 2.3 2v1.2H8.6V14l-.6.6-.6-.6V9.7H4V8.5l2.3-2-.8-4Z"
                                 stroke="currentColor"
@@ -3368,7 +3393,13 @@ export function DesktopView({
                             void (window.aiOffice as Partial<HomeApi>).revealPath?.(entry.path!)
                           }
                         >
-                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            aria-hidden="true"
+                          >
                             <path
                               d="M2.2 4.2a1.2 1.2 0 0 1 1.2-1.2h3l1.3 1.5h4.9a1.2 1.2 0 0 1 1.2 1.2v6.1a1.2 1.2 0 0 1-1.2 1.2H3.4a1.2 1.2 0 0 1-1.2-1.2V4.2Z"
                               stroke="currentColor"
@@ -3385,7 +3416,13 @@ export function DesktopView({
                             aria-label={s.menuHideFromDesktop}
                             onClick={() => hideRecentPath(entry.path!)}
                           >
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 16 16"
+                              fill="none"
+                              aria-hidden="true"
+                            >
                               <path
                                 d="M2 8s2.3-3.8 6-3.8c1.1 0 2.1.3 3 .9m2.3 1.7c.4.4.7.8.7 1.2 0 0-2.3 3.8-6 3.8-1 0-1.9-.3-2.7-.7M3 13 13 3"
                                 stroke="currentColor"
@@ -4003,16 +4040,10 @@ export function DesktopView({
             >
               {s.boxRename}
             </button>
-            <button
-              role="menuitem"
-              onClick={() => handleToggleBoxCollapse(activeBoxMenuTarget.id)}
-            >
+            <button role="menuitem" onClick={() => handleToggleBoxCollapse(activeBoxMenuTarget.id)}>
               {activeBoxMenuTarget.collapsed ? s.boxExpand : s.boxCollapse}
             </button>
-            <button
-              role="menuitem"
-              onClick={() => handleToggleBoxLock(activeBoxMenuTarget.id)}
-            >
+            <button role="menuitem" onClick={() => handleToggleBoxLock(activeBoxMenuTarget.id)}>
               {activeBoxMenuTarget.locked ? s.boxUnlock : s.boxLock}
             </button>
             <div className="row-menu-divider" />
@@ -4033,10 +4064,7 @@ export function DesktopView({
               ))}
             </div>
             <div className="row-menu-divider" />
-            <button
-              role="menuitem"
-              onClick={() => handleDissolveBox(activeBoxMenuTarget.id)}
-            >
+            <button role="menuitem" onClick={() => handleDissolveBox(activeBoxMenuTarget.id)}>
               {s.boxDissolve}
             </button>
           </div>
@@ -4056,7 +4084,12 @@ export function DesktopView({
           strings={s}
           fileCount={icons.reduce(
             (sum, icon) =>
-              sum + (icon.kind === 'file' ? 1 : icon.kind === 'stack' ? (icon.stackItems?.length ?? 0) : 0),
+              sum +
+              (icon.kind === 'file'
+                ? 1
+                : icon.kind === 'stack'
+                  ? (icon.stackItems?.length ?? 0)
+                  : 0),
             0,
           )}
           folderCount={icons.filter((icon) => icon.kind === 'folder').length}

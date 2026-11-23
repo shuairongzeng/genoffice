@@ -28,6 +28,7 @@
   --desktop-tile-plugins: #f97316;
   --desktop-tile-settings: #64748b;
   --desktop-tile-player: #e11d48;
+  --desktop-tile-terminal: #0f766e;
 
   /* the wallpaper's four brand hues (logo.svg) */
   --desktop-aurora-blue: #0f7fff;
@@ -584,6 +585,15 @@
 }
 .desktop-tile-player {
   --tile-color: var(--desktop-tile-player);
+}
+.desktop-tile-terminal {
+  --tile-color: var(--desktop-tile-terminal);
+  background: color-mix(
+    in srgb,
+    var(--desktop-tile-terminal) var(--desktop-tile-alpha),
+    transparent
+  );
+  border-color: color-mix(in srgb, var(--desktop-tile-terminal) 55%, transparent);
 }
 
 /* folders have no brand color: plain glass with the theme's own ink */
@@ -1241,13 +1251,19 @@
 }
 
 .desktop-stack-layer.layer-1 {
-  transform: translate(calc(5px * var(--desktop-icon-scale)), calc(-4px * var(--desktop-icon-scale)))
+  transform: translate(
+      calc(5px * var(--desktop-icon-scale)),
+      calc(-4px * var(--desktop-icon-scale))
+    )
     rotate(6deg) scale(0.92);
   opacity: 0.72;
 }
 
 .desktop-stack-layer.layer-2 {
-  transform: translate(calc(-4px * var(--desktop-icon-scale)), calc(-3px * var(--desktop-icon-scale)))
+  transform: translate(
+      calc(-4px * var(--desktop-icon-scale)),
+      calc(-3px * var(--desktop-icon-scale))
+    )
     rotate(-6deg) scale(0.94);
   opacity: 0.85;
 }
@@ -1289,12 +1305,18 @@
 }
 
 .desktop-icon-item:hover .desktop-stack-layer.layer-1 {
-  transform: translate(calc(8px * var(--desktop-icon-scale)), calc(-6px * var(--desktop-icon-scale)))
+  transform: translate(
+      calc(8px * var(--desktop-icon-scale)),
+      calc(-6px * var(--desktop-icon-scale))
+    )
     rotate(8deg) scale(0.93);
 }
 
 .desktop-icon-item:hover .desktop-stack-layer.layer-2 {
-  transform: translate(calc(-6px * var(--desktop-icon-scale)), calc(-5px * var(--desktop-icon-scale)))
+  transform: translate(
+      calc(-6px * var(--desktop-icon-scale)),
+      calc(-5px * var(--desktop-icon-scale))
+    )
     rotate(-8deg) scale(0.95);
 }
 

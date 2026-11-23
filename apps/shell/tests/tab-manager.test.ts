@@ -1510,7 +1510,7 @@ describe('file path bookkeeping', () => {
     }
     // file-less tabs (the in-app manual, the browser: no file behind the tab)
     // are opened by the enumeration but must not demand a RENAMABLE case
-    const fileless = new Set(['help', 'browser', 'compare'])
+    const fileless = new Set(['help', 'browser', 'compare', 'terminal'])
     expect([...new Set(opened.filter((k) => !fileless.has(k)))].sort()).toEqual(
       RENAMABLE.map((c) => c.kind).sort(),
     )

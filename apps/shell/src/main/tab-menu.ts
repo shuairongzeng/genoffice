@@ -156,7 +156,11 @@ export function tabMenuTemplate(input: TabMenuInput): MenuItemConstructorOptions
   const right = tabs.slice(index + 1).filter(closable)
   const everything = tabs.filter(closable)
   const document =
-    input.canDetach && tab.kind !== 'home' && tab.kind !== 'help' && tab.kind !== 'compare'
+    input.canDetach &&
+    tab.kind !== 'home' &&
+    tab.kind !== 'help' &&
+    tab.kind !== 'compare' &&
+    tab.kind !== 'terminal'
   const inSplit =
     !!input.split &&
     !input.split.suspended &&
@@ -208,7 +212,7 @@ export function tabMenuTemplate(input: TabMenuInput): MenuItemConstructorOptions
     {
       id: 'compare',
       label: tm('menuTabCompare'),
-      enabled: input.canCompare ?? tab.kind !== 'compare',
+      enabled: input.canCompare ?? (tab.kind !== 'compare' && tab.kind !== 'terminal'),
       click: () => actions.compareWith?.(tab.id),
     },
     {
@@ -252,7 +256,7 @@ export function tabMenuTemplate(input: TabMenuInput): MenuItemConstructorOptions
     {
       id: 'pin',
       label: tm(tab.pinned ? 'menuTabUnpin' : 'menuTabPin'),
-      enabled: tab.kind !== 'help' && tab.kind !== 'compare',
+      enabled: tab.kind !== 'help' && tab.kind !== 'compare' && tab.kind !== 'terminal',
       click: () => actions.pin(tab.id, !tab.pinned),
     },
     {

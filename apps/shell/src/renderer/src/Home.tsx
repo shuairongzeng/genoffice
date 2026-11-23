@@ -13,7 +13,9 @@ import type { DragEvent as ReactDragEvent } from 'react'
 import {
   AiDock,
   aiMotionReduced,
+  defaultPetPos,
   normalizeAiDockPrefs,
+  PET_SIZE,
   readLocalAiDockPrefs,
   writeLocalAiDockPrefs,
 } from './AiDock'
@@ -113,6 +115,9 @@ const KbCenterView = lazy(() => import('./KbCenterView').then((m) => ({ default:
 const SessionsCenterView = lazy(() =>
   import('./SessionsCenterView').then((m) => ({ default: m.SessionsCenterView })),
 )
+const TerminalDrawer = lazy(() =>
+  import('./terminal/TerminalDrawer').then((m) => ({ default: m.TerminalDrawer })),
+)
 import { sessionKeyOf, type SessionTarget } from './ask-session-binding'
 import { FolderPicker } from './FolderPicker'
 import { ConflictPrompt, GroupPicker } from './home-dialogs'
@@ -183,6 +188,26 @@ const GREET_ASK_KEYS = [
  * showing, null while a document tab covers it. Pure so the derivation is
  * testable alone (the triple ternary it replaces was easy to misread).
  */
+const TERMINAL_HEIGHT_STORAGE_KEY = 'genoffice.terminalDrawerHeight'
+const TERMINAL_HEIGHT_DEFAULT = 300
+const TERMINAL_HEIGHT_MIN = 180
+const TERMINAL_HEIGHT_MAX = 520
+
+function clampTerminalHeight(value: number): number {
+  if (!Number.isFinite(value)) return TERMINAL_HEIGHT_DEFAULT
+  return Math.min(TERMINAL_HEIGHT_MAX, Math.max(TERMINAL_HEIGHT_MIN, Math.round(value)))
+}
+
+function readTerminalDrawerHeight(): number {
+  try {
+    const raw = window.localStorage.getItem(TERMINAL_HEIGHT_STORAGE_KEY)
+    if (!raw) return TERMINAL_HEIGHT_DEFAULT
+    return clampTerminalHeight(Number(raw))
+  } catch {
+    return TERMINAL_HEIGHT_DEFAULT
+  }
+}
+
 export function dockOpenViewOf(
   surface: 'desktop' | 'recent' | 'starred' | 'cloud' | null,
   docTabActive: boolean,
@@ -647,6 +672,68 @@ export function Home() {
     void (window.aiOffice as Partial<HomeApi>).openMediaInTab?.(filePath)
   }, [])
 
+  // ── bottom terminal drawer state & IPC command sync ──
+  const [terminalOpen, setTerminalOpen] = useState(false)
+  const terminalOpenRef = useRef(terminalOpen)
+  terminalOpenRef.current = terminalOpen
+  const [terminalHeight, setTerminalHeight] = useState<number>(() => readTerminalDrawerHeight())
+  const [terminalSessionId, setTerminalSessionId] = useState<string | null>(null)
+
+  const handleTerminalHeightChange = useCallback((nextHeight: number) => {
+    const clamped = clampTerminalHeight(nextHeight)
+    setTerminalHeight(clamped)
+    try {
+      window.localStorage.setItem(TERMINAL_HEIGHT_STORAGE_KEY, String(clamped))
+    } catch {
+      // ignore storage failures
+    }
+  }, [])
+
+  const applyTerminalOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen && !dockRef.current.collapsed) {
+        applyDockPrefs({ collapsed: true })
+      }
+      setTerminalOpen(nextOpen)
+    },
+    [applyDockPrefs],
+  )
+
+  const openTerminalDrawer = useCallback(() => applyTerminalOpen(true), [applyTerminalOpen])
+  const toggleTerminalDrawer = useCallback(
+    () => applyTerminalOpen(!terminalOpenRef.current),
+    [applyTerminalOpen],
+  )
+
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    return api.onTerminalDrawerCommand?.((req) => {
+      if (req.sessionId) setTerminalSessionId(req.sessionId)
+      if (req.action === 'open') applyTerminalOpen(true)
+      else if (req.action === 'close') applyTerminalOpen(false)
+      else applyTerminalOpen(!terminalOpenRef.current)
+    })
+  }, [applyTerminalOpen])
+
+  const effectivePetPos = useMemo(() => {
+    if (!terminalOpen) return dock.petPos
+    const rawScale = Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue('--ui-scale'),
+    )
+    const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1
+    const viewport = {
+      width: Math.max(320, Math.round(windowStage.width / scale)),
+      height: Math.max(240, Math.round(windowStage.height / scale)),
+    }
+    const basePos = dock.petPos ?? defaultPetPos(viewport)
+    const drawerTop = viewport.height - Math.round(terminalHeight / scale)
+    const safeBottomY = Math.max(56, drawerTop - PET_SIZE.height - 12)
+    if (basePos.y > safeBottomY) {
+      return { x: basePos.x, y: safeBottomY }
+    }
+    return dock.petPos
+  }, [dock.petPos, terminalHeight, terminalOpen, windowStage])
+
   const [paletteOpen, setPaletteOpen] = useState(false)
   // the palette's mount mode: 'files' is the Ctrl/Cmd+P quick-open shape, and
   // the shell's Ctrl/Cmd+K summon (tab views, global hotkey, tray) is always
@@ -1019,6 +1106,11 @@ export function Home() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      if (event.code === 'Backquote' && !event.isComposing) {
+        event.preventDefault()
+        toggleTerminalDrawer()
+        return
+      }
       // the chord treaty (issue #56 P0 #3): Ctrl/Cmd+F is "find in the active
       // scope" everywhere, and Home's scope is the file search
       if (event.key === 'f') {
@@ -1042,7 +1134,7 @@ export function Home() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [toggleTerminalDrawer])
 
   useEffect(() => {
     const onFocus = () => refreshOnFocusRef.current()
@@ -1602,6 +1694,7 @@ export function Home() {
           onOpenSessions: showSessionsCenter,
           onOpenTemplates: openTemplates,
           onOpenSettings: openSettings,
+          onOpenTerminal: openTerminalDrawer,
         })?.()
         bounceSettle(custom.id)
         return
@@ -1672,6 +1765,7 @@ export function Home() {
       showSessionsCenter,
       openTemplates,
       openSettings,
+      openTerminalDrawer,
       openFolderView,
       tRef,
     ],
@@ -3013,7 +3107,7 @@ export function Home() {
         order={dockPrefs.order}
         onReorder={(order) => commitDockPrefs({ order: [...order] })}
         bouncing={bounce.bouncing}
-        hidden={dockPrefs.autoHide && !dockShown}
+        hidden={terminalOpen || (dockPrefs.autoHide && !dockShown)}
         pillRef={dockPillRef}
         insertPreview={dockInsertPreview}
         onInsertPreview={handleInsertPreview}
@@ -3033,7 +3127,7 @@ export function Home() {
         </div>
       )}
       {flyGhost.ghost && <DockFlyGhost ghost={flyGhost.ghost} />}
-      {dockPrefs.autoHide && (
+      {dockPrefs.autoHide && !terminalOpen && (
         <div
           className="dock-hot-zone"
           aria-hidden="true"
@@ -3063,6 +3157,8 @@ export function Home() {
           onSplitSwap={handleSplitSwap}
           onSplitSyncToggle={handleSplitSyncToggle}
           onOpenCompare={handleOpenCompare}
+          terminalOpen={terminalOpen}
+          onToggleTerminal={toggleTerminalDrawer}
           onPointerEnter={
             topBarAutoHide ? () => window.aiOffice.topBarHotEdge?.({ enter: true }) : undefined
           }
@@ -3096,6 +3192,7 @@ export function Home() {
               onAskAboutPaths={askAboutPaths}
               onOpenTemplates={openTemplates}
               onOpenSettings={openSettings}
+              onOpenTerminal={openTerminalDrawer}
               onOpenFolder={openFolderView}
               onAddFolderRoot={addFolderRoot}
               onRemoveFolderRoot={removeFolderRoot}
@@ -3129,6 +3226,24 @@ export function Home() {
             renderGlobalContent()
           )}
         </div>
+        {terminalOpen && (
+          <Suspense fallback={null}>
+            <TerminalDrawer
+              open={terminalOpen}
+              height={terminalHeight}
+              activeSessionId={terminalSessionId}
+              onHeightChange={handleTerminalHeightChange}
+              onActiveSessionChange={setTerminalSessionId}
+              onClose={() => setTerminalOpen(false)}
+              onPopOutTab={(sessionId) => {
+                setTerminalOpen(false)
+                void (window.aiOffice as Partial<HomeApi> | undefined)?.terminalOpenTab?.({
+                  sessionId,
+                })
+              }}
+            />
+          </Suspense>
+        )}
       </div>
       {/* the AI drawer: the panel overlay plus the floating pet, both fixed —
        *  no layout column. `docActive` is the document-mode seam: the native
@@ -3138,7 +3253,7 @@ export function Home() {
       <AiDock
         collapsed={dock.collapsed}
         width={dock.width}
-        petPos={dock.petPos}
+        petPos={effectivePetPos}
         docActive={docTabActive}
         petRunState={petRunState}
         petPrefs={petPrefs}

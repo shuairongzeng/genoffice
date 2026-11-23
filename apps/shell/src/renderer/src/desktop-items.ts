@@ -20,6 +20,7 @@ export type AppTile =
   | 'kb'
   | 'sessions'
   | 'player'
+  | 'terminal'
 
 /**
  * One thing on the desktop, whichever source it came from — the model every
@@ -31,13 +32,7 @@ export type AppTile =
  * window.
  */
 export type DesktopStackCategory =
-  | 'recent'
-  | 'docs'
-  | 'sheets'
-  | 'slides'
-  | 'pdf'
-  | 'media'
-  | 'other'
+  'recent' | 'docs' | 'sheets' | 'slides' | 'pdf' | 'media' | 'other'
 
 export interface DesktopItem {
   readonly id: string
@@ -93,6 +88,7 @@ export interface DesktopItemContext {
   readonly onOpenSessions?: () => void
   readonly onOpenTemplates: () => void
   readonly onOpenSettings: (target: SettingsTarget) => void
+  readonly onOpenTerminal?: () => void
   readonly onOpenFolder: (root: FolderRoot) => void
   /**
    * An alias the OS-open gate refused (the file vanished, the launch gate
@@ -149,7 +145,13 @@ export function mergeDesktopItems(
 
 /** the bindings an app tile's launch verb needs: the bridge plus the host's surface verbs */
 export interface DesktopAppOpenHost {
-  readonly api: Partial<HomeApi>
+  readonly api: Partial<HomeApi> & {
+    terminalOpenTab?: (opts?: { sessionId?: string }) => Promise<string>
+    terminalRequestDrawer?: (req: {
+      action: 'open' | 'close' | 'toggle'
+      sessionId?: string
+    }) => Promise<void>
+  }
   readonly onOpenAsk: () => void
   /** the KB tile's verb: the knowledge base center takes over the content area */
   readonly onOpenKb: () => void
@@ -157,6 +159,7 @@ export interface DesktopAppOpenHost {
   readonly onOpenSessions?: () => void
   readonly onOpenTemplates: () => void
   readonly onOpenSettings: (target: SettingsTarget) => void
+  readonly onOpenTerminal?: () => void
 }
 
 /** one app tile's identity: its item id, tile art and strings key */
@@ -188,6 +191,7 @@ const APP_ENTRIES: readonly DesktopAppEntry[] = [
   { id: 'app:plugins', tile: 'plugins', titleKey: 'appPlugins' },
   { id: 'app:settings', tile: 'settings', titleKey: 'appSettings' },
   { id: 'app:player', tile: 'player', titleKey: 'appPlayer' },
+  { id: 'app:terminal', tile: 'terminal', titleKey: 'appTerminal' },
 ]
 
 /** the app an id names: its tile and strings key; null for any other id */
@@ -210,6 +214,10 @@ const APP_OPEN_VERBS: Readonly<Record<string, (host: DesktopAppOpenHost) => () =
   'app:plugins': (host) => () => host.onOpenSettings({ section: 'plugins' }),
   'app:settings': (host) => () => host.onOpenSettings({ section: 'general' }),
   'app:player': (host) => () => void host.api.openMediaPlayer?.(),
+  'app:terminal': (host) => () => {
+    if (host.onOpenTerminal) host.onOpenTerminal()
+    else void host.api.terminalRequestDrawer?.({ action: 'open' })
+  },
 }
 
 /**

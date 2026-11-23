@@ -103,6 +103,18 @@ import {
   type CompareRunRequest,
   type CompareTabSource,
 } from '../shared/compare-api'
+import {
+  TERMINAL_CHANNELS,
+  type TerminalAskAiPayload,
+  type TerminalBlock,
+  type TerminalCreateOpts,
+  type TerminalDrawerRequest,
+  type TerminalEvent,
+  type TerminalOpenTabOpts,
+  type TerminalSessionSnapshot,
+  type TerminalSessionSummary,
+  type TerminalShellOption,
+} from '../shared/terminal-api'
 import type {
   IntegrationsApi,
   IntegrationsStatus,
@@ -1750,6 +1762,108 @@ const homeApi: HomeApi = {
   },
   async compareAskAiSummary(payload: CompareAskAiPayload) {
     await ipcRenderer.invoke(COMPARE_CHANNELS.askAiSummary, payload)
+  },
+  async terminalListShells() {
+    const result: unknown = await ipcRenderer.invoke(TERMINAL_CHANNELS.listShells)
+    return Array.isArray(result) ? (result as TerminalShellOption[]) : []
+  },
+  async terminalListSessions() {
+    const result: unknown = await ipcRenderer.invoke(TERMINAL_CHANNELS.listSessions)
+    return Array.isArray(result) ? (result as TerminalSessionSummary[]) : []
+  },
+  async terminalGetSession(sessionId: string) {
+    if (typeof sessionId !== 'string' || !sessionId) return null
+    const result: unknown = await ipcRenderer.invoke(TERMINAL_CHANNELS.getSession, sessionId)
+    return result && typeof result === 'object' ? (result as TerminalSessionSnapshot) : null
+  },
+  async terminalCreateSession(opts?: TerminalCreateOpts) {
+    return (await ipcRenderer.invoke(
+      TERMINAL_CHANNELS.createSession,
+      opts ?? {},
+    )) as TerminalSessionSnapshot
+  },
+  async terminalCloseSession(sessionId: string) {
+    if (typeof sessionId !== 'string' || !sessionId) return
+    await ipcRenderer.invoke(TERMINAL_CHANNELS.closeSession, sessionId)
+  },
+  async terminalRunCommand(sessionId: string, command: string) {
+    if (typeof sessionId !== 'string' || !sessionId) throw new Error('Invalid terminal session id.')
+    if (typeof command !== 'string') throw new Error('Invalid terminal command.')
+    return (await ipcRenderer.invoke(
+      TERMINAL_CHANNELS.runCommand,
+      sessionId,
+      command,
+    )) as TerminalBlock
+  },
+  async terminalPtyWrite(sessionId: string, data: string) {
+    if (typeof sessionId !== 'string' || !sessionId) return
+    if (typeof data !== 'string' || !data) return
+    await ipcRenderer.invoke(TERMINAL_CHANNELS.ptyWrite, sessionId, data)
+  },
+  async terminalPtyResize(sessionId: string, cols: number, rows: number) {
+    if (typeof sessionId !== 'string' || !sessionId) return
+    if (!Number.isFinite(cols) || !Number.isFinite(rows)) return
+    await ipcRenderer.invoke(TERMINAL_CHANNELS.ptyResize, sessionId, cols, rows)
+  },
+  async terminalPtyRestart(sessionId: string) {
+    if (typeof sessionId !== 'string' || !sessionId) return
+    await ipcRenderer.invoke(TERMINAL_CHANNELS.ptyRestart, sessionId)
+  },
+  async terminalInterrupt(sessionId: string) {
+    if (typeof sessionId !== 'string' || !sessionId) return
+    await ipcRenderer.invoke(TERMINAL_CHANNELS.interrupt, sessionId)
+  },
+  async terminalClearSession(sessionId: string) {
+    if (typeof sessionId !== 'string' || !sessionId) return
+    await ipcRenderer.invoke(TERMINAL_CHANNELS.clearSession, sessionId)
+  },
+  async terminalPickCwd(sessionId: string) {
+    if (typeof sessionId !== 'string' || !sessionId) return null
+    const result: unknown = await ipcRenderer.invoke(TERMINAL_CHANNELS.pickCwd, sessionId)
+    return typeof result === 'string' ? result : null
+  },
+  async terminalOpenTab(opts?: TerminalOpenTabOpts) {
+    const result: unknown = await ipcRenderer.invoke(TERMINAL_CHANNELS.openTab, opts ?? {})
+    return typeof result === 'string' ? result : ''
+  },
+  async terminalDockToDrawer(sessionId: string) {
+    await ipcRenderer.invoke(TERMINAL_CHANNELS.dockToDrawer, sessionId)
+  },
+  async terminalRequestDrawer(req: TerminalDrawerRequest) {
+    await ipcRenderer.invoke(TERMINAL_CHANNELS.requestDrawer, req)
+  },
+  async terminalAskAi(payload: TerminalAskAiPayload) {
+    await ipcRenderer.invoke(TERMINAL_CHANNELS.askAi, payload)
+  },
+  onTerminalEvent(handler) {
+    const listener = (_event: IpcRendererEvent, payload: unknown) => {
+      if (payload && typeof payload === 'object') handler(payload as TerminalEvent)
+    }
+    ipcRenderer.on(TERMINAL_CHANNELS.event, listener)
+    return () => ipcRenderer.removeListener(TERMINAL_CHANNELS.event, listener)
+  },
+  onTerminalDrawerCommand(handler) {
+    const listener = (_event: IpcRendererEvent, payload: unknown) => {
+      if (
+        payload &&
+        typeof payload === 'object' &&
+        'action' in payload &&
+        ((payload as TerminalDrawerRequest).action === 'open' ||
+          (payload as TerminalDrawerRequest).action === 'close' ||
+          (payload as TerminalDrawerRequest).action === 'toggle')
+      ) {
+        handler(payload as TerminalDrawerRequest)
+      }
+    }
+    ipcRenderer.on(TERMINAL_CHANNELS.drawerCommand, listener)
+    return () => ipcRenderer.removeListener(TERMINAL_CHANNELS.drawerCommand, listener)
+  },
+  onTerminalTabSessionUpdated(handler) {
+    const listener = (_event: IpcRendererEvent, sessionId: unknown) => {
+      if (typeof sessionId === 'string' && sessionId) handler(sessionId)
+    }
+    ipcRenderer.on(TERMINAL_CHANNELS.tabSessionUpdated, listener)
+    return () => ipcRenderer.removeListener(TERMINAL_CHANNELS.tabSessionUpdated, listener)
   },
   ...(bootSnapshot ? { bootSnapshot } : {}),
   signalFirstPaint() {

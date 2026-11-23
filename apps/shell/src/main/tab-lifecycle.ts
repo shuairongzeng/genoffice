@@ -68,7 +68,13 @@ export function createRecentlyClosedTracker(
   return {
     push(closed) {
       if (!closed.filePath) return
-      if (closed.kind === 'home' || closed.kind === 'help' || closed.kind === 'compare') return
+      if (
+        closed.kind === 'home' ||
+        closed.kind === 'help' ||
+        closed.kind === 'compare' ||
+        closed.kind === 'terminal'
+      )
+        return
       const at = stack.findIndex((entry) => entry.filePath === closed.filePath)
       if (at >= 0) stack.splice(at, 1)
       stack.push({ kind: closed.kind ?? 'docs', filePath: closed.filePath })

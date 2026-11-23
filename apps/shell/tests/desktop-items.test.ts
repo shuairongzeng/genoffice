@@ -92,15 +92,36 @@ describe('defaultDesktopProviders', () => {
 
   it('includes the Media Player desktop tile wired to openMediaPlayer', () => {
     const openMediaPlayer = vi.fn()
-    const items = mergeDesktopItems(
-      defaultDesktopProviders(),
-      ctx({ api: { openMediaPlayer } }),
-    )
+    const items = mergeDesktopItems(defaultDesktopProviders(), ctx({ api: { openMediaPlayer } }))
     const tile = items.find((item) => item.id === 'app:player')
     expect(tile?.tile).toBe('player')
     expect(tile?.title).toBe(strings.appPlayer)
     tile?.open()
     expect(openMediaPlayer).toHaveBeenCalledTimes(1)
+  })
+
+  it('includes the Terminal desktop tile calling onOpenTerminal or falling back to terminalRequestDrawer', () => {
+    const onOpenTerminal = vi.fn()
+    const terminalRequestDrawer = vi.fn().mockResolvedValue(undefined)
+    const itemsWithHandler = mergeDesktopItems(
+      defaultDesktopProviders(),
+      ctx({ onOpenTerminal, api: { terminalRequestDrawer } }),
+    )
+    const tileWithHandler = itemsWithHandler.find((item) => item.id === 'app:terminal')
+    expect(tileWithHandler?.tile).toBe('terminal')
+    expect(tileWithHandler?.title).toBe(strings.appTerminal)
+    tileWithHandler?.open()
+    expect(onOpenTerminal).toHaveBeenCalledTimes(1)
+    expect(terminalRequestDrawer).not.toHaveBeenCalled()
+
+    const itemsFallback = mergeDesktopItems(
+      defaultDesktopProviders(),
+      ctx({ api: { terminalRequestDrawer } }),
+    )
+    const tileFallback = itemsFallback.find((item) => item.id === 'app:terminal')
+    tileFallback?.open()
+    expect(terminalRequestDrawer).toHaveBeenCalledTimes(1)
+    expect(terminalRequestDrawer).toHaveBeenCalledWith({ action: 'open' })
   })
 })
 
@@ -121,6 +142,7 @@ describe('mergeDesktopItems', () => {
       'Plugins',
       'Settings',
       'Media Player',
+      'Terminal',
       'Work',
       'alpha.docx',
       'beta.xlsx',

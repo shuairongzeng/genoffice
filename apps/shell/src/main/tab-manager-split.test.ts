@@ -180,6 +180,7 @@ vi.mock('./media-main', () => ({
 }))
 
 import { COMPARE_CHANNELS } from '../shared/compare-api'
+import { TERMINAL_CHANNELS } from '../shared/terminal-api'
 import { SPLIT_DIVIDER_WIDTH, type SplitState } from '../shared/split-api'
 import { TabManager } from './tab-manager'
 
@@ -681,5 +682,89 @@ describe('TabManager split view and compare tab', () => {
     expect(compareView.getBounds()).toEqual(STAGE_RECT)
     expect(v1.setVisible).toHaveBeenLastCalledWith(false)
     expect(v2.setVisible).toHaveBeenLastCalledWith(false)
+  })
+
+  it('opens, reuses, splits, and docks the standalone terminal tab', () => {
+    const docId = manager.openDocsTab('/tmp/notes.docx')
+    const docView = lastView(createDocsView)
+
+    const termId = manager.openTerminalTab({ sessionId: 'term-sess-1' })
+    expect(state.createdWebContentsViews).toHaveLength(1)
+    const termView = state.createdWebContentsViews[0]!
+    const loadedUrl = termView.webContents.loadURL.mock.calls[0]![0] as string
+    expect(loadedUrl).toContain('view=terminal')
+    expect(loadedUrl).toContain('session=term-sess-1')
+    expect(manager.activeTabId()).toBe(termId)
+    expect(manager.list().find((t) => t.id === termId)).toMatchObject({
+      kind: 'terminal',
+      title: 'Terminal',
+      active: true,
+    })
+
+    // Standalone terminal tab can join a side-by-side split with a document tab.
+    const split = manager.openSplit(docId, 'left')
+    expect(split).toEqual({
+      leftTabId: docId,
+      rightTabId: termId,
+      activePane: 'left',
+      ratio: 0.5,
+      syncScroll: false,
+      suspended: false,
+    })
+    expect(docView.setVisible).toHaveBeenLastCalledWith(true)
+    expect(termView.setVisible).toHaveBeenLastCalledWith(true)
+
+    // Reopening terminal tab with a new sessionId reuses the view and notifies it.
+    const reusedId = manager.openTerminalTab({ sessionId: 'term-sess-2' })
+    expect(reusedId).toBe(termId)
+    expect(state.createdWebContentsViews).toHaveLength(1)
+    expect(termView.webContents.send).toHaveBeenCalledWith(
+      TERMINAL_CHANNELS.tabSessionUpdated,
+      'term-sess-2',
+    )
+
+    // Closing terminal tabs (docking back to drawer) exits split and keeps sibling doc active.
+    manager.closeTerminalTabs()
+    expect(manager.list().some((t) => t.kind === 'terminal')).toBe(false)
+    expect(manager.getSplitState()).toBeNull()
+    expect(manager.activeTabId()).toBe(docId)
+    expect(docView.setVisible).toHaveBeenLastCalledWith(true)
+  })
+
+  it('reserves open bottom terminal drawer height under autoHideActive and suppresses dock overlay', () => {
+    const syncDock = vi.fn()
+    manager.setDockOverlay({ sync: syncDock, dispose: vi.fn() } as never)
+
+    const docId = manager.openDocsTab('/tmp/fullscreen.docx')
+    const docView = lastView(createDocsView)
+
+    // Simulate autoHide topbar with open 280px bottom terminal drawer (744 - 280 = 464 bottom).
+    manager.setStageRect({ x: 200, y: 44, width: 1008, height: 420 })
+    manager.setWindowChromeState({
+      maximized: true,
+      fullScreen: false,
+      autoHideEnabled: true,
+      autoHideActive: true,
+      revealed: false,
+    })
+
+    expect(manager.activeTabId()).toBe(docId)
+    expect(docView.getBounds()).toEqual({ x: 0, y: 0, width: 1208, height: 464 })
+    expect(syncDock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        docActive: true,
+        suppressed: true,
+      }),
+    )
+
+    // Collapsing the bottom drawer restores full height and stops suppressing dock overlay.
+    manager.setStageRect({ x: 200, y: 44, width: 1008, height: 700 })
+    expect(docView.getBounds()).toEqual({ x: 0, y: 0, width: 1208, height: 744 })
+    expect(syncDock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        docActive: true,
+        suppressed: false,
+      }),
+    )
   })
 })

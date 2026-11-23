@@ -109,6 +109,11 @@ export function TopBarEntry(): React.JSX.Element {
         onSplitSwap={onSplitSwap}
         onSplitSyncToggle={onSplitSyncToggle}
         onOpenCompare={onOpenCompare}
+        onToggleTerminal={() =>
+          void (window.aiOffice as Partial<HomeApi> | undefined)?.terminalRequestDrawer?.({
+            action: 'toggle',
+          })
+        }
       />
     </div>
   )

@@ -261,6 +261,21 @@ function CompareIcon() {
   )
 }
 
+function TerminalTabIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 240 240" fill="none" aria-hidden="true">
+      <rect width="240" height="240" rx="48" fill="#0F766E" />
+      <path
+        d="M66 86L108 120L66 154M122 154H174"
+        stroke="#fff"
+        strokeWidth="20"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function SplitActionGlyph(): ReactElement {
   return (
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -345,6 +360,29 @@ function CompareActionGlyph(): ReactElement {
   )
 }
 
+function TerminalActionGlyph(): ReactElement {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect
+        x="1.75"
+        y="2.5"
+        width="12.5"
+        height="11"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.3"
+      />
+      <path
+        d="M4.6 6.2 7 8.2 4.6 10.2M8.4 10.2h3"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function readUiScale(): number {
   const rawScale = Number.parseFloat(
     getComputedStyle(document.documentElement).getPropertyValue('--ui-scale'),
@@ -368,7 +406,12 @@ export function buildCompareOpenOptions(
     }
   }
   const eligible = tabs.filter(
-    (tab) => tab.kind !== 'home' && tab.kind !== 'compare' && tab.kind !== 'help' && !tab.detached,
+    (tab) =>
+      tab.kind !== 'home' &&
+      tab.kind !== 'compare' &&
+      tab.kind !== 'help' &&
+      tab.kind !== 'terminal' &&
+      !tab.detached,
   )
   if (eligible.length < 2) return {}
   const activeTab = eligible.find((tab) => tab.id === activeId || tab.active) ?? eligible[0]!
@@ -438,6 +481,7 @@ export const KIND_ICON: Record<TabSummary['kind'], ReactElement> = {
   browser: <BrowserIcon />,
   help: <HelpIcon />,
   compare: <CompareIcon />,
+  terminal: <TerminalTabIcon />,
 }
 
 export interface HomeTabsProps {
@@ -455,6 +499,8 @@ export interface HomeTabsProps {
   onSplitSwap?: () => void
   onSplitSyncToggle?: () => void
   onOpenCompare?: () => void
+  terminalOpen?: boolean
+  onToggleTerminal?: () => void
   onPointerEnter?: () => void
   onPointerLeave?: () => void
 }
@@ -471,6 +517,8 @@ export function HomeTabs({
   onSplitSwap,
   onSplitSyncToggle,
   onOpenCompare,
+  terminalOpen,
+  onToggleTerminal,
   onPointerEnter,
   onPointerLeave,
 }: HomeTabsProps): ReactElement {
@@ -485,9 +533,10 @@ export function HomeTabs({
     : splitActive
       ? t('splitClose')
       : t('splitOpen')
+  const hasTabsOrSplit = tabs.length > 0 || splitActive
   const showActions =
-    (tabs.length > 0 || splitActive) &&
-    (Boolean(onSplitToggle) || splitActive || Boolean(onOpenCompare))
+    (hasTabsOrSplit || Boolean(onToggleTerminal)) &&
+    (Boolean(onSplitToggle) || splitActive || Boolean(onOpenCompare) || Boolean(onToggleTerminal))
 
   return (
     <div
@@ -603,7 +652,7 @@ export function HomeTabs({
       </div>
       {showActions && (
         <div className="work-tabs-actions">
-          {onSplitToggle && (
+          {hasTabsOrSplit && onSplitToggle && (
             <button
               type="button"
               className={`work-tabs-action-btn${splitActive ? ' is-active' : ''}`}
@@ -642,7 +691,7 @@ export function HomeTabs({
               </button>
             </>
           )}
-          {onOpenCompare && (
+          {hasTabsOrSplit && onOpenCompare && (
             <button
               type="button"
               className="work-tabs-action-btn"
@@ -652,6 +701,19 @@ export function HomeTabs({
               onClick={onOpenCompare}
             >
               <CompareActionGlyph />
+            </button>
+          )}
+          {onToggleTerminal && (
+            <button
+              type="button"
+              className={`work-tabs-action-btn${terminalOpen ? ' is-active' : ''}`}
+              data-testid="terminal-drawer-toggle-btn"
+              aria-pressed={Boolean(terminalOpen)}
+              aria-label={t('termToggleDrawer')}
+              title={t('termToggleDrawer')}
+              onClick={onToggleTerminal}
+            >
+              <TerminalActionGlyph />
             </button>
           )}
         </div>

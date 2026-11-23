@@ -37,6 +37,7 @@ import { normalizeDockPrefs, type DockPrefs } from '../shared/dock-prefs'
 import type { DocumentTabKind, OpenDocumentTab, TabKind, TabSummary } from '../shared/tabs-api'
 import { SPLIT_DEFAULT_RATIO, type SplitPaneSide, type SplitState } from '../shared/split-api'
 import { COMPARE_CHANNELS, type CompareOpenOptions } from '../shared/compare-api'
+import { TERMINAL_CHANNELS, type TerminalOpenTabOpts } from '../shared/terminal-api'
 import {
   clampSplitRatio,
   computeSplitRects,
@@ -415,10 +416,10 @@ export class TabManager {
       return { x: 0, y: 0, width, height }
     }
     // While top-bar auto-hide is engaged on maximize/fullscreen, let document views fill
-    // the entire window vertically (`y: 0`, full `height`) so revealing the top bar
-    // never reflows the document underneath.
+    // vertically from `y: 0`, while still reserving any open bottom terminal drawer height.
     if (this.windowChromeState.autoHideActive) {
-      return { x: 0, y: 0, width, height }
+      const bottomInset = this.terminalDrawerBottomInset(height)
+      return { x: 0, y: 0, width, height: Math.max(80, height - bottomInset) }
     }
     // The renderer's measured stage rect wins: the desktop's own layout (the
     // embedded strip, the sidebar, the docked panel) is the truth of where a
@@ -769,7 +770,7 @@ export class TabManager {
     const prefs = this.dockPrefs()
     overlay.sync({
       docActive: active !== undefined && active.kind !== 'home',
-      suppressed: this.drawerOverlaySuppressed(),
+      suppressed: this.drawerOverlaySuppressed() || this.terminalDrawerBottomInset(height) > 0,
       scale: this.uiScale(),
       window: { width, height },
       itemCount: this.dockItemCount(),
@@ -779,6 +780,13 @@ export class TabManager {
       baseSize: prefs.baseSize,
       maxScale: prefs.maxScale,
     })
+  }
+
+  /** Bottom inset reserved for Home's open terminal drawer, ignoring tiny subpixel deltas. */
+  private terminalDrawerBottomInset(windowHeight: number): number {
+    if (!this.stageRect) return 0
+    const inset = Math.max(0, windowHeight - Math.round(this.stageRect.y + this.stageRect.height))
+    return inset >= 40 ? inset : 0
   }
 
   private syncTopBarOverlay(): void {
@@ -1093,6 +1101,50 @@ export class TabManager {
   /** Read the stored CompareOpenOptions for a compare WebContentsView. */
   getCompareInitForWebContents(wcId: number): CompareOpenOptions | undefined {
     return this.compareInits.get(wcId)
+  }
+
+  /** Open or focus the dedicated terminal workbench tab, optionally binding a live session. */
+  openTerminalTab(opts?: TerminalOpenTabOpts): string {
+    const sessionId =
+      opts &&
+      typeof opts === 'object' &&
+      typeof opts.sessionId === 'string' &&
+      opts.sessionId.trim()
+        ? opts.sessionId.trim()
+        : undefined
+    const existing = this.tabs.find((t) => t.kind === 'terminal')
+    if (existing) {
+      if (existing.view && !existing.view.webContents.isDestroyed()) {
+        if (sessionId) {
+          existing.view.webContents.send(TERMINAL_CHANNELS.tabSessionUpdated, sessionId)
+        }
+        this.activateTab(existing.id)
+        return existing.id
+      }
+      this.removeTab(existing.id)
+    }
+    const view = createTerminalView(sessionId)
+    const id = `t${this.nextId++}`
+    this.shellWindow.contentView.addChildView(view)
+    view.setVisible(false)
+    this.attachSplitFocusListener(view)
+    this.tabs.push({
+      id,
+      kind: 'terminal',
+      view,
+      title: this.untitled('terminal', 'Terminal'),
+      lastActiveAt: Date.now(),
+    })
+    this.activateTab(id)
+    return id
+  }
+
+  /** Close standalone terminal tabs while leaving underlying persistent shell sessions alive. */
+  closeTerminalTabs(): void {
+    const ids = this.tabs.filter((t) => t.kind === 'terminal').map((t) => t.id)
+    for (const id of ids) {
+      this.closeTabWithoutPrompt(id)
+    }
   }
 
   /**
@@ -1747,6 +1799,7 @@ export class TabManager {
       !!tab.filePath &&
       tab.kind !== 'home' &&
       tab.kind !== 'help' &&
+      tab.kind !== 'terminal' &&
       !this.closingIds.has(tab.id) &&
       this.htmlFullScreenId !== tab.id
     )
@@ -2092,6 +2145,30 @@ function createCompareView(): WebContentsView {
   void view.webContents.loadURL(
     rendererUrl(process.env.ELECTRON_RENDERER_URL, 'help', {
       view: 'compare',
+    }),
+  )
+  return view
+}
+
+/** The standalone terminal view shares the shell's renderer bundle and preload at ?view=terminal. */
+function createTerminalView(sessionId?: string): WebContentsView {
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    const target = safeExternalUrl(url)
+    if (target) void shell.openExternal(target)
+    return { action: 'deny' }
+  })
+  void view.webContents.loadURL(
+    rendererUrl(process.env.ELECTRON_RENDERER_URL, 'help', {
+      view: 'terminal',
+      ...(sessionId ? { session: sessionId } : {}),
     }),
   )
   return view

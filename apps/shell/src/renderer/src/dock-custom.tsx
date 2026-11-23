@@ -19,6 +19,7 @@ import {
   SlidesGlyph,
   SparkGlyph,
   TemplatesGlyph,
+  TerminalGlyph,
 } from './app-glyphs'
 
 /**
@@ -78,6 +79,8 @@ function appTileGlyph(tile: AppTile): ReactNode {
       return <GearGlyph />
     case 'player':
       return <PlayerGlyph />
+    case 'terminal':
+      return <TerminalGlyph />
   }
 }
 

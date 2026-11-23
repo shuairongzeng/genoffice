@@ -386,3 +386,33 @@ export function PlayerGlyph(): React.JSX.Element {
     </svg>
   )
 }
+
+/** Terminal console glyph (rounded terminal window with top dots and >_ prompt) for desktop and dock tiles. */
+export function TerminalGlyph(): React.JSX.Element {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <rect
+        x="4"
+        y="5.5"
+        width="24"
+        height="21"
+        rx="3.5"
+        stroke="currentColor"
+        strokeWidth="2.3"
+        fill="currentColor"
+        fillOpacity="0.12"
+      />
+      <circle cx="8.5" cy="9.8" r="1.15" fill="currentColor" />
+      <circle cx="12" cy="9.8" r="1.15" fill="currentColor" />
+      <circle cx="15.5" cy="9.8" r="1.15" fill="currentColor" />
+      <path
+        d="M9 16.5l4 3-4 3"
+        stroke="currentColor"
+        strokeWidth="2.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M15.5 22.5h6.5" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" />
+    </svg>
+  )
+}

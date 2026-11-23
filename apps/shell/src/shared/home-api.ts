@@ -207,6 +207,32 @@ export type {
   DiffStats,
   InlineDiffSegment,
 } from './compare-api'
+import type {
+  TerminalAskAiPayload,
+  TerminalBlock,
+  TerminalCreateOpts,
+  TerminalDrawerRequest,
+  TerminalEvent,
+  TerminalOpenTabOpts,
+  TerminalSessionSnapshot,
+  TerminalSessionSummary,
+  TerminalShellOption,
+} from './terminal-api'
+
+export type {
+  TerminalAskAiPayload,
+  TerminalBlock,
+  TerminalBlockStatus,
+  TerminalCreateOpts,
+  TerminalDrawerRequest,
+  TerminalEvent,
+  TerminalMode,
+  TerminalOpenTabOpts,
+  TerminalSessionSnapshot,
+  TerminalSessionSummary,
+  TerminalShellKind,
+  TerminalShellOption,
+} from './terminal-api'
 
 export interface AttachmentAddResult {
   accepted: AttachmentInfo[]
@@ -647,6 +673,7 @@ export const HOME_TAB_KINDS: readonly TabKind[] = [
   'browser',
   'help',
   'compare',
+  'terminal',
 ]
 
 export type MediaKind = 'image' | 'audio' | 'video'
@@ -1914,6 +1941,44 @@ export interface HomeApi {
   compareRunDiff(req: CompareRunRequest): Promise<CompareResult>
   /** send diff summary markdown to the Ask AI drawer */
   compareAskAiSummary(payload: CompareAskAiPayload): Promise<void>
+  /** list available system shells on this platform */
+  terminalListShells?(): Promise<TerminalShellOption[]>
+  /** list live persistent terminal sessions owned by main */
+  terminalListSessions?(): Promise<TerminalSessionSummary[]>
+  /** read one full terminal session snapshot including blocks */
+  terminalGetSession?(sessionId: string): Promise<TerminalSessionSnapshot | null>
+  /** spawn a persistent terminal session */
+  terminalCreateSession?(opts?: TerminalCreateOpts): Promise<TerminalSessionSnapshot>
+  /** close and terminate a persistent terminal session */
+  terminalCloseSession?(sessionId: string): Promise<void>
+  /** run one command inside an existing persistent session */
+  terminalRunCommand?(sessionId: string, command: string): Promise<TerminalBlock>
+  /** write raw terminal input bytes/escape sequences to a PTY session */
+  terminalPtyWrite?(sessionId: string, data: string): Promise<void>
+  /** resize a PTY session grid dimensions */
+  terminalPtyResize?(sessionId: string, cols: number, rows: number): Promise<void>
+  /** restart an exited or live PTY session in place */
+  terminalPtyRestart?(sessionId: string): Promise<void>
+  /** interrupt the running command in a session and recover a clean shell */
+  terminalInterrupt?(sessionId: string): Promise<void>
+  /** clear recorded blocks for a session */
+  terminalClearSession?(sessionId: string): Promise<void>
+  /** open directory picker and update session cwd when idle */
+  terminalPickCwd?(sessionId: string): Promise<string | null>
+  /** pop out a session into a dedicated workbench terminal tab */
+  terminalOpenTab?(opts?: TerminalOpenTabOpts): Promise<string>
+  /** dock an independent terminal tab back into Home's bottom drawer */
+  terminalDockToDrawer?(sessionId: string): Promise<void>
+  /** request Home's bottom terminal drawer to open, close, or toggle */
+  terminalRequestDrawer?(req: TerminalDrawerRequest): Promise<void>
+  /** forward a failed terminal block to the Ask AI drawer for diagnosis */
+  terminalAskAi?(payload: TerminalAskAiPayload): Promise<void>
+  /** subscribe to streaming terminal session/block events */
+  onTerminalEvent?(handler: (event: TerminalEvent) => void): () => void
+  /** subscribe to drawer open/close/toggle requests pushed from main */
+  onTerminalDrawerCommand?(handler: (req: TerminalDrawerRequest) => void): () => void
+  /** subscribe to active session switches when reusing the standalone terminal tab */
+  onTerminalTabSessionUpdated?(handler: (sessionId: string) => void): () => void
 }
 
 export interface AiCatalogEntry extends AiProviderMeta {

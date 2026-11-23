@@ -36,6 +36,7 @@ export function runTabDocumentAction(
     tab.kind === 'home' ||
     tab.kind === 'help' ||
     tab.kind === 'compare' ||
+    tab.kind === 'terminal' ||
     // a browser tab hosts no document to save or print
     tab.kind === 'browser' ||
     !deps.tabs.canDetachTab(id) ||
