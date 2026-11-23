@@ -1176,4 +1176,8 @@ export const pl: Dict = {
   termAdd: 'Dodaj',
   termClose: 'Zamknij',
   openInTerminal: 'Otwórz w terminalu',
+  termCanvasThemeTitle: 'Motyw płótna terminala (kliknij, aby przełączyć)',
+  termCanvasDark: 'Ciemne płótno',
+  termCanvasLight: 'Jasne płótno',
+  termCanvasAuto: 'Dopasuj motyw',
 }

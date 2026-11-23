@@ -1182,4 +1182,8 @@ export const ms: Dict = {
   termAdd: 'Tambah',
   termClose: 'Tutup',
   openInTerminal: 'Buka dalam Terminal',
+  termCanvasThemeTitle: 'Tema kanvas terminal (klik untuk tukar)',
+  termCanvasDark: 'Kanvas Gelap',
+  termCanvasLight: 'Kanvas Cerah',
+  termCanvasAuto: 'Ikut Tema',
 }

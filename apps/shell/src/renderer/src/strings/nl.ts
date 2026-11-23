@@ -1182,4 +1182,8 @@ export const nl: Dict = {
   termAdd: 'Toevoegen',
   termClose: 'Sluiten',
   openInTerminal: 'Openen in terminal',
+  termCanvasThemeTitle: 'Thema terminalcanvas (klik om te wisselen)',
+  termCanvasDark: 'Donker canvas',
+  termCanvasLight: 'Licht canvas',
+  termCanvasAuto: 'Thema volgen',
 }

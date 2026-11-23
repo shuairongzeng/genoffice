@@ -1169,4 +1169,8 @@ export const hi: Dict = {
   termAdd: 'जोड़ें',
   termClose: 'बंद करें',
   openInTerminal: 'टर्मिनल में खोलें',
+  termCanvasThemeTitle: 'टर्मिनल कैनवास थीम (बदलने के लिए क्लिक करें)',
+  termCanvasDark: 'डार्क कैनवास',
+  termCanvasLight: 'लाइट कैनवास',
+  termCanvasAuto: 'थीम के अनुसार',
 }

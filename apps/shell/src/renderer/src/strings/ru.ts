@@ -1179,4 +1179,8 @@ export const ru: Dict = {
   termAdd: 'Добавить',
   termClose: 'Закрыть',
   openInTerminal: 'Открыть в терминале',
+  termCanvasThemeTitle: 'Тема холста терминала (нажмите для переключения)',
+  termCanvasDark: 'Тёмный холст',
+  termCanvasLight: 'Светлый холст',
+  termCanvasAuto: 'Как в теме',
 }

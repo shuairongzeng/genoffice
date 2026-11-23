@@ -1181,4 +1181,8 @@ export const ja: Dict = {
   termAdd: '追加',
   termClose: '閉じる',
   openInTerminal: 'ターミナルで開く',
+  termCanvasThemeTitle: 'ターミナルキャンバスの配色（クリックで切り替え）',
+  termCanvasDark: 'ダーク配色',
+  termCanvasLight: 'ライト配色',
+  termCanvasAuto: 'テーマに連動',
 }

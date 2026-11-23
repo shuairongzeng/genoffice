@@ -1192,4 +1192,8 @@ export const it: Dict = {
   termAdd: 'Aggiungi',
   termClose: 'Chiudi',
   openInTerminal: 'Apri nel terminale',
+  termCanvasThemeTitle: 'Tema area terminale (clic per cambiare)',
+  termCanvasDark: 'Sfondo scuro',
+  termCanvasLight: 'Sfondo chiaro',
+  termCanvasAuto: 'Segui tema',
 }

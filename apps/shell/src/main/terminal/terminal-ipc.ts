@@ -2,6 +2,7 @@ import { ipcMain, type IpcMainInvokeEvent } from 'electron'
 import {
   TERMINAL_CHANNELS,
   type TerminalAskAiPayload,
+  type TerminalColorScheme,
   type TerminalCreateOpts,
   type TerminalDrawerRequest,
   type TerminalDropZone,
@@ -20,6 +21,7 @@ import type { TerminalWorkspaceManager } from './terminal-workspace-manager'
 
 const VALID_SHELL_KINDS = new Set<TerminalShellKind>(['powershell', 'cmd', 'bash', 'zsh', 'sh'])
 const VALID_TERMINAL_MODES = new Set<TerminalMode>(['pty', 'block'])
+const VALID_COLOR_SCHEMES = new Set<TerminalColorScheme>(['dark', 'light'])
 const VALID_DRAWER_ACTIONS = new Set<TerminalDrawerRequest['action']>(['open', 'close', 'toggle'])
 const VALID_GROUP_COLORS = new Set<TerminalGroupColor>([
   'blue',
@@ -85,6 +87,15 @@ function parseCreateOpts(raw: unknown): TerminalCreateOpts | undefined {
       throw new Error('Invalid terminal mode')
     }
     opts.mode = raw.mode as TerminalMode
+  }
+  if (raw.colorScheme !== undefined) {
+    if (
+      typeof raw.colorScheme !== 'string' ||
+      !VALID_COLOR_SCHEMES.has(raw.colorScheme as TerminalColorScheme)
+    ) {
+      throw new Error('Invalid terminal colorScheme')
+    }
+    opts.colorScheme = raw.colorScheme as TerminalColorScheme
   }
   if (raw.cols !== undefined) {
     if (typeof raw.cols !== 'number' || !Number.isFinite(raw.cols)) {
@@ -254,6 +265,16 @@ function parseWorkspaceAction(raw: unknown): TerminalWorkspaceAction {
         }
         mode = raw.mode as TerminalMode
       }
+      let colorScheme: TerminalColorScheme | undefined
+      if (raw.colorScheme !== undefined) {
+        if (
+          typeof raw.colorScheme !== 'string' ||
+          !VALID_COLOR_SCHEMES.has(raw.colorScheme as TerminalColorScheme)
+        ) {
+          throw new Error('Invalid terminal colorScheme')
+        }
+        colorScheme = raw.colorScheme as TerminalColorScheme
+      }
       return {
         type: 'create-group',
         ...(name !== undefined ? { name } : {}),
@@ -261,6 +282,7 @@ function parseWorkspaceAction(raw: unknown): TerminalWorkspaceAction {
         ...(defaultCwd !== undefined ? { defaultCwd } : {}),
         ...(shell !== undefined ? { shell } : {}),
         ...(mode !== undefined ? { mode } : {}),
+        ...(colorScheme !== undefined ? { colorScheme } : {}),
         ...(activate !== undefined ? { activate } : {}),
       }
     }

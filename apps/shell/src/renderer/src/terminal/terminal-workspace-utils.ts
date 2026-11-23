@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
+  TerminalColorScheme,
   TerminalCommandSnippet,
   TerminalEvent,
   TerminalGroup,
@@ -13,6 +14,43 @@ import type {
   TerminalWorkspaceSnapshot,
 } from '../../../shared/terminal-api'
 import { findLeafByPaneId } from '../../../shared/terminal-layout'
+import { readTerminalSurfaceTheme, resolveEffectiveTerminalSurface } from './terminal-surface-theme'
+
+function readAppDarkFlag(): boolean {
+  if (typeof document === 'undefined') return false
+  const attr = document.documentElement.getAttribute('data-theme')
+  if (attr === 'dark') return true
+  if (attr === 'light') return false
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  }
+  return false
+}
+
+function withEffectiveColorScheme(action: TerminalWorkspaceAction): TerminalWorkspaceAction {
+  const colorScheme: TerminalColorScheme = resolveEffectiveTerminalSurface(
+    readTerminalSurfaceTheme(),
+    readAppDarkFlag(),
+  )
+  switch (action.type) {
+    case 'create-group':
+      return action.colorScheme ? action : { ...action, colorScheme }
+    case 'split-pane':
+      return action.createOpts?.colorScheme
+        ? action
+        : { ...action, createOpts: { ...action.createOpts, colorScheme } }
+    case 'apply-preset':
+      return action.defaultOpts?.colorScheme
+        ? action
+        : { ...action, defaultOpts: { ...action.defaultOpts, colorScheme } }
+    case 'add-session-to-group':
+      return action.opts?.colorScheme
+        ? action
+        : { ...action, opts: { ...action.opts, colorScheme } }
+    default:
+      return action
+  }
+}
 
 export const GROUP_COLOR_OPTIONS: readonly TerminalGroupColor[] = [
   'blue',
@@ -41,16 +79,27 @@ export function getActivePaneDrag(): PaneDragPayload | null {
 }
 
 /**
- * Filter xterm automatic terminal query responses (DA1/DA2, CPR, DSR, OSC color replies)
+ * Filter xterm automatic terminal query responses (DA1/DA2, CPR, DSR, DECRPM,
+ * XTWINOPS, Kitty keyboard query, focus events, mouse reports, OSC, DCS/APC)
  * so group broadcast never echoes control replies into sibling shells.
  */
 export function isTerminalResponseSequence(data: string): boolean {
   if (!data.startsWith('\x1b')) return false
   // CSI DA / CPR / DSR replies e.g. ESC [ ? 1 ; 2 c, ESC [ 12 ; 1 R, ESC [ 0 n
   if (/^\x1b\[[?>=]?[\d;]*[cRn]/.test(data)) return true
-  // OSC color/clipboard replies ending with BEL or ST
+  // CSI DECRPM mode status reports e.g. ESC [ ? 2026 ; 2 $ y
+  if (/^\x1b\[\??[\d;]+\$y/.test(data)) return true
+  // CSI XTWINOPS pixel/character window size replies e.g. ESC [ 4 ; 464 ; 800 t
+  if (/^\x1b\[[1468];[\d;]+t/.test(data)) return true
+  // CSI Kitty keyboard protocol query reply e.g. ESC [ ? 0 u
+  if (/^\x1b\[\?[\d;]*u/.test(data)) return true
+  // CSI Focus In / Focus Out reports e.g. ESC [ I, ESC [ O
+  if (/^\x1b\[[IO]$/.test(data)) return true
+  // CSI SGR & X10 mouse tracking reports e.g. ESC [ < 0 ; 12 ; 4 M
+  if (/^\x1b\[<[\d;]+[Mm]/.test(data) || /^\x1b\[M[\s\S]{3}/.test(data)) return true
+  // OSC color/clipboard replies ending with BEL or ST e.g. ESC ] 11 ; rgb:...
   if (/^\x1b\][\d]+;/.test(data)) return true
-  // DCS / APC replies
+  // DCS / APC / PM / SOS replies (DECRQSS, XTVERSION, DA3, etc.)
   if (/^\x1b[PX^_]/.test(data)) return true
   return false
 }
@@ -206,7 +255,7 @@ export function useTerminalWorkspace(
     async (action: TerminalWorkspaceAction): Promise<TerminalWorkspaceSnapshot | null> => {
       const api = window.aiOffice
       if (!api?.terminalWorkspaceAction) return null
-      const next = await api.terminalWorkspaceAction(action)
+      const next = await api.terminalWorkspaceAction(withEffectiveColorScheme(action))
       setWorkspace(next)
       return next
     },

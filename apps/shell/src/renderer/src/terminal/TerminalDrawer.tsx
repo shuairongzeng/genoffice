@@ -10,6 +10,8 @@ import { useI18n } from '../locale'
 import { TerminalProfilesModal } from './TerminalProfilesModal'
 import { TerminalSnippetsModal } from './TerminalSnippetsModal'
 import { TerminalSplitTree } from './TerminalSplitTree'
+import { TerminalSurfaceThemeButton } from './TerminalSurfaceThemeButton'
+import { useTerminalSurfaceTheme } from './terminal-surface-theme'
 import {
   GROUP_COLOR_OPTIONS,
   switchPaneShell,
@@ -54,6 +56,7 @@ export function TerminalDrawer({
   onPopOutTab,
 }: TerminalDrawerProps): ReactElement | null {
   const { t } = useI18n()
+  const { surfaceTheme, cycleSurfaceTheme } = useTerminalSurfaceTheme()
 
   const {
     workspace,
@@ -384,6 +387,8 @@ export function TerminalDrawer({
           >
             {t('termProfilesBtn')}
           </button>
+
+          <TerminalSurfaceThemeButton surfaceTheme={surfaceTheme} onCycle={cycleSurfaceTheme} />
 
           <button
             type="button"

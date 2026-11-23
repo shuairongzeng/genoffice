@@ -1165,4 +1165,8 @@ export const ko: Dict = {
   termAdd: '추가',
   termClose: '닫기',
   openInTerminal: '터미널에서 열기',
+  termCanvasThemeTitle: '터미널 캔버스 테마 (클릭하여 전환)',
+  termCanvasDark: '다크 캔버스',
+  termCanvasLight: '라이트 캔버스',
+  termCanvasAuto: '테마 맞춤',
 }

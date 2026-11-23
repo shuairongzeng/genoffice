@@ -1164,4 +1164,8 @@ export const cs: Dict = {
   termAdd: 'Přidat',
   termClose: 'Zavřít',
   openInTerminal: 'Otevřít v terminálu',
+  termCanvasThemeTitle: 'Motiv plátna terminálu (kliknutím přepnete)',
+  termCanvasDark: 'Tmavé plátno',
+  termCanvasLight: 'Světlé plátno',
+  termCanvasAuto: 'Podle motivu',
 }

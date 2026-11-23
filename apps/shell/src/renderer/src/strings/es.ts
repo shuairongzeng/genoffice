@@ -1198,4 +1198,8 @@ export const es: Dict = {
   termAdd: 'Añadir',
   termClose: 'Cerrar',
   openInTerminal: 'Abrir en la terminal',
+  termCanvasThemeTitle: 'Tema del lienzo de terminal (clic para cambiar)',
+  termCanvasDark: 'Lienzo oscuro',
+  termCanvasLight: 'Lienzo claro',
+  termCanvasAuto: 'Seguir tema',
 }

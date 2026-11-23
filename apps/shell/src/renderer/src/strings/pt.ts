@@ -1187,4 +1187,8 @@ export const pt: Dict = {
   termAdd: 'Adicionar',
   termClose: 'Fechar',
   openInTerminal: 'Abrir no terminal',
+  termCanvasThemeTitle: 'Tema da tela do terminal (clique para alternar)',
+  termCanvasDark: 'Tela escura',
+  termCanvasLight: 'Tela clara',
+  termCanvasAuto: 'Seguir tema',
 }

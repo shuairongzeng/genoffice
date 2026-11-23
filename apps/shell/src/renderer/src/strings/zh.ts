@@ -1117,6 +1117,10 @@ export const zh = {
   termAdd: '添加',
   termClose: '关闭',
   openInTerminal: '在终端中打开',
+  termCanvasThemeTitle: '终端画布配色（点击切换）',
+  termCanvasDark: '深色画布',
+  termCanvasLight: '浅色画布',
+  termCanvasAuto: '跟随主题',
 }
 
 export type Dict = typeof zh

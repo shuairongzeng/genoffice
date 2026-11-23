@@ -1130,4 +1130,8 @@ export const he: Dict = {
   termAdd: 'הוספה',
   termClose: 'סגור',
   openInTerminal: 'פתיחה במסוף',
+  termCanvasThemeTitle: 'ערכת צבעים של לוח המסוף (לחץ להחלפה)',
+  termCanvasDark: 'לוח כהה',
+  termCanvasLight: 'לוח בהיר',
+  termCanvasAuto: 'התאמה לערכה',
 }

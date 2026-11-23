@@ -11,6 +11,8 @@ import { TerminalGroupSidebar } from './TerminalGroupSidebar'
 import { TerminalProfilesModal } from './TerminalProfilesModal'
 import { TerminalSnippetsModal } from './TerminalSnippetsModal'
 import { TerminalSplitTree } from './TerminalSplitTree'
+import { TerminalSurfaceThemeButton } from './TerminalSurfaceThemeButton'
+import { useTerminalSurfaceTheme } from './terminal-surface-theme'
 import { switchPaneShell, useTerminalWorkspace } from './terminal-workspace-utils'
 import './terminal.css'
 
@@ -73,6 +75,7 @@ function PresetIcon({ preset }: { preset: TerminalLayoutPreset }): ReactElement 
  */
 export function TerminalView(): ReactElement {
   const { t } = useI18n()
+  const { surfaceTheme, cycleSurfaceTheme } = useTerminalSurfaceTheme()
   const [initialSessionId] = useState<string | null>(() => readInitialQuerySessionId())
 
   const {
@@ -298,6 +301,8 @@ export function TerminalView(): ReactElement {
           >
             {t('termSnippetsBtn')}
           </button>
+
+          <TerminalSurfaceThemeButton surfaceTheme={surfaceTheme} onCycle={cycleSurfaceTheme} />
 
           <button
             type="button"

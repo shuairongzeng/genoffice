@@ -2,6 +2,8 @@ export type TerminalShellKind = 'powershell' | 'cmd' | 'bash' | 'zsh' | 'sh'
 
 export type TerminalMode = 'pty' | 'block'
 
+export type TerminalColorScheme = 'dark' | 'light'
+
 export type TerminalGroupColor = 'blue' | 'emerald' | 'amber' | 'purple' | 'rose' | 'slate'
 
 export type TerminalSplitDirection = 'horizontal' | 'vertical'
@@ -57,6 +59,7 @@ export interface TerminalSessionSnapshot extends TerminalSessionSummary {
 export interface TerminalCreateOpts {
   shell?: TerminalShellKind
   mode?: TerminalMode
+  colorScheme?: TerminalColorScheme
   cols?: number
   rows?: number
   cwd?: string
@@ -158,6 +161,7 @@ export type TerminalWorkspaceAction =
       defaultCwd?: string
       shell?: TerminalShellKind
       mode?: TerminalMode
+      colorScheme?: TerminalColorScheme
       activate?: boolean
     }
   | { type: 'activate-group'; groupId: string }

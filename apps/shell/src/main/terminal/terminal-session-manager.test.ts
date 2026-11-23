@@ -501,6 +501,7 @@ describe.skipIf(!IS_WINDOWS)('TerminalSessionManager integration (Windows PowerS
 interface MockPtyControl {
   file: string
   args: string[]
+  env?: Record<string, string | undefined>
   pid: number
   writes: string[]
   resizes: Array<{ cols: number; rows: number }>
@@ -520,7 +521,7 @@ function createFakePtyLoader(onSpawnAttempt?: (file: string, attempt: number) =>
   const loader = (): PtyLoadResult => ({
     available: true,
     source: 'mock-pty',
-    spawn: (file, args) => {
+    spawn: (file, args, options) => {
       attempts += 1
       onSpawnAttempt?.(file, attempts)
       let dataListener: ((data: string) => void) | null = null
@@ -528,6 +529,7 @@ function createFakePtyLoader(onSpawnAttempt?: (file: string, attempt: number) =>
       const control: MockPtyControl = {
         file,
         args,
+        env: options?.env,
         pid: 0,
         writes: [],
         resizes: [],
@@ -741,6 +743,25 @@ describe('TerminalSessionManager dual-mode PTY engine', () => {
     const exitEv = await waitForEvent(events, (e) => e.sessionId === session.id, 'pty-exit')
     expect(exitEv.exitCode).toBe(9)
     expect(manager.getSession(session.id)!.running).toBe(false)
+  })
+
+  it('injects COLORFGBG=15;0 by default and COLORFGBG=0;15 when colorScheme is light', () => {
+    const { loader, controls } = createFakePtyLoader()
+    const manager = new TerminalSessionManager({
+      emit: () => {},
+      flushMs: 0,
+      ptyLoader: loader,
+      shellDetector: () => [
+        { kind: 'powershell', label: 'PowerShell 7', executable: '/fake/pwsh', available: true },
+      ],
+    })
+    managers.push(manager)
+
+    manager.createSession()
+    expect(controls[0]!.env?.COLORFGBG).toBe('15;0')
+
+    manager.createSession({ colorScheme: 'light' })
+    expect(controls[1]!.env?.COLORFGBG).toBe('0;15')
   })
 })
 

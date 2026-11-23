@@ -1157,4 +1157,8 @@ export const ar: Dict = {
   termAdd: 'إضافة',
   termClose: 'إغلاق',
   openInTerminal: 'فتح في الطرفية',
+  termCanvasThemeTitle: 'مظهر لوحة الطرفية (انقر للتبديل)',
+  termCanvasDark: 'لوحة داكنة',
+  termCanvasLight: 'لوحة فاتحة',
+  termCanvasAuto: 'مطابقة السمة',
 }

@@ -12,6 +12,7 @@ import { StringDecoder } from 'node:string_decoder'
 import type {
   TerminalBlock,
   TerminalBlockStatus,
+  TerminalColorScheme,
   TerminalCreateOpts,
   TerminalEvent,
   TerminalMode,
@@ -237,6 +238,7 @@ interface SessionState {
   shell: TerminalShellKind
   executable: string
   mode: TerminalMode
+  colorScheme: TerminalColorScheme
   fallbackReason?: string
   cwd: string
   createdAt: number
@@ -877,6 +879,7 @@ export class TerminalSessionManager {
     const customTitle = Boolean(opts?.title?.trim())
     const title = opts?.title?.trim() || shellOption.label
     const requestedMode: TerminalMode = opts?.mode ?? 'pty'
+    const colorScheme: TerminalColorScheme = opts?.colorScheme ?? 'dark'
     const fallbackChain = buildShellFallbackChain(available, shellOption)
 
     const session: SessionState = {
@@ -886,6 +889,7 @@ export class TerminalSessionManager {
       shell: shellOption.kind,
       executable: shellOption.executable,
       mode: requestedMode,
+      colorScheme,
       cwd,
       createdAt: Date.now(),
       cols: clampPtyCols(opts?.cols),
@@ -1369,6 +1373,7 @@ export class TerminalSessionManager {
       ...buildCleanTerminalEnv(),
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
+      COLORFGBG: session.colorScheme === 'light' ? '0;15' : '15;0',
       TERM_PROGRAM: 'GenOffice',
     }
     const term = spawnFn(

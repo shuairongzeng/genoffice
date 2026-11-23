@@ -1110,4 +1110,8 @@ export const zhTW: Dict = {
   termAdd: '新增',
   termClose: '關閉',
   openInTerminal: '在終端機中開啟',
+  termCanvasThemeTitle: '終端畫布配色（點擊切換）',
+  termCanvasDark: '深色畫布',
+  termCanvasLight: '淺色畫布',
+  termCanvasAuto: '跟隨主題',
 }

@@ -374,6 +374,7 @@ function SplitNodeView({
     if (child.type === 'leaf') {
       return (
         <LeafSlot
+          key={child.paneId}
           leaf={child}
           group={group}
           compact={compact}
@@ -390,6 +391,7 @@ function SplitNodeView({
     }
     return (
       <SplitNodeView
+        key={child.splitId}
         node={child}
         group={group}
         compact={compact}

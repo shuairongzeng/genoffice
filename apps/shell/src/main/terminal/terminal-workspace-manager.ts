@@ -232,6 +232,7 @@ export class TerminalWorkspaceManager {
           defaultCwd: action.defaultCwd,
           shell: action.shell,
           mode: action.mode,
+          colorScheme: action.colorScheme,
           activate: action.activate ?? true,
         })
         return this.publishWorkspace()
@@ -761,6 +762,7 @@ export class TerminalWorkspaceManager {
     defaultCwd?: string
     shell?: TerminalCreateOpts['shell']
     mode?: TerminalCreateOpts['mode']
+    colorScheme?: TerminalCreateOpts['colorScheme']
     activate?: boolean
   }): TerminalGroup {
     const color =
@@ -775,6 +777,7 @@ export class TerminalWorkspaceManager {
     const session = this.createManagedSession({
       shell: opts.shell,
       mode: opts.mode ?? 'pty',
+      ...(opts.colorScheme ? { colorScheme: opts.colorScheme } : {}),
       cwd: resolvedCwd,
     })
     const leaf = createLeaf(this.idGen.nextPaneId(), session.id)

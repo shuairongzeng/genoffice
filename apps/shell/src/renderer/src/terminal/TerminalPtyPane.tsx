@@ -18,6 +18,7 @@ import {
   readSearchDecorationsFromElement,
   readXtermThemeFromElement,
 } from './terminal-pty-theme'
+import { useTerminalSurfaceTheme } from './terminal-surface-theme'
 import { isTerminalResponseSequence } from './terminal-workspace-utils'
 import { TerminalPaneBar } from './TerminalPaneBar'
 import { TerminalRichOutput, useDarkTheme, type TerminalRichViewMode } from './TerminalRichOutput'
@@ -51,6 +52,7 @@ const RESIZE_DEBOUNCE_MS = 90
 const PREVIEW_EXTRACT_LINES = 160
 const AI_EXTRACT_LINES = 80
 const SAFE_EXTERNAL_URL_RE = /^https?:\/\//i
+const MIN_XTERM_CONTRAST_RATIO = 4.5
 
 function extractRecentBufferLines(term: Terminal, maxLines: number): string {
   const buffer = term.buffer.active
@@ -106,6 +108,7 @@ export function TerminalPtyPane({
 }: TerminalPtyPaneProps): ReactElement {
   const { t } = useI18n()
   const dark = useDarkTheme()
+  const { effectiveSurface } = useTerminalSurfaceTheme()
 
   const [session, setSession] = useState<TerminalSessionSnapshot | null>(initialSession)
   const [cwdCopied, setCwdCopied] = useState(false)
@@ -138,6 +141,8 @@ export function TerminalPtyPane({
   onBroadcastWriteRef.current = onBroadcastWrite
   const onOscTitleChangeRef = useRef(onOscTitleChange)
   onOscTitleChangeRef.current = onOscTitleChange
+  const onFocusPaneRef = useRef(onFocusPane)
+  onFocusPaneRef.current = onFocusPane
 
   useEffect(() => {
     if (initialSession && initialSession.id === sessionId) {
@@ -161,6 +166,7 @@ export function TerminalPtyPane({
     if (!hostEl) return
 
     let alive = true
+    let replaying = true
     let replayReady = false
     const pendingDataEvents: Array<{ chunk: string; seq: number }> = []
     let resizeTimer: number | null = null
@@ -172,11 +178,12 @@ export function TerminalPtyPane({
       allowProposedApi: true,
       cursorBlink: true,
       scrollback: 5000,
+      minimumContrastRatio: MIN_XTERM_CONTRAST_RATIO,
       fontSize: compact ? 12.5 : 13,
       lineHeight: 1.35,
       fontFamily:
         'ui-monospace, "Cascadia Code", "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace',
-      theme: readXtermThemeFromElement(paneRef.current ?? hostEl),
+      theme: readXtermThemeFromElement(hostEl),
     })
     const fitAddon = new FitAddon()
     const searchAddon = new SearchAddon()
@@ -213,6 +220,11 @@ export function TerminalPtyPane({
     fitIfVisible(false)
 
     term.attachCustomKeyEventHandler((ev: KeyboardEvent) => {
+      // Never intercept active IME composition keystrokes.
+      if (ev.isComposing || ev.keyCode === 229) {
+        return true
+      }
+
       // Let workbench handle Ctrl+` / Cmd+` for toggling the bottom drawer.
       if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey && ev.code === 'Backquote') {
         return false
@@ -278,9 +290,18 @@ export function TerminalPtyPane({
     })
 
     const dataSub = term.onData((data) => {
+      // Drop stale automatic query responses emitted while replaying historical ptyBuffer.
+      if (replaying) return
+
+      const hasDomFocus =
+        typeof document !== 'undefined' &&
+        term.textarea !== undefined &&
+        document.activeElement === term.textarea
       if (
         broadcastEnabledRef.current &&
         onBroadcastWriteRef.current &&
+        focusedRef.current &&
+        hasDomFocus &&
         !isTerminalResponseSequence(data)
       ) {
         onBroadcastWriteRef.current(data)
@@ -351,6 +372,22 @@ export function TerminalPtyPane({
 
     const unsubscribe = window.aiOffice?.onTerminalEvent?.(handleEvent)
 
+    const finishReplay = (replayedSeq: number): void => {
+      if (!alive) return
+      replaying = false
+      replayReady = true
+      for (const pending of pendingDataEvents) {
+        if (pending.seq > replayedSeq) {
+          term.write(pending.chunk)
+        }
+      }
+      pendingDataEvents.length = 0
+      fitIfVisible(true)
+      if (focusedRef.current) {
+        term.focus()
+      }
+    }
+
     void window.aiOffice
       ?.terminalGetSession?.(sessionId)
       .then((snap) => {
@@ -359,24 +396,21 @@ export function TerminalPtyPane({
           setSession(snap)
           const replayedSeq = snap.ptySeq ?? 0
           if (snap.ptyBuffer) {
-            term.write(snap.ptyBuffer)
             if (snap.shell === 'powershell' && isPsPolicyText(snap.ptyBuffer)) {
               setPsPolicyHint(true)
             }
+            term.write(snap.ptyBuffer, () => {
+              finishReplay(replayedSeq)
+            })
+            return
           }
-          for (const pending of pendingDataEvents) {
-            if (pending.seq > replayedSeq) {
-              term.write(pending.chunk)
-            }
-          }
+          finishReplay(replayedSeq)
+          return
         }
-        replayReady = true
-        fitIfVisible(true)
-        if (focusedRef.current) {
-          term.focus()
-        }
+        finishReplay(0)
       })
       .catch(() => {
+        replaying = false
         replayReady = true
       })
 
@@ -411,17 +445,6 @@ export function TerminalPtyPane({
       if (searchRef.current === searchAddon) searchRef.current = null
     }
   }, [compact, sessionId])
-
-  // Sync xterm color palette on the next frame after data-theme style recalculation settles.
-  useEffect(() => {
-    const rafId = window.requestAnimationFrame(() => {
-      const term = termRef.current
-      if (!term) return
-      const nextTheme = readXtermThemeFromElement(paneRef.current ?? hostRef.current)
-      term.options.theme = nextTheme
-    })
-    return () => window.cancelAnimationFrame(rafId)
-  }, [dark])
 
   // Re-fit when toggling the side rich preview drawer changes available width.
   useEffect(() => {
@@ -520,6 +543,8 @@ export function TerminalPtyPane({
       void copyTextToClipboard(term.getSelection())
       term.clearSelection()
     } else {
+      onFocusPaneRef.current?.()
+      term.focus()
       void readTextFromClipboard().then((text) => {
         if (text) term.paste(text)
       })
@@ -535,7 +560,7 @@ export function TerminalPtyPane({
         setSearchResult(null)
         return
       }
-      const decorations = readSearchDecorationsFromElement(paneRef.current ?? hostRef.current)
+      const decorations = readSearchDecorationsFromElement(hostRef.current ?? paneRef.current)
       const opts: ISearchOptions = {
         caseSensitive: searchCaseSensitive,
         regex: searchRegex,
@@ -550,6 +575,27 @@ export function TerminalPtyPane({
     },
     [searchCaseSensitive, searchQuery, searchRegex],
   )
+
+  const searchStateRef = useRef({ searchOpen, searchQuery, runSearch })
+  searchStateRef.current = { searchOpen, searchQuery, runSearch }
+
+  // Sync xterm color palette and minimum contrast ratio after canvas/host theme updates settle.
+  useEffect(() => {
+    const rafId = window.requestAnimationFrame(() => {
+      const term = termRef.current
+      if (!term) return
+      const nextTheme = readXtermThemeFromElement(hostRef.current ?? paneRef.current)
+      term.options.theme = nextTheme
+      term.options.minimumContrastRatio = MIN_XTERM_CONTRAST_RATIO
+      if (term.rows > 0) {
+        term.refresh(0, term.rows - 1)
+      }
+      if (searchStateRef.current.searchOpen && searchStateRef.current.searchQuery) {
+        searchStateRef.current.runSearch('next', true)
+      }
+    })
+    return () => window.cancelAnimationFrame(rafId)
+  }, [effectiveSurface, dark])
 
   useEffect(() => {
     if (!searchOpen) return
@@ -716,7 +762,7 @@ export function TerminalPtyPane({
       )}
 
       <div className="term-pty-main">
-        <div className="term-pty-stage">
+        <div className="term-pty-stage" data-term-canvas={effectiveSurface}>
           {searchOpen && (
             <div
               className="term-pty-search-bar"

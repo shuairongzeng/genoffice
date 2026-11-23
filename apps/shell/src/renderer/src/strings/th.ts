@@ -1150,4 +1150,8 @@ export const th: Dict = {
   termAdd: 'เพิ่ม',
   termClose: 'ปิด',
   openInTerminal: 'เปิดในเทอร์มินัล',
+  termCanvasThemeTitle: 'ธีมพื้นหลังเทอร์มินัล (คลิกเพื่อสลับ)',
+  termCanvasDark: 'พื้นหลังเข้ม',
+  termCanvasLight: 'พื้นหลังสว่าง',
+  termCanvasAuto: 'ตามธีมแอป',
 }

@@ -1211,4 +1211,8 @@ export const fr: Dict = {
   termAdd: 'Ajouter',
   termClose: 'Fermer',
   openInTerminal: 'Ouvrir dans le terminal',
+  termCanvasThemeTitle: 'Thème du canevas du terminal (cliquer pour basculer)',
+  termCanvasDark: 'Canevas sombre',
+  termCanvasLight: 'Canevas clair',
+  termCanvasAuto: 'Suivre le thème',
 }

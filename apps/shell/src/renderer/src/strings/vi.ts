@@ -1168,4 +1168,8 @@ export const vi: Dict = {
   termAdd: 'Thêm',
   termClose: 'Đóng',
   openInTerminal: 'Mở trong Terminal',
+  termCanvasThemeTitle: 'Giao diện nền terminal (nhấn để đổi)',
+  termCanvasDark: 'Nền tối',
+  termCanvasLight: 'Nền sáng',
+  termCanvasAuto: 'Theo giao diện',
 }

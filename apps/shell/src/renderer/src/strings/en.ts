@@ -1168,4 +1168,8 @@ export const en: Dict = {
   termAdd: 'Add',
   termClose: 'Close',
   openInTerminal: 'Open in Terminal',
+  termCanvasThemeTitle: 'Terminal canvas theme (click to cycle)',
+  termCanvasDark: 'Dark Canvas',
+  termCanvasLight: 'Light Canvas',
+  termCanvasAuto: 'Match Theme',
 }

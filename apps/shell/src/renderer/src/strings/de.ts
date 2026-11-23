@@ -1200,4 +1200,8 @@ export const de: Dict = {
   termAdd: 'Hinzufügen',
   termClose: 'Schließen',
   openInTerminal: 'Im Terminal öffnen',
+  termCanvasThemeTitle: 'Terminal-Leinwanddesign (zum Wechseln klicken)',
+  termCanvasDark: 'Dunkle Leinwand',
+  termCanvasLight: 'Helle Leinwand',
+  termCanvasAuto: 'Wie Design',
 }
