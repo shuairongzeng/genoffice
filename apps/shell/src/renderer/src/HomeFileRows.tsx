@@ -60,6 +60,7 @@ export interface FileRowActions {
   ) => void
   startRenameFolder: (entry: { path: string; name: string }, where: 'table') => void
   confirmDeleteFolder: (dir: string | null) => void
+  openInTerminal?: (path: string) => void
 }
 
 export interface FileRowProps {
@@ -119,6 +120,10 @@ export function FileRow({
             if (entry.missing) actions.reportMissing(entry)
             else actions.openPath(entry.path)
           }
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          actions.setRowMenu(entry.path)
         }}
       >
         <span className="col-check" onClick={(event) => event.stopPropagation()}>
@@ -214,6 +219,18 @@ export function FileRow({
               >
                 {t('revealInFolder')}
               </button>
+              {!entry.missing && (
+                <button
+                  role="menuitem"
+                  data-testid="row-menu-open-terminal"
+                  onClick={() => {
+                    actions.setRowMenu(null)
+                    actions.openInTerminal?.(entry.path)
+                  }}
+                >
+                  {t('openInTerminal')}
+                </button>
+              )}
               <button
                 role="menuitem"
                 onClick={() => {
@@ -436,6 +453,16 @@ export function SubfolderRow({
                 }}
               >
                 {t('revealInFolder')}
+              </button>
+              <button
+                role="menuitem"
+                data-testid="folder-menu-open-terminal"
+                onClick={() => {
+                  actions.setFolderMenu(null)
+                  actions.openInTerminal?.(entry.path)
+                }}
+              >
+                {t('openInTerminal')}
               </button>
               {editable && (
                 <>

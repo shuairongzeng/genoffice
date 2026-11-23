@@ -1,30 +1,53 @@
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon, type ISearchOptions } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactElement } from 'react'
+import type { DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react'
 import type {
   TerminalEvent,
   TerminalSessionSnapshot,
   TerminalShellKind,
+  TerminalSplitDirection,
 } from '../../../shared/terminal-api'
 import { useI18n } from '../locale'
 import { copyTextToClipboard, readTextFromClipboard } from './terminal-clipboard'
-import { extractRichCandidateFromPty, readXtermThemeFromElement } from './terminal-pty-theme'
+import {
+  extractRichCandidateFromPty,
+  readSearchDecorationsFromElement,
+  readXtermThemeFromElement,
+} from './terminal-pty-theme'
+import { isTerminalResponseSequence } from './terminal-workspace-utils'
+import { TerminalPaneBar } from './TerminalPaneBar'
 import { TerminalRichOutput, useDarkTheme, type TerminalRichViewMode } from './TerminalRichOutput'
 
 export interface TerminalPtyPaneProps {
+  paneId?: string
   sessionId: string
   initialSession?: TerminalSessionSnapshot | null
   compact?: boolean
   focused?: boolean
+  broadcastEnabled?: boolean
+  isZoomed?: boolean
+  canSplitH?: boolean
+  canSplitV?: boolean
+  canClosePane?: boolean
+  draggable?: boolean
   onFocusPane?: () => void
   onSwitchShell?: (shell: TerminalShellKind, cwd?: string) => void
+  onBroadcastWrite?: (data: string) => void
+  onOscTitleChange?: (oscTitle: string) => void
+  onRenameTitle?: (nextTitle: string) => void
+  onSplitPane?: (direction: TerminalSplitDirection) => void
+  onToggleZoom?: () => void
+  onClosePane?: () => void
+  onPaneDragStart?: (e: DragEvent<HTMLElement>) => void
+  onPaneDragEnd?: () => void
 }
 
 const COPIED_RESET_MS = 1800
-const RESIZE_DEBOUNCE_MS = 60
+const RESIZE_DEBOUNCE_MS = 90
 const PREVIEW_EXTRACT_LINES = 160
 const AI_EXTRACT_LINES = 80
 const SAFE_EXTERNAL_URL_RE = /^https?:\/\//i
@@ -59,12 +82,27 @@ function isPsPolicyText(text: string): boolean {
  * Preserves running TUI state across drawer/tab handoffs via main-process replay buffer.
  */
 export function TerminalPtyPane({
+  paneId,
   sessionId,
   initialSession = null,
   compact = false,
   focused = false,
+  broadcastEnabled = false,
+  isZoomed = false,
+  canSplitH = true,
+  canSplitV = true,
+  canClosePane = false,
+  draggable = false,
   onFocusPane,
   onSwitchShell,
+  onBroadcastWrite,
+  onOscTitleChange,
+  onRenameTitle,
+  onSplitPane,
+  onToggleZoom,
+  onClosePane,
+  onPaneDragStart,
+  onPaneDragEnd,
 }: TerminalPtyPaneProps): ReactElement {
   const { t } = useI18n()
   const dark = useDarkTheme()
@@ -75,15 +113,31 @@ export function TerminalPtyPane({
   const [richPreviewSource, setRichPreviewSource] = useState('')
   const [richViewMode, setRichViewMode] = useState<TerminalRichViewMode>('rendered')
   const [psPolicyHint, setPsPolicyHint] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false)
+  const [searchRegex, setSearchRegex] = useState(false)
+  const [searchResult, setSearchResult] = useState<{
+    resultIndex: number
+    resultCount: number
+  } | null>(null)
 
   const paneRef = useRef<HTMLElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
+  const searchRef = useRef<SearchAddon | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const cwdCopyTimerRef = useRef<number | null>(null)
   const lastSizeRef = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 })
   const focusedRef = useRef(focused)
   focusedRef.current = focused
+  const broadcastEnabledRef = useRef(broadcastEnabled)
+  broadcastEnabledRef.current = broadcastEnabled
+  const onBroadcastWriteRef = useRef(onBroadcastWrite)
+  onBroadcastWriteRef.current = onBroadcastWrite
+  const onOscTitleChangeRef = useRef(onOscTitleChange)
+  onOscTitleChangeRef.current = onOscTitleChange
 
   useEffect(() => {
     if (initialSession && initialSession.id === sessionId) {
@@ -110,6 +164,8 @@ export function TerminalPtyPane({
     let replayReady = false
     const pendingDataEvents: Array<{ chunk: string; seq: number }> = []
     let resizeTimer: number | null = null
+    let titleTimer: number | null = null
+    let lastEmittedOscTitle = ''
     setPsPolicyHint(false)
 
     const term = new Terminal({
@@ -123,6 +179,7 @@ export function TerminalPtyPane({
       theme: readXtermThemeFromElement(paneRef.current ?? hostEl),
     })
     const fitAddon = new FitAddon()
+    const searchAddon = new SearchAddon()
     const webLinksAddon = new WebLinksAddon((_event, uri) => {
       if (SAFE_EXTERNAL_URL_RE.test(uri)) {
         window.open(uri, '_blank', 'noopener,noreferrer')
@@ -130,10 +187,12 @@ export function TerminalPtyPane({
     })
 
     term.loadAddon(fitAddon)
+    term.loadAddon(searchAddon)
     term.loadAddon(webLinksAddon)
     term.open(hostEl)
     termRef.current = term
     fitRef.current = fitAddon
+    searchRef.current = searchAddon
     lastSizeRef.current = { cols: 0, rows: 0 }
 
     const fitIfVisible = (syncBackend: boolean): void => {
@@ -156,6 +215,32 @@ export function TerminalPtyPane({
     term.attachCustomKeyEventHandler((ev: KeyboardEvent) => {
       // Let workbench handle Ctrl+` / Cmd+` for toggling the bottom drawer.
       if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey && ev.code === 'Backquote') {
+        return false
+      }
+
+      // Let workspace split tree handle split / zoom / snippets shortcuts and Alt+Arrow pane nav.
+      const lower = ev.key.toLowerCase()
+      if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && !ev.altKey) {
+        if (lower === 'd' || lower === 'e' || lower === 'z' || lower === 'k') {
+          return false
+        }
+        if (ev.type === 'keydown' && lower === 'f') {
+          ev.preventDefault()
+          setSearchOpen(true)
+          window.requestAnimationFrame(() => searchInputRef.current?.focus())
+          return false
+        }
+      }
+      if (
+        ev.altKey &&
+        !ev.ctrlKey &&
+        !ev.metaKey &&
+        !ev.shiftKey &&
+        (ev.key === 'ArrowUp' ||
+          ev.key === 'ArrowDown' ||
+          ev.key === 'ArrowLeft' ||
+          ev.key === 'ArrowRight')
+      ) {
         return false
       }
 
@@ -193,7 +278,38 @@ export function TerminalPtyPane({
     })
 
     const dataSub = term.onData((data) => {
+      if (
+        broadcastEnabledRef.current &&
+        onBroadcastWriteRef.current &&
+        !isTerminalResponseSequence(data)
+      ) {
+        onBroadcastWriteRef.current(data)
+        return
+      }
       void window.aiOffice?.terminalPtyWrite?.(sessionId, data)
+    })
+
+    const searchResultSub = searchAddon.onDidChangeResults((res) => {
+      if (!alive) return
+      setSearchResult(res)
+    })
+
+    const titleSub = term.onTitleChange((rawTitle) => {
+      if (!alive) return
+      const cleaned = rawTitle
+        .replace(/[\x00-\x1f\x7f]/g, '')
+        .trim()
+        .slice(0, 120)
+      if (cleaned === lastEmittedOscTitle) return
+      if (titleTimer !== null) {
+        window.clearTimeout(titleTimer)
+      }
+      titleTimer = window.setTimeout(() => {
+        titleTimer = null
+        if (!alive) return
+        lastEmittedOscTitle = cleaned
+        onOscTitleChangeRef.current?.(cleaned)
+      }, 150)
     })
 
     const handleEvent = (event: TerminalEvent): void => {
@@ -281,12 +397,18 @@ export function TerminalPtyPane({
       if (resizeTimer !== null) {
         window.clearTimeout(resizeTimer)
       }
+      if (titleTimer !== null) {
+        window.clearTimeout(titleTimer)
+      }
       resizeObserver.disconnect()
       unsubscribe?.()
       dataSub.dispose()
+      searchResultSub.dispose()
+      titleSub.dispose()
       term.dispose()
       if (termRef.current === term) termRef.current = null
       if (fitRef.current === fitAddon) fitRef.current = null
+      if (searchRef.current === searchAddon) searchRef.current = null
     }
   }, [compact, sessionId])
 
@@ -404,6 +526,68 @@ export function TerminalPtyPane({
     }
   }, [])
 
+  const runSearch = useCallback(
+    (direction: 'next' | 'prev', incremental: boolean) => {
+      const addon = searchRef.current
+      if (!addon) return
+      if (!searchQuery) {
+        addon.clearDecorations()
+        setSearchResult(null)
+        return
+      }
+      const decorations = readSearchDecorationsFromElement(paneRef.current ?? hostRef.current)
+      const opts: ISearchOptions = {
+        caseSensitive: searchCaseSensitive,
+        regex: searchRegex,
+        incremental,
+        ...(decorations ? { decorations } : {}),
+      }
+      if (direction === 'prev') {
+        addon.findPrevious(searchQuery, opts)
+      } else {
+        addon.findNext(searchQuery, opts)
+      }
+    },
+    [searchCaseSensitive, searchQuery, searchRegex],
+  )
+
+  useEffect(() => {
+    if (!searchOpen) return
+    runSearch('next', true)
+  }, [runSearch, searchOpen])
+
+  const handleCloseSearch = useCallback(() => {
+    setSearchOpen(false)
+    searchRef.current?.clearDecorations()
+    setSearchResult(null)
+    termRef.current?.focus()
+  }, [])
+
+  const handleToggleSearch = useCallback(() => {
+    if (searchOpen) {
+      handleCloseSearch()
+    } else {
+      setSearchOpen(true)
+      window.requestAnimationFrame(() => searchInputRef.current?.focus())
+    }
+  }, [handleCloseSearch, searchOpen])
+
+  const handleSearchInputKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLInputElement>) => {
+      e.stopPropagation()
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        handleCloseSearch()
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        runSearch(e.shiftKey ? 'prev' : 'next', false)
+      }
+    },
+    [handleCloseSearch, runSearch],
+  )
+
   const richCandidate = useMemo(
     () => extractRichCandidateFromPty(richPreviewSource),
     [richPreviewSource],
@@ -411,116 +595,100 @@ export function TerminalPtyPane({
   const isRich = richCandidate.detection.kind !== 'plain'
   const effectivePreviewMode: TerminalRichViewMode = isRich ? richViewMode : 'raw'
 
+  const searchCountLabel = useMemo(() => {
+    if (!searchQuery) return ''
+    if (!searchResult || searchResult.resultCount === 0) return '0/0'
+    const current = searchResult.resultIndex >= 0 ? searchResult.resultIndex + 1 : 0
+    return `${current}/${searchResult.resultCount}`
+  }, [searchQuery, searchResult])
+
   return (
     <section
       ref={paneRef}
       className={`term-pane term-pane-pty${compact ? ' is-compact' : ''}${focused ? ' is-focused' : ''}`}
       data-testid="terminal-pty-pane"
+      data-pane-id={paneId}
+      data-session-id={sessionId}
       onPointerDown={() => {
         onFocusPane?.()
       }}
     >
-      <div className="term-pane-bar">
-        <div className="term-pane-bar-left">
-          <span className="term-mode-badge is-pty" data-testid="terminal-pane-mode-badge">
-            {t('termModePty')}
-          </span>
-          <span className="term-shell-badge" title={t('termShellLabel')}>
-            {session?.shell ?? 'shell'}
-          </span>
+      <TerminalPaneBar
+        paneId={paneId}
+        session={session}
+        mode="pty"
+        cwdCopied={cwdCopied}
+        isZoomed={isZoomed}
+        canSplitH={canSplitH}
+        canSplitV={canSplitV}
+        canClosePane={canClosePane}
+        draggable={draggable}
+        onPickCwd={handlePickCwd}
+        onCopyCwd={handleCopyCwd}
+        onRenameTitle={onRenameTitle}
+        onSplitPane={onSplitPane}
+        onToggleZoom={onToggleZoom}
+        onClosePane={onClosePane}
+        onPaneDragStart={onPaneDragStart}
+        onPaneDragEnd={onPaneDragEnd}
+        extraActions={
+          <>
+            {!session?.running && session?.exitCode !== null && session?.exitCode !== undefined && (
+              <button
+                type="button"
+                className="term-mini-btn term-restart-btn"
+                data-testid="terminal-pty-restart-btn"
+                onClick={handleRestart}
+              >
+                {t('termRestartSession')}
+              </button>
+            )}
 
-          <div className="term-cwd-group">
             <button
               type="button"
-              className="term-cwd-btn"
-              data-testid="terminal-cwd"
-              title={`${session?.cwd ?? ''} — ${t('termChangeCwd')}`}
-              onClick={handlePickCwd}
+              className={`term-mini-btn${searchOpen ? ' is-active' : ''}`}
+              data-testid="terminal-pty-search-btn"
+              title={`${t('termSearchBtn')} (Ctrl+Shift+F)`}
+              onClick={handleToggleSearch}
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path
-                  d="M2 4.2A1.4 1.4 0 0 1 3.4 2.8h2.9l1.2 1.4h5.1A1.4 1.4 0 0 1 14 5.6v6.2a1.4 1.4 0 0 1-1.4 1.4H3.4A1.4 1.4 0 0 1 2 11.8V4.2Z"
-                  stroke="currentColor"
-                  strokeWidth="1.25"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span className="term-cwd-text">{session?.cwd ?? '...'}</span>
+              {t('termSearchBtn')}
             </button>
+
             <button
               type="button"
-              className={`term-cwd-copy-btn${cwdCopied ? ' is-copied' : ''}`}
-              title={cwdCopied ? t('termCopied') : t('termCopyCwd')}
-              aria-label={cwdCopied ? t('termCopied') : t('termCopyCwd')}
-              onClick={handleCopyCwd}
+              className={`term-mini-btn${richPreviewOpen ? ' is-active' : ''}`}
+              data-testid="terminal-pty-rich-btn"
+              onClick={handleOpenRichPreview}
             >
-              {cwdCopied ? (
-                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path
-                    d="M3 8.5l3.2 3.2L13 4.8"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              ) : (
-                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <rect
-                    x="5.5"
-                    y="5.5"
-                    width="7.5"
-                    height="8"
-                    rx="1.2"
-                    stroke="currentColor"
-                    strokeWidth="1.25"
-                  />
-                  <path
-                    d="M10.5 5.5V4A1.2 1.2 0 0 0 9.3 2.8H4A1.2 1.2 0 0 0 2.8 4v5.3A1.2 1.2 0 0 0 4 10.5h1.5"
-                    stroke="currentColor"
-                    strokeWidth="1.25"
-                  />
-                </svg>
-              )}
+              {t('termRichPreview')}
             </button>
-          </div>
+
+            <button
+              type="button"
+              className="term-mini-btn"
+              data-testid="terminal-pty-ask-ai-btn"
+              onClick={handleAskAi}
+            >
+              {t('termPtyAskAi')}
+            </button>
+
+            <button type="button" className="term-mini-btn" onClick={handleClear}>
+              {t('termClear')}
+            </button>
+          </>
+        }
+      />
+
+      {broadcastEnabled && (
+        <div
+          className="term-broadcast-banner"
+          data-testid="terminal-broadcast-banner"
+          role="status"
+        >
+          <span className="term-broadcast-dot" aria-hidden="true" />
+          <span>{t('termBroadcastOnTip')}</span>
         </div>
-
-        <div className="term-pane-bar-right">
-          {!session?.running && session?.exitCode !== null && session?.exitCode !== undefined && (
-            <button
-              type="button"
-              className="term-mini-btn term-restart-btn"
-              data-testid="terminal-pty-restart-btn"
-              onClick={handleRestart}
-            >
-              {t('termRestartSession')}
-            </button>
-          )}
-
-          <button
-            type="button"
-            className={`term-mini-btn${richPreviewOpen ? ' is-active' : ''}`}
-            data-testid="terminal-pty-rich-btn"
-            onClick={handleOpenRichPreview}
-          >
-            {t('termRichPreview')}
-          </button>
-
-          <button
-            type="button"
-            className="term-mini-btn"
-            data-testid="terminal-pty-ask-ai-btn"
-            onClick={handleAskAi}
-          >
-            {t('termPtyAskAi')}
-          </button>
-
-          <button type="button" className="term-mini-btn" onClick={handleClear}>
-            {t('termClear')}
-          </button>
-        </div>
-      </div>
+      )}
 
       {psPolicyHint && (
         <div className="term-fallback-banner" data-testid="terminal-ps-policy-banner" role="note">
@@ -549,12 +717,86 @@ export function TerminalPtyPane({
 
       <div className="term-pty-main">
         <div className="term-pty-stage">
+          {searchOpen && (
+            <div
+              className="term-pty-search-bar"
+              data-testid="terminal-pty-search-bar"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <input
+                ref={searchInputRef}
+                type="search"
+                className="term-pty-search-input"
+                data-testid="terminal-pty-search-input"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearchInputKeyDown}
+                placeholder={t('termSearchPlaceholder')}
+                aria-label={t('termSearchPlaceholder')}
+              />
+              {searchCountLabel && (
+                <span className="term-pty-search-count" data-testid="terminal-pty-search-count">
+                  {searchCountLabel}
+                </span>
+              )}
+              <button
+                type="button"
+                className={`term-pty-search-flag${searchCaseSensitive ? ' is-active' : ''}`}
+                data-testid="terminal-pty-search-case"
+                aria-pressed={searchCaseSensitive}
+                title={t('termSearchCase')}
+                onClick={() => setSearchCaseSensitive((v) => !v)}
+              >
+                Aa
+              </button>
+              <button
+                type="button"
+                className={`term-pty-search-flag${searchRegex ? ' is-active' : ''}`}
+                data-testid="terminal-pty-search-regex"
+                aria-pressed={searchRegex}
+                title={t('termSearchRegex')}
+                onClick={() => setSearchRegex((v) => !v)}
+              >
+                .*
+              </button>
+              <button
+                type="button"
+                className="term-pty-search-nav"
+                data-testid="terminal-pty-search-prev"
+                title={t('termSearchPrev')}
+                onClick={() => runSearch('prev', false)}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                className="term-pty-search-nav"
+                data-testid="terminal-pty-search-next"
+                title={t('termSearchNext')}
+                onClick={() => runSearch('next', false)}
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                className="term-pty-search-nav"
+                data-testid="terminal-pty-search-close"
+                title={t('termClose')}
+                onClick={handleCloseSearch}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           <div
             className="term-pty-host"
             data-testid="terminal-pty-host"
             ref={hostRef}
             onContextMenu={handleContextMenu}
-            onMouseUp={() => termRef.current?.focus()}
+            onMouseUp={() => {
+              if (!searchOpen) termRef.current?.focus()
+            }}
           />
         </div>
 

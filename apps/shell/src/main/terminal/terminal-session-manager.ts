@@ -232,6 +232,7 @@ interface PtyProcessState {
 interface SessionState {
   id: string
   title: string
+  oscTitle?: string
   customTitle: boolean
   shell: TerminalShellKind
   executable: string
@@ -771,7 +772,8 @@ function cloneBlock(block: TerminalBlock): TerminalBlock {
  */
 export class TerminalSessionManager {
   private readonly defaultCwdFn: (() => string) | undefined
-  private readonly emit: (event: TerminalEvent) => void
+  private readonly rawEmit: (event: TerminalEvent) => void
+  private readonly eventListeners = new Set<(event: TerminalEvent) => void>()
   private readonly flushMs: number
   private readonly maxBlockBytes: number
   private readonly maxBlocks: number
@@ -783,9 +785,16 @@ export class TerminalSessionManager {
   private sessionSeq = 0
   private disposed = false
 
+  private readonly emit = (event: TerminalEvent): void => {
+    this.rawEmit(event)
+    for (const listener of this.eventListeners) {
+      listener(event)
+    }
+  }
+
   constructor(options: TerminalSessionManagerOptions) {
     this.defaultCwdFn = options.defaultCwd
-    this.emit = options.emit
+    this.rawEmit = options.emit
     this.flushMs = options.flushMs ?? DEFAULT_FLUSH_MS
     this.maxBlockBytes = options.maxBlockBytes ?? DEFAULT_MAX_BLOCK_BYTES
     this.maxBlocks = options.maxBlocks ?? DEFAULT_MAX_BLOCKS
@@ -793,6 +802,43 @@ export class TerminalSessionManager {
     this.ptyLoader = options.ptyLoader ?? loadNodePty
     this.earlyCrashWindowMs = options.earlyCrashWindowMs ?? DEFAULT_EARLY_CRASH_WINDOW_MS
     this.shellDetector = options.shellDetector ?? detectAvailableShells
+  }
+
+  onEvent(listener: (event: TerminalEvent) => void): () => void {
+    this.eventListeners.add(listener)
+    return () => {
+      this.eventListeners.delete(listener)
+    }
+  }
+
+  isDisposed(): boolean {
+    return this.disposed
+  }
+
+  defaultCwd(): string {
+    return this.resolveInitialCwd()
+  }
+
+  renameSession(sessionId: string, title: string): TerminalSessionSummary {
+    const session = this.requireSession(sessionId)
+    const normalized = title.trim()
+    if (!normalized) {
+      throw new Error('Session title must not be empty')
+    }
+    session.title = normalized
+    session.customTitle = true
+    const summary = this.toSummary(session)
+    this.emit({ type: 'session-updated', session: summary })
+    return summary
+  }
+
+  setOscTitle(sessionId: string, oscTitle: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session || session.closed || this.disposed) return
+    const next = oscTitle.trim()
+    if ((session.oscTitle ?? '') === next) return
+    session.oscTitle = next || undefined
+    this.emit({ type: 'session-updated', session: this.toSummary(session) })
   }
 
   listShells(): TerminalShellOption[] {
@@ -1065,7 +1111,7 @@ export class TerminalSessionManager {
 
   ptyResize(sessionId: string, cols: number, rows: number): void {
     const session = this.sessions.get(sessionId)
-    if (!session || session.closed || session.mode !== 'pty') return
+    if (!session || session.closed || session.mode !== 'pty' || !session.running) return
     const nextCols = clampPtyCols(cols)
     const nextRows = clampPtyRows(rows)
     if (nextCols === session.cols && nextRows === session.rows) return
@@ -1294,6 +1340,7 @@ export class TerminalSessionManager {
     return {
       id: session.id,
       title: session.title,
+      ...(session.oscTitle ? { oscTitle: session.oscTitle } : {}),
       shell: session.shell,
       mode: session.mode,
       ...(session.fallbackReason ? { fallbackReason: session.fallbackReason } : {}),

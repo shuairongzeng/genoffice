@@ -1,10 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent, ReactElement } from 'react'
+import type { DragEvent, KeyboardEvent, ReactElement } from 'react'
 import type {
   TerminalBlock,
   TerminalEvent,
   TerminalSessionSnapshot,
   TerminalShellKind,
+  TerminalSplitDirection,
 } from '../../../shared/terminal-api'
 import { useI18n } from '../locale'
 import { stripAnsi } from './terminal-ansi'
@@ -14,15 +15,31 @@ import {
   extractLocalPaths,
   type RichOutputDetection,
 } from './terminal-rich-detect'
+import { TerminalPaneBar } from './TerminalPaneBar'
 import { TerminalPtyPane } from './TerminalPtyPane'
 import { TerminalRichOutput, useDarkTheme, type TerminalRichViewMode } from './TerminalRichOutput'
 
 export interface TerminalPaneProps {
+  paneId?: string
   sessionId: string
   compact?: boolean
   focused?: boolean
+  broadcastEnabled?: boolean
+  isZoomed?: boolean
+  canSplitH?: boolean
+  canSplitV?: boolean
+  canClosePane?: boolean
+  draggable?: boolean
   onFocusPane?: () => void
   onSwitchShell?: (shell: TerminalShellKind, cwd?: string) => void
+  onBroadcastWrite?: (data: string) => void
+  onOscTitleChange?: (oscTitle: string) => void
+  onRenameTitle?: (nextTitle: string) => void
+  onSplitPane?: (direction: TerminalSplitDirection) => void
+  onToggleZoom?: () => void
+  onClosePane?: () => void
+  onPaneDragStart?: (e: DragEvent<HTMLElement>) => void
+  onPaneDragEnd?: () => void
 }
 
 interface SessionComposerMemory {
@@ -406,11 +423,26 @@ const TerminalBlockCard = memo(function TerminalBlockCard({
  * CWD management, search filtering, rich auto-rendering, and command history.
  */
 export function TerminalPane({
+  paneId,
   sessionId,
   compact = false,
   focused = false,
+  broadcastEnabled = false,
+  isZoomed = false,
+  canSplitH = true,
+  canSplitV = true,
+  canClosePane = false,
+  draggable = false,
   onFocusPane,
   onSwitchShell,
+  onBroadcastWrite,
+  onOscTitleChange,
+  onRenameTitle,
+  onSplitPane,
+  onToggleZoom,
+  onClosePane,
+  onPaneDragStart,
+  onPaneDragEnd,
 }: TerminalPaneProps): ReactElement {
   const { t } = useI18n()
   const dark = useDarkTheme()
@@ -429,6 +461,17 @@ export function TerminalPane({
   const historyCursorRef = useRef<number>(-1)
   const historyDraftRef = useRef<string>('')
   const prevSessionIdRef = useRef<string>(sessionId)
+
+  useEffect(() => {
+    const onInsertSnippet = (e: Event): void => {
+      const detail = (e as CustomEvent<{ sessionId?: string; command?: string }>).detail
+      if (!detail || detail.sessionId !== sessionId || !detail.command) return
+      setInput((prev) => (prev.trim() ? `${prev}\n${detail.command}` : detail.command!))
+      inputRef.current?.focus()
+    }
+    window.addEventListener('genoffice:terminal-insert-snippet', onInsertSnippet)
+    return () => window.removeEventListener('genoffice:terminal-insert-snippet', onInsertSnippet)
+  }, [sessionId])
 
   useEffect(() => {
     const prevId = prevSessionIdRef.current
@@ -684,12 +727,27 @@ export function TerminalPane({
   if (session.mode === 'pty') {
     return (
       <TerminalPtyPane
+        paneId={paneId}
         sessionId={sessionId}
         initialSession={session}
         compact={compact}
         focused={focused}
+        broadcastEnabled={broadcastEnabled}
+        isZoomed={isZoomed}
+        canSplitH={canSplitH}
+        canSplitV={canSplitV}
+        canClosePane={canClosePane}
+        draggable={draggable}
         onFocusPane={onFocusPane}
         onSwitchShell={onSwitchShell}
+        onBroadcastWrite={onBroadcastWrite}
+        onOscTitleChange={onOscTitleChange}
+        onRenameTitle={onRenameTitle}
+        onSplitPane={onSplitPane}
+        onToggleZoom={onToggleZoom}
+        onClosePane={onClosePane}
+        onPaneDragStart={onPaneDragStart}
+        onPaneDragEnd={onPaneDragEnd}
       />
     )
   }
@@ -698,93 +756,49 @@ export function TerminalPane({
     <section
       className={`term-pane${compact ? ' is-compact' : ''}${focused ? ' is-focused' : ''}`}
       data-testid="terminal-block-pane"
+      data-pane-id={paneId}
+      data-session-id={sessionId}
       onPointerDown={onFocusPane}
     >
-      <div className="term-pane-bar">
-        <div className="term-pane-bar-left">
-          <span className="term-mode-badge is-block" data-testid="terminal-pane-mode-badge">
-            {t('termModeBlock')}
-          </span>
-          <span className="term-shell-badge" title={t('termShellLabel')}>
-            {session?.shell ?? 'shell'}
-          </span>
-
-          <div className="term-cwd-group">
+      <TerminalPaneBar
+        paneId={paneId}
+        session={session}
+        mode="block"
+        cwdCopied={cwdCopied}
+        isZoomed={isZoomed}
+        canSplitH={canSplitH}
+        canSplitV={canSplitV}
+        canClosePane={canClosePane}
+        draggable={draggable}
+        onPickCwd={handlePickCwd}
+        onCopyCwd={handleCopyCwd}
+        onRenameTitle={onRenameTitle}
+        onSplitPane={onSplitPane}
+        onToggleZoom={onToggleZoom}
+        onClosePane={onClosePane}
+        onPaneDragStart={onPaneDragStart}
+        onPaneDragEnd={onPaneDragEnd}
+        extraActions={
+          <>
+            <input
+              type="search"
+              className="term-filter-input"
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+              placeholder={t('termFilterPlaceholder')}
+              aria-label={t('termFilterPlaceholder')}
+            />
             <button
               type="button"
-              className="term-cwd-btn"
-              data-testid="terminal-cwd"
-              title={`${session?.cwd ?? ''} — ${t('termChangeCwd')}`}
-              onClick={handlePickCwd}
+              className="term-mini-btn"
+              disabled={blocks.length === 0}
+              onClick={handleClear}
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path
-                  d="M2 4.2A1.4 1.4 0 0 1 3.4 2.8h2.9l1.2 1.4h5.1A1.4 1.4 0 0 1 14 5.6v6.2a1.4 1.4 0 0 1-1.4 1.4H3.4A1.4 1.4 0 0 1 2 11.8V4.2Z"
-                  stroke="currentColor"
-                  strokeWidth="1.25"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span className="term-cwd-text">{session?.cwd ?? '...'}</span>
+              {t('termClear')}
             </button>
-            <button
-              type="button"
-              className={`term-cwd-copy-btn${cwdCopied ? ' is-copied' : ''}`}
-              title={cwdCopied ? t('termCopied') : t('termCopyCwd')}
-              aria-label={cwdCopied ? t('termCopied') : t('termCopyCwd')}
-              onClick={handleCopyCwd}
-            >
-              {cwdCopied ? (
-                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path
-                    d="M3 8.5l3.2 3.2L13 4.8"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              ) : (
-                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <rect
-                    x="5.5"
-                    y="5.5"
-                    width="7.5"
-                    height="8"
-                    rx="1.2"
-                    stroke="currentColor"
-                    strokeWidth="1.25"
-                  />
-                  <path
-                    d="M10.5 5.5V4A1.2 1.2 0 0 0 9.3 2.8H4A1.2 1.2 0 0 0 2.8 4v5.3A1.2 1.2 0 0 0 4 10.5h1.5"
-                    stroke="currentColor"
-                    strokeWidth="1.25"
-                  />
-                </svg>
-              )}
-            </button>
-          </div>
-        </div>
-
-        <div className="term-pane-bar-right">
-          <input
-            type="search"
-            className="term-filter-input"
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            placeholder={t('termFilterPlaceholder')}
-            aria-label={t('termFilterPlaceholder')}
-          />
-          <button
-            type="button"
-            className="term-mini-btn"
-            disabled={blocks.length === 0}
-            onClick={handleClear}
-          >
-            {t('termClear')}
-          </button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {session.fallbackReason && (
         <div className="term-fallback-banner" data-testid="terminal-fallback-banner" role="status">

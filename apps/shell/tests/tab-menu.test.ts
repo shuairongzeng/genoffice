@@ -32,6 +32,7 @@ function actions(): TabMenuActions {
     duplicate: vi.fn(),
     copyText: vi.fn(),
     reveal: vi.fn(),
+    openInTerminal: vi.fn(),
     openDefault: vi.fn(),
     move: vi.fn(),
     closeTabs: vi.fn(),
@@ -81,16 +82,19 @@ describe('the tab context menu', () => {
       'Copy path',
       'Copy file name',
       'Show in folder',
+      'Open in Terminal',
       'Open with the default app',
     ])
       expect(enabled(items.get(label)), label).toBe(true)
 
     click(items.get('Copy path'))
     click(items.get('Copy file name'))
+    click(items.get('Open in Terminal'))
     click(items.get('Duplicate (copy the saved file)'))
     click(items.get('Rename'))
     expect(given.copyText).toHaveBeenNthCalledWith(1, 'D:\\docs\\Hợp đồng.docx')
     expect(given.copyText).toHaveBeenNthCalledWith(2, 'Hợp đồng.docx')
+    expect(given.openInTerminal).toHaveBeenCalledWith('D:\\docs\\Hợp đồng.docx')
     expect(given.duplicate).toHaveBeenCalledWith('D:\\docs\\Hợp đồng.docx')
     expect(given.rename).toHaveBeenCalledWith('a')
   })
@@ -122,6 +126,8 @@ describe('the tab context menu', () => {
       'Duplicate (copy the saved file)',
       'Copy path',
       'Copy file name',
+      'Show in folder',
+      'Open in Terminal',
     ])
       expect(enabled(untitled.get(label)), label).toBe(false)
 
@@ -130,6 +136,7 @@ describe('the tab context menu', () => {
     for (const label of [
       'Duplicate (copy the saved file)',
       'Show in folder',
+      'Open in Terminal',
       'Open with the default app',
     ])
       expect(enabled(gone.get(label)), label).toBe(false)

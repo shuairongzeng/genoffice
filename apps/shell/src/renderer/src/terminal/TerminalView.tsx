@@ -1,46 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import type { ReactElement } from 'react'
 import type {
-  KeyboardEvent as ReactKeyboardEvent,
-  PointerEvent as ReactPointerEvent,
-  ReactElement,
-} from 'react'
-import type {
+  TerminalLayoutPreset,
   TerminalMode,
-  TerminalSessionSnapshot,
-  TerminalSessionSummary,
   TerminalShellKind,
-  TerminalShellOption,
 } from '../../../shared/terminal-api'
+import { findLeafByPaneId } from '../../../shared/terminal-layout'
 import { useI18n } from '../locale'
-import { TerminalPane } from './TerminalPane'
+import { TerminalGroupSidebar } from './TerminalGroupSidebar'
+import { TerminalProfilesModal } from './TerminalProfilesModal'
+import { TerminalSnippetsModal } from './TerminalSnippetsModal'
+import { TerminalSplitTree } from './TerminalSplitTree'
+import { switchPaneShell, useTerminalWorkspace } from './terminal-workspace-utils'
 import './terminal.css'
-
-const DEFAULT_SPLIT_RATIO = 0.5
-const MIN_SPLIT_RATIO = 0.25
-const MAX_SPLIT_RATIO = 0.75
-const KEYBOARD_SPLIT_STEP = 0.03
-
-function clampSplitRatio(value: number): number {
-  if (!Number.isFinite(value)) return DEFAULT_SPLIT_RATIO
-  return Math.min(MAX_SPLIT_RATIO, Math.max(MIN_SPLIT_RATIO, value))
-}
-
-function toSummary(snap: TerminalSessionSnapshot): TerminalSessionSummary {
-  return {
-    id: snap.id,
-    title: snap.title,
-    shell: snap.shell,
-    mode: snap.mode,
-    fallbackReason: snap.fallbackReason,
-    cwd: snap.cwd,
-    running: snap.running,
-    blockCount: snap.blockCount,
-    cols: snap.cols,
-    rows: snap.rows,
-    exitCode: snap.exitCode,
-    createdAt: snap.createdAt,
-  }
-}
 
 function readInitialQuerySessionId(): string | null {
   if (typeof window === 'undefined') return null
@@ -48,355 +20,187 @@ function readInitialQuerySessionId(): string | null {
   return id && id.trim() ? id.trim() : null
 }
 
+const PRESET_OPTIONS: ReadonlyArray<{
+  preset: TerminalLayoutPreset
+  labelKey:
+    | 'termPresetSingle'
+    | 'termPresetSplitH'
+    | 'termPresetSplitV'
+    | 'termPresetLeftRight2'
+    | 'termPresetGrid2x2'
+}> = [
+  { preset: 'single', labelKey: 'termPresetSingle' },
+  { preset: 'split-h', labelKey: 'termPresetSplitH' },
+  { preset: 'split-v', labelKey: 'termPresetSplitV' },
+  { preset: 'left-right2', labelKey: 'termPresetLeftRight2' },
+  { preset: 'grid-2x2', labelKey: 'termPresetGrid2x2' },
+]
+
+function PresetIcon({ preset }: { preset: TerminalLayoutPreset }): ReactElement {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect
+        x="2"
+        y="2.5"
+        width="12"
+        height="11"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="1.25"
+      />
+      {preset === 'split-h' && <path d="M8 2.5v11" stroke="currentColor" strokeWidth="1.25" />}
+      {preset === 'split-v' && <path d="M2 8h12" stroke="currentColor" strokeWidth="1.25" />}
+      {preset === 'left-right2' && (
+        <>
+          <path d="M8 2.5v11" stroke="currentColor" strokeWidth="1.25" />
+          <path d="M8 8h6" stroke="currentColor" strokeWidth="1.25" />
+        </>
+      )}
+      {preset === 'grid-2x2' && (
+        <>
+          <path d="M8 2.5v11" stroke="currentColor" strokeWidth="1.25" />
+          <path d="M2 8h12" stroke="currentColor" strokeWidth="1.25" />
+        </>
+      )}
+    </svg>
+  )
+}
+
 /**
- * Standalone terminal tab view (?view=terminal): supports multiple sessions,
- * shell creation, side-by-side split panes with a draggable divider, and
- * docking the active session back into Home's bottom drawer.
+ * Standalone multi-group terminal workbench tab (?view=terminal).
+ * Provides collapsible workspace groups sidebar, arbitrary split tree, layout presets,
+ * broadcast input, workspace profiles, command snippets, and drawer docking.
  */
 export function TerminalView(): ReactElement {
   const { t } = useI18n()
+  const [initialSessionId] = useState<string | null>(() => readInitialQuerySessionId())
 
-  const [shells, setShells] = useState<TerminalShellOption[]>([])
-  const [selectedShell, setSelectedShell] = useState<TerminalShellKind | ''>('')
-  const [selectedMode, setSelectedMode] = useState<TerminalMode>('pty')
-  const [sessions, setSessions] = useState<TerminalSessionSummary[]>([])
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(() =>
-    readInitialQuerySessionId(),
-  )
-  const [splitActive, setSplitActive] = useState(false)
-  const [splitRightSessionId, setSplitRightSessionId] = useState<string | null>(null)
-  const [splitRatio, setSplitRatio] = useState(DEFAULT_SPLIT_RATIO)
-  const [focusedSide, setFocusedSide] = useState<'left' | 'right'>('left')
-  const [draggingSplit, setDraggingSplit] = useState(false)
+  const {
+    workspace,
+    activeGroup,
+    sessionsById,
+    shells,
+    selectedShell,
+    setSelectedShell,
+    selectedMode,
+    setSelectedMode,
+    profiles,
+    snippets,
+    refreshProfiles,
+    refreshSnippets,
+    dispatchAction,
+    reloadWorkspace,
+  } = useTerminalWorkspace({
+    enabled: true,
+    initialSessionId,
+  })
 
-  const bodyRef = useRef<HTMLDivElement>(null)
-  const creatingInitialRef = useRef(false)
-  const closingIdsRef = useRef<Set<string>>(new Set())
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [profilesOpen, setProfilesOpen] = useState(false)
+  const [snippetsOpen, setSnippetsOpen] = useState(false)
 
-  const activeSessionRef = useRef(activeSessionId)
-  activeSessionRef.current = activeSessionId
-
-  const splitRightRef = useRef(splitRightSessionId)
-  splitRightRef.current = splitRightSessionId
-
-  const selectedShellRef = useRef(selectedShell)
-  selectedShellRef.current = selectedShell
-
-  const selectedModeRef = useRef(selectedMode)
-  selectedModeRef.current = selectedMode
-
-  const createNewSession = useCallback(
-    async (
-      shellOverride?: TerminalShellKind,
-      modeOverride?: TerminalMode,
-      cwdOverride?: string,
-    ): Promise<TerminalSessionSummary | null> => {
-      const create = window.aiOffice?.terminalCreateSession
-      if (!create) return null
-      const chosenShell = shellOverride || selectedShellRef.current || undefined
-      const chosenMode = modeOverride || selectedModeRef.current
-      const snap = await create({
-        ...(chosenShell ? { shell: chosenShell } : {}),
-        ...(cwdOverride ? { cwd: cwdOverride } : {}),
-        mode: chosenMode,
-      })
-      const summary = toSummary(snap)
-      setSessions((prev) => (prev.some((s) => s.id === summary.id) ? prev : [...prev, summary]))
-      return summary
-    },
-    [],
-  )
-
-  const handleSwitchShell = useCallback(
-    (side: 'left' | 'right', targetShell: TerminalShellKind, targetCwd?: string) => {
-      void createNewSession(targetShell, 'pty', targetCwd).then((created) => {
-        if (!created) return
-        if (side === 'right') {
-          setSplitRightSessionId(created.id)
-          setFocusedSide('right')
-        } else {
-          setActiveSessionId(created.id)
-          setFocusedSide('left')
-        }
-      })
-    },
-    [createNewSession],
-  )
-
-  useEffect(() => {
-    let alive = true
-    const requestedId = readInitialQuerySessionId()
-
-    void window.aiOffice
-      ?.terminalListShells?.()
-      .then((opts) => {
-        if (!alive) return
-        setShells(opts)
-        if (!selectedShellRef.current && opts.length > 0) {
-          const firstAvailable = opts.find((o) => o.available) ?? opts[0]!
-          setSelectedShell(firstAvailable.kind)
-        }
-      })
-      .catch(() => undefined)
-
-    void window.aiOffice
-      ?.terminalListSessions?.()
-      .then(async (list) => {
-        if (!alive) return
-        if (list.length > 0) {
-          setSessions(list)
-          const current = activeSessionRef.current ?? requestedId
-          if (current && list.some((s) => s.id === current)) {
-            setActiveSessionId(current)
-            return
-          }
-          setActiveSessionId(list[0]!.id)
-          return
-        }
-
-        if (creatingInitialRef.current) return
-        creatingInitialRef.current = true
-        try {
-          const created = await createNewSession()
-          if (alive && created) {
-            setActiveSessionId(created.id)
-          }
-        } finally {
-          creatingInitialRef.current = false
-        }
-      })
-      .catch(() => undefined)
-
-    return () => {
-      alive = false
-    }
-  }, [createNewSession])
-
-  useEffect(() => {
-    const unsubscribeEvents = window.aiOffice?.onTerminalEvent?.((event) => {
-      if (event.type === 'session-created') {
-        const summary = toSummary(event.session)
-        setSessions((prev) => (prev.some((s) => s.id === summary.id) ? prev : [...prev, summary]))
-        return
-      }
-
-      if (event.type === 'session-updated') {
-        setSessions((prev) =>
-          prev.map((s) => (s.id === event.session.id ? { ...s, ...event.session } : s)),
-        )
-        return
-      }
-
-      if (event.type === 'session-closed') {
-        const closedId = event.sessionId
-        setSessions((prev) => {
-          const idx = prev.findIndex((s) => s.id === closedId)
-          if (idx === -1) return prev
-          const next = prev.filter((s) => s.id !== closedId)
-          if (activeSessionRef.current === closedId) {
-            const fallback = next[Math.min(idx, next.length - 1)]?.id ?? null
-            setActiveSessionId(fallback)
-          }
-          if (splitRightRef.current === closedId) {
-            const alt = next.find((s) => s.id !== activeSessionRef.current)?.id ?? null
-            setSplitRightSessionId(alt)
-            if (!alt) setSplitActive(false)
-          }
-          return next
-        })
-      }
-    })
-
-    const unsubscribeTabSession = window.aiOffice?.onTerminalTabSessionUpdated?.(
-      (nextSessionId) => {
-        if (!nextSessionId) return
-        setActiveSessionId(nextSessionId)
-        setFocusedSide('left')
-        void window.aiOffice
-          ?.terminalListSessions?.()
-          .then((list) => {
-            if (list.length > 0) setSessions(list)
-          })
-          .catch(() => undefined)
-      },
-    )
-
-    return () => {
-      unsubscribeEvents?.()
-      unsubscribeTabSession?.()
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!draggingSplit) return
-
-    const handleMove = (e: PointerEvent): void => {
-      const rect = bodyRef.current?.getBoundingClientRect()
-      if (!rect || rect.width <= 0) return
-      const ratio = (e.clientX - rect.left) / rect.width
-      setSplitRatio(clampSplitRatio(ratio))
-    }
-
-    const handleUp = (): void => {
-      setDraggingSplit(false)
-    }
-
-    window.addEventListener('pointermove', handleMove)
-    window.addEventListener('pointerup', handleUp)
-    window.addEventListener('pointercancel', handleUp)
-    return () => {
-      window.removeEventListener('pointermove', handleMove)
-      window.removeEventListener('pointerup', handleUp)
-      window.removeEventListener('pointercancel', handleUp)
-    }
-  }, [draggingSplit])
-
-  const handleDividerPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return
-    e.preventDefault()
-    setDraggingSplit(true)
-  }, [])
-
-  const handleDividerKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault()
-      setSplitRatio((prev) => clampSplitRatio(prev - KEYBOARD_SPLIT_STEP))
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault()
-      setSplitRatio((prev) => clampSplitRatio(prev + KEYBOARD_SPLIT_STEP))
-    } else if (e.key === 'Home') {
-      e.preventDefault()
-      setSplitRatio(DEFAULT_SPLIT_RATIO)
-    }
-  }, [])
-
-  const handleNewSession = useCallback(() => {
-    void createNewSession().then((created) => {
-      if (created) {
-        setActiveSessionId(created.id)
-        setFocusedSide('left')
-      }
-    })
-  }, [createNewSession])
-
-  const handleCloseSession = useCallback(
-    (sessionId: string) => {
-      if (closingIdsRef.current.has(sessionId)) return
-      closingIdsRef.current.add(sessionId)
-
-      void (async () => {
-        try {
-          if (sessions.length <= 1) {
-            const replacement = await createNewSession()
-            if (replacement) {
-              setActiveSessionId(replacement.id)
-            }
-          }
-          await window.aiOffice?.terminalCloseSession?.(sessionId)
-        } finally {
-          closingIdsRef.current.delete(sessionId)
-        }
-      })()
-    },
-    [createNewSession, sessions.length],
-  )
-
-  const handleToggleSplit = useCallback(() => {
-    if (splitActive) {
-      setSplitActive(false)
-      setFocusedSide('left')
-      return
-    }
-
-    const currentLeft = activeSessionRef.current ?? sessions[0]?.id ?? null
-    const existingOther = sessions.find((s) => s.id !== currentLeft)?.id ?? null
-    if (existingOther) {
-      setSplitRightSessionId(existingOther)
-      setSplitActive(true)
-      return
-    }
-
-    void createNewSession().then((created) => {
-      if (!created) return
-      setSplitRightSessionId(created.id)
-      setSplitActive(true)
-    })
-  }, [createNewSession, sessions, splitActive])
-
-  const currentActiveId = useMemo(() => {
-    if (activeSessionId && sessions.some((s) => s.id === activeSessionId)) {
-      return activeSessionId
-    }
-    return sessions[0]?.id ?? activeSessionId ?? null
-  }, [activeSessionId, sessions])
-
-  const canShowSplit =
-    splitActive && Boolean(splitRightSessionId && splitRightSessionId !== currentActiveId)
+  const focusedSessionId = useMemo(() => {
+    if (!activeGroup) return null
+    const leaf = findLeafByPaneId(activeGroup.layout, activeGroup.focusedPaneId)
+    return leaf?.sessionId ?? activeGroup.sessionIds[0] ?? null
+  }, [activeGroup])
 
   const handleDockToDrawer = useCallback(() => {
-    if (!currentActiveId) return
-    void window.aiOffice?.terminalDockToDrawer?.(currentActiveId)
-  }, [currentActiveId])
+    if (!focusedSessionId) return
+    void window.aiOffice?.terminalDockToDrawer?.(focusedSessionId)
+  }, [focusedSessionId])
+
+  const handlePickGroupCwd = useCallback(
+    (groupId: string) => {
+      void window.aiOffice?.terminalPickGroupCwd?.(groupId).then((next) => {
+        if (next) void reloadWorkspace()
+      })
+    },
+    [reloadWorkspace],
+  )
+
+  const handleCreateSession = useCallback(() => {
+    if (!activeGroup) return
+    void dispatchAction({
+      type: 'add-session-to-group',
+      groupId: activeGroup.id,
+      opts: {
+        ...(selectedShell ? { shell: selectedShell } : {}),
+        mode: selectedMode,
+      },
+      replaceFocusedPane: true,
+    })
+  }, [activeGroup, dispatchAction, selectedMode, selectedShell])
+
+  const handleSwitchShell = useCallback(
+    (targetSessionId: string, shell: TerminalShellKind, cwd?: string) => {
+      void switchPaneShell(activeGroup, targetSessionId, shell, cwd, dispatchAction)
+    },
+    [activeGroup, dispatchAction],
+  )
+
+  const groups = workspace?.groups ?? []
 
   return (
-    <div className="term-view" data-testid="terminal-tab-view">
-      <header className="term-view-toolbar">
-        <div className="term-header-left">
-          <span className="term-header-title">
+    <div className="term-view" data-testid="terminal-view">
+      <header className="term-view-header">
+        <div className="term-view-header-left">
+          <button
+            type="button"
+            className={`term-icon-btn${!sidebarCollapsed ? ' is-active' : ''}`}
+            data-testid="terminal-toggle-sidebar-btn"
+            aria-pressed={!sidebarCollapsed}
+            title={t('termToggleSidebar')}
+            aria-label={t('termToggleSidebar')}
+            onClick={() => setSidebarCollapsed((v) => !v)}
+          >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path
-                d="M2.5 4.2l3.5 3.3-3.5 3.3M8 11.2h5.5"
+              <rect
+                x="2"
+                y="2.5"
+                width="12"
+                height="11"
+                rx="1.5"
                 stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                strokeWidth="1.25"
               />
+              <path d="M6 2.5v11" stroke="currentColor" strokeWidth="1.25" />
             </svg>
-            <span>{t('termTitle')}</span>
-          </span>
+          </button>
 
-          <div className="term-tabs-strip" role="tablist" aria-label={t('termTitle')}>
-            {sessions.map((s) => {
-              const isActive = s.id === currentActiveId
+          <div className="term-group-pills" role="tablist" aria-label={t('termGroupsTitle')}>
+            {groups.map((group) => {
+              const isActive = group.id === activeGroup?.id
               return (
-                <div key={s.id} className={`term-session-tab${isActive ? ' is-active' : ''}`}>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={isActive}
-                    className="term-session-tab-btn"
-                    onClick={() => {
-                      setActiveSessionId(s.id)
-                      setFocusedSide('left')
-                    }}
-                  >
-                    <span className={`term-tab-dot${s.running ? ' is-running' : ''}`} />
-                    <span className="term-session-tab-label">{s.title || s.shell}</span>
-                    <span className={`term-tab-mode is-${s.mode}`}>
-                      {s.mode === 'pty' ? 'PTY' : 'BLK'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="term-session-close"
-                    title={t('termCloseSession')}
-                    aria-label={t('termCloseSession')}
-                    onClick={() => handleCloseSession(s.id)}
-                  >
-                    ×
-                  </button>
-                </div>
+                <button
+                  key={group.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  className={`term-group-pill is-color-${group.color}${isActive ? ' is-active' : ''}`}
+                  data-testid={`terminal-view-group-tab-${group.id}`}
+                  onClick={() => void dispatchAction({ type: 'activate-group', groupId: group.id })}
+                >
+                  <span
+                    className={`term-group-pill-dot is-color-${group.color}`}
+                    aria-hidden="true"
+                  />
+                  <span className="term-group-pill-name">{group.name}</span>
+                  {!isActive && group.hasAlert && (
+                    <span className="term-group-alert-dot" aria-hidden="true" />
+                  )}
+                </button>
               )
             })}
           </div>
 
           <button
             type="button"
-            className="term-icon-btn"
+            className="term-new-session-btn"
             data-testid="terminal-new-session-btn"
             title={t('termNewSession')}
             aria-label={t('termNewSession')}
-            onClick={handleNewSession}
+            onClick={handleCreateSession}
           >
             +
           </button>
@@ -405,7 +209,6 @@ export function TerminalView(): ReactElement {
             className="term-shell-select"
             data-testid="terminal-shell-select"
             aria-label={t('termShellLabel')}
-            title={t('termShellLabel')}
             value={selectedShell}
             onChange={(e) => setSelectedShell(e.target.value as TerminalShellKind)}
           >
@@ -420,7 +223,6 @@ export function TerminalView(): ReactElement {
             className="term-mode-select"
             data-testid="terminal-mode-select"
             aria-label={t('termModeLabel')}
-            title={t('termModeLabel')}
             value={selectedMode}
             onChange={(e) => setSelectedMode(e.target.value as TerminalMode)}
           >
@@ -430,36 +232,78 @@ export function TerminalView(): ReactElement {
         </div>
 
         <div className="term-header-right">
-          <span className="term-tip-badge">{t('termSplitDocTip')}</span>
+          {activeGroup && (
+            <div className="term-preset-group" role="group" aria-label={t('termSplitPane')}>
+              {PRESET_OPTIONS.map(({ preset, labelKey }) => (
+                <button
+                  key={preset}
+                  type="button"
+                  className="term-preset-btn"
+                  data-testid={`terminal-preset-${preset}`}
+                  title={t(labelKey)}
+                  aria-label={t(labelKey)}
+                  onClick={() =>
+                    void dispatchAction({
+                      type: 'apply-preset',
+                      groupId: activeGroup.id,
+                      preset,
+                      defaultOpts: {
+                        ...(selectedShell ? { shell: selectedShell } : {}),
+                        mode: selectedMode,
+                      },
+                    })
+                  }
+                >
+                  <PresetIcon preset={preset} />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {activeGroup && (
+            <button
+              type="button"
+              className={`term-action-btn${activeGroup.broadcastEnabled ? ' is-broadcast' : ''}`}
+              data-testid="terminal-broadcast-toggle-btn"
+              aria-pressed={activeGroup.broadcastEnabled}
+              title={t('termBroadcastBtn')}
+              onClick={() =>
+                void dispatchAction({
+                  type: 'update-group',
+                  groupId: activeGroup.id,
+                  broadcastEnabled: !activeGroup.broadcastEnabled,
+                })
+              }
+            >
+              {t('termBroadcastBtn')}
+            </button>
+          )}
 
           <button
             type="button"
-            className={`term-action-btn${canShowSplit ? ' is-active' : ''}`}
-            data-testid="terminal-split-pane-btn"
-            aria-pressed={canShowSplit}
-            title={canShowSplit ? t('termCloseSplitPane') : t('termSplitPane')}
-            onClick={handleToggleSplit}
+            className="term-action-btn"
+            data-testid="terminal-view-profiles-btn"
+            title={t('termProfilesBtn')}
+            onClick={() => setProfilesOpen(true)}
           >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <rect
-                x="2"
-                y="2.5"
-                width="12"
-                height="11"
-                rx="1.5"
-                stroke="currentColor"
-                strokeWidth="1.25"
-              />
-              <path d="M8 2.5v11" stroke="currentColor" strokeWidth="1.25" />
-            </svg>
-            <span>{canShowSplit ? t('termCloseSplitPane') : t('termSplitPane')}</span>
+            {t('termProfilesBtn')}
+          </button>
+
+          <button
+            type="button"
+            className="term-action-btn"
+            data-testid="terminal-view-snippets-btn"
+            title={`${t('termSnippetsBtn')} (Ctrl+Shift+K)`}
+            onClick={() => setSnippetsOpen(true)}
+          >
+            {t('termSnippetsBtn')}
           </button>
 
           <button
             type="button"
             className="term-action-btn"
             data-testid="terminal-dock-btn"
-            disabled={!currentActiveId}
+            disabled={!focusedSessionId}
             title={t('termDockToDrawer')}
             onClick={handleDockToDrawer}
           >
@@ -480,46 +324,51 @@ export function TerminalView(): ReactElement {
         </div>
       </header>
 
-      <div className="term-view-body" ref={bodyRef}>
-        {currentActiveId && (
-          <div
-            className="term-pane-slot"
-            style={canShowSplit ? { flex: `0 0 calc(${splitRatio * 100}% - 3px)` } : undefined}
-          >
-            <TerminalPane
-              sessionId={currentActiveId}
-              focused={!canShowSplit || focusedSide === 'left'}
-              onFocusPane={() => setFocusedSide('left')}
-              onSwitchShell={(shell, cwd) => handleSwitchShell('left', shell, cwd)}
-            />
-          </div>
-        )}
+      <div className="term-view-workbench">
+        <TerminalGroupSidebar
+          groups={groups}
+          activeGroupId={activeGroup?.id ?? ''}
+          sessionsById={sessionsById}
+          collapsed={sidebarCollapsed}
+          selectedShell={selectedShell}
+          selectedMode={selectedMode}
+          onAction={dispatchAction}
+          onPickGroupCwd={handlePickGroupCwd}
+          onOpenProfiles={() => setProfilesOpen(true)}
+          onOpenSnippets={() => setSnippetsOpen(true)}
+        />
 
-        {canShowSplit && splitRightSessionId && (
-          <>
-            <div
-              className={`term-view-split-divider${draggingSplit ? ' is-dragging' : ''}`}
-              role="separator"
-              aria-orientation="vertical"
-              aria-valuenow={Math.round(splitRatio * 100)}
-              aria-valuemin={Math.round(MIN_SPLIT_RATIO * 100)}
-              aria-valuemax={Math.round(MAX_SPLIT_RATIO * 100)}
-              tabIndex={0}
-              onPointerDown={handleDividerPointerDown}
-              onDoubleClick={() => setSplitRatio(DEFAULT_SPLIT_RATIO)}
-              onKeyDown={handleDividerKeyDown}
+        <main className="term-view-body">
+          {activeGroup && (
+            <TerminalSplitTree
+              group={activeGroup}
+              onAction={dispatchAction}
+              onSwitchShell={handleSwitchShell}
+              onOpenSnippets={() => setSnippetsOpen(true)}
             />
-            <div className="term-pane-slot">
-              <TerminalPane
-                sessionId={splitRightSessionId}
-                focused={focusedSide === 'right'}
-                onFocusPane={() => setFocusedSide('right')}
-                onSwitchShell={(shell, cwd) => handleSwitchShell('right', shell, cwd)}
-              />
-            </div>
-          </>
-        )}
+          )}
+        </main>
       </div>
+
+      <TerminalProfilesModal
+        open={profilesOpen}
+        activeGroup={activeGroup}
+        sessionsById={sessionsById}
+        profiles={profiles}
+        onClose={() => setProfilesOpen(false)}
+        onRefreshProfiles={refreshProfiles}
+        onReloadWorkspace={reloadWorkspace}
+      />
+
+      <TerminalSnippetsModal
+        open={snippetsOpen}
+        activeGroup={activeGroup}
+        sessionsById={sessionsById}
+        snippets={snippets}
+        onClose={() => setSnippetsOpen(false)}
+        onRefreshSnippets={refreshSnippets}
+        onDispatchAction={dispatchAction}
+      />
     </div>
   )
 }

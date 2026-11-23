@@ -107,13 +107,19 @@ import {
   TERMINAL_CHANNELS,
   type TerminalAskAiPayload,
   type TerminalBlock,
+  type TerminalCommandSnippet,
   type TerminalCreateOpts,
   type TerminalDrawerRequest,
   type TerminalEvent,
   type TerminalOpenTabOpts,
+  type TerminalSaveProfileInput,
+  type TerminalSaveSnippetInput,
   type TerminalSessionSnapshot,
   type TerminalSessionSummary,
   type TerminalShellOption,
+  type TerminalWorkspaceAction,
+  type TerminalWorkspaceProfile,
+  type TerminalWorkspaceSnapshot,
 } from '../shared/terminal-api'
 import type {
   IntegrationsApi,
@@ -1821,6 +1827,54 @@ const homeApi: HomeApi = {
     if (typeof sessionId !== 'string' || !sessionId) return null
     const result: unknown = await ipcRenderer.invoke(TERMINAL_CHANNELS.pickCwd, sessionId)
     return typeof result === 'string' ? result : null
+  },
+  async terminalPickGroupCwd(groupId: string) {
+    if (typeof groupId !== 'string' || !groupId) return null
+    const result: unknown = await ipcRenderer.invoke(TERMINAL_CHANNELS.pickGroupCwd, groupId)
+    return result && typeof result === 'object' ? (result as TerminalWorkspaceSnapshot) : null
+  },
+  async terminalWorkspaceGet() {
+    return (await ipcRenderer.invoke(TERMINAL_CHANNELS.workspaceGet)) as TerminalWorkspaceSnapshot
+  },
+  async terminalWorkspaceAction(action: TerminalWorkspaceAction) {
+    return (await ipcRenderer.invoke(
+      TERMINAL_CHANNELS.workspaceAction,
+      action,
+    )) as TerminalWorkspaceSnapshot
+  },
+  async terminalListProfiles() {
+    const result: unknown = await ipcRenderer.invoke(TERMINAL_CHANNELS.listProfiles)
+    return Array.isArray(result) ? (result as TerminalWorkspaceProfile[]) : []
+  },
+  async terminalSaveProfile(input: TerminalSaveProfileInput) {
+    return (await ipcRenderer.invoke(
+      TERMINAL_CHANNELS.saveProfile,
+      input,
+    )) as TerminalWorkspaceProfile
+  },
+  async terminalDeleteProfile(profileId: string) {
+    if (typeof profileId !== 'string' || !profileId) return
+    await ipcRenderer.invoke(TERMINAL_CHANNELS.deleteProfile, profileId)
+  },
+  async terminalLaunchProfile(profileId: string) {
+    return (await ipcRenderer.invoke(
+      TERMINAL_CHANNELS.launchProfile,
+      profileId,
+    )) as TerminalWorkspaceSnapshot
+  },
+  async terminalListSnippets() {
+    const result: unknown = await ipcRenderer.invoke(TERMINAL_CHANNELS.listSnippets)
+    return Array.isArray(result) ? (result as TerminalCommandSnippet[]) : []
+  },
+  async terminalSaveSnippet(input: TerminalSaveSnippetInput) {
+    return (await ipcRenderer.invoke(
+      TERMINAL_CHANNELS.saveSnippet,
+      input,
+    )) as TerminalCommandSnippet
+  },
+  async terminalDeleteSnippet(snippetId: string) {
+    if (typeof snippetId !== 'string' || !snippetId) return
+    await ipcRenderer.invoke(TERMINAL_CHANNELS.deleteSnippet, snippetId)
   },
   async terminalOpenTab(opts?: TerminalOpenTabOpts) {
     const result: unknown = await ipcRenderer.invoke(TERMINAL_CHANNELS.openTab, opts ?? {})

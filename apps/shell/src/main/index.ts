@@ -299,7 +299,9 @@ import { SplitScrollSyncController } from './split-scroll-sync'
 import { createDocumentTextExtractor } from './compare/document-text-extractor'
 import { registerCompareIpc } from './compare/compare-ipc'
 import { TERMINAL_CHANNELS } from '../shared/terminal-api'
+import { TerminalPersistence } from './terminal/terminal-persistence'
 import { TerminalSessionManager } from './terminal/terminal-session-manager'
+import { TerminalWorkspaceManager } from './terminal/terminal-workspace-manager'
 import { registerTerminalIpc } from './terminal/terminal-ipc'
 import { installDocumentAgentBridge } from './document-agent'
 import { collectSurfaceTabs, urlOfWith, type SurfaceContextDeps } from './surface-context'
@@ -545,6 +547,7 @@ let ownsOpenDocumentsRegistry = false
 let stopAuthWatch: (() => void) | null = null
 let piRuntime: PiAgentRuntimeManager | null = null
 let terminalManager: TerminalSessionManager | null = null
+let terminalWorkspace: TerminalWorkspaceManager | null = null
 let stopAiSettingsSync: (() => void) | null = null
 const publishOpenDocumentsIfOwner = (paths: readonly string[]) => {
   if (ownsOpenDocumentsRegistry) publishOpenDocuments(OPEN_DOCUMENTS_PATH(), paths)
@@ -816,6 +819,7 @@ const tMain = createI18n({
     menuTabCopyPath: '复制路径',
     menuTabCopyName: '复制文件名',
     menuTabReveal: '在文件夹中显示',
+    menuTabOpenInTerminal: '在终端中打开',
     menuTabOpenDefault: '使用默认应用打开',
     menuTabMoveLeft: '向左移动',
     menuTabMoveRight: '向右移动',
@@ -954,6 +958,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Copy path',
     menuTabCopyName: 'Copy file name',
     menuTabReveal: 'Show in folder',
+    menuTabOpenInTerminal: 'Open in Terminal',
     menuTabOpenDefault: 'Open with the default app',
     menuTabMoveLeft: 'Move left',
     menuTabMoveRight: 'Move right',
@@ -1102,6 +1107,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Sao chép đường dẫn',
     menuTabCopyName: 'Sao chép tên file',
     menuTabReveal: 'Mở thư mục chứa file',
+    menuTabOpenInTerminal: 'Mở trong Terminal',
     menuTabOpenDefault: 'Mở bằng ứng dụng mặc định',
     menuTabMoveLeft: 'Dời sang trái',
     menuTabMoveRight: 'Dời sang phải',
@@ -1250,6 +1256,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'パスをコピー',
     menuTabCopyName: 'ファイル名をコピー',
     menuTabReveal: 'フォルダーで表示',
+    menuTabOpenInTerminal: 'ターミナルで開く',
     menuTabOpenDefault: '既定のアプリで開く',
     menuTabMoveLeft: '左へ移動',
     menuTabMoveRight: '右へ移動',
@@ -1398,6 +1405,7 @@ const tMain = createI18n({
     menuTabCopyPath: '경로 복사',
     menuTabCopyName: '파일 이름 복사',
     menuTabReveal: '폴더에서 표시',
+    menuTabOpenInTerminal: '터미널에서 열기',
     menuTabOpenDefault: '기본 앱으로 열기',
     menuTabMoveLeft: '왼쪽으로 이동',
     menuTabMoveRight: '오른쪽으로 이동',
@@ -1545,6 +1553,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Copier le chemin',
     menuTabCopyName: 'Copier le nom du fichier',
     menuTabReveal: 'Afficher dans le dossier',
+    menuTabOpenInTerminal: 'Ouvrir dans le terminal',
     menuTabOpenDefault: "Ouvrir avec l'application par défaut",
     menuTabMoveLeft: 'Déplacer vers la gauche',
     menuTabMoveRight: 'Déplacer vers la droite',
@@ -1694,6 +1703,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Pfad kopieren',
     menuTabCopyName: 'Dateinamen kopieren',
     menuTabReveal: 'Im Ordner anzeigen',
+    menuTabOpenInTerminal: 'Im Terminal öffnen',
     menuTabOpenDefault: 'Mit Standard-App öffnen',
     menuTabMoveLeft: 'Nach links verschieben',
     menuTabMoveRight: 'Nach rechts verschieben',
@@ -1844,6 +1854,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Copiar ruta',
     menuTabCopyName: 'Copiar nombre de archivo',
     menuTabReveal: 'Mostrar en la carpeta',
+    menuTabOpenInTerminal: 'Abrir en la terminal',
     menuTabOpenDefault: 'Abrir con la aplicación predeterminada',
     menuTabMoveLeft: 'Mover a la izquierda',
     menuTabMoveRight: 'Mover a la derecha',
@@ -1994,6 +2005,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'คัดลอกเส้นทาง',
     menuTabCopyName: 'คัดลอกชื่อไฟล์',
     menuTabReveal: 'แสดงในโฟลเดอร์',
+    menuTabOpenInTerminal: 'เปิดในเทอร์มินัล',
     menuTabOpenDefault: 'เปิดด้วยแอปเริ่มต้น',
     menuTabMoveLeft: 'ย้ายไปทางซ้าย',
     menuTabMoveRight: 'ย้ายไปทางขวา',
@@ -2139,6 +2151,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Salin lokasi',
     menuTabCopyName: 'Salin nama berkas',
     menuTabReveal: 'Tampilkan di folder',
+    menuTabOpenInTerminal: 'Buka di Terminal',
     menuTabOpenDefault: 'Buka dengan aplikasi default',
     menuTabMoveLeft: 'Pindah ke kiri',
     menuTabMoveRight: 'Pindah ke kanan',
@@ -2288,6 +2301,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Копировать путь',
     menuTabCopyName: 'Копировать имя файла',
     menuTabReveal: 'Показать в папке',
+    menuTabOpenInTerminal: 'Открыть в терминале',
     menuTabOpenDefault: 'Открыть в приложении по умолчанию',
     menuTabMoveLeft: 'Переместить влево',
     menuTabMoveRight: 'Переместить вправо',
@@ -2437,6 +2451,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'نسخ المسار',
     menuTabCopyName: 'نسخ اسم الملف',
     menuTabReveal: 'إظهار في المجلد',
+    menuTabOpenInTerminal: 'فتح في الطرفية',
     menuTabOpenDefault: 'فتح بالتطبيق الافتراضي',
     menuTabMoveLeft: 'نقل إلى اليسار',
     menuTabMoveRight: 'نقل إلى اليمين',
@@ -2582,6 +2597,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Copiar caminho',
     menuTabCopyName: 'Copiar nome do arquivo',
     menuTabReveal: 'Mostrar na pasta',
+    menuTabOpenInTerminal: 'Abrir no terminal',
     menuTabOpenDefault: 'Abrir com aplicativo padrão',
     menuTabMoveLeft: 'Mover para a esquerda',
     menuTabMoveRight: 'Mover para a direita',
@@ -2731,6 +2747,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Copia percorso',
     menuTabCopyName: 'Copia nome file',
     menuTabReveal: 'Mostra nella cartella',
+    menuTabOpenInTerminal: 'Apri nel terminale',
     menuTabOpenDefault: "Apri con l'applicazione predefinita",
     menuTabMoveLeft: 'Sposta a sinistra',
     menuTabMoveRight: 'Sposta a destra',
@@ -2880,6 +2897,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Kopiuj ścieżkę',
     menuTabCopyName: 'Kopiuj nazwę pliku',
     menuTabReveal: 'Pokaż w folderze',
+    menuTabOpenInTerminal: 'Otwórz w terminalu',
     menuTabOpenDefault: 'Otwórz w domyślnej aplikacji',
     menuTabMoveLeft: 'Przesuń w lewo',
     menuTabMoveRight: 'Przesuń w prawo',
@@ -3029,6 +3047,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Kopírovat cestu',
     menuTabCopyName: 'Kopírovat název souboru',
     menuTabReveal: 'Zobrazit ve složce',
+    menuTabOpenInTerminal: 'Otevřít v terminálu',
     menuTabOpenDefault: 'Otevřít ve výchozí aplikaci',
     menuTabMoveLeft: 'Přesunout vlevo',
     menuTabMoveRight: 'Přesunout vpravo',
@@ -3176,6 +3195,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Pad kopiëren',
     menuTabCopyName: 'Bestandsnaam kopiëren',
     menuTabReveal: 'Weergeven in map',
+    menuTabOpenInTerminal: 'Openen in terminal',
     menuTabOpenDefault: 'Openen met standaardapp',
     menuTabMoveLeft: 'Naar links verplaatsen',
     menuTabMoveRight: 'Naar rechts verplaatsen',
@@ -3325,6 +3345,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'Salin laluan',
     menuTabCopyName: 'Salin nama fail',
     menuTabReveal: 'Tunjukkan dalam folder',
+    menuTabOpenInTerminal: 'Buka dalam Terminal',
     menuTabOpenDefault: 'Buka dengan aplikasi lalai',
     menuTabMoveLeft: 'Alih ke kiri',
     menuTabMoveRight: 'Alih ke kanan',
@@ -3473,6 +3494,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'העתקת נתיב',
     menuTabCopyName: 'העתקת שם קובץ',
     menuTabReveal: 'הצגה בתיקייה',
+    menuTabOpenInTerminal: 'פתיחה במסוף',
     menuTabOpenDefault: 'פתיחה ביישום ברירת המחדל',
     menuTabMoveLeft: 'העברה שמאלה',
     menuTabMoveRight: 'העברה ימינה',
@@ -3618,6 +3640,7 @@ const tMain = createI18n({
     menuTabCopyPath: 'पथ कॉपी करें',
     menuTabCopyName: 'फ़ाइल का नाम कॉपी करें',
     menuTabReveal: 'फ़ोल्डर में दिखाएँ',
+    menuTabOpenInTerminal: 'टर्मिनल में खोलें',
     menuTabOpenDefault: 'डिफ़ॉल्ट ऐप से खोलें',
     menuTabMoveLeft: 'बाईं ओर ले जाएँ',
     menuTabMoveRight: 'दाईं ओर ले जाएँ',
@@ -3767,6 +3790,7 @@ const tMain = createI18n({
     menuTabCopyPath: '複製路徑',
     menuTabCopyName: '複製檔案名稱',
     menuTabReveal: '在資料夾中顯示',
+    menuTabOpenInTerminal: '在終端機中開啟',
     menuTabOpenDefault: '使用預設應用程式開啟',
     menuTabMoveLeft: '向左移動',
     menuTabMoveRight: '向右移動',
@@ -5420,6 +5444,15 @@ function openCompareForTab(id: string): void {
   })
 }
 
+function openTerminalDrawerAt(targetPath?: string): void {
+  const res = terminalWorkspace?.openInDirectory(targetPath)
+  tabManager?.activateTab('home')
+  sendToShellRenderer(TERMINAL_CHANNELS.drawerCommand, {
+    action: 'open',
+    ...(res ? { sessionId: res.sessionId } : {}),
+  })
+}
+
 /** The shell's side of every entry of the tab menu (see tab-menu.ts for what is offered). */
 function tabMenuActions(): TabMenuActions {
   const documentAction = (id: string, action: TabDocumentAction) => {
@@ -5453,6 +5486,7 @@ function tabMenuActions(): TabMenuActions {
     },
     copyText: (text) => clipboard.writeText(text),
     reveal: (path) => shell.showItemInFolder(path),
+    openInTerminal: (filePath) => openTerminalDrawerAt(filePath),
     openDefault: (path) => {
       // a document tab is a document, never a program; keep it that way for a renamed one
       if (!isProgramFile(path)) void shell.openPath(path)
@@ -7352,16 +7386,23 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       }
     },
   })
+  const emitTerminalEvent = (event: import('../shared/terminal-api').TerminalEvent): void => {
+    for (const wc of webContents.getAllWebContents()) {
+      if (!wc.isDestroyed()) wc.send(TERMINAL_CHANNELS.event, event)
+    }
+  }
   terminalManager = new TerminalSessionManager({
     defaultCwd: () => defaultSaveDir(),
-    emit: (event) => {
-      for (const wc of webContents.getAllWebContents()) {
-        if (!wc.isDestroyed()) wc.send(TERMINAL_CHANNELS.event, event)
-      }
-    },
+    emit: emitTerminalEvent,
+  })
+  terminalWorkspace = new TerminalWorkspaceManager({
+    sessionManager: terminalManager,
+    persistence: new TerminalPersistence(app.getPath('userData')),
+    emit: emitTerminalEvent,
   })
   registerTerminalIpc({
     manager: terminalManager,
+    workspace: terminalWorkspace,
     openTerminalTab: (opts) => {
       const id = ensureTabManager().openTerminalTab(opts)
       sendToShellRenderer(TERMINAL_CHANNELS.drawerCommand, { action: 'close' })
@@ -7375,6 +7416,10 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       })
     },
     requestDrawer: (req) => {
+      if (req.action === 'open' && (req.path !== undefined || req.createNew)) {
+        openTerminalDrawerAt(req.path)
+        return
+      }
       sendToShellRenderer(TERMINAL_CHANNELS.drawerCommand, req)
     },
     pickDirectory: async (defaultPath) => {
@@ -8166,6 +8211,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   piRuntime?.disposeAll()
+  terminalWorkspace?.dispose()
   terminalManager?.disposeAll()
   stopAiSettingsSync?.()
   stopAiSettingsSync = null
@@ -8179,6 +8225,8 @@ app.on('before-quit', () => {
 
 // after every window has closed, so the shell window's own 'closed' republish cannot revive the file
 app.on('will-quit', () => {
+  terminalWorkspace?.dispose()
+  terminalWorkspace = null
   terminalManager?.disposeAll()
   terminalManager = null
   fileIndexer?.stop()

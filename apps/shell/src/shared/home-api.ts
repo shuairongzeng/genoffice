@@ -210,28 +210,49 @@ export type {
 import type {
   TerminalAskAiPayload,
   TerminalBlock,
+  TerminalCommandSnippet,
   TerminalCreateOpts,
   TerminalDrawerRequest,
   TerminalEvent,
   TerminalOpenTabOpts,
+  TerminalSaveProfileInput,
+  TerminalSaveSnippetInput,
   TerminalSessionSnapshot,
   TerminalSessionSummary,
   TerminalShellOption,
+  TerminalWorkspaceAction,
+  TerminalWorkspaceProfile,
+  TerminalWorkspaceSnapshot,
 } from './terminal-api'
 
 export type {
   TerminalAskAiPayload,
   TerminalBlock,
   TerminalBlockStatus,
+  TerminalCommandSnippet,
   TerminalCreateOpts,
   TerminalDrawerRequest,
+  TerminalDropZone,
   TerminalEvent,
+  TerminalGroup,
+  TerminalGroupColor,
+  TerminalLayoutNode,
+  TerminalLayoutPreset,
+  TerminalLeafNode,
   TerminalMode,
   TerminalOpenTabOpts,
+  TerminalProfileLayoutNode,
+  TerminalSaveProfileInput,
+  TerminalSaveSnippetInput,
   TerminalSessionSnapshot,
   TerminalSessionSummary,
   TerminalShellKind,
   TerminalShellOption,
+  TerminalSplitDirection,
+  TerminalSplitNode,
+  TerminalWorkspaceAction,
+  TerminalWorkspaceProfile,
+  TerminalWorkspaceSnapshot,
 } from './terminal-api'
 
 export interface AttachmentAddResult {
@@ -1965,6 +1986,26 @@ export interface HomeApi {
   terminalClearSession?(sessionId: string): Promise<void>
   /** open directory picker and update session cwd when idle */
   terminalPickCwd?(sessionId: string): Promise<string | null>
+  /** open directory picker and update a terminal group's default cwd */
+  terminalPickGroupCwd?(groupId: string): Promise<TerminalWorkspaceSnapshot | null>
+  /** fetch authoritative workspace groups & split trees */
+  terminalWorkspaceGet?(): Promise<TerminalWorkspaceSnapshot>
+  /** dispatch an atomic group/layout mutation to the workspace manager */
+  terminalWorkspaceAction?(action: TerminalWorkspaceAction): Promise<TerminalWorkspaceSnapshot>
+  /** list saved terminal workspace profiles */
+  terminalListProfiles?(): Promise<TerminalWorkspaceProfile[]>
+  /** save a terminal group as a reusable workspace profile */
+  terminalSaveProfile?(input: TerminalSaveProfileInput): Promise<TerminalWorkspaceProfile>
+  /** delete a saved workspace profile */
+  terminalDeleteProfile?(profileId: string): Promise<void>
+  /** create a new terminal group populated from a saved profile */
+  terminalLaunchProfile?(profileId: string): Promise<TerminalWorkspaceSnapshot>
+  /** list saved command snippets */
+  terminalListSnippets?(): Promise<TerminalCommandSnippet[]>
+  /** create or update a command snippet */
+  terminalSaveSnippet?(input: TerminalSaveSnippetInput): Promise<TerminalCommandSnippet>
+  /** remove a command snippet */
+  terminalDeleteSnippet?(snippetId: string): Promise<void>
   /** pop out a session into a dedicated workbench terminal tab */
   terminalOpenTab?(opts?: TerminalOpenTabOpts): Promise<string>
   /** dock an independent terminal tab back into Home's bottom drawer */

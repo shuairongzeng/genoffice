@@ -248,6 +248,8 @@ export interface DesktopViewProps {
   readonly onOpenSettings: (target: SettingsTarget) => void
   /** open the bottom terminal drawer */
   readonly onOpenTerminal?: () => void
+  /** open the bottom terminal drawer at a target file/folder path */
+  readonly onOpenTerminalAtPath?: (targetPath?: string) => void
   /** open one folder root's list view */
   readonly onOpenFolder: (root: FolderRoot) => void
   /**
@@ -566,6 +568,7 @@ export function DesktopView({
   onOpenTemplates,
   onOpenSettings,
   onOpenTerminal,
+  onOpenTerminalAtPath,
   onOpenFolder,
   onAddFolderRoot,
   onRemoveFolderRoot,
@@ -2106,6 +2109,10 @@ export function DesktopView({
   // reveal applies to file icons and to aliases of either kind — a real file
   // or folder is on disk behind them (app icons and folder roots offer none)
   const menuPath = menuIcon && (menuIcon.kind === 'file' || menuIcon.alias) ? menuIcon.path : null
+  const menuTerminalPath =
+    menuIcon && (menuIcon.kind === 'file' || menuIcon.kind === 'folder') && menuIcon.path
+      ? menuIcon.path
+      : null
   /** file and folder icons get a Properties dialog; apps and stacks do not */
   const menuPropsIcon =
     menuIcon && (menuIcon.kind === 'file' || menuIcon.kind === 'folder') ? menuIcon : null
@@ -3552,6 +3559,18 @@ export function DesktopView({
                 {s.menuReveal}
               </button>
             )}
+            {menuTerminalPath !== null && (
+              <button
+                role="menuitem"
+                data-testid="desktop-icon-menu-open-terminal"
+                onClick={() => {
+                  setMenu(null)
+                  onOpenTerminalAtPath?.(menuTerminalPath)
+                }}
+              >
+                {s.menuOpenInTerminal}
+              </button>
+            )}
             {menuPropsIcon !== null && (
               <button role="menuitem" onClick={() => openIconProps(menuPropsIcon)}>
                 {s.menuProps}
@@ -3973,6 +3992,21 @@ export function DesktopView({
               }
             >
               {s.menuNewGroupBox}
+            </button>
+            <button
+              role="menuitem"
+              data-testid="desktop-menu-open-terminal"
+              onMouseEnter={(event) =>
+                scheduleSubmenu(null, { x: event.clientX, y: event.clientY })
+              }
+              onClick={() => {
+                clearSubHoverTimer()
+                setSurfaceMenu(null)
+                setSurfaceSub(null)
+                onOpenTerminalAtPath?.()
+              }}
+            >
+              {s.menuOpenTerminal}
             </button>
             <button
               role="menuitem"

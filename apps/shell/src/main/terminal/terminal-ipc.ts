@@ -4,18 +4,44 @@ import {
   type TerminalAskAiPayload,
   type TerminalCreateOpts,
   type TerminalDrawerRequest,
+  type TerminalDropZone,
+  type TerminalGroupColor,
+  type TerminalLayoutPreset,
   type TerminalMode,
   type TerminalOpenTabOpts,
+  type TerminalSaveProfileInput,
+  type TerminalSaveSnippetInput,
   type TerminalShellKind,
+  type TerminalSplitDirection,
+  type TerminalWorkspaceAction,
 } from '../../shared/terminal-api'
 import type { TerminalSessionManager } from './terminal-session-manager'
+import type { TerminalWorkspaceManager } from './terminal-workspace-manager'
 
 const VALID_SHELL_KINDS = new Set<TerminalShellKind>(['powershell', 'cmd', 'bash', 'zsh', 'sh'])
 const VALID_TERMINAL_MODES = new Set<TerminalMode>(['pty', 'block'])
 const VALID_DRAWER_ACTIONS = new Set<TerminalDrawerRequest['action']>(['open', 'close', 'toggle'])
+const VALID_GROUP_COLORS = new Set<TerminalGroupColor>([
+  'blue',
+  'emerald',
+  'amber',
+  'purple',
+  'rose',
+  'slate',
+])
+const VALID_SPLIT_DIRECTIONS = new Set<TerminalSplitDirection>(['horizontal', 'vertical'])
+const VALID_LAYOUT_PRESETS = new Set<TerminalLayoutPreset>([
+  'single',
+  'split-h',
+  'split-v',
+  'left-right2',
+  'grid-2x2',
+])
+const VALID_DROP_ZONES = new Set<TerminalDropZone>(['top', 'bottom', 'left', 'right', 'center'])
 
 export interface TerminalIpcDeps {
   manager: TerminalSessionManager
+  workspace: TerminalWorkspaceManager
   openTerminalTab: (opts?: TerminalOpenTabOpts) => string | Promise<string>
   dockToDrawer: (sessionId: string) => void | Promise<void>
   requestDrawer: (req: TerminalDrawerRequest) => void | Promise<void>
@@ -130,6 +156,20 @@ function parseDrawerRequest(raw: unknown): TerminalDrawerRequest {
   if (raw.sessionId !== undefined) {
     req.sessionId = parseSessionId(raw.sessionId)
   }
+  if (raw.path !== undefined) {
+    if (typeof raw.path !== 'string') {
+      throw new Error('Invalid terminal drawer path')
+    }
+    if (raw.path.trim()) {
+      req.path = raw.path
+    }
+  }
+  if (raw.createNew !== undefined) {
+    if (typeof raw.createNew !== 'boolean') {
+      throw new Error('Invalid terminal drawer createNew flag')
+    }
+    req.createNew = raw.createNew
+  }
   return req
 }
 
@@ -151,6 +191,289 @@ function parseAskAiPayload(raw: unknown): TerminalAskAiPayload {
     cwd: raw.cwd,
     exitCode: raw.exitCode,
     output: raw.output,
+  }
+}
+
+function parseNonEmptyId(raw: unknown, label: string): string {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new Error(`Invalid terminal ${label}`)
+  }
+  return raw
+}
+
+function parseGroupColor(raw: unknown): TerminalGroupColor {
+  if (typeof raw !== 'string' || !VALID_GROUP_COLORS.has(raw as TerminalGroupColor)) {
+    throw new Error('Invalid terminal group color')
+  }
+  return raw as TerminalGroupColor
+}
+
+function parseSplitDirection(raw: unknown): TerminalSplitDirection {
+  if (typeof raw !== 'string' || !VALID_SPLIT_DIRECTIONS.has(raw as TerminalSplitDirection)) {
+    throw new Error('Invalid terminal split direction')
+  }
+  return raw as TerminalSplitDirection
+}
+
+function parseOptionalString(raw: unknown, label: string): string | undefined {
+  if (raw === undefined) return undefined
+  if (typeof raw !== 'string') throw new Error(`Invalid terminal ${label}`)
+  return raw
+}
+
+function parseOptionalBool(raw: unknown, label: string): boolean | undefined {
+  if (raw === undefined) return undefined
+  if (typeof raw !== 'boolean') throw new Error(`Invalid terminal ${label}`)
+  return raw
+}
+
+function parseWorkspaceAction(raw: unknown): TerminalWorkspaceAction {
+  if (!isPlainRecord(raw) || typeof raw.type !== 'string') {
+    throw new Error('Invalid terminal workspace action')
+  }
+  switch (raw.type) {
+    case 'create-group': {
+      const name = parseOptionalString(raw.name, 'group name')
+      const defaultCwd = parseOptionalString(raw.defaultCwd, 'group defaultCwd')
+      const color = raw.color !== undefined ? parseGroupColor(raw.color) : undefined
+      const activate = parseOptionalBool(raw.activate, 'activate flag')
+      let shell: TerminalShellKind | undefined
+      if (raw.shell !== undefined) {
+        if (
+          typeof raw.shell !== 'string' ||
+          !VALID_SHELL_KINDS.has(raw.shell as TerminalShellKind)
+        ) {
+          throw new Error('Invalid terminal shell kind')
+        }
+        shell = raw.shell as TerminalShellKind
+      }
+      let mode: TerminalMode | undefined
+      if (raw.mode !== undefined) {
+        if (typeof raw.mode !== 'string' || !VALID_TERMINAL_MODES.has(raw.mode as TerminalMode)) {
+          throw new Error('Invalid terminal mode')
+        }
+        mode = raw.mode as TerminalMode
+      }
+      return {
+        type: 'create-group',
+        ...(name !== undefined ? { name } : {}),
+        ...(color !== undefined ? { color } : {}),
+        ...(defaultCwd !== undefined ? { defaultCwd } : {}),
+        ...(shell !== undefined ? { shell } : {}),
+        ...(mode !== undefined ? { mode } : {}),
+        ...(activate !== undefined ? { activate } : {}),
+      }
+    }
+    case 'activate-group':
+      return { type: 'activate-group', groupId: parseNonEmptyId(raw.groupId, 'groupId') }
+    case 'update-group': {
+      const name = parseOptionalString(raw.name, 'group name')
+      const color = raw.color !== undefined ? parseGroupColor(raw.color) : undefined
+      let defaultCwd: string | null | undefined
+      if (raw.defaultCwd !== undefined) {
+        if (raw.defaultCwd !== null && typeof raw.defaultCwd !== 'string') {
+          throw new Error('Invalid terminal group defaultCwd')
+        }
+        defaultCwd = raw.defaultCwd
+      }
+      const collapsed = parseOptionalBool(raw.collapsed, 'collapsed flag')
+      const broadcastEnabled = parseOptionalBool(raw.broadcastEnabled, 'broadcast flag')
+      return {
+        type: 'update-group',
+        groupId: parseNonEmptyId(raw.groupId, 'groupId'),
+        ...(name !== undefined ? { name } : {}),
+        ...(color !== undefined ? { color } : {}),
+        ...(defaultCwd !== undefined ? { defaultCwd } : {}),
+        ...(collapsed !== undefined ? { collapsed } : {}),
+        ...(broadcastEnabled !== undefined ? { broadcastEnabled } : {}),
+      }
+    }
+    case 'close-group':
+      return { type: 'close-group', groupId: parseNonEmptyId(raw.groupId, 'groupId') }
+    case 'split-pane': {
+      let position: 'before' | 'after' | undefined
+      if (raw.position !== undefined) {
+        if (raw.position !== 'before' && raw.position !== 'after') {
+          throw new Error('Invalid split position')
+        }
+        position = raw.position
+      }
+      return {
+        type: 'split-pane',
+        groupId: parseNonEmptyId(raw.groupId, 'groupId'),
+        targetPaneId: parseNonEmptyId(raw.targetPaneId, 'targetPaneId'),
+        direction: parseSplitDirection(raw.direction),
+        ...(position ? { position } : {}),
+        ...(raw.sessionId !== undefined ? { sessionId: parseSessionId(raw.sessionId) } : {}),
+        ...(raw.createOpts !== undefined ? { createOpts: parseCreateOpts(raw.createOpts) } : {}),
+      }
+    }
+    case 'close-pane':
+      return {
+        type: 'close-pane',
+        groupId: parseNonEmptyId(raw.groupId, 'groupId'),
+        paneId: parseNonEmptyId(raw.paneId, 'paneId'),
+        ...(raw.killSessionIfUnused !== undefined
+          ? { killSessionIfUnused: parseOptionalBool(raw.killSessionIfUnused, 'kill flag') }
+          : {}),
+      }
+    case 'focus-pane':
+      return {
+        type: 'focus-pane',
+        groupId: parseNonEmptyId(raw.groupId, 'groupId'),
+        paneId: parseNonEmptyId(raw.paneId, 'paneId'),
+      }
+    case 'zoom-pane':
+      return {
+        type: 'zoom-pane',
+        groupId: parseNonEmptyId(raw.groupId, 'groupId'),
+        paneId: raw.paneId === null ? null : parseNonEmptyId(raw.paneId, 'paneId'),
+      }
+    case 'resize-split': {
+      if (typeof raw.ratio !== 'number' || !Number.isFinite(raw.ratio)) {
+        throw new Error('Invalid split ratio')
+      }
+      return {
+        type: 'resize-split',
+        groupId: parseNonEmptyId(raw.groupId, 'groupId'),
+        splitId: parseNonEmptyId(raw.splitId, 'splitId'),
+        ratio: raw.ratio,
+      }
+    }
+    case 'swap-panes':
+      return {
+        type: 'swap-panes',
+        groupId: parseNonEmptyId(raw.groupId, 'groupId'),
+        paneAId: parseNonEmptyId(raw.paneAId, 'paneAId'),
+        paneBId: parseNonEmptyId(raw.paneBId, 'paneBId'),
+      }
+    case 'drop-pane': {
+      if (typeof raw.zone !== 'string' || !VALID_DROP_ZONES.has(raw.zone as TerminalDropZone)) {
+        throw new Error('Invalid drop zone')
+      }
+      return {
+        type: 'drop-pane',
+        sourceGroupId: parseNonEmptyId(raw.sourceGroupId, 'sourceGroupId'),
+        sourcePaneId: parseNonEmptyId(raw.sourcePaneId, 'sourcePaneId'),
+        targetGroupId: parseNonEmptyId(raw.targetGroupId, 'targetGroupId'),
+        targetPaneId: parseNonEmptyId(raw.targetPaneId, 'targetPaneId'),
+        zone: raw.zone as TerminalDropZone,
+      }
+    }
+    case 'apply-preset': {
+      if (
+        typeof raw.preset !== 'string' ||
+        !VALID_LAYOUT_PRESETS.has(raw.preset as TerminalLayoutPreset)
+      ) {
+        throw new Error('Invalid layout preset')
+      }
+      return {
+        type: 'apply-preset',
+        groupId: parseNonEmptyId(raw.groupId, 'groupId'),
+        preset: raw.preset as TerminalLayoutPreset,
+        ...(raw.defaultOpts !== undefined ? { defaultOpts: parseCreateOpts(raw.defaultOpts) } : {}),
+      }
+    }
+    case 'add-session-to-group':
+      return {
+        type: 'add-session-to-group',
+        groupId: parseNonEmptyId(raw.groupId, 'groupId'),
+        ...(raw.opts !== undefined ? { opts: parseCreateOpts(raw.opts) } : {}),
+        ...(raw.replaceFocusedPane !== undefined
+          ? { replaceFocusedPane: parseOptionalBool(raw.replaceFocusedPane, 'replaceFocusedPane') }
+          : {}),
+      }
+    case 'select-group-session':
+      return {
+        type: 'select-group-session',
+        groupId: parseNonEmptyId(raw.groupId, 'groupId'),
+        sessionId: parseSessionId(raw.sessionId),
+        ...(raw.targetPaneId !== undefined
+          ? { targetPaneId: parseNonEmptyId(raw.targetPaneId, 'targetPaneId') }
+          : {}),
+      }
+    case 'move-session-to-group':
+      return {
+        type: 'move-session-to-group',
+        sessionId: parseSessionId(raw.sessionId),
+        targetGroupId: parseNonEmptyId(raw.targetGroupId, 'targetGroupId'),
+      }
+    case 'rename-session': {
+      if (typeof raw.title !== 'string') {
+        throw new Error('Invalid session title')
+      }
+      return {
+        type: 'rename-session',
+        sessionId: parseSessionId(raw.sessionId),
+        title: raw.title,
+      }
+    }
+    case 'set-session-osc-title': {
+      if (typeof raw.oscTitle !== 'string') {
+        throw new Error('Invalid session oscTitle')
+      }
+      return {
+        type: 'set-session-osc-title',
+        sessionId: parseSessionId(raw.sessionId),
+        oscTitle: raw.oscTitle,
+      }
+    }
+    case 'broadcast-write': {
+      if (typeof raw.data !== 'string') {
+        throw new Error('Invalid broadcast payload')
+      }
+      return {
+        type: 'broadcast-write',
+        groupId: parseNonEmptyId(raw.groupId, 'groupId'),
+        data: raw.data,
+      }
+    }
+    default:
+      throw new Error(`Unsupported workspace action: ${raw.type}`)
+  }
+}
+
+function parseSaveProfileInput(raw: unknown): TerminalSaveProfileInput {
+  if (!isPlainRecord(raw)) {
+    throw new Error('Invalid terminal save profile payload')
+  }
+  const groupId = parseNonEmptyId(raw.groupId, 'groupId')
+  const name = parseNonEmptyId(raw.name, 'profile name')
+  let startupCommandsBySessionId: Record<string, string> | undefined
+  if (raw.startupCommandsBySessionId !== undefined) {
+    if (!isPlainRecord(raw.startupCommandsBySessionId)) {
+      throw new Error('Invalid profile startup commands map')
+    }
+    startupCommandsBySessionId = {}
+    for (const [k, v] of Object.entries(raw.startupCommandsBySessionId)) {
+      if (typeof v !== 'string') {
+        throw new Error('Invalid startup command value')
+      }
+      startupCommandsBySessionId[k] = v
+    }
+  }
+  return {
+    groupId,
+    name,
+    ...(startupCommandsBySessionId ? { startupCommandsBySessionId } : {}),
+  }
+}
+
+function parseSaveSnippetInput(raw: unknown): TerminalSaveSnippetInput {
+  if (!isPlainRecord(raw)) {
+    throw new Error('Invalid terminal save snippet payload')
+  }
+  const id = raw.id !== undefined ? parseNonEmptyId(raw.id, 'snippet id') : undefined
+  const title = parseNonEmptyId(raw.title, 'snippet title')
+  const command = parseNonEmptyId(raw.command, 'snippet command')
+  if (typeof raw.sendEnter !== 'boolean') {
+    throw new Error('Invalid snippet sendEnter flag')
+  }
+  return {
+    ...(id ? { id } : {}),
+    title,
+    command,
+    sendEnter: raw.sendEnter,
   }
 }
 
@@ -219,6 +542,50 @@ export function registerTerminalIpc(deps: TerminalIpcDeps): void {
     const picked = await deps.pickDirectory(session.cwd)
     if (!picked) return null
     return deps.manager.setCwd(sessionId, picked)
+  })
+
+  registerIdempotentHandler(TERMINAL_CHANNELS.pickGroupCwd, async (_event, rawGroupId) => {
+    const groupId = parseNonEmptyId(rawGroupId, 'groupId')
+    const snapshot = deps.workspace.getSnapshot()
+    const group = snapshot.groups.find((g) => g.id === groupId)
+    if (!group) {
+      throw new Error(`Terminal group not found: ${groupId}`)
+    }
+    const firstSessionId = group.sessionIds[0]
+    const fallbackCwd = firstSessionId ? deps.manager.getSession(firstSessionId)?.cwd : undefined
+    const picked = await deps.pickDirectory(group.defaultCwd ?? fallbackCwd)
+    if (!picked) return null
+    return deps.workspace.updateGroupDefaultCwd(groupId, picked)
+  })
+
+  registerIdempotentHandler(TERMINAL_CHANNELS.workspaceGet, () => deps.workspace.getSnapshot())
+
+  registerIdempotentHandler(TERMINAL_CHANNELS.workspaceAction, (_event, rawAction) =>
+    deps.workspace.dispatch(parseWorkspaceAction(rawAction)),
+  )
+
+  registerIdempotentHandler(TERMINAL_CHANNELS.listProfiles, () => deps.workspace.listProfiles())
+
+  registerIdempotentHandler(TERMINAL_CHANNELS.saveProfile, (_event, rawInput) =>
+    deps.workspace.saveProfileFromGroup(parseSaveProfileInput(rawInput)),
+  )
+
+  registerIdempotentHandler(TERMINAL_CHANNELS.deleteProfile, (_event, rawProfileId) => {
+    deps.workspace.deleteProfile(parseNonEmptyId(rawProfileId, 'profileId'))
+  })
+
+  registerIdempotentHandler(TERMINAL_CHANNELS.launchProfile, (_event, rawProfileId) =>
+    deps.workspace.launchProfile(parseNonEmptyId(rawProfileId, 'profileId')),
+  )
+
+  registerIdempotentHandler(TERMINAL_CHANNELS.listSnippets, () => deps.workspace.listSnippets())
+
+  registerIdempotentHandler(TERMINAL_CHANNELS.saveSnippet, (_event, rawInput) =>
+    deps.workspace.saveSnippet(parseSaveSnippetInput(rawInput)),
+  )
+
+  registerIdempotentHandler(TERMINAL_CHANNELS.deleteSnippet, (_event, rawSnippetId) => {
+    deps.workspace.deleteSnippet(parseNonEmptyId(rawSnippetId, 'snippetId'))
   })
 
   registerIdempotentHandler(TERMINAL_CHANNELS.openTab, (_event, rawOpts) =>

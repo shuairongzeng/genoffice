@@ -68,6 +68,43 @@ export function readXtermThemeFromElement(el: HTMLElement | null): ITheme {
   return theme
 }
 
+export interface PtySearchDecorations {
+  matchBackground: string
+  matchBorder: string
+  matchOverviewRuler: string
+  activeMatchBackground: string
+  activeMatchBorder: string
+  activeMatchColorOverviewRuler: string
+}
+
+/**
+ * Read active `--term-search-*` #RRGGBB tokens so `@xterm/addon-search` enables
+ * full match-count reporting and theme-adaptive highlights without hardcoded colors.
+ */
+export function readSearchDecorationsFromElement(
+  el: HTMLElement | null,
+): PtySearchDecorations | undefined {
+  if (!el || typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') {
+    return undefined
+  }
+  const styles = window.getComputedStyle(el)
+  const matchBg = styles.getPropertyValue('--term-search-match').trim()
+  const activeBg = styles.getPropertyValue('--term-search-active').trim()
+  const matchRuler = styles.getPropertyValue('--term-search-ruler').trim()
+  const activeRuler = styles.getPropertyValue('--term-search-active-ruler').trim()
+  if (!matchBg || !activeBg || !matchRuler || !activeRuler) {
+    return undefined
+  }
+  return {
+    matchBackground: matchBg,
+    matchBorder: matchRuler,
+    matchOverviewRuler: matchRuler,
+    activeMatchBackground: activeBg,
+    activeMatchBorder: activeRuler,
+    activeMatchColorOverviewRuler: activeRuler,
+  }
+}
+
 export interface PtyRichCandidate {
   source: string
   detection: RichOutputDetection

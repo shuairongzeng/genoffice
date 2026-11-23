@@ -15,6 +15,7 @@ export type TabMenuStringKey =
   | 'menuTabCopyPath'
   | 'menuTabCopyName'
   | 'menuTabReveal'
+  | 'menuTabOpenInTerminal'
   | 'menuTabOpenDefault'
   | 'menuTabMoveLeft'
   | 'menuTabMoveRight'
@@ -43,6 +44,7 @@ export interface TabMenuActions {
   duplicate(path: string): void
   copyText(text: string): void
   reveal(path: string): void
+  openInTerminal?(path: string): void
   openDefault(path: string): void
   move(id: string, toIndex: number): void
   /** close these tabs one after another (a save prompt that is cancelled stops the rest) */
@@ -245,6 +247,12 @@ export function tabMenuTemplate(input: TabMenuInput): MenuItemConstructorOptions
       label: tm('menuTabReveal'),
       enabled: onDisk,
       click: () => actions.reveal(file!),
+    },
+    {
+      id: 'openInTerminal',
+      label: tm('menuTabOpenInTerminal'),
+      enabled: onDisk,
+      click: () => actions.openInTerminal?.(file!),
     },
     {
       id: 'openDefault',

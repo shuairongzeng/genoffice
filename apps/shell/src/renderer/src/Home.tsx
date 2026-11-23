@@ -700,6 +700,14 @@ export function Home() {
   )
 
   const openTerminalDrawer = useCallback(() => applyTerminalOpen(true), [applyTerminalOpen])
+  const openTerminalAtPath = useCallback((targetPath?: string) => {
+    const api = window.aiOffice as Partial<HomeApi>
+    void api.terminalRequestDrawer?.({
+      action: 'open',
+      createNew: true,
+      ...(targetPath ? { path: targetPath } : {}),
+    })
+  }, [])
   const toggleTerminalDrawer = useCallback(
     () => applyTerminalOpen(!terminalOpenRef.current),
     [applyTerminalOpen],
@@ -2240,6 +2248,7 @@ export function Home() {
     setFolderMenu,
     startRenameFolder,
     confirmDeleteFolder: setConfirmDeleteFolder,
+    openInTerminal: (targetPath) => openTerminalAtPath(targetPath),
   }
 
   // ── Empty-state card (shared markup in home-shared.tsx) ──
@@ -3193,6 +3202,7 @@ export function Home() {
               onOpenTemplates={openTemplates}
               onOpenSettings={openSettings}
               onOpenTerminal={openTerminalDrawer}
+              onOpenTerminalAtPath={openTerminalAtPath}
               onOpenFolder={openFolderView}
               onAddFolderRoot={addFolderRoot}
               onRemoveFolderRoot={removeFolderRoot}
