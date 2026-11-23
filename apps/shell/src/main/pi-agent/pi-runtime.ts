@@ -16,11 +16,13 @@ import type {
   AgentSession,
   AgentSessionEvent,
   ExtensionCommandContextActions,
+  ExtensionFactory,
   SessionManager,
   SettingsManager,
 } from '@earendil-works/pi-coding-agent'
 import type { AiPermissionMode } from '@genoffice/ui/ai-permission-mode'
 
+import { isButlerChiefSession } from '../../shared/butler-orchestrator-api'
 import {
   type PiAgentCommandInfo,
   type PiAgentConfirmReply,
@@ -378,6 +380,13 @@ export interface PiRuntimeManagerDeps {
   readonly sendNoticeEvent: (notice: PiAgentNoticePayload) => void
   readonly resolveSkillPathsByName?: (names: readonly string[]) => readonly string[]
   readonly getPersonaSection?: () => string
+  readonly interceptConfirmRequest?: (
+    request: PiAgentConfirmRequest,
+  ) => Promise<PiAgentConfirmReply | null>
+  readonly resolveSessionExtensions?: (sessionKey: string) => {
+    readonly key: string
+    readonly factories: readonly ExtensionFactory[]
+  } | null
 }
 
 interface CachedSessionRecord {
@@ -436,7 +445,12 @@ function resolveBundledSkillDirs(opts: {
   return dirs
 }
 
-export function prefsReloadKey(prefs: PiAgentPrefs, storageMode: string, persona = ''): string {
+export function prefsReloadKey(
+  prefs: PiAgentPrefs,
+  storageMode: string,
+  persona = '',
+  sessionRoleKey = '',
+): string {
   return JSON.stringify([
     prefs.magicContextEnabled,
     storageMode,
@@ -450,6 +464,7 @@ export function prefsReloadKey(prefs: PiAgentPrefs, storageMode: string, persona
     prefs.dreamerModel,
     prefs.systemPrompt,
     persona,
+    sessionRoleKey,
   ])
 }
 
@@ -550,7 +565,7 @@ export class PiAgentRuntimeManager {
     while (this.cache.size >= MAX_CACHED_SESSIONS) {
       let victimKey: string | undefined
       for (const [key, rec] of this.cache) {
-        if (!rec.busy && !this.activeRuns.has(key)) {
+        if (!rec.busy && !this.activeRuns.has(key) && !isButlerChiefSession(key)) {
           victimKey = key
           break
         }
@@ -594,8 +609,19 @@ export class PiAgentRuntimeManager {
     coord: WorkbenchExtensionCoord
     getToolAnnotations?: Parameters<typeof createGenofficePermissionExtension>[1]
     persona?: string
+    extraExtensionFactories?: readonly ExtensionFactory[]
   }) {
-    const { sdk, paths, prefs, cwd, settingsManager, coord, getToolAnnotations, persona } = opts
+    const {
+      sdk,
+      paths,
+      prefs,
+      cwd,
+      settingsManager,
+      coord,
+      getToolAnnotations,
+      persona,
+      extraExtensionFactories,
+    } = opts
     return new sdk.DefaultResourceLoader({
       cwd,
       agentDir: paths.agentDir,
@@ -619,6 +645,7 @@ export class PiAgentRuntimeManager {
           },
           getToolAnnotations,
         ),
+        ...(extraExtensionFactories ?? []),
       ],
       systemPromptOverride: (base) =>
         appendButlerPersona(resolveGenofficeSystemPrompt(base, prefs.systemPrompt), persona ?? ''),
@@ -676,7 +703,20 @@ export class PiAgentRuntimeManager {
     return this.deps.userDataDir
   }
 
-  private requestPanelConfirm(request: PiAgentConfirmRequest): Promise<ConfirmPromptResponse> {
+  private async requestPanelConfirm(
+    request: PiAgentConfirmRequest,
+  ): Promise<ConfirmPromptResponse> {
+    if (this.deps.interceptConfirmRequest) {
+      const intercepted = await this.deps.interceptConfirmRequest(request)
+      if (intercepted) {
+        return {
+          allowed: intercepted.allowed === true,
+          ...(intercepted.alwaysAllowSession !== undefined
+            ? { alwaysAllowSession: intercepted.alwaysAllowSession }
+            : {}),
+        }
+      }
+    }
     return new Promise<ConfirmPromptResponse>((resolve) => {
       this.pendingConfirms.set(request.requestId, {
         sessionKey: request.sessionKey,
@@ -721,7 +761,13 @@ export class PiAgentRuntimeManager {
     }
 
     const persona = this.deps.getPersonaSection?.() ?? ''
-    const currentPrefsKey = prefsReloadKey(prefs, prefs.magicContextStorageMode, persona)
+    const sessionExtensions = this.deps.resolveSessionExtensions?.(req.sessionKey) ?? null
+    const currentPrefsKey = prefsReloadKey(
+      prefs,
+      prefs.magicContextStorageMode,
+      persona,
+      sessionExtensions?.key ?? '',
+    )
     const cached = this.cache.get(req.sessionKey)
     if (cached) {
       if (cached.prefsKey === currentPrefsKey) {
@@ -760,6 +806,7 @@ export class PiAgentRuntimeManager {
       settingsManager,
       coord,
       persona,
+      ...(sessionExtensions ? { extraExtensionFactories: sessionExtensions.factories } : {}),
       getToolAnnotations: (toolName) =>
         sessionRef?.extensionRunner.getToolDefinition(toolName)?.annotations,
     })
@@ -1265,7 +1312,7 @@ export class PiAgentRuntimeManager {
         return {
           ok: true,
           commandHandled: true,
-          ...(commandOutput ? { commandOutput } : {}),
+          ...(commandOutput ? { commandOutput, finalText: commandOutput } : {}),
         }
       }
 
@@ -1292,7 +1339,10 @@ export class PiAgentRuntimeManager {
         payload: null,
       })
 
-      return { ok: true }
+      return {
+        ok: true,
+        ...(finalCleanText ? { finalText: finalCleanText } : {}),
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       broadcastAskRunEventFromMain({

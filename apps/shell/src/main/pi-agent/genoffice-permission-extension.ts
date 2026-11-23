@@ -18,12 +18,19 @@ import type { PiAgentConfirmRequest } from '../../shared/pi-agent-api'
 import type { AiSessionAllows } from '../ai-session-allows'
 import type { WorkbenchToolsService } from '../workbench-tools-service'
 import {
+  BUTLER_CHIEF_TOOL_NAMES,
+  BUTLER_WORKER_TOOL_NAMES,
+} from '../butler/butler-orchestrator-extension'
+import {
   PARANOID_SIDE_EFFECT_TOOLS,
   type WorkbenchExtensionCoord,
 } from './genoffice-workbench-extension'
 
 /** Pure read-only tools across GenOffice, Pi core, and Magic Context (never ask). */
 const ALWAYS_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  // Chief-of-Staff Butler orchestrator coordination & escalation tools
+  ...BUTLER_CHIEF_TOOL_NAMES,
+  ...BUTLER_WORKER_TOOL_NAMES,
   // GenOffice KB & attachments & read-only tools
   'search_knowledge_base',
   'read_knowledge_file',
@@ -58,12 +65,7 @@ const ALWAYS_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 ])
 
 /** Pi built-in mutating / execution tools (require permission under smart & paranoid). */
-const PI_SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
-  'bash',
-  'powershell',
-  'edit',
-  'write',
-])
+const PI_SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set(['bash', 'powershell', 'edit', 'write'])
 
 export type ToolPermissionGrade = 'read' | 'side-effect' | 'destructive'
 

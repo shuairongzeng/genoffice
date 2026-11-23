@@ -424,6 +424,44 @@ export function TerminalGlyph(): React.JSX.Element {
   )
 }
 
+/** Chief Butler concentric arc-reactor glyph for desktop and dock tiles. */
+export function ButlerGlyph(): React.JSX.Element {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <circle
+        cx="16"
+        cy="16"
+        r="11.5"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeOpacity="0.4"
+      />
+      <path
+        d="M16 4.5A11.5 11.5 0 0 1 25.96 10.25"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M16 27.5A11.5 11.5 0 0 1 6.04 21.75"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+      />
+      <circle
+        cx="16"
+        cy="16"
+        r="6.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        fill="currentColor"
+        fillOpacity="0.14"
+      />
+      <circle cx="16" cy="16" r="2.7" fill="currentColor" />
+    </svg>
+  )
+}
+
 /** Desktop "This PC" Studio Display × Win11 Bloom squircle glyph for desktop and dock tiles. */
 export function ComputerGlyph(): React.JSX.Element {
   const id = useGlyphIds()

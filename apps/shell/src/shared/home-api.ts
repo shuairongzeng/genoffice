@@ -20,9 +20,16 @@ import type { DockCustomItem, DockOpenState, DockPrefs } from './dock-prefs'
 import type { AiPetBondStage, AiPetId, AiPetPrefs, AiPetPrefsPatch } from './ai-pet-prefs'
 import type { ButlerPrefs, ButlerPrefsPatch } from './butler-prefs'
 import type {
+  ButlerActionResult,
+  ButlerDelegateResult,
+  ButlerDeskSnapshot,
   ButlerHudState,
+  ButlerOpenDeskPayload,
   ButlerOpenTarget,
+  ButlerResolveDecisionRequest,
+  ButlerResolveDecisionResult,
   ButlerSpeakRequest,
+  ButlerSteerTaskRequest,
   ButlerSubmitResult,
   ButlerTaskUpdate,
 } from './butler-api'
@@ -71,20 +78,39 @@ export type {
 export type { AiPetBondStage, AiPetId, AiPetPrefs, AiPetPrefsPatch } from './ai-pet-prefs'
 export type { ButlerPrefs, ButlerPrefsPatch } from './butler-prefs'
 export type {
+  ButlerArtifactRef,
   ButlerBriefing,
   ButlerBriefingItem,
   ButlerBriefingKind,
   ButlerBriefingRef,
+  ButlerActionResult,
+  ButlerConversationEntry,
+  ButlerDecisionItem,
+  ButlerDecisionKind,
+  ButlerDecisionOption,
+  ButlerDecisionResolution,
+  ButlerDelegateResult,
+  ButlerDeskSnapshot,
   ButlerHudState,
+  ButlerMission,
+  ButlerMissionReport,
+  ButlerMissionStatus,
+  ButlerOpenDeskPayload,
   ButlerOpenTarget,
   ButlerPartOfDay,
+  ButlerResolveDecisionRequest,
+  ButlerResolveDecisionResult,
   ButlerSpeakRequest,
+  ButlerSteerTaskRequest,
   ButlerStep,
   ButlerStepKind,
+  ButlerSubTask,
+  ButlerSubTaskStatus,
   ButlerSubmitError,
   ButlerSubmitResult,
   ButlerTaskStatus,
   ButlerTaskUpdate,
+  ButlerWorkerRole,
 } from './butler-api'
 export type {
   MagicContextEmbeddingMode,
@@ -1298,6 +1324,24 @@ export interface HomeApi {
   onButlerShown?(handler: () => void): () => void
   /** Subscribe to Butler voice announcement requests (`home:butler-speak`). */
   onButlerSpeak?(handler: (req: ButlerSpeakRequest) => void): () => void
+  /** Fetch the full Chief Butler desk snapshot (missions, subtasks, decision inbox, feed). */
+  butlerDeskState?(): Promise<ButlerDeskSnapshot>
+  /** Subscribe to real-time Chief Butler desk snapshot updates (`home:butler-desk-updated`). */
+  onButlerDeskUpdated?(handler: (snapshot: ButlerDeskSnapshot) => void): () => void
+  /** Delegate a composite user goal to the Chief Butler (`home:butler-delegate`). */
+  butlerDelegate?(goal: string): Promise<ButlerDelegateResult>
+  /** Resolve one pending human-in-the-loop decision item (`home:butler-resolve-decision`). */
+  butlerResolveDecision?(req: ButlerResolveDecisionRequest): Promise<ButlerResolveDecisionResult>
+  /** Cancel an entire Butler mission and all queued/active subtasks (`home:butler-cancel-mission`). */
+  butlerCancelMission?(missionId: string): Promise<ButlerActionResult>
+  /** Cancel a single background worker subtask (`home:butler-cancel-task`). */
+  butlerCancelTask?(taskId: string): Promise<ButlerActionResult>
+  /** Steer an active or failed worker task with updated instruction (`home:butler-steer-task`). */
+  butlerSteerTask?(req: ButlerSteerTaskRequest): Promise<ButlerActionResult>
+  /** Request opening the Chief Butler desktop workbench window (`home:butler-open-desk`). */
+  butlerOpenDesk?(payload?: ButlerOpenDeskPayload): Promise<void>
+  /** Subscribe to main-process open-desk requests inside the shell window (`home:butler-open-desk`). */
+  onButlerOpenDesk?(handler: (payload: ButlerOpenDeskPayload) => void): () => void
   /**
    * Publish one of the Home loop's run events (or a message-list snapshot)
    * over `home:ask-run-event`: main relays it to every OTHER renderer, so a
@@ -2236,15 +2280,7 @@ export interface SystemSearchResult {
 }
 
 export type SystemPreviewKind =
-  | 'image'
-  | 'audio'
-  | 'video'
-  | 'pdf'
-  | 'text'
-  | 'markdown'
-  | 'html'
-  | 'office'
-  | 'unsupported'
+  'image' | 'audio' | 'video' | 'pdf' | 'text' | 'markdown' | 'html' | 'office' | 'unsupported'
 
 export interface SystemPreviewResult {
   readonly path: string
@@ -2426,6 +2462,15 @@ export const HOME_CHANNELS = {
   butlerTaskUpdate: 'home:butler-task-update',
   butlerShown: 'home:butler-shown',
   butlerSpeak: 'home:butler-speak',
+  /** Chief Butler workbench <-> main: full snapshot, updates, mission delegation, HITL decisions */
+  butlerDeskState: 'home:butler-desk-state',
+  butlerDeskUpdated: 'home:butler-desk-updated',
+  butlerDelegate: 'home:butler-delegate',
+  butlerResolveDecision: 'home:butler-resolve-decision',
+  butlerCancelMission: 'home:butler-cancel-mission',
+  butlerCancelTask: 'home:butler-cancel-task',
+  butlerSteerTask: 'home:butler-steer-task',
+  butlerOpenDesk: 'home:butler-open-desk',
   /** renderer → main: the doc-mode dock overlay's hot-edge transitions —
    *  `enter` from the strip summons the dock (or cancels a pending hide),
    *  `leave` from the revealed dock arms the grace timer */

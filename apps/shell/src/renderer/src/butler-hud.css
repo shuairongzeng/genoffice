@@ -401,6 +401,105 @@ body.butler-hud-body {
   background: color-mix(in srgb, var(--color-ai-action) 20%, transparent);
 }
 
+.butler-hud-action-btn.is-danger {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.butler-hud-action-btn.is-danger:hover {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.butler-hud-decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--butler-confirm-border);
+  background: var(--butler-confirm-bg);
+}
+
+.butler-hud-decisions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.butler-hud-decisions-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-ai-action);
+}
+
+.butler-hud-decision-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.butler-hud-decision-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+.butler-hud-decision-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font-family: inherit;
+}
+
+.butler-hud-decision-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.butler-hud-decision-summary {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.butler-hud-decision-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.butler-hud-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .butler-hud-action-btn:focus-visible {
   outline: 2px solid var(--color-brand-secondary);
   outline-offset: 1px;

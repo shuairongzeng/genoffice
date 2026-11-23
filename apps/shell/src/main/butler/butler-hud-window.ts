@@ -7,6 +7,7 @@ import {
   type WebContents,
 } from 'electron'
 import { safeExternalUrl } from '@genoffice/electron-utils'
+import type { ButlerDeskSnapshot } from '../../shared/butler-orchestrator-api'
 import { HOME_CHANNELS } from '../../shared/home-api'
 
 const HUD_MAX_WIDTH = 680
@@ -48,6 +49,7 @@ export interface ButlerHudWindow {
   webContents(): WebContents | null
   isHudSender(wc: WebContents): boolean
   send(channel: string, payload?: unknown): void
+  sendDeskUpdated(snapshot: ButlerDeskSnapshot): void
   dispose(): void
 }
 
@@ -234,6 +236,10 @@ export function createButlerHudWindow(deps: ButlerHudWindowDeps): ButlerHudWindo
     deliverToWebContents(win.webContents, channel, payload)
   }
 
+  const sendDeskUpdated = (snapshot: ButlerDeskSnapshot): void => {
+    send(HOME_CHANNELS.butlerDeskUpdated, snapshot)
+  }
+
   const dispose = (): void => {
     disposed = true
     pendingShownNotify = false
@@ -256,6 +262,7 @@ export function createButlerHudWindow(deps: ButlerHudWindowDeps): ButlerHudWindo
     webContents,
     isHudSender,
     send,
+    sendDeskUpdated,
     dispose,
   }
 }

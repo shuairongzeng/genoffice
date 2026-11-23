@@ -695,6 +695,10 @@ html.dock-view body {
   --tile-color: var(--accent);
 }
 
+.dock-tile-butler {
+  --tile-color: var(--desktop-tile-butler);
+}
+
 .dock-tile-player {
   --tile-color: var(--desktop-tile-player);
 }

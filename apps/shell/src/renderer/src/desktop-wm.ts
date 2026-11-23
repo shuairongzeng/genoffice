@@ -13,12 +13,7 @@ const MAX_CASCADE_STEPS = 16
 const CASCADE_OVERLAP_TOLERANCE_PX = 4
 
 export type DesktopAppWindowKind =
-  | 'computer'
-  | 'preview'
-  | 'player'
-  | 'kb'
-  | 'sessions'
-  | 'folder'
+  'computer' | 'preview' | 'player' | 'kb' | 'sessions' | 'butler' | 'folder'
 
 export interface DesktopWindowInstance {
   readonly id: string
@@ -309,8 +304,7 @@ function handleClose(state: DesktopWmState, id: string): DesktopWmState {
   }
   const nextOrder = state.order.filter((item) => item !== id)
   const needsRecomputeActive =
-    state.activeId === id ||
-    (state.activeId !== null && !hasOwnWindow(nextWindows, state.activeId))
+    state.activeId === id || (state.activeId !== null && !hasOwnWindow(nextWindows, state.activeId))
   const nextActiveId = needsRecomputeActive
     ? topVisibleWindowId(nextWindows, nextOrder)
     : state.activeId

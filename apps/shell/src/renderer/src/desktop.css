@@ -23,6 +23,7 @@
   --desktop-tile-html: #0fa3a3;
   --desktop-tile-browser: #0284c7;
   --desktop-tile-ask: #0f7fff;
+  --desktop-tile-butler: #0891b2;
   --desktop-tile-kb: #6366f1;
   --desktop-tile-templates: #16a34a;
   --desktop-tile-plugins: #f97316;
@@ -581,6 +582,9 @@
 }
 .desktop-tile-sessions {
   --tile-color: var(--accent);
+}
+.desktop-tile-butler {
+  --tile-color: var(--desktop-tile-butler);
 }
 .desktop-tile-templates {
   --tile-color: var(--desktop-tile-templates);

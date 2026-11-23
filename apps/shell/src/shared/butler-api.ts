@@ -1,4 +1,7 @@
+import type { ButlerDecisionItem } from './butler-orchestrator-api'
 import type { ButlerPrefs } from './butler-prefs'
+
+export * from './butler-orchestrator-api'
 
 export type ButlerTaskStatus = 'running' | 'confirm' | 'done' | 'error'
 
@@ -57,9 +60,14 @@ export interface ButlerHudState {
   readonly hotkey: string | null
   readonly briefing: ButlerBriefing | null
   readonly tasks: readonly ButlerTaskUpdate[]
+  readonly pendingDecisions?: readonly ButlerDecisionItem[]
+  readonly activeMissionCount?: number
 }
 
-export type ButlerOpenTarget = ButlerBriefingRef | { readonly type: 'settings' }
+export type ButlerOpenTarget =
+  | ButlerBriefingRef
+  | { readonly type: 'settings' }
+  | { readonly type: 'desk'; readonly missionId?: string; readonly decisionId?: string }
 
 export interface ButlerSpeakRequest {
   readonly text: string
@@ -72,6 +80,11 @@ export function isButlerOpenTarget(value: unknown): value is ButlerOpenTarget {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const raw = value as Record<string, unknown>
   if (raw.type === 'settings') return true
+  if (raw.type === 'desk') {
+    if (raw.missionId !== undefined && typeof raw.missionId !== 'string') return false
+    if (raw.decisionId !== undefined && typeof raw.decisionId !== 'string') return false
+    return true
+  }
   if (typeof raw.label !== 'string') return false
   if (raw.type === 'file') {
     return typeof raw.path === 'string' && raw.path.trim().length > 0

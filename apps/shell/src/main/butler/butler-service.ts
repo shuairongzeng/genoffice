@@ -91,7 +91,7 @@ function defaultChatId(now: number): string {
 }
 
 /** Map a runtime tool name onto one coarse-grained Butler HUD step kind. */
-function stepKindForTool(name: string): ButlerStepKind {
+export function stepKindForTool(name: string): ButlerStepKind {
   const lower = name.toLowerCase()
   if (lower === 'read' || lower.startsWith('read_') || lower.includes(':read_')) {
     return 'read'

@@ -194,4 +194,117 @@ describe('registerButlerIpc', () => {
     emit(HOME_CHANNELS.butlerResize, hudSender, 240)
     expect(resizeHudSpy).toHaveBeenCalledWith(240)
   })
+
+  it('routes Chief Butler desk IPC channels and enriches HUD state when missionEngine is wired', async () => {
+    const fakeSnapshot = {
+      chiefSessionKey: 'default:butler-main',
+      chiefBusy: true,
+      missions: [
+        {
+          id: 'mission-1',
+          title: 'Weekly sync',
+          goal: 'Prepare weekly sync',
+          status: 'waiting_human' as const,
+          createdAt: 1,
+          updatedAt: 2,
+          taskIds: ['task-1'],
+        },
+      ],
+      tasks: [],
+      decisions: [
+        {
+          id: 'dec-1',
+          missionId: 'mission-1',
+          taskId: 'task-1',
+          sessionKey: 'default:butler-worker-task-1',
+          kind: 'permission' as const,
+          title: 'Write file',
+          summary: 'Write weekly.md',
+          options: [{ id: 'allow', label: 'Allow', style: 'primary' as const }],
+          status: 'pending' as const,
+          createdAt: 2,
+        },
+      ],
+      feed: [],
+      concurrency: { running: 1, maxConcurrent: 3, queued: 0 },
+    }
+    const delegate = vi.fn().mockResolvedValue({ ok: true, missionId: 'mission-2' })
+    const resolveDecision = vi.fn().mockResolvedValue({ ok: true })
+    const cancelMission = vi.fn().mockResolvedValue({ ok: true })
+    const cancelTask = vi.fn().mockResolvedValue({ ok: true })
+    const steerTask = vi.fn().mockResolvedValue({ ok: true })
+    const openDesk = vi.fn()
+
+    registerButlerIpc({
+      settingsPath: () => settingsPath,
+      service: {
+        submit: vi.fn(),
+        hudState: () => ({
+          prefs: { ...DEFAULT_BUTLER_PREFS, enabled: true },
+          hotkey: 'Alt+Space',
+          briefing: null,
+          tasks: [],
+        }),
+      },
+      missionEngine: {
+        getSnapshot: () => fakeSnapshot,
+        delegate,
+        resolveDecision,
+        cancelMission,
+        cancelTask,
+        steerTask,
+      } as never,
+      openDesk,
+      isHudSender: (wc) => wc === (hudSender as unknown),
+      isShellSender: (wc) => wc === (shellSender as unknown),
+      openTarget: vi.fn(),
+      hideHud: vi.fn(),
+      resizeHud: vi.fn(),
+    })
+
+    const invoke = (channel: string, sender: unknown, ...args: unknown[]) =>
+      ipcMock.handles.get(channel)!({ sender }, ...args)
+
+    const hudState = await invoke(HOME_CHANNELS.butlerHudState, hudSender)
+    expect(hudState).toMatchObject({
+      activeMissionCount: 1,
+      pendingDecisions: [expect.objectContaining({ id: 'dec-1' })],
+    })
+
+    const hudSub = await invoke(HOME_CHANNELS.butlerSubmit, hudSender, 'Organize release notes')
+    expect(hudSub).toEqual({ ok: true, sessionKey: 'default:butler-main' })
+    expect(delegate).toHaveBeenCalledWith('Organize release notes')
+
+    await expect(invoke(HOME_CHANNELS.butlerDeskState, strangerSender)).rejects.toThrow(
+      /Unauthorized/,
+    )
+    expect(await invoke(HOME_CHANNELS.butlerDeskState, shellSender)).toEqual(fakeSnapshot)
+
+    await invoke(HOME_CHANNELS.butlerResolveDecision, hudSender, {
+      decisionId: 'dec-1',
+      optionId: 'allow',
+    })
+    expect(resolveDecision).toHaveBeenCalledWith({ decisionId: 'dec-1', optionId: 'allow' })
+
+    await invoke(HOME_CHANNELS.butlerSteerTask, shellSender, {
+      taskId: 'task-1',
+      instruction: 'Focus on risk items',
+    })
+    expect(steerTask).toHaveBeenCalledWith({
+      taskId: 'task-1',
+      instruction: 'Focus on risk items',
+    })
+
+    await invoke(HOME_CHANNELS.butlerCancelTask, shellSender, 'task-1')
+    expect(cancelTask).toHaveBeenCalledWith('task-1')
+
+    await invoke(HOME_CHANNELS.butlerCancelMission, shellSender, 'mission-1')
+    expect(cancelMission).toHaveBeenCalledWith('mission-1')
+
+    await invoke(HOME_CHANNELS.butlerOpenDesk, hudSender, {
+      missionId: 'mission-1',
+      decisionId: 'dec-1',
+    })
+    expect(openDesk).toHaveBeenCalledWith({ missionId: 'mission-1', decisionId: 'dec-1' })
+  })
 })

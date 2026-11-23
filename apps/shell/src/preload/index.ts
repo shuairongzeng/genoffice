@@ -70,11 +70,18 @@ import type {
   FileSearchPage,
   FileSearchRerank,
   FileSearchSettings,
+  ButlerActionResult,
+  ButlerDelegateResult,
+  ButlerDeskSnapshot,
   ButlerHudState,
+  ButlerOpenDeskPayload,
   ButlerOpenTarget,
   ButlerPrefs,
   ButlerPrefsPatch,
+  ButlerResolveDecisionRequest,
+  ButlerResolveDecisionResult,
   ButlerSpeakRequest,
+  ButlerSteerTaskRequest,
   ButlerSubmitResult,
   ButlerTaskUpdate,
 } from '../shared/home-api'
@@ -723,7 +730,10 @@ const homeApi: HomeApi = {
     await ipcRenderer.invoke(HOME_CHANNELS.systemCancelSearch, searchId)
   },
   async systemPreviewFile(filePath) {
-    return (await ipcRenderer.invoke(HOME_CHANNELS.systemPreviewFile, filePath)) as SystemPreviewResult
+    return (await ipcRenderer.invoke(
+      HOME_CHANNELS.systemPreviewFile,
+      filePath,
+    )) as SystemPreviewResult
   },
   async createFolder(parent, name) {
     return (await ipcRenderer.invoke(HOME_CHANNELS.createFolder, parent, name)) as RenameResult
@@ -1087,6 +1097,39 @@ const homeApi: HomeApi = {
     const listener = (_event: IpcRendererEvent, req: ButlerSpeakRequest) => handler(req)
     ipcRenderer.on(HOME_CHANNELS.butlerSpeak, listener)
     return () => ipcRenderer.removeListener(HOME_CHANNELS.butlerSpeak, listener)
+  },
+  async butlerDeskState(): Promise<ButlerDeskSnapshot> {
+    return ipcRenderer.invoke(HOME_CHANNELS.butlerDeskState)
+  },
+  onButlerDeskUpdated(handler) {
+    const listener = (_event: IpcRendererEvent, snapshot: ButlerDeskSnapshot) => handler(snapshot)
+    ipcRenderer.on(HOME_CHANNELS.butlerDeskUpdated, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.butlerDeskUpdated, listener)
+  },
+  async butlerDelegate(goal: string): Promise<ButlerDelegateResult> {
+    return ipcRenderer.invoke(HOME_CHANNELS.butlerDelegate, goal)
+  },
+  async butlerResolveDecision(
+    req: ButlerResolveDecisionRequest,
+  ): Promise<ButlerResolveDecisionResult> {
+    return ipcRenderer.invoke(HOME_CHANNELS.butlerResolveDecision, req)
+  },
+  async butlerCancelMission(missionId: string): Promise<ButlerActionResult> {
+    return ipcRenderer.invoke(HOME_CHANNELS.butlerCancelMission, missionId)
+  },
+  async butlerCancelTask(taskId: string): Promise<ButlerActionResult> {
+    return ipcRenderer.invoke(HOME_CHANNELS.butlerCancelTask, taskId)
+  },
+  async butlerSteerTask(req: ButlerSteerTaskRequest): Promise<ButlerActionResult> {
+    return ipcRenderer.invoke(HOME_CHANNELS.butlerSteerTask, req)
+  },
+  async butlerOpenDesk(payload?: ButlerOpenDeskPayload): Promise<void> {
+    await ipcRenderer.invoke(HOME_CHANNELS.butlerOpenDesk, payload)
+  },
+  onButlerOpenDesk(handler) {
+    const listener = (_event: IpcRendererEvent, payload: ButlerOpenDeskPayload) => handler(payload)
+    ipcRenderer.on(HOME_CHANNELS.butlerOpenDesk, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.butlerOpenDesk, listener)
   },
   // the loop's pub/sub backbone: Home's loop publishes run events, the
   // mirror mounts subscribe — a closed mount never receives one

@@ -10,6 +10,9 @@ export type ButlerStringKey =
   | 'speakDone'
   | 'speakError'
   | 'errorEmptyReply'
+  | 'notifyDecisionTitle'
+  | 'notifyDecisionBody'
+  | 'notifyMissionDoneBody'
   | 'trayButler'
 
 const dicts = {
@@ -23,6 +26,9 @@ const dicts = {
     speakDone: '{honorific}，「{title}」已完成。',
     speakError: '{honorific}，「{title}」没能完成。',
     errorEmptyReply: '没有收到任何回复，可能被记忆插件拒绝或模型未输出，请在 AI 面板查看详情',
+    notifyDecisionTitle: '管家需要你拍板：{title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: '唤起 AI 管家',
   },
   en: {
@@ -36,6 +42,9 @@ const dicts = {
     speakError: '{honorific}, "{title}" could not be completed.',
     errorEmptyReply:
       'No reply was received (the memory plugin may have refused the turn or the model produced nothing). Open the AI panel for details.',
+    notifyDecisionTitle: 'Butler needs your call: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'Summon AI Butler',
   },
   ja: {
@@ -49,6 +58,9 @@ const dicts = {
     speakError: '{honorific}、「{title}」を完了できませんでした。',
     errorEmptyReply:
       '応答を受信できませんでした（メモリプラグインによる拒否またはモデル未出力の可能性があります）。AI パネルで詳細を確認してください。',
+    notifyDecisionTitle: 'バトラーが判断を求めています：{title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'AI バトラーを呼び出す',
   },
   ko: {
@@ -62,6 +74,9 @@ const dicts = {
     speakError: '{honorific}, "{title}" 작업을 완료하지 못했습니다.',
     errorEmptyReply:
       '응답을 받지 못했습니다(메모리 플러그인에서 거부되었거나 모델 출력이 없을 수 있음). AI 패널에서 세부 정보를 확인하세요.',
+    notifyDecisionTitle: '집사가 결정을 기다리고 있습니다: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'AI 집사 호출',
   },
   fr: {
@@ -75,6 +90,9 @@ const dicts = {
     speakError: '{honorific}, « {title} » n’a pas pu être terminée.',
     errorEmptyReply:
       'Aucune réponse n’a été reçue (le greffon mémoire a peut-être refusé le tour ou le modèle n’a rien produit). Ouvrez le panneau IA pour plus de détails.',
+    notifyDecisionTitle: 'Le majordome attend votre décision : {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'Appeler le majordome IA',
   },
   de: {
@@ -88,6 +106,9 @@ const dicts = {
     speakError: '{honorific}, „{title}“ konnte nicht abgeschlossen werden.',
     errorEmptyReply:
       'Keine Antwort erhalten (das Memory-Plugin hat den Durchgang möglicherweise abgelehnt oder das Modell hat nichts ausgegeben). Öffnen Sie das KI-Panel für Details.',
+    notifyDecisionTitle: 'Der Butler braucht Ihre Entscheidung: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'KI-Butler aufrufen',
   },
   es: {
@@ -101,6 +122,9 @@ const dicts = {
     speakError: '{honorific}, no se pudo completar «{title}».',
     errorEmptyReply:
       'No se recibió ninguna respuesta (puede que el complemento de memoria haya rechazado el turno o que el modelo no haya generado nada). Abra el panel de IA para ver los detalles.',
+    notifyDecisionTitle: 'El mayordomo necesita tu decisión: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'Invocar al mayordomo IA',
   },
   th: {
@@ -114,6 +138,9 @@ const dicts = {
     speakError: '{honorific} ไม่สามารถทำงาน "{title}" ให้เสร็จสมบูรณ์ได้',
     errorEmptyReply:
       'ไม่ได้รับคำตอบ (ปลั๊กอินหน่วยความจำอาจปฏิเสธการทำงาน หรือโมเดลไม่ส่งผลลัพธ์) โปรดเปิดแผง AI เพื่อดูรายละเอียด',
+    notifyDecisionTitle: 'ผู้ช่วยต้องการการตัดสินใจของคุณ: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'เรียกผู้ช่วย AI ส่วนตัว',
   },
   id: {
@@ -127,6 +154,9 @@ const dicts = {
     speakError: '{honorific}, "{title}" gagal diselesaikan.',
     errorEmptyReply:
       'Tidak ada balasan yang diterima (plugin memori mungkin menolak giliran ini atau model tidak menghasilkan apa pun). Buka panel AI untuk detailnya.',
+    notifyDecisionTitle: 'Pelayan memerlukan keputusan Anda: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'Panggil Pelayan AI',
   },
   ru: {
@@ -140,6 +170,9 @@ const dicts = {
     speakError: '{honorific}, задачу «{title}» не удалось завершить.',
     errorEmptyReply:
       'Ответ не получен (плагин памяти мог отклонить запрос или модель ничего не вывела). Откройте панель ИИ для подробностей.',
+    notifyDecisionTitle: 'Дворецкому нужно ваше решение: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'Вызвать ИИ-дворецкого',
   },
   ar: {
@@ -153,6 +186,9 @@ const dicts = {
     speakError: '{honorific}، تعذّر إكمال «{title}».',
     errorEmptyReply:
       'لم يتم استلام أي رد (ربما رفض ملحق الذاكرة الدور أو لم يُخرج النموذج شيئًا). افتح لوحة الذكاء الاصطناعي للتفاصيل.',
+    notifyDecisionTitle: 'يحتاج المساعد إلى قرارك: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'استدعاء المساعد الشخصي',
   },
   pt: {
@@ -166,6 +202,9 @@ const dicts = {
     speakError: '{honorific}, não foi possível concluir "{title}".',
     errorEmptyReply:
       'Nenhuma resposta foi recebida (o plugin de memória pode ter recusado o turno ou o modelo não gerou nada). Abra o painel de IA para mais detalhes.',
+    notifyDecisionTitle: 'O mordomo precisa da sua decisão: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'Chamar Mordomo IA',
   },
   it: {
@@ -179,6 +218,9 @@ const dicts = {
     speakError: '{honorific}, "{title}" non è stata completata.',
     errorEmptyReply:
       'Nessuna risposta ricevuta (il plugin memoria potrebbe aver rifiutato il turno o il modello non ha prodotto nulla). Apri il pannello IA per i dettagli.',
+    notifyDecisionTitle: 'Il maggiordomo attende la tua decisione: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'Richiama Maggiordomo IA',
   },
   pl: {
@@ -192,6 +234,9 @@ const dicts = {
     speakError: '{honorific}, nie udało się ukończyć zadania „{title}”.',
     errorEmptyReply:
       'Nie otrzymano żadnej odpowiedzi (wtyczka pamięci mogła odrzucić turę lub model nic nie zwrócił). Otwórz panel AI, aby zobaczyć szczegóły.',
+    notifyDecisionTitle: 'Lokaj potrzebuje Twojej decyzji: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'Przywołaj Lokaja AI',
   },
   cs: {
@@ -205,6 +250,9 @@ const dicts = {
     speakError: '{honorific}, úkol „{title}“ se nepodařilo dokončit.',
     errorEmptyReply:
       'Nebyla přijata žádná odpověď (modul paměti mohl požadavek odmítnout nebo model nic nevytvořil). Podrobnosti najdete v panelu AI.',
+    notifyDecisionTitle: 'Komorník potřebuje vaše rozhodnutí: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'Vyvolat AI komorníka',
   },
   nl: {
@@ -218,6 +266,9 @@ const dicts = {
     speakError: '{honorific}, "{title}" kon niet worden voltooid.',
     errorEmptyReply:
       'Geen antwoord ontvangen (de geheugenplug-in heeft de beurt mogelijk geweigerd of het model heeft niets uitgevoerd). Open het AI-paneel voor details.',
+    notifyDecisionTitle: 'De butler heeft uw beslissing nodig: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'AI-butler oproepen',
   },
   ms: {
@@ -231,6 +282,9 @@ const dicts = {
     speakError: '{honorific}, "{title}" gagal diselesaikan.',
     errorEmptyReply:
       'Tiada balasan diterima (pemalam memori mungkin menolak giliran atau model tidak mengeluarkan apa-apa). Buka panel AI untuk butiran.',
+    notifyDecisionTitle: 'Pembantu memerlukan keputusan anda: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'Panggil Pembantu AI',
   },
   he: {
@@ -244,6 +298,9 @@ const dicts = {
     speakError: '{honorific}, לא ניתן היה להשלים את "{title}".',
     errorEmptyReply:
       'לא התקבלה תשובה (ייתכן שתוסף הזיכרון דחה את התור או שהמודל לא הפיק דבר). פתח את חלונית ה-AI לפרטים.',
+    notifyDecisionTitle: 'העוזר זקוק להחלטתך: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'הפעל עוזר AI אישי',
   },
   hi: {
@@ -257,6 +314,9 @@ const dicts = {
     speakError: '{honorific}, "{title}" पूर्ण नहीं हो सका।',
     errorEmptyReply:
       'कोई उत्तर प्राप्त नहीं हुआ (मेमोरी प्लगइन ने टर्न अस्वीकार किया हो सकता है या मॉडल ने कुछ उत्पन्न नहीं किया)। विवरण के लिए AI पैनल खोलें।',
+    notifyDecisionTitle: 'बटलर को आपके निर्णय की आवश्यकता है: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'AI बटलर बुलाएँ',
   },
   'zh-TW': {
@@ -269,6 +329,9 @@ const dicts = {
     speakDone: '{honorific}，「{title}」已完成。',
     speakError: '{honorific}，「{title}」未能完成。',
     errorEmptyReply: '沒有收到任何回覆，可能被記憶外掛拒絕或模型未輸出，請在 AI 面板檢視詳情',
+    notifyDecisionTitle: '管家需要您拍板：{title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: '喚起 AI 管家',
   },
   vi: {
@@ -282,6 +345,9 @@ const dicts = {
     speakError: '{honorific}, không thể hoàn thành "{title}".',
     errorEmptyReply:
       'Không nhận được phản hồi nào (plugin bộ nhớ có thể đã từ chối lượt hoặc mô hình không xuất gì). Mở bảng AI để xem chi tiết.',
+    notifyDecisionTitle: 'Quản gia cần bạn quyết định: {title}',
+    notifyDecisionBody: '{task} — {summary}',
+    notifyMissionDoneBody: '{headline}',
     trayButler: 'Gọi Quản gia AI',
   },
 } as const satisfies Record<Lang, Record<ButlerStringKey, string>>

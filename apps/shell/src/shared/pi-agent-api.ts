@@ -54,6 +54,7 @@ export interface PiAgentPromptResult {
   readonly ok: boolean
   readonly commandHandled?: boolean
   readonly commandOutput?: string
+  readonly finalText?: string
   readonly error?: string
 }
 

@@ -21,8 +21,12 @@ function createMockWorkbench(): WorkbenchToolsService {
     cliContext: vi.fn().mockReturnValue(null),
     runCli: vi.fn().mockResolvedValue({ ok: true, code: 0 }),
     getAppSkillManifest: vi.fn().mockResolvedValue({ windows: [], tools: [] }),
-    executeAppSkill: vi.fn().mockResolvedValue({ target: { id: '1', kind: 'docs', title: 'Doc' }, result: {} }),
-    describeDocumentAgent: vi.fn().mockResolvedValue({ tabId: 'tab-doc-9', kind: 'docs', title: 'Report.docx' }),
+    executeAppSkill: vi
+      .fn()
+      .mockResolvedValue({ target: { id: '1', kind: 'docs', title: 'Doc' }, result: {} }),
+    describeDocumentAgent: vi
+      .fn()
+      .mockResolvedValue({ tabId: 'tab-doc-9', kind: 'docs', title: 'Report.docx' }),
     runDocumentAgent: vi.fn().mockResolvedValue({ ok: true, summary: 'done' }),
     cancelDocumentAgent: vi.fn().mockReturnValue(true),
     undoDocumentAgent: vi.fn().mockResolvedValue({ ok: true }),
@@ -60,13 +64,19 @@ describe('genoffice-permission-extension', () => {
     expect(classifyToolPermissionGrade({ toolName: 'search_knowledge_base', coord })).toBe('read')
     expect(classifyToolPermissionGrade({ toolName: 'read_knowledge_file', coord })).toBe('read')
     expect(classifyToolPermissionGrade({ toolName: 'ctx_memory', coord })).toBe('read')
+    expect(classifyToolPermissionGrade({ toolName: 'butler_dispatch_task', coord })).toBe('read')
+    expect(classifyToolPermissionGrade({ toolName: 'butler_worker_request_decision', coord })).toBe(
+      'read',
+    )
     expect(classifyToolPermissionGrade({ toolName: 'read', coord })).toBe('read')
     expect(classifyToolPermissionGrade({ toolName: 'bash', coord })).toBe('side-effect')
     expect(classifyToolPermissionGrade({ toolName: 'edit_file', coord })).toBe('side-effect')
     expect(classifyToolPermissionGrade({ toolName: 'document_agent', coord })).toBe('side-effect')
     expect(classifyToolPermissionGrade({ toolName: 'delete_file', coord })).toBe('destructive')
 
-    expect(classifyToolPermissionGrade({ toolName: 'third_party_unknown', coord })).toBe('side-effect')
+    expect(classifyToolPermissionGrade({ toolName: 'third_party_unknown', coord })).toBe(
+      'side-effect',
+    )
     expect(
       classifyToolPermissionGrade({
         toolName: 'third_party_ro',
@@ -162,7 +172,10 @@ describe('genoffice-permission-extension', () => {
     mode = 'smart'
     nextReply = { allowed: true, alwaysAllowSession: true }
     await expect(
-      onToolCall({ toolCallId: 'c-del-1', toolName: 'delete_file', input: { path: '/tmp/a.txt' } }, fakeCtx),
+      onToolCall(
+        { toolCallId: 'c-del-1', toolName: 'delete_file', input: { path: '/tmp/a.txt' } },
+        fakeCtx,
+      ),
     ).resolves.toBeUndefined()
     expect(requests).toHaveLength(3)
     expect(requests[2].sessionAllowable).toBe(false)
@@ -172,7 +185,10 @@ describe('genoffice-permission-extension', () => {
     // auto skips confirm cards and authorizes delete_file directly.
     mode = 'auto'
     await expect(
-      onToolCall({ toolCallId: 'c-del-auto', toolName: 'delete_file', input: { path: '/tmp/a.txt' } }, fakeCtx),
+      onToolCall(
+        { toolCallId: 'c-del-auto', toolName: 'delete_file', input: { path: '/tmp/a.txt' } },
+        fakeCtx,
+      ),
     ).resolves.toBeUndefined()
     expect(requests).toHaveLength(3)
     expect(coord.approvedDeleteCallIds.has('c-del-auto')).toBe(true)

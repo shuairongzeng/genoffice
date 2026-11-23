@@ -205,6 +205,7 @@ describe('mergeDesktopItems', () => {
       'Markdown',
       'Web Page',
       'AI Chat',
+      'AI Butler',
       'Knowledge Base',
       'AI Sessions',
       'Templates',
@@ -222,6 +223,16 @@ describe('mergeDesktopItems', () => {
     expect(items.map((i) => i.id)).toContain('alias:/docs/report.docx')
     expect(items.map((i) => i.id)).toContain('file:/docs/alpha.docx')
     expect(items.every((i) => i.kind !== 'widget')).toBe(true)
+  })
+
+  it('includes the AI Butler app tile wired to onOpenButler', () => {
+    const onOpenButler = vi.fn()
+    const items = mergeDesktopItems(defaultDesktopProviders(), ctx({ onOpenButler }))
+    const butlerTile = items.find((item) => item.id === 'app:butler')
+    expect(butlerTile?.tile).toBe('butler')
+    expect(butlerTile?.title).toBe(strings.appButler)
+    butlerTile?.open()
+    expect(onOpenButler).toHaveBeenCalledTimes(1)
   })
 
   it('an alias replaces the recent and the folder root of the same path', () => {

@@ -360,6 +360,12 @@ import {
 } from './home-tabs-ipc'
 import { addAskRunObserver } from './ask-run-observer'
 import { buildButlerPersonaSection } from './butler/butler-persona'
+import { butlerMissionsPath } from './butler/butler-mission-store'
+import { createButlerMissionEngine, type ButlerMissionEngine } from './butler/butler-mission-engine'
+import {
+  createButlerChiefExtension,
+  createButlerWorkerExtension,
+} from './butler/butler-orchestrator-extension'
 import { createButlerHudWindow, type ButlerHudWindow } from './butler/butler-hud-window'
 import { registerButlerIpc } from './butler/butler-ipc'
 import {
@@ -368,8 +374,14 @@ import {
   watchButlerPrefs,
   writeButlerState,
 } from './butler/butler-prefs-store'
-import { createButlerService } from './butler/butler-service'
+import { createButlerService, stepKindForTool } from './butler/butler-service'
+import { tButler } from './butler/butler-strings'
 import type { ButlerOpenTarget } from '../shared/butler-api'
+import {
+  isButlerChiefSession,
+  isButlerWorkerSession,
+  type ButlerOpenDeskPayload,
+} from '../shared/butler-orchestrator-api'
 import { isUserVisibleFile, type FileTargetSources } from './file-targets'
 import { pdfSaveAsTarget } from './rename-validation'
 import { FolderWatcher, isInsideRoot, pathsUnder, rebasePath, uniqueNameIn } from './folder-tree'
@@ -3999,6 +4011,7 @@ async function confirmBrowserPageAction(request: BrowserPageActionConfirm): Prom
 
 let systemPresence: SystemPresence | null = null
 let butlerHud: ButlerHudWindow | null = null
+let activeButlerMissionEngine: ButlerMissionEngine | null = null
 
 function summonButler(): boolean {
   if (!readButlerPrefs(APP_SETTINGS_PATH()).enabled || !butlerHud) return false
@@ -7772,6 +7785,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
   const workbenchTools = createWorkbenchToolsService({
     aiLineage: () => aiLineage(),
   })
+  let butlerMissionEngine: ButlerMissionEngine | null = null
   const piRuntimeInstance = new PiAgentRuntimeManager({
     userDataDir: app.getPath('userData'),
     getDefaultWorkingDir: () => defaultSaveDir(),
@@ -7786,6 +7800,38 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     workbench: workbenchTools,
     getProjectStore: () => getSharedProjectStoreFromMain(),
     getPersonaSection: () => buildButlerPersonaSection(readButlerPrefs(APP_SETTINGS_PATH())),
+    interceptConfirmRequest: (req) =>
+      butlerMissionEngine ? butlerMissionEngine.interceptWorkerConfirm(req) : Promise.resolve(null),
+    resolveSessionExtensions: (sessionKey) => {
+      if (!butlerMissionEngine) return null
+      if (isButlerChiefSession(sessionKey)) {
+        return {
+          key: 'butler:chief',
+          factories: [
+            createButlerChiefExtension(butlerMissionEngine, {
+              prefs: readButlerPrefs(APP_SETTINGS_PATH()),
+            }),
+          ],
+        }
+      }
+      if (isButlerWorkerSession(sessionKey)) {
+        const role = butlerMissionEngine.recoverWorkerRoleForSession(sessionKey) ?? 'general'
+        const task = butlerMissionEngine
+          .getSnapshot()
+          .tasks.find((item) => item.sessionKey === sessionKey)
+        return {
+          key: `butler:worker:${role}:${sessionKey}`,
+          factories: [
+            createButlerWorkerExtension(butlerMissionEngine, role, {
+              sessionKey,
+              ...(task?.title ? { title: task.title } : {}),
+              ...(task?.scopePaths ? { scopePaths: task.scopePaths } : {}),
+            }),
+          ],
+        }
+      }
+      return null
+    },
     sendConfirmRequest: (req) => {
       for (const wc of askPanelWebContents()) {
         wc.send(PI_AGENT_CHANNELS.confirmRequest, req)
@@ -7885,10 +7931,125 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       return sp && sp.hotkey.enabled && sp.hotkeyActive ? sp.hotkey.accelerator : null
     },
   })
-  addAskRunObserver(butlerService.observer)
+  const openButlerDesk = (payload?: ButlerOpenDeskPayload): void => {
+    summonHome()
+    sendToShellRenderer(HOME_CHANNELS.butlerOpenDesk, payload ?? {})
+  }
+  const showButlerOsNotification = (title: string, body: string, onClick: () => void): void => {
+    const prefs = readButlerPrefs(APP_SETTINGS_PATH())
+    if (!prefs.enabled || prefs.dnd || !Notification.isSupported()) return
+    const notification = new Notification({ title, body, silent: false })
+    notification.on('click', () => onClick())
+    notification.show()
+    if (shellWindow && !shellWindow.isDestroyed() && !shellWindow.isFocused()) {
+      shellWindow.flashFrame(true)
+    }
+  }
+  butlerMissionEngine = createButlerMissionEngine({
+    statePath: butlerMissionsPath(app.getPath('userData')),
+    defaultWorkdir: () => defaultSaveDir(),
+    runPrompt: async (sessionKey, promptText) => {
+      const sep = sessionKey.indexOf(':')
+      const projectId = sep > 0 ? sessionKey.slice(0, sep) : 'default'
+      const chatId = sep >= 0 ? sessionKey.slice(sep + 1) : sessionKey
+      if (projectId === 'default') {
+        getSharedProjectStoreFromMain()?.ensureDefaultProject()
+      }
+      const task = butlerMissionEngine
+        ?.getSnapshot()
+        .tasks.find((item) => item.sessionKey === sessionKey)
+      return piRuntimeInstance.prompt({
+        sessionKey,
+        projectId,
+        chatId,
+        docPath: null,
+        instruction: promptText,
+        lang: currentLang(),
+        ignoreActiveTabContext: true,
+        ...(task?.scopePaths && task.scopePaths.length > 0 ? { scopePaths: task.scopePaths } : {}),
+      })
+    },
+    abortSession: async (sessionKey) => {
+      await piRuntimeInstance.abort(sessionKey)
+    },
+    onSnapshotUpdated: (snapshot) => {
+      sendToShellRenderer(HOME_CHANNELS.butlerDeskUpdated, snapshot)
+      hudWindow.sendDeskUpdated(snapshot)
+    },
+    onDecisionCreated: (decision, task) => {
+      const lang = currentLang()
+      const taskLabel = task?.title ?? decision.title
+      showButlerOsNotification(
+        tButler(lang, 'notifyDecisionTitle', { title: decision.title }),
+        tButler(lang, 'notifyDecisionBody', { task: taskLabel, summary: decision.summary }),
+        () => openButlerDesk({ missionId: decision.missionId, decisionId: decision.id }),
+      )
+    },
+    onMissionCompleted: (mission, report) => {
+      const prefs = readButlerPrefs(APP_SETTINGS_PATH())
+      if (!prefs.notifyDone) return
+      const shellFocused = Boolean(
+        shellWindow && !shellWindow.isDestroyed() && shellWindow.isFocused(),
+      )
+      if (shellFocused) return
+      const lang = currentLang()
+      showButlerOsNotification(
+        tButler(lang, 'notifyDoneTitle', { name: prefs.name }),
+        tButler(lang, 'notifyMissionDoneBody', { headline: report.headline }),
+        () => openButlerDesk({ missionId: mission.id }),
+      )
+    },
+  })
+  activeButlerMissionEngine = butlerMissionEngine
+  void butlerMissionEngine.init()
+  addAskRunObserver({
+    onBegin: (input) => {
+      if (isButlerChiefSession(input.sessionKey) || isButlerWorkerSession(input.sessionKey)) return
+      butlerService.observer.onBegin?.(input)
+    },
+    onEvent: (event) => {
+      if (event.sessionKey && isButlerWorkerSession(event.sessionKey)) {
+        if (event.type === 'tool-start') {
+          const toolName =
+            event.payload && typeof event.payload === 'object'
+              ? (event.payload as { name?: unknown }).name
+              : undefined
+          if (typeof toolName === 'string' && toolName.trim().length > 0) {
+            butlerMissionEngine?.recordWorkerStep(event.sessionKey, {
+              tool: toolName,
+              kind: stepKindForTool(toolName),
+            })
+          }
+        } else if (event.type === 'reasoning') {
+          butlerMissionEngine?.recordWorkerStep(event.sessionKey, {
+            tool: 'thinking',
+            kind: 'think',
+          })
+        }
+        return
+      }
+      if (event.sessionKey && isButlerChiefSession(event.sessionKey)) return
+      butlerService.observer.onEvent?.(event)
+    },
+    onConfirm: (sessionKey, req) => {
+      if (isButlerChiefSession(sessionKey) || isButlerWorkerSession(sessionKey)) return
+      butlerService.observer.onConfirm?.(sessionKey, req)
+    },
+    onFinish: (sessionKey) => {
+      if (isButlerChiefSession(sessionKey) || isButlerWorkerSession(sessionKey)) {
+        if (isButlerWorkerSession(sessionKey)) {
+          butlerMissionEngine?.recordWorkerStep(sessionKey, null)
+        }
+        return
+      }
+      butlerService.observer.onFinish?.(sessionKey)
+    },
+  })
   registerButlerIpc({
     settingsPath: APP_SETTINGS_PATH,
     service: butlerService,
+    missionEngine: butlerMissionEngine,
+    openDesk: openButlerDesk,
     isHudSender: (wc) => hudWindow.isHudSender(wc),
     isShellSender: (wc) =>
       Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.webContents === wc),
@@ -7898,6 +8059,11 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
         revealShellWindow()
       } else if (target.type === 'session') {
         openButlerSession(target.sessionKey)
+      } else if (target.type === 'desk') {
+        openButlerDesk({
+          ...(target.missionId ? { missionId: target.missionId } : {}),
+          ...(target.decisionId ? { decisionId: target.decisionId } : {}),
+        })
       } else if (target.type === 'todo') {
         deliverDeepLink({ view: 'desktop' })
       } else if (target.type === 'settings') {
@@ -8210,6 +8376,8 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  void activeButlerMissionEngine?.dispose()
+  activeButlerMissionEngine = null
   piRuntime?.disposeAll()
   terminalWorkspace?.dispose()
   terminalManager?.disposeAll()

@@ -25,6 +25,7 @@ export type AppTile =
   | 'settings'
   | 'kb'
   | 'sessions'
+  | 'butler'
   | 'player'
   | 'terminal'
   | 'computer'
@@ -95,6 +96,8 @@ export interface DesktopItemContext {
   readonly onOpenKb: () => void
   /** opens the global AI Sessions center view */
   readonly onOpenSessions?: () => void
+  /** opens the Chief Butler command desk window */
+  readonly onOpenButler?: () => void
   readonly onOpenTemplates: () => void
   readonly onOpenSettings: (target: SettingsTarget) => void
   readonly onOpenTerminal?: () => void
@@ -170,6 +173,8 @@ export interface DesktopAppOpenHost {
   readonly onOpenKb: () => void
   /** opens the global AI Sessions center view */
   readonly onOpenSessions?: () => void
+  /** opens the Chief Butler command desk window */
+  readonly onOpenButler?: () => void
   readonly onOpenTemplates: () => void
   readonly onOpenSettings: (target: SettingsTarget) => void
   readonly onOpenTerminal?: () => void
@@ -199,6 +204,7 @@ const APP_ENTRIES: readonly DesktopAppEntry[] = [
   // reachable from the New menu and by opening a file)
   { id: 'app:browser', tile: 'browser', titleKey: 'appHtml' },
   { id: 'app:ask', tile: 'ask', titleKey: 'appAsk' },
+  { id: 'app:butler', tile: 'butler', titleKey: 'appButler' },
   { id: 'app:kb', tile: 'kb', titleKey: 'appKb' },
   { id: 'app:sessions', tile: 'sessions', titleKey: 'appSessions' },
   { id: 'app:templates', tile: 'templates', titleKey: 'appTemplates' },
@@ -223,6 +229,7 @@ const APP_OPEN_VERBS: Readonly<Record<string, (host: DesktopAppOpenHost) => () =
   'app:markdown': (host) => () => void host.api.newMarkdown?.(),
   'app:browser': (host) => () => void host.api.newBrowser?.(),
   'app:ask': (host) => host.onOpenAsk,
+  'app:butler': (host) => () => host.onOpenButler?.(),
   'app:kb': (host) => host.onOpenKb,
   'app:sessions': (host) => () => host.onOpenSessions?.(),
   'app:templates': (host) => host.onOpenTemplates,

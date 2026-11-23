@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 're
 import { htmlLang } from '@genoffice/i18n'
 import type {
   ButlerBriefing,
+  ButlerDecisionItem,
+  ButlerDecisionOption,
   ButlerOpenTarget,
   ButlerSubmitError,
   ButlerTaskUpdate,
@@ -99,6 +101,10 @@ export function ButlerHudEntry(): React.JSX.Element {
   const [hotkey, setHotkey] = useState<string | null>(null)
   const [briefing, setBriefing] = useState<ButlerBriefing | null>(null)
   const [tasks, setTasks] = useState<ButlerTaskUpdate[]>([])
+  const [pendingDecisions, setPendingDecisions] = useState<ButlerDecisionItem[]>([])
+  const [resolvingDecisionIds, setResolvingDecisionIds] = useState<
+    Readonly<Record<string, boolean>>
+  >({})
   const [input, setInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<{
@@ -145,6 +151,9 @@ export function ButlerHudEntry(): React.JSX.Element {
           }
           return merged
         })
+        setPendingDecisions(
+          Array.isArray(state.pendingDecisions) ? [...state.pendingDecisions] : [],
+        )
 
         if (
           state.briefing &&
@@ -191,6 +200,10 @@ export function ButlerHudEntry(): React.JSX.Element {
       prefsRef.current = normalized
       setPrefs(normalized)
     })
+    const offDesk = api?.onButlerDeskUpdated?.((snap) => {
+      if (!aliveRef.current || !snap) return
+      setPendingDecisions(snap.decisions.filter((d) => d.status === 'pending'))
+    })
 
     void refreshHudState(document.hasFocus() ? undefined : { peek: true })
     focusInput()
@@ -201,6 +214,7 @@ export function ButlerHudEntry(): React.JSX.Element {
       offTask?.()
       offSpeak?.()
       offPrefs?.()
+      offDesk?.()
     }
   }, [focusInput, refreshHudState])
 
@@ -231,6 +245,23 @@ export function ButlerHudEntry(): React.JSX.Element {
 
   const openTarget = useCallback((target: ButlerOpenTarget) => {
     void getAiOfficeApi()?.butlerOpen?.(target)
+  }, [])
+
+  const handleQuickResolveDecision = useCallback(async (decisionId: string, optionId: string) => {
+    const api = getAiOfficeApi()
+    if (typeof api?.butlerResolveDecision !== 'function') return
+    setResolvingDecisionIds((prev) => ({ ...prev, [decisionId]: true }))
+    try {
+      await api.butlerResolveDecision({ decisionId, optionId })
+    } finally {
+      if (aliveRef.current) {
+        setResolvingDecisionIds((prev) => {
+          const next = { ...prev }
+          delete next[decisionId]
+          return next
+        })
+      }
+    }
   }, [])
 
   const handleSubmit = useCallback(async () => {
@@ -281,7 +312,7 @@ export function ButlerHudEntry(): React.JSX.Element {
     }
   }
 
-  const anyRunning = tasks.some((task) => task.status === 'running')
+  const anyRunning = tasks.some((task) => task.status === 'running') || pendingDecisions.length > 0
   const visibleTasks = tasks.slice(0, MAX_VISIBLE_TASKS)
   const keycaps = hotkey ? formatAcceleratorKeycaps(hotkey, IS_MAC) : []
   const placeholder = t('butlerHudPlaceholder', { name: prefs.name })
@@ -308,7 +339,18 @@ export function ButlerHudEntry(): React.JSX.Element {
       : `${t(greetingKey(briefing.partOfDay))} · ${t('butlerBriefShow')}`
     : ''
 
-  const hasBodySections = Boolean(errorText || briefing || visibleTasks.length > 0)
+  const hasBodySections = Boolean(
+    errorText || pendingDecisions.length > 0 || briefing || visibleTasks.length > 0,
+  )
+
+  const formatDecisionBtnLabel = (d: ButlerDecisionItem, opt: ButlerDecisionOption): string => {
+    if (d.kind === 'permission') {
+      if (opt.id === 'allow' || opt.id === 'allow-once') return t('butlerDecisionAllowOnce')
+      if (opt.id === 'allow-session') return t('butlerDecisionAllowSession')
+      if (opt.id === 'deny') return t('butlerDecisionDeny')
+    }
+    return opt.label
+  }
 
   return (
     <div className="butler-hud-shell" data-testid="butler-hud-root" onKeyDown={handleShellKeyDown}>
@@ -356,6 +398,82 @@ export function ButlerHudEntry(): React.JSX.Element {
                   </button>
                 )}
               </div>
+            )}
+
+            {pendingDecisions.length > 0 && (
+              <section
+                className="butler-hud-decisions"
+                data-testid="butler-hud-decisions"
+                aria-label={t('butlerDecisionInboxTitle')}
+              >
+                <div className="butler-hud-decisions-head">
+                  <span className="butler-hud-decisions-title">
+                    {t('butlerHudDecisionsPending', { count: pendingDecisions.length })}
+                  </span>
+                  <button
+                    type="button"
+                    className="butler-hud-brief-trigger"
+                    onClick={() =>
+                      openTarget({
+                        type: 'desk',
+                        ...(pendingDecisions[0]?.missionId
+                          ? { missionId: pendingDecisions[0].missionId }
+                          : {}),
+                        ...(pendingDecisions[0]?.id ? { decisionId: pendingDecisions[0].id } : {}),
+                      })
+                    }
+                  >
+                    {t('butlerHudOpenDesk')}
+                  </button>
+                </div>
+                <ul className="butler-hud-decision-list">
+                  {pendingDecisions.slice(0, 3).map((d) => {
+                    const busy = Boolean(resolvingDecisionIds[d.id])
+                    return (
+                      <li
+                        key={d.id}
+                        className="butler-hud-decision-item"
+                        data-testid="butler-hud-decision-card"
+                      >
+                        <button
+                          type="button"
+                          className="butler-hud-decision-link"
+                          onClick={() =>
+                            openTarget({
+                              type: 'desk',
+                              missionId: d.missionId,
+                              decisionId: d.id,
+                            })
+                          }
+                        >
+                          <span className="butler-hud-decision-title">{d.title}</span>
+                          <span className="butler-hud-decision-summary">{d.summary}</span>
+                        </button>
+                        <div className="butler-hud-decision-actions">
+                          {d.options.map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              disabled={busy}
+                              className={`butler-hud-action-btn${
+                                opt.style === 'primary'
+                                  ? ' is-confirm'
+                                  : opt.style === 'danger'
+                                    ? ' is-danger'
+                                    : ''
+                              }`}
+                              data-testid={`butler-hud-decision-opt-${opt.id}`}
+                              onClick={() => void handleQuickResolveDecision(d.id, opt.id)}
+                            >
+                              {formatDecisionBtnLabel(d, opt)}
+                            </button>
+                          ))}
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
             )}
 
             {briefing && (
@@ -445,16 +563,26 @@ export function ButlerHudEntry(): React.JSX.Element {
 
         <div className="butler-hud-footer">
           <span className="butler-hud-hint">{t('butlerHudHint')}</span>
-          <button
-            type="button"
-            className="butler-hud-brief-trigger"
-            onClick={() => {
-              void refreshHudState({ forceBriefing: true })
-              focusInput()
-            }}
-          >
-            {t('butlerBriefShow')}
-          </button>
+          <div className="butler-hud-footer-actions">
+            <button
+              type="button"
+              className="butler-hud-brief-trigger"
+              data-testid="butler-hud-open-desk-btn"
+              onClick={() => openTarget({ type: 'desk' })}
+            >
+              {t('butlerHudOpenDesk')}
+            </button>
+            <button
+              type="button"
+              className="butler-hud-brief-trigger"
+              onClick={() => {
+                void refreshHudState({ forceBriefing: true })
+                focusInput()
+              }}
+            >
+              {t('butlerBriefShow')}
+            </button>
+          </div>
         </div>
       </div>
     </div>

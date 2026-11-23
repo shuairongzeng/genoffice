@@ -52,6 +52,7 @@ import { placeFolderMenu } from './folder-menu-position'
 import type {
   AccountStatus,
   AiDockPrefs,
+  ButlerOpenDeskPayload,
   DockNavIntent,
   DockPlayerAction,
   FolderRoot,
@@ -78,6 +79,7 @@ import { DesktopView } from './DesktopView'
 import { DESKTOP_STRINGS } from './desktop-strings'
 import { Dock, type DockItem, type DockMenuEntry } from './Dock'
 import {
+  ButlerGlyph,
   CloudGlyph,
   ComputerGlyph,
   DockAskIcon,
@@ -136,6 +138,9 @@ const SessionsCenterView = lazy(() =>
   import('./SessionsCenterView').then((m) => ({ default: m.SessionsCenterView })),
 )
 const ComputerView = lazy(() => import('./ComputerView').then((m) => ({ default: m.ComputerView })))
+const ButlerDeskView = lazy(() =>
+  import('./ButlerDeskView').then((m) => ({ default: m.ButlerDeskView })),
+)
 const FilePreviewPane = lazy(() =>
   import('./FilePreviewPane').then((m) => ({ default: m.FilePreviewPane })),
 )
@@ -264,6 +269,8 @@ function wmDockVisual(kind: Exclude<DesktopAppWindowKind, 'player'>): {
       return { tile: 'kb', icon: <KbGlyph /> }
     case 'sessions':
       return { tile: 'sessions', icon: <SessionsGlyph /> }
+    case 'butler':
+      return { tile: 'butler', icon: <ButlerGlyph /> }
     case 'folder':
       return { tile: 'folder', icon: <FolderGlyph /> }
   }
@@ -1519,6 +1526,27 @@ export function Home() {
     })
   }, [])
 
+  /** Shows the single-point Chief Butler command desk in a floating desktop window. */
+  const showButlerDesk = useCallback((payload?: ButlerOpenDeskPayload) => {
+    dispatchView({ type: 'show-desktop' })
+    writeLaunchView('desktop')
+    setSelected(new Set())
+    setRowMenu(null)
+    dispatchWm({
+      type: 'open',
+      spec: {
+        kind: 'butler',
+        title: DESKTOP_STRINGS[langRef.current].appButler,
+        stage: effectiveStageRef.current,
+        preferredSize: { width: 1020, height: 680 },
+        minSize: { width: 620, height: 420 },
+        singleton: true,
+        reuseKey: 'butler:main',
+        ...(payload ? { payload: { ...payload } } : {}),
+      },
+    })
+  }, [])
+
   /** Shows the "This PC" local drives & quick places explorer floating window. */
   const showComputer = useCallback((initialPath?: string) => {
     dispatchView({ type: 'show-desktop' })
@@ -1946,6 +1974,7 @@ export function Home() {
           onOpenAsk: openAskDock,
           onOpenKb: showKbCenter,
           onOpenSessions: showSessionsCenter,
+          onOpenButler: showButlerDesk,
           onOpenTemplates: openTemplates,
           onOpenSettings: openSettings,
           onOpenTerminal: openTerminalDrawer,
@@ -2018,6 +2047,7 @@ export function Home() {
       openAskDock,
       showKbCenter,
       showSessionsCenter,
+      showButlerDesk,
       openTemplates,
       openSettings,
       openTerminalDrawer,
@@ -2108,6 +2138,13 @@ export function Home() {
       .catch(() => undefined)
     return unsubscribe
   }, [performDockNav])
+
+  useEffect(() => {
+    const api = window.aiOffice as Partial<HomeApi>
+    return api?.onButlerOpenDesk?.((payload) => {
+      showButlerDesk(payload)
+    })
+  }, [showButlerDesk])
 
   const toggleSelect = (path: string, on: boolean) => {
     setSelected((prev) => {
@@ -3142,6 +3179,7 @@ export function Home() {
       if (custom.target === 'app:computer') return findWmWindowByKind(wmState, 'computer')
       if (custom.target === 'app:kb') return findWmWindowByKind(wmState, 'kb')
       if (custom.target === 'app:sessions') return findWmWindowByKind(wmState, 'sessions')
+      if (custom.target === 'app:butler') return findWmWindowByKind(wmState, 'butler')
       return undefined
     }
     if (
@@ -3667,6 +3705,40 @@ export function Home() {
                 </DesktopWindow>
               )
             }
+            if (win.kind === 'butler') {
+              return (
+                <DesktopWindow
+                  key={win.id}
+                  windowId={win.id}
+                  zIndex={zIndex}
+                  testId="desktop-butler-window"
+                  title={win.title}
+                  icon={<ButlerGlyph />}
+                  mode={win.mode}
+                  snap={win.snap}
+                  rect={win.rect}
+                  stage={effectivePlayerStage}
+                  focused={focused}
+                  visualHidden={!visible}
+                  minWidth={620}
+                  minHeight={420}
+                  labels={wmLabels}
+                  autoHideHeaderOnMaximize={autoHideTopBarEnabled}
+                  onFocus={onFocus}
+                  onRectChange={onRectChange}
+                  onModeChange={onModeChange}
+                  onClose={onClose}
+                >
+                  <Suspense fallback={null}>
+                    <ButlerDeskView
+                      focusTarget={(win.payload as ButlerOpenDeskPayload | undefined) ?? null}
+                      onPreviewFile={openPreviewWindow}
+                      onOpenFile={(filePath) => void window.aiOffice.openPath?.(filePath)}
+                    />
+                  </Suspense>
+                </DesktopWindow>
+              )
+            }
             const winFolderPath =
               typeof win.payload?.folderPath === 'string' ? win.payload.folderPath : null
             return (
@@ -3804,6 +3876,7 @@ export function Home() {
               onOpenAsk={openAskDock}
               onOpenKb={showKbCenter}
               onOpenSessions={showSessionsCenter}
+              onOpenButler={showButlerDesk}
               onAskAboutPaths={askAboutPaths}
               onOpenTemplates={openTemplates}
               onOpenSettings={openSettings}

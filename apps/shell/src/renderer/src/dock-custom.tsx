@@ -6,6 +6,7 @@ import type { DesktopStrings } from './desktop-strings'
 import { FileBadge } from './file-badge'
 import {
   BrowserGlyph,
+  ButlerGlyph,
   ComputerGlyph,
   DocsGlyph,
   FolderGlyph,
@@ -72,6 +73,8 @@ function appTileGlyph(tile: AppTile): ReactNode {
       return <KbGlyph />
     case 'sessions':
       return <SessionsGlyph />
+    case 'butler':
+      return <ButlerGlyph />
     case 'templates':
       return <TemplatesGlyph />
     case 'plugins':

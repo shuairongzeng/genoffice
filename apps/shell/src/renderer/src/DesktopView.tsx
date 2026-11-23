@@ -50,6 +50,7 @@ import { handleMenuKeyDown } from './menu-keyboard'
 import type { SettingsTarget } from './SettingsModal'
 import {
   BrowserGlyph,
+  ButlerGlyph,
   ComputerGlyph,
   DocsGlyph,
   DriveGlyph,
@@ -244,6 +245,8 @@ export interface DesktopViewProps {
   readonly onOpenKb: () => void
   /** open the global AI Sessions center */
   readonly onOpenSessions?: () => void
+  /** open the Chief Butler command desk window */
+  readonly onOpenButler?: () => void
   /** hand the selected desktop paths to the docked AI panel as its corpus (the Ask AI action) */
   readonly onAskAboutPaths: (paths: readonly string[]) => void
   /** open the template gallery overlay */
@@ -577,6 +580,7 @@ export function DesktopView({
   onOpenAsk,
   onOpenKb,
   onOpenSessions,
+  onOpenButler,
   onAskAboutPaths,
   onOpenTemplates,
   onOpenSettings,
@@ -791,6 +795,7 @@ export function DesktopView({
         onOpenAsk,
         onOpenKb,
         onOpenSessions,
+        onOpenButler,
         onOpenTemplates,
         onOpenSettings,
         onOpenTerminal,
@@ -813,6 +818,7 @@ export function DesktopView({
       onOpenAsk,
       onOpenKb,
       onOpenSessions,
+      onOpenButler,
       onOpenTemplates,
       onOpenSettings,
       onOpenTerminal,
@@ -3010,6 +3016,7 @@ export function DesktopView({
         {icon.tile === 'settings' && <GearGlyph />}
         {icon.tile === 'kb' && <KbGlyph />}
         {icon.tile === 'sessions' && <SessionsGlyph />}
+        {icon.tile === 'butler' && <ButlerGlyph />}
         {icon.tile === 'player' && <PlayerGlyph />}
         {icon.tile === 'terminal' && <TerminalGlyph />}
         {icon.tile === 'computer' && <ComputerGlyph />}
