@@ -221,11 +221,35 @@ const createMediaView = vi.fn(() => makeFakeView())
 const requestMediaClose = vi.fn(() => Promise.resolve(true))
 const mediaFilePathForWebContents = vi.fn((): string | undefined => undefined)
 vi.mock('../src/main/media-main', () => ({
-  MEDIA_EXTS: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.mp3', '.wav', '.m4a', '.ogg', '.mp4', '.webm'],
+  MEDIA_EXTS: [
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.webp',
+    '.gif',
+    '.svg',
+    '.mp3',
+    '.wav',
+    '.m4a',
+    '.ogg',
+    '.mp4',
+    '.webm',
+  ],
   isPlayableMediaExt: (ext: string) =>
-    ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.mp4', '.webm', '.mov', '.mkv', '.m4v', '.avi'].includes(
-      ext.toLowerCase(),
-    ),
+    [
+      '.mp3',
+      '.wav',
+      '.m4a',
+      '.aac',
+      '.ogg',
+      '.flac',
+      '.mp4',
+      '.webm',
+      '.mov',
+      '.mkv',
+      '.m4v',
+      '.avi',
+    ].includes(ext.toLowerCase()),
   createMediaView: (...args: unknown[]) => createMediaView(...(args as [])),
   requestMediaClose: (...args: unknown[]) => requestMediaClose(...(args as [])),
   mediaFilePathForWebContents: (...args: unknown[]) => mediaFilePathForWebContents(...(args as [])),
@@ -1486,7 +1510,7 @@ describe('file path bookkeeping', () => {
     }
     // file-less tabs (the in-app manual, the browser: no file behind the tab)
     // are opened by the enumeration but must not demand a RENAMABLE case
-    const fileless = new Set(['help', 'browser'])
+    const fileless = new Set(['help', 'browser', 'compare'])
     expect([...new Set(opened.filter((k) => !fileless.has(k)))].sort()).toEqual(
       RENAMABLE.map((c) => c.kind).sort(),
     )

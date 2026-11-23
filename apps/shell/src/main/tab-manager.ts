@@ -35,6 +35,14 @@ import {
 } from '../shared/desktop-geometry'
 import { normalizeDockPrefs, type DockPrefs } from '../shared/dock-prefs'
 import type { DocumentTabKind, OpenDocumentTab, TabKind, TabSummary } from '../shared/tabs-api'
+import { SPLIT_DEFAULT_RATIO, type SplitPaneSide, type SplitState } from '../shared/split-api'
+import { COMPARE_CHANNELS, type CompareOpenOptions } from '../shared/compare-api'
+import {
+  clampSplitRatio,
+  computeSplitRects,
+  isSplitEligibleKind,
+  pickSplitPair,
+} from './split-geometry'
 import { intersectRect, isSettledRect } from '../shared/tab-drag-geometry'
 import { DOCK_ITEM_COUNT, DOCK_SEPARATOR_COUNT } from '../shared/desktop-geometry'
 import {
@@ -182,6 +190,10 @@ export class TabManager {
   private spareViewTimer: ReturnType<typeof setTimeout> | null = null
   /** views that already summon the command palette on Ctrl/Cmd+K */
   private readonly paletteHooked = new WeakSet<WebContents>()
+  private split: SplitState | null = null
+  private splitChangeListener: ((state: SplitState | null) => void) | null = null
+  private readonly compareInits = new Map<number, CompareOpenOptions>()
+  private readonly splitFocusHooked = new WeakSet<WebContents>()
   /**
    * The AI drawer's native overlay view host (W2). Injected by the shell
    * window's wiring rather than constructed here so the manager stays free of
@@ -239,6 +251,35 @@ export class TabManager {
         if (isShellChrome || tabOf()) this.summonPalette()
       },
     )
+  }
+
+  private notifySplitChange(): void {
+    this.splitChangeListener?.(this.getSplitState())
+  }
+
+  /**
+   * Track focus and pointer-down events inside a tab's WebContents so clicking
+   * or focusing the inactive pane in split view promotes it without stealing
+   * focus back in a loop.
+   */
+  private attachSplitFocusListener(view: WebContentsView): void {
+    const wc = view.webContents
+    if (!wc || this.splitFocusHooked.has(wc) || wc.isDestroyed()) return
+    this.splitFocusHooked.add(wc)
+    const focusInactivePane = (): void => {
+      if (!this.split || this.split.suspended) return
+      const tab = this.tabs.find((t) => t.view === view)
+      if (!tab) return
+      const side: SplitPaneSide | null =
+        tab.id === this.split.leftTabId ? 'left' : tab.id === this.split.rightTabId ? 'right' : null
+      if (side && side !== this.split.activePane) {
+        this.focusSplitPane(side, { skipFocusView: true })
+      }
+    }
+    wc.on('focus', focusInactivePane)
+    wc.on('before-input-event', (_event, input) => {
+      if (input.type === 'mouseDown') focusInactivePane()
+    })
   }
 
   /** bring the shell window forward on Home and open the command palette —
@@ -810,7 +851,49 @@ export class TabManager {
     // after a Windows taskbar restore. Keep the last good layout instead.
     if (!isSettledRect(bounds)) return
     const active = this.tabs.find((t) => t.id === this.activeId)
+    const isPresenting =
+      (this.htmlFullScreenId !== null && this.htmlFullScreenId === this.activeId) ||
+      !!(active?.view && this.bleedWcIds.has(active.view.webContents.id))
+    if (this.split && !this.split.suspended && !isPresenting) {
+      const leftTab = this.tabs.find((t) => t.id === this.split!.leftTabId)
+      const rightTab = this.tabs.find((t) => t.id === this.split!.rightTabId)
+      if (
+        !leftTab ||
+        !rightTab ||
+        leftTab.id === rightTab.id ||
+        !isSplitEligibleKind(leftTab.kind) ||
+        !isSplitEligibleKind(rightTab.kind)
+      ) {
+        this.split = null
+        this.notifySplitChange()
+      } else {
+        if (leftTab.dormant) this.reviveTab(leftTab)
+        if (rightTab.dormant) this.reviveTab(rightTab)
+        const rects = computeSplitRects(bounds, this.split.ratio)
+        const ratioChanged = Math.abs(rects.effectiveRatio - this.split.ratio) > 1e-6
+        this.split.ratio = rects.effectiveRatio
+        const ready = this.stageRect !== null
+        for (const t of this.tabs) {
+          t.view?.setVisible(ready && (t.id === leftTab.id || t.id === rightTab.id))
+        }
+        leftTab.view?.setBounds(rects.left)
+        rightTab.view?.setBounds(rects.right)
+        if (leftTab.view) this.installPaletteShortcut(leftTab.view.webContents)
+        if (rightTab.view) this.installPaletteShortcut(rightTab.view.webContents)
+        if (ratioChanged) this.notifySplitChange()
+        this.syncBrowserPages()
+        this.syncDrawerOverlay()
+        this.syncDockOverlay()
+        this.syncTopBarOverlay()
+        return
+      }
+    }
     if (!active?.view) return
+    if (isPresenting) {
+      for (const t of this.tabs) {
+        if (t.id !== active.id) t.view?.setVisible(false)
+      }
+    }
     active.view.setBounds(bounds)
     // A view held invisible while no stage report had arrived (activateTab)
     // shows once a settled rect applies — never before, so the fallback's
@@ -961,6 +1044,7 @@ export class TabManager {
     const id = `t${this.nextId++}`
     this.shellWindow.contentView.addChildView(view)
     view.setVisible(false)
+    this.attachSplitFocusListener(view)
     this.tabs.push({
       id,
       kind: 'help',
@@ -970,6 +1054,45 @@ export class TabManager {
     })
     this.activateTab(id)
     return id
+  }
+
+  /** Open or focus the single Document Compare tab, updating its initial sources. */
+  openCompareTab(opts?: CompareOpenOptions): string {
+    if (this.split) {
+      this.split = null
+      this.notifySplitChange()
+    }
+    const nextOpts: CompareOpenOptions = opts && typeof opts === 'object' ? opts : {}
+    const existing = this.tabs.find((t) => t.kind === 'compare')
+    if (existing) {
+      if (existing.view && !existing.view.webContents.isDestroyed()) {
+        this.compareInits.set(existing.view.webContents.id, nextOpts)
+        existing.view.webContents.send(COMPARE_CHANNELS.initUpdated, nextOpts)
+        this.activateTab(existing.id)
+        return existing.id
+      }
+      this.removeTab(existing.id)
+    }
+    const view = createCompareView()
+    const id = `t${this.nextId++}`
+    this.compareInits.set(view.webContents.id, nextOpts)
+    this.shellWindow.contentView.addChildView(view)
+    view.setVisible(false)
+    this.attachSplitFocusListener(view)
+    this.tabs.push({
+      id,
+      kind: 'compare',
+      view,
+      title: this.untitled('compare', 'Document Compare'),
+      lastActiveAt: Date.now(),
+    })
+    this.activateTab(id)
+    return id
+  }
+
+  /** Read the stored CompareOpenOptions for a compare WebContentsView. */
+  getCompareInitForWebContents(wcId: number): CompareOpenOptions | undefined {
+    return this.compareInits.get(wcId)
   }
 
   /**
@@ -996,6 +1119,7 @@ export class TabManager {
       view.setVisible(false)
     }
     this.trackHtmlFullScreen(view)
+    this.attachSplitFocusListener(view)
     this.tabs.push({
       id,
       lastActiveAt: Date.now(),
@@ -1053,9 +1177,7 @@ export class TabManager {
   /** Open or focus the persistent desktop media player tab (reusing any open audio/video or standalone player tab). */
   openMediaPlayerTab(): string {
     const existing = this.tabs.find(
-      (t) =>
-        t.kind === 'media' &&
-        (!t.filePath || isPlayableMediaExt(extname(t.filePath))),
+      (t) => t.kind === 'media' && (!t.filePath || isPlayableMediaExt(extname(t.filePath))),
     )
     if (existing) {
       this.activateTab(existing.id)
@@ -1080,6 +1202,7 @@ export class TabManager {
     this.shellWindow.contentView.addChildView(view)
     view.setVisible(false)
     this.trackHtmlFullScreen(view)
+    this.attachSplitFocusListener(view)
     this.tabs.push({
       id,
       lastActiveAt: Date.now(),
@@ -1092,6 +1215,142 @@ export class TabManager {
     return id
   }
 
+  getSplitState(): SplitState | null {
+    return this.split ? { ...this.split } : null
+  }
+
+  setSplitChangeListener(listener: ((state: SplitState | null) => void) | null): void {
+    this.splitChangeListener = listener
+  }
+
+  openSplit(targetTabId?: string, side?: SplitPaneSide): SplitState | null {
+    const pair = pickSplitPair(this.tabs, this.activeId, this.split, targetTabId, side)
+    if (!pair) return null
+    this.split = {
+      leftTabId: pair.leftTabId,
+      rightTabId: pair.rightTabId,
+      activePane: pair.activePane,
+      ratio: this.split?.ratio ?? SPLIT_DEFAULT_RATIO,
+      syncScroll: this.split?.syncScroll ?? false,
+      suspended: false,
+    }
+    const nextActiveId = pair.activePane === 'left' ? pair.leftTabId : pair.rightTabId
+    this.activateTab(nextActiveId)
+    return this.getSplitState()
+  }
+
+  closeSplit(): void {
+    if (!this.split) return
+    this.split = null
+    for (const t of this.tabs) {
+      if (t.id !== this.activeId) t.view?.setVisible(false)
+    }
+    this.layout()
+    this.notifySplitChange()
+    this.onChanged()
+  }
+
+  swapSplit(): SplitState | null {
+    if (!this.split) return null
+    const nextLeft = this.split.rightTabId
+    const nextRight = this.split.leftTabId
+    this.split.leftTabId = nextLeft
+    this.split.rightTabId = nextRight
+    if (this.activeId === nextLeft) this.split.activePane = 'left'
+    else if (this.activeId === nextRight) this.split.activePane = 'right'
+    else this.split.activePane = this.split.activePane === 'left' ? 'right' : 'left'
+    if (!this.split.suspended) {
+      this.layout()
+    }
+    this.notifySplitChange()
+    this.onChanged()
+    return this.getSplitState()
+  }
+
+  setSplitRatio(ratio: number, commit = false): void {
+    if (!this.split) return
+    const bounds = this.contentBounds()
+    const clamped = isSettledRect(bounds)
+      ? clampSplitRatio(ratio, bounds.width)
+      : clampSplitRatio(ratio)
+    this.split.ratio = clamped
+    if (!this.split.suspended) {
+      this.layout()
+    }
+    if (commit) {
+      this.notifySplitChange()
+      this.onChanged()
+    }
+  }
+
+  setSplitSyncScroll(enabled: boolean): SplitState | null {
+    if (!this.split) return null
+    this.split.syncScroll = Boolean(enabled)
+    this.notifySplitChange()
+    this.onChanged()
+    return this.getSplitState()
+  }
+
+  focusSplitPane(side: SplitPaneSide, opts?: { skipFocusView?: boolean }): boolean {
+    if (!this.split) return false
+    const targetId = side === 'left' ? this.split.leftTabId : this.split.rightTabId
+    const target = this.tabs.find((t) => t.id === targetId)
+    if (!target) return false
+    if (!this.split.suspended && this.split.activePane === side && this.activeId === targetId) {
+      if (!opts?.skipFocusView) this.focusActiveView()
+      return true
+    }
+    const wasSuspended = this.split.suspended
+    if (target.dormant) this.reviveTab(target)
+    const now = Date.now()
+    const previous = this.tabs.find((t) => t.id === this.activeId)
+    if (previous) previous.lastActiveAt = now
+    target.lastActiveAt = now
+
+    this.split.suspended = false
+    this.split.activePane = side
+    this.activeId = targetId
+
+    if (wasSuspended) {
+      this.layout()
+    }
+    if (target.view) this.installPaletteShortcut(target.view.webContents)
+    const previousWc = previous?.view?.webContents
+    if (previousWc && previous.id !== targetId) this.aiSlot.markStale(previousWc.id)
+    if (HOSTED_AI_SLOT_KINDS.has(target.kind)) this.requestAiSlotRect()
+    if (appForKind(target.kind)?.open?.spare) this.scheduleSpareView(3000)
+    else this.discardSpareView()
+    this.refreshActiveTargets()
+    if (!opts?.skipFocusView) this.focusActiveView()
+    if (!wasSuspended) {
+      this.syncDrawerOverlay()
+      this.syncDockOverlay()
+      this.syncTopBarOverlay()
+    }
+    this.notifySplitChange()
+    this.onChanged()
+    return true
+  }
+
+  getSplitTabs(): {
+    left: { id: string; kind: TabKind; webContents: WebContents } | null
+    right: { id: string; kind: TabKind; webContents: WebContents } | null
+    syncScroll: boolean
+  } | null {
+    if (!this.split) return null
+    const resolveSide = (id: string) => {
+      const tab = this.tabs.find((t) => t.id === id)
+      const wc = tab?.view?.webContents
+      if (!tab || !wc || wc.isDestroyed()) return null
+      return { id: tab.id, kind: tab.kind, webContents: wc }
+    }
+    return {
+      left: resolveSide(this.split.leftTabId),
+      right: resolveSide(this.split.rightTabId),
+      syncScroll: this.split.syncScroll,
+    }
+  }
+
   activateTab(id: string): boolean {
     const target = this.tabs.find((t) => t.id === id)
     if (!target) return false
@@ -1100,22 +1359,70 @@ export class TabManager {
     const previous = this.tabs.find((t) => t.id === this.activeId)
     if (previous) previous.lastActiveAt = now
     target.lastActiveAt = now
+    if (this.split) {
+      if (id === HOME_ID) {
+        this.split.suspended = true
+      } else if (id === this.split.leftTabId || id === this.split.rightTabId) {
+        this.split.suspended = false
+        this.split.activePane = id === this.split.leftTabId ? 'left' : 'right'
+      } else if (!this.split.suspended) {
+        if (this.split.activePane === 'left') this.split.leftTabId = id
+        else this.split.rightTabId = id
+      } else {
+        this.split = null
+      }
+    }
+    this.activeId = id
     // A document opened before Home's first content-rect report (a launch
     // with file arguments) is held hidden: the only geometry known is the
     // computed fallback, whose x/y would cover the desktop's sidebar and
     // strip for the first frames. Home's own layer shows meanwhile, and the
     // first report reveals the view at its true bounds (layout()).
     const ready = this.stageRect !== null
-    for (const t of this.tabs) t.view?.setVisible(ready && t.id === id)
     const bounds = this.contentBounds()
-    // a bring-forward while the window is minimized or mid-restore must not
-    // zero-size the view being activated (same guard as layout())
-    if (target.view && isSettledRect(bounds)) target.view.setBounds(bounds)
+    const isPresenting =
+      (this.htmlFullScreenId !== null && this.htmlFullScreenId === id) ||
+      !!(target.view && this.bleedWcIds.has(target.view.webContents.id))
+    let laidOutSplit = false
+    if (this.split && !this.split.suspended && !isPresenting) {
+      const leftTab = this.tabs.find((t) => t.id === this.split!.leftTabId)
+      const rightTab = this.tabs.find((t) => t.id === this.split!.rightTabId)
+      if (
+        leftTab &&
+        rightTab &&
+        leftTab.id !== rightTab.id &&
+        isSplitEligibleKind(leftTab.kind) &&
+        isSplitEligibleKind(rightTab.kind)
+      ) {
+        if (leftTab.dormant) this.reviveTab(leftTab)
+        if (rightTab.dormant) this.reviveTab(rightTab)
+        for (const t of this.tabs) {
+          t.view?.setVisible(ready && (t.id === leftTab.id || t.id === rightTab.id))
+        }
+        if (isSettledRect(bounds)) {
+          const rects = computeSplitRects(bounds, this.split.ratio)
+          this.split.ratio = rects.effectiveRatio
+          leftTab.view?.setBounds(rects.left)
+          rightTab.view?.setBounds(rects.right)
+        }
+        if (leftTab.view) this.installPaletteShortcut(leftTab.view.webContents)
+        if (rightTab.view) this.installPaletteShortcut(rightTab.view.webContents)
+        laidOutSplit = true
+      } else {
+        this.split = null
+      }
+    }
+    if (!laidOutSplit) {
+      for (const t of this.tabs) t.view?.setVisible(ready && t.id === id)
+      // a bring-forward while the window is minimized or mid-restore must not
+      // zero-size the view being activated (same guard as layout())
+      if (target.view && isSettledRect(bounds)) target.view.setBounds(bounds)
+      if (target.view) this.installPaletteShortcut(target.view.webContents)
+    }
     // the visibility sweep above may have hidden another browser tab's chrome
     // and shown this one: their page views (chrome siblings in this window's
     // contentView) follow here
     this.syncBrowserPages()
-    this.activeId = id
     // the AI slot's report belongs to the tab that measured it: the tab
     // being left may drift while hidden, so its rect is stale until it
     // re-reports — and a docs tab being activated is asked for a fresh one
@@ -1123,7 +1430,6 @@ export class TabManager {
     const previousWc = previous?.view?.webContents
     if (previousWc && previous.id !== id) this.aiSlot.markStale(previousWc.id)
     if (HOSTED_AI_SLOT_KINDS.has(target.kind)) this.requestAiSlotRect()
-    if (target.view) this.installPaletteShortcut(target.view.webContents)
     if (appForKind(target.kind)?.open?.spare) this.scheduleSpareView(3000)
     else this.discardSpareView()
     this.refreshActiveTargets()
@@ -1140,6 +1446,7 @@ export class TabManager {
     // hot edge until something resizes
     this.syncDockOverlay()
     this.syncTopBarOverlay()
+    this.notifySplitChange()
     this.onChanged()
     return true
   }
@@ -1360,20 +1667,37 @@ export class TabManager {
   private removeTab(id: string): void {
     const idx = this.tabs.findIndex((t) => t.id === id)
     if (idx < 0) return
+    const wasSplitMember =
+      this.split !== null && (this.split.leftTabId === id || this.split.rightTabId === id)
+    const splitSiblingId = wasSplitMember
+      ? this.split!.leftTabId === id
+        ? this.split!.rightTabId
+        : this.split!.leftTabId
+      : null
+    if (wasSplitMember) {
+      this.split = null
+    }
     if (this.htmlFullScreenId === id) this.htmlFullScreenId = null
     const [removed] = this.tabs.splice(idx, 1)
     if (removed.filePath && !removed.present)
       this.closedListener?.({ kind: removed.kind, filePath: removed.filePath })
-    if (this.activeId === id) {
-      const fallback = this.tabs[idx - 1] ?? this.tabs[0]
-      this.activateTab(fallback.id)
-    } else {
-      this.onChanged()
-    }
     if (removed.view) {
+      const wcId = removed.view.webContents?.id
+      if (wcId !== undefined) this.compareInits.delete(wcId)
       removed.view.setVisible(false)
       this.shellWindow.contentView.removeChildView(removed.view)
       destroyView(removed.kind, removed.view)
+    }
+    if (this.activeId === id) {
+      const sibling = splitSiblingId ? this.tabs.find((t) => t.id === splitSiblingId) : undefined
+      const fallback = sibling ?? this.tabs[idx - 1] ?? this.tabs[0]
+      this.activateTab(fallback.id)
+    } else {
+      if (wasSplitMember) {
+        this.layout()
+        this.notifySplitChange()
+      }
+      this.onChanged()
     }
   }
 
@@ -1413,6 +1737,9 @@ export class TabManager {
   }
 
   private canSleep(tab: TabRecord): boolean {
+    if (this.split && (tab.id === this.split.leftTabId || tab.id === this.split.rightTabId)) {
+      return false
+    }
     return (
       tab.id !== this.activeId &&
       !tab.pinned &&
@@ -1432,6 +1759,7 @@ export class TabManager {
     this.shellWindow.contentView.addChildView(view)
     view.setVisible(false)
     this.trackHtmlFullScreen(view)
+    this.attachSplitFocusListener(view)
     tab.view = view
     tab.dormant = false
     // the wake is a lease for the sleep clock, not user attention: the
@@ -1522,6 +1850,16 @@ export class TabManager {
     const idx = this.tabs.findIndex((t) => t.id === id)
     const tab = idx >= 0 ? this.tabs[idx] : undefined
     if (!tab?.view || tab.present || this.closingIds.has(id)) return null
+    const wasSplitMember =
+      this.split !== null && (this.split.leftTabId === id || this.split.rightTabId === id)
+    const splitSiblingId = wasSplitMember
+      ? this.split!.leftTabId === id
+        ? this.split!.rightTabId
+        : this.split!.leftTabId
+      : null
+    if (wasSplitMember) {
+      this.split = null
+    }
     this.tabs.splice(idx, 1)
     if (this.htmlFullScreenId === id) this.htmlFullScreenId = null
     const view = tab.view
@@ -1538,9 +1876,14 @@ export class TabManager {
     // the strip's next activation leaves it painted where its tab no longer is
     appForKind(tab.kind)?.syncView?.(view.webContents, null)
     if (this.activeId === id) {
-      const fallback = this.tabs[idx - 1] ?? this.tabs[0]
+      const sibling = splitSiblingId ? this.tabs.find((t) => t.id === splitSiblingId) : undefined
+      const fallback = sibling ?? this.tabs[idx - 1] ?? this.tabs[0]
       this.activateTab(fallback.id)
     } else {
+      if (wasSplitMember) {
+        this.layout()
+        this.notifySplitChange()
+      }
       this.onChanged()
     }
     return { view, kind: tab.kind, title: tab.title, filePath: tab.filePath }
@@ -1566,6 +1909,7 @@ export class TabManager {
     this.shellWindow.contentView.addChildView(view)
     view.setVisible(false)
     this.trackHtmlFullScreen(view)
+    this.attachSplitFocusListener(view)
     const slot =
       index === undefined || !Number.isFinite(index)
         ? this.tabs.length
@@ -1725,6 +2069,29 @@ function createHelpView(topic?: string): WebContentsView {
     rendererUrl(process.env.ELECTRON_RENDERER_URL, 'help', {
       mode: 'help',
       ...(topic ? { topic } : {}),
+    }),
+  )
+  return view
+}
+
+/** The Document Compare view shares the shell's renderer bundle and preload at ?view=compare. */
+function createCompareView(): WebContentsView {
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    const target = safeExternalUrl(url)
+    if (target) void shell.openExternal(target)
+    return { action: 'deny' }
+  })
+  void view.webContents.loadURL(
+    rendererUrl(process.env.ELECTRON_RENDERER_URL, 'help', {
+      view: 'compare',
     }),
   )
   return view

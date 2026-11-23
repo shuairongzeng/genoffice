@@ -1,5 +1,6 @@
 import type { MenuItemConstructorOptions } from 'electron'
 import { extname } from 'node:path'
+import type { SplitState } from '../shared/split-api'
 import type { TabSummary } from '../shared/tabs-api'
 
 export type TabMenuStringKey =
@@ -9,6 +10,8 @@ export type TabMenuStringKey =
   | 'menuTabRename'
   | 'menuTabDuplicate'
   | 'menuTabSplitBeside'
+  | 'menuTabCloseSplit'
+  | 'menuTabCompare'
   | 'menuTabCopyPath'
   | 'menuTabCopyName'
   | 'menuTabReveal'
@@ -34,6 +37,8 @@ export interface TabMenuActions {
   /** pin the tab to the Home desktop as a live, borderless widget window */
   pinToDesktop(id: string): void
   splitBeside(id: string): void
+  closeSplit?: () => void
+  compareWith?: (id: string) => void
   rename(id: string): void
   duplicate(path: string): void
   copyText(text: string): void
@@ -52,6 +57,12 @@ export interface TabMenuInput {
   /** every tab in strip order, Home first */
   tabs: readonly TabSummary[]
   canDetach: boolean
+  /** active split state, if any */
+  split?: SplitState | null
+  /** whether another non-home tab exists for in-window split view */
+  canSplitInWindow?: boolean
+  /** whether this tab can be compared against another document */
+  canCompare?: boolean
   /** the file behind the tab is still on disk */
   fileExists: boolean
   /** something was closed that can be opened again */
@@ -144,7 +155,12 @@ export function tabMenuTemplate(input: TabMenuInput): MenuItemConstructorOptions
   const others = tabs.filter((other) => other.id !== tab.id && closable(other))
   const right = tabs.slice(index + 1).filter(closable)
   const everything = tabs.filter(closable)
-  const document = input.canDetach && tab.kind !== 'home' && tab.kind !== 'help'
+  const document =
+    input.canDetach && tab.kind !== 'home' && tab.kind !== 'help' && tab.kind !== 'compare'
+  const inSplit =
+    !!input.split &&
+    !input.split.suspended &&
+    (input.split.leftTabId === tab.id || input.split.rightTabId === tab.id)
 
   const template: MenuItemConstructorOptions[] = [
     // where the file is, at a glance (the menu is the place people look when they ask "which one is this?")
@@ -176,11 +192,24 @@ export function tabMenuTemplate(input: TabMenuInput): MenuItemConstructorOptions
       click: () => actions.duplicate(file!),
     },
     { type: 'separator' },
+    inSplit
+      ? {
+          id: 'closeSplit',
+          label: tm('menuTabCloseSplit'),
+          enabled: true,
+          click: () => actions.closeSplit?.(),
+        }
+      : {
+          id: 'splitBeside',
+          label: tm('menuTabSplitBeside'),
+          enabled: input.canSplitInWindow ?? input.canDetach,
+          click: () => actions.splitBeside(tab.id),
+        },
     {
-      id: 'splitBeside',
-      label: tm('menuTabSplitBeside'),
-      enabled: input.canDetach,
-      click: () => actions.splitBeside(tab.id),
+      id: 'compare',
+      label: tm('menuTabCompare'),
+      enabled: input.canCompare ?? tab.kind !== 'compare',
+      click: () => actions.compareWith?.(tab.id),
     },
     {
       id: 'openInNewWindow',
@@ -223,7 +252,7 @@ export function tabMenuTemplate(input: TabMenuInput): MenuItemConstructorOptions
     {
       id: 'pin',
       label: tm(tab.pinned ? 'menuTabUnpin' : 'menuTabPin'),
-      enabled: tab.kind !== 'help',
+      enabled: tab.kind !== 'help' && tab.kind !== 'compare',
       click: () => actions.pin(tab.id, !tab.pinned),
     },
     {

@@ -1,4 +1,14 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react'
 import type { DragEvent as ReactDragEvent } from 'react'
 import {
   AiDock,
@@ -32,7 +42,8 @@ import { DOCK_AUTOHIDE_DELAY_MS, DOCK_LAUNCHERS_GROUP, applyDockOrder } from './
 import { dockCustomLabel, dockCustomIcon, dockCustomTile } from './dock-custom'
 import { DockFlyGhost, useDockFlyGhost, type DockGhostFrom } from './dock-ghost'
 import { desktopAppOpen, isOpenableDocument } from './desktop-items'
-import { HomeTabs } from './HomeTabs'
+import { HomeTabs, useSplitCompareActions } from './HomeTabs'
+import { SplitDivider } from './SplitDivider'
 import { KbAskPanel } from './KbAskPanel'
 import { FileBadge } from './file-badge'
 import { placeFolderMenu } from './folder-menu-position'
@@ -48,6 +59,8 @@ import type {
   RecentEntry,
   FileSearchPage,
   FileSearchRerank,
+  SplitPaneSide,
+  SplitState,
   WindowChromeState,
 } from '../../shared/home-api'
 import type { TabsApi } from '../../shared/tabs-api'
@@ -366,18 +379,37 @@ export function Home() {
   // list; every click rides back through `tabsActivate` / `tabsClose`.
   const [workTabs, setWorkTabs] = useState<readonly HomeTabEntry[]>([])
   const [workActiveId, setWorkActiveId] = useState<string | null>(null)
+  const [splitState, setSplitState] = useState<SplitState | null>(null)
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
     const stripBridge = window.aiOfficeTabs as Partial<TabsApi> | undefined
+    let alive = true
+    if (typeof api.splitGetState === 'function') {
+      void api
+        .splitGetState()
+        .then((next) => {
+          if (alive) setSplitState(next ?? null)
+        })
+        .catch(() => undefined)
+    }
     if (typeof api.onTabsChanged === 'function') {
-      return api.onTabsChanged((state) => {
+      const off = api.onTabsChanged((state) => {
         // the push includes Home itself; the strip renders its own desktop
         // item, so that entry never doubles up here
         setWorkTabs(state.tabs.filter((tab) => tab.kind !== 'home'))
         setWorkActiveId(state.activeId)
+        setSplitState(state.split ?? null)
       })
+      return () => {
+        alive = false
+        off()
+      }
     }
-    if (typeof stripBridge?.list !== 'function' || !stripBridge.onChanged) return
+    if (typeof stripBridge?.list !== 'function' || !stripBridge.onChanged) {
+      return () => {
+        alive = false
+      }
+    }
     const apply = (
       tabs: { id: string; kind: string; title: string; active: boolean; dirty?: boolean }[],
     ) => {
@@ -396,10 +428,30 @@ export function Home() {
       setWorkActiveId(tabs.find((tab) => tab.active)?.id ?? null)
     }
     void stripBridge.list().then(apply, () => undefined)
-    return stripBridge.onChanged(apply)
+    const offStrip = stripBridge.onChanged(apply)
+    return () => {
+      alive = false
+      offStrip()
+    }
   }, [])
   /** a document tab is the active tab right now (the desktop item is not) */
   const docTabActive = workActiveId !== null && workActiveId !== 'home'
+  const {
+    onSplitToggle: handleSplitToggle,
+    onSplitSwap: handleSplitSwap,
+    onSplitSyncToggle: handleSplitSyncToggle,
+    onOpenCompare: handleOpenCompare,
+  } = useSplitCompareActions(workTabs, workActiveId, splitState)
+  const handleSplitRatioChange = useCallback((ratio: number, commit: boolean) => {
+    setSplitState((prev) => (prev ? { ...prev, ratio } : prev))
+    const api = window.aiOffice as Partial<HomeApi>
+    api.splitSetRatio?.(ratio, commit)
+  }, [])
+  const handleSplitFocusPane = useCallback((side: SplitPaneSide) => {
+    setSplitState((prev) => (prev ? { ...prev, activePane: side } : prev))
+    const api = window.aiOffice as Partial<HomeApi>
+    void api.splitFocusPane?.(side).catch(() => undefined)
+  }, [])
   const activateWorkTab = useCallback((id: string) => {
     const api = window.aiOffice as Partial<HomeApi>
     if (typeof api.tabsActivate === 'function') void api.tabsActivate(id).catch(() => undefined)
@@ -451,15 +503,21 @@ export function Home() {
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
     let alive = true
-    void api.getWindowChromeState?.().then((state) => {
-      if (alive) setWindowChromeState(state)
-    }, () => undefined)
+    void api.getWindowChromeState?.().then(
+      (state) => {
+        if (alive) setWindowChromeState(state)
+      },
+      () => undefined,
+    )
     const offChrome = api.onWindowChromeStateChanged?.((state) => {
       if (alive) setWindowChromeState(state)
     })
-    void api.desktopPrefs?.().then((prefs) => {
-      if (alive) setAutoHideTopBarEnabled(prefs.autoHideTopBarOnMaximize !== false)
-    }, () => undefined)
+    void api.desktopPrefs?.().then(
+      (prefs) => {
+        if (alive) setAutoHideTopBarEnabled(prefs.autoHideTopBarOnMaximize !== false)
+      },
+      () => undefined,
+    )
     const offPrefs = api.onDesktopPrefsChanged?.((prefs) => {
       if (alive) setAutoHideTopBarEnabled(prefs.autoHideTopBarOnMaximize !== false)
     })
@@ -508,7 +566,8 @@ export function Home() {
       }
     }
     report()
-    const observer = typeof ResizeObserver === 'function' && stage ? new ResizeObserver(report) : null
+    const observer =
+      typeof ResizeObserver === 'function' && stage ? new ResizeObserver(report) : null
     if (stage) observer?.observe(stage)
     window.addEventListener('resize', report)
     return () => {
@@ -2835,45 +2894,41 @@ export function Home() {
       // tail — the persisted order ranks them within the group like any
       // other item, and each carries its open verb plus the remove (移除)
       // that takes the definition and its order entry together
-      ...dockPrefs.customItems.map(
-        (custom) => {
-          const isPlayerCustom = custom.kind === 'app' && custom.target === 'app:player'
-          return {
-            id: custom.id,
-            label:
-              isPlayerCustom && playerOpen && playerPlayback.title
-                ? playerPlayback.title
-                : dockCustomLabel(custom, DESKTOP_STRINGS[lang]),
-            icon: dockCustomIcon(custom),
-            tile: dockCustomTile(custom),
-            ...(isPlayerCustom && playerOpen
-              ? { running: true, playing: playerPlayback.playing }
-              : {}),
-            onSelect: () =>
-              isPlayerCustom && playerOpen
-                ? launchPlayerCommand('show')
-                : launchDockCustom(custom),
-            menu:
-              isPlayerCustom && playerOpen
-                ? [
-                    ...buildPlayerDockMenu(),
-                    {
-                      label: t('dockMenuRemove'),
-                      onSelect: () => removeDockCustomItem(custom.id),
-                      danger: true,
-                    },
-                  ]
-                : [
-                    { label: t('dockMenuOpen'), onSelect: () => launchDockCustom(custom) },
-                    {
-                      label: t('dockMenuRemove'),
-                      onSelect: () => removeDockCustomItem(custom.id),
-                      danger: true,
-                    },
-                  ],
-          } as DockItem
-        },
-      ),
+      ...dockPrefs.customItems.map((custom) => {
+        const isPlayerCustom = custom.kind === 'app' && custom.target === 'app:player'
+        return {
+          id: custom.id,
+          label:
+            isPlayerCustom && playerOpen && playerPlayback.title
+              ? playerPlayback.title
+              : dockCustomLabel(custom, DESKTOP_STRINGS[lang]),
+          icon: dockCustomIcon(custom),
+          tile: dockCustomTile(custom),
+          ...(isPlayerCustom && playerOpen
+            ? { running: true, playing: playerPlayback.playing }
+            : {}),
+          onSelect: () =>
+            isPlayerCustom && playerOpen ? launchPlayerCommand('show') : launchDockCustom(custom),
+          menu:
+            isPlayerCustom && playerOpen
+              ? [
+                  ...buildPlayerDockMenu(),
+                  {
+                    label: t('dockMenuRemove'),
+                    onSelect: () => removeDockCustomItem(custom.id),
+                    danger: true,
+                  },
+                ]
+              : [
+                  { label: t('dockMenuOpen'), onSelect: () => launchDockCustom(custom) },
+                  {
+                    label: t('dockMenuRemove'),
+                    onSelect: () => removeDockCustomItem(custom.id),
+                    danger: true,
+                  },
+                ],
+        } as DockItem
+      }),
       ...(playerOpen && !hasPlayerCustomInDock
         ? [
             {
@@ -3003,6 +3058,11 @@ export function Home() {
           onShowDesktop={showDesktopTab}
           onActivate={activateWorkTab}
           onClose={closeWorkTab}
+          split={splitState}
+          onSplitToggle={handleSplitToggle}
+          onSplitSwap={handleSplitSwap}
+          onSplitSyncToggle={handleSplitSyncToggle}
+          onOpenCompare={handleOpenCompare}
           onPointerEnter={
             topBarAutoHide ? () => window.aiOffice.topBarHotEdge?.({ enter: true }) : undefined
           }
@@ -3017,6 +3077,15 @@ export function Home() {
          *  whatever lands here, and the AI drawer overlays it rather than
          *  carving anything off */}
         <div className="home-stage" ref={stageRef}>
+          {docTabActive && splitState && !splitState.suspended && (
+            <SplitDivider
+              ratio={splitState.ratio}
+              activePane={splitState.activePane}
+              containerRef={stageRef}
+              onRatioChange={handleSplitRatioChange}
+              onFocusPane={handleSplitFocusPane}
+            />
+          )}
           {desktopMode ? (
             <DesktopView
               lang={lang}

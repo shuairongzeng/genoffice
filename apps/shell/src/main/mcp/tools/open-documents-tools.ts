@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
-import type { OpenDocumentTab, TabKind } from '../../../shared/tabs-api'
+import type { DocumentTabKind, OpenDocumentTab, TabKind } from '../../../shared/tabs-api'
 import type { McpToolDefinition } from '../mcp-server'
 import { formatFamily, familyLabel, type EditorFamily } from './formats'
 import { sanitizeFileBase, uniquePathIn } from './document-tools'
@@ -22,7 +22,7 @@ import { sanitizeFileBase, uniquePathIn } from './document-tools'
  * Browser tabs hold no documents and never join the open-documents list, so
  * they carry no family; the readers below degrade gracefully if one ever does.
  */
-const FAMILY_BY_KIND: Partial<Record<Exclude<TabKind, 'home' | 'help'>, EditorFamily>> = {
+const FAMILY_BY_KIND: Partial<Record<DocumentTabKind, EditorFamily>> = {
   docs: 'docx',
   sheets: 'xlsx',
   slides: 'pptx',

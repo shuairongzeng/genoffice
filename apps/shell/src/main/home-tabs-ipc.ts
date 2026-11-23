@@ -138,7 +138,12 @@ export async function collectHomeTabsState(
     dirty: doc.dirty,
     detached: true,
   }))
-  return { tabs: [...tabs, ...detached], activeId: manager.activeTabId() }
+  const split = typeof manager.getSplitState === 'function' ? manager.getSplitState() : null
+  return {
+    tabs: [...tabs, ...detached],
+    activeId: manager.activeTabId(),
+    ...(split ? { split } : {}),
+  }
 }
 
 /**

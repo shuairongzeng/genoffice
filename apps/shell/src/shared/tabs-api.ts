@@ -9,9 +9,10 @@ export type TabKind =
   | 'media'
   | 'browser'
   | 'help'
+  | 'compare'
 
-/** a tab that holds a document — every kind except the Home screen and the in-app manual */
-export type DocumentTabKind = Exclude<TabKind, 'home' | 'help'>
+/** a tab that holds a document — every kind except the Home screen, manual, and diff view */
+export type DocumentTabKind = Exclude<TabKind, 'home' | 'help' | 'compare'>
 
 /** one open tab in the top tab strip; Home is always id 'home' and not closable */
 export interface TabSummary {

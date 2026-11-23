@@ -185,6 +185,28 @@ export interface KbRecallHit {
 import type { FoundSkill, ForeignSkillCandidate, InstalledPlugin } from './found-skill'
 import type { DocumentTabKind, TabKind } from './tabs-api'
 import type { EditorCommandId } from './editor-commands'
+import type { SplitPaneSide, SplitState } from './split-api'
+import type {
+  CompareAskAiPayload,
+  CompareOpenOptions,
+  CompareResult,
+  CompareRunRequest,
+  CompareTabSource,
+} from './compare-api'
+
+export type { SplitPaneSide, SplitState } from './split-api'
+export type {
+  CompareAskAiPayload,
+  CompareDocumentMeta,
+  CompareOpenOptions,
+  CompareResult,
+  CompareRunRequest,
+  CompareSourceRef,
+  CompareTabSource,
+  DiffRow,
+  DiffStats,
+  InlineDiffSegment,
+} from './compare-api'
 
 export interface AttachmentAddResult {
   accepted: AttachmentInfo[]
@@ -608,6 +630,8 @@ export interface HomeTabEntry {
 export interface HomeTabsState {
   tabs: HomeTabEntry[]
   activeId: string
+  /** Active in-window split pane state, or null/absent when viewing single pane. */
+  split?: SplitState | null
 }
 
 /** runtime guard for {@link HomeTabEntry.kind} — mirrors the TabKind union in tabs-api */
@@ -622,6 +646,7 @@ export const HOME_TAB_KINDS: readonly TabKind[] = [
   'media',
   'browser',
   'help',
+  'compare',
 ]
 
 export type MediaKind = 'image' | 'audio' | 'video'
@@ -1861,6 +1886,34 @@ export interface HomeApi {
   onMediaReadSnapshotRequest(handler: (req: MediaSnapshotRequest) => void): () => void
   /** return the rendered image/video/audio snapshot payload back to the main process */
   sendMediaReadSnapshotReply(reply: MediaSnapshotReply): void
+  /** open side-by-side split view within the shell window */
+  splitOpen(targetTabId?: string, side?: SplitPaneSide): Promise<SplitState | null>
+  /** close side-by-side split view and return to single active tab */
+  splitClose(): Promise<void>
+  /** swap left and right split panes */
+  splitSwap(): Promise<SplitState | null>
+  /** update split divider ratio (live preview or committed) */
+  splitSetRatio(ratio: number, commit?: boolean): void
+  /** toggle synchronized scrolling between left and right split panes */
+  splitSetSyncScroll(enabled: boolean): Promise<SplitState | null>
+  /** switch active focus pane inside split view */
+  splitFocusPane(side: SplitPaneSide): Promise<void>
+  /** read current split view state */
+  splitGetState(): Promise<SplitState | null>
+  /** open or focus the document comparison tab */
+  compareOpen(opts?: CompareOpenOptions): Promise<string | null>
+  /** fetch initial or updated source selection for the active compare view */
+  compareGetInit(): Promise<CompareOpenOptions | null>
+  /** subscribe to compare target updates pushed from main */
+  compareOnInitUpdated(handler: (opts: CompareOpenOptions) => void): () => void
+  /** list open tabs available for text comparison */
+  compareListSources(): Promise<CompareTabSource[]>
+  /** open native file dialog to pick a document for comparison */
+  comparePickFile(): Promise<string | null>
+  /** extract live/disk text and compute structured diff rows */
+  compareRunDiff(req: CompareRunRequest): Promise<CompareResult>
+  /** send diff summary markdown to the Ask AI drawer */
+  compareAskAiSummary(payload: CompareAskAiPayload): Promise<void>
 }
 
 export interface AiCatalogEntry extends AiProviderMeta {

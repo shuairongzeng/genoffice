@@ -1,6 +1,6 @@
-import type { ReactElement } from 'react'
+import { useCallback, type ReactElement } from 'react'
 import type { Lang } from '@genoffice/i18n'
-import type { HomeTabEntry } from '../../shared/home-api'
+import type { CompareOpenOptions, HomeApi, HomeTabEntry, SplitState } from '../../shared/home-api'
 import type { TabSummary, TabsApi } from '../../shared/tabs-api'
 import { desktopStrings } from './desktop-strings'
 import { useI18n } from './locale'
@@ -245,6 +245,186 @@ function MediaIcon() {
   )
 }
 
+function CompareIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 240 240" fill="none" aria-hidden="true">
+      <rect width="240" height="240" rx="48" fill="#4F46E5" />
+      <rect x="42" y="56" width="66" height="128" rx="12" stroke="#fff" strokeWidth="13" />
+      <rect x="132" y="56" width="66" height="128" rx="12" stroke="#fff" strokeWidth="13" />
+      <path
+        d="M60 98h30M60 124h24M60 150h30M150 98h30M150 124h30M165 109v30"
+        stroke="#fff"
+        strokeWidth="12"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function SplitActionGlyph(): ReactElement {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect
+        x="1.75"
+        y="2.5"
+        width="12.5"
+        height="11"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.3"
+      />
+      <path d="M8 2.5v11" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="9.3" y="4" width="3.4" height="8" rx="0.8" fill="currentColor" fillOpacity="0.22" />
+    </svg>
+  )
+}
+
+function SyncScrollGlyph(): ReactElement {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M5 3.2v9.6M5 3.2 3.3 5M5 3.2 6.7 5M5 12.8 3.3 11M5 12.8 6.7 11"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M11 3.2v9.6M11 3.2 9.3 5M11 3.2 12.7 5M11 12.8 9.3 11M11 12.8 12.7 11"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function SwapPanesGlyph(): ReactElement {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M2.5 5.5h11m0 0L11 3m2.5 2.5L11 8M13.5 10.5h-11m0 0L5 8m-2.5 2.5L5 13"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function CompareActionGlyph(): ReactElement {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect
+        x="1.8"
+        y="2.6"
+        width="5.2"
+        height="10.8"
+        rx="1.2"
+        stroke="currentColor"
+        strokeWidth="1.25"
+      />
+      <rect
+        x="9"
+        y="2.6"
+        width="5.2"
+        height="10.8"
+        rx="1.2"
+        stroke="currentColor"
+        strokeWidth="1.25"
+      />
+      <path
+        d="M3.4 6.5h2M10.6 6.5h2M11.6 5.5v2M3.4 9.5h2M10.6 9.5h2"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function readUiScale(): number {
+  const rawScale = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--ui-scale'),
+  )
+  return Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1
+}
+
+/**
+ * Derive initial left/right document refs when launching Compare from the
+ * tab strip or topbar overlay.
+ */
+export function buildCompareOpenOptions(
+  tabs: readonly HomeTabEntry[],
+  activeId: string | null,
+  split: SplitState | null,
+): CompareOpenOptions {
+  if (split && !split.suspended) {
+    return {
+      left: { kind: 'tab', tabId: split.leftTabId },
+      right: { kind: 'tab', tabId: split.rightTabId },
+    }
+  }
+  const eligible = tabs.filter(
+    (tab) => tab.kind !== 'home' && tab.kind !== 'compare' && tab.kind !== 'help' && !tab.detached,
+  )
+  if (eligible.length < 2) return {}
+  const activeTab = eligible.find((tab) => tab.id === activeId || tab.active) ?? eligible[0]!
+  const otherTab = eligible.find((tab) => tab.id !== activeTab.id)
+  if (!otherTab) return {}
+  return {
+    left: { kind: 'tab', tabId: activeTab.id },
+    right: { kind: 'tab', tabId: otherTab.id },
+  }
+}
+
+/**
+ * Shared split-view and document-compare action handlers for both Home and
+ * the auto-hide floating topbar view.
+ */
+export function useSplitCompareActions(
+  tabs: readonly HomeTabEntry[],
+  activeId: string | null,
+  split: SplitState | null,
+) {
+  const splitActive = Boolean(split && !split.suspended)
+  const syncScroll = Boolean(split?.syncScroll)
+
+  const onSplitToggle = useCallback(() => {
+    const api = window.aiOffice as Partial<HomeApi> | undefined
+    if (splitActive) {
+      void api?.splitClose?.().catch(() => undefined)
+    } else {
+      void api?.splitOpen?.().catch(() => undefined)
+    }
+  }, [splitActive])
+
+  const onSplitSwap = useCallback(() => {
+    const api = window.aiOffice as Partial<HomeApi> | undefined
+    void api?.splitSwap?.().catch(() => undefined)
+  }, [])
+
+  const onSplitSyncToggle = useCallback(() => {
+    const api = window.aiOffice as Partial<HomeApi> | undefined
+    void api?.splitSetSyncScroll?.(!syncScroll).catch(() => undefined)
+  }, [syncScroll])
+
+  const onOpenCompare = useCallback(() => {
+    const api = window.aiOffice as Partial<HomeApi> | undefined
+    const opts = buildCompareOpenOptions(tabs, activeId, split)
+    void api?.compareOpen?.(opts).catch(() => undefined)
+  }, [tabs, activeId, split])
+
+  return {
+    onSplitToggle,
+    onSplitSwap,
+    onSplitSyncToggle,
+    onOpenCompare,
+  }
+}
+
 /** the per-kind tab glyph, keyed the way the strip's entries are */
 export const KIND_ICON: Record<TabSummary['kind'], ReactElement> = {
   home: <HomeIcon />,
@@ -257,6 +437,7 @@ export const KIND_ICON: Record<TabSummary['kind'], ReactElement> = {
   media: <MediaIcon />,
   browser: <BrowserIcon />,
   help: <HelpIcon />,
+  compare: <CompareIcon />,
 }
 
 export interface HomeTabsProps {
@@ -269,6 +450,11 @@ export interface HomeTabsProps {
   onShowDesktop: () => void
   onActivate: (id: string) => void
   onClose: (id: string) => void
+  split?: SplitState | null
+  onSplitToggle?: () => void
+  onSplitSwap?: () => void
+  onSplitSyncToggle?: () => void
+  onOpenCompare?: () => void
   onPointerEnter?: () => void
   onPointerLeave?: () => void
 }
@@ -280,12 +466,29 @@ export function HomeTabs({
   onShowDesktop,
   onActivate,
   onClose,
+  split,
+  onSplitToggle,
+  onSplitSwap,
+  onSplitSyncToggle,
+  onOpenCompare,
   onPointerEnter,
   onPointerLeave,
 }: HomeTabsProps): ReactElement {
   const { t } = useI18n()
   const showAppMenu =
     typeof navigator !== 'undefined' && !navigator.platform.toLowerCase().includes('mac')
+  const splitActive = Boolean(split && !split.suspended)
+  const splittableCount = tabs.filter((tab) => tab.kind !== 'home' && !tab.detached).length
+  const canToggleSplit = splitActive || splittableCount >= 2
+  const splitTooltip = !canToggleSplit
+    ? t('splitNeedTwoTabs')
+    : splitActive
+      ? t('splitClose')
+      : t('splitOpen')
+  const showActions =
+    (tabs.length > 0 || splitActive) &&
+    (Boolean(onSplitToggle) || splitActive || Boolean(onOpenCompare))
+
   return (
     <div
       className="work-tabs"
@@ -302,10 +505,7 @@ export function HomeTabs({
           title={t('appMenu')}
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect()
-            const rawScale = Number.parseFloat(
-              getComputedStyle(document.documentElement).getPropertyValue('--ui-scale'),
-            )
-            const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1
+            const scale = readUiScale()
             void window.aiOfficeTabs?.showAppMenu?.(
               Math.round(rect.left * scale),
               Math.round(rect.bottom * scale),
@@ -338,44 +538,124 @@ export function HomeTabs({
             <span className="work-tab-title">{desktopStrings(lang).navDesktop}</span>
           </button>
         </div>
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={`work-tab${tab.active ? ' active' : ''}${tab.detached ? ' detached' : ''}`}
-          >
-            <button
-              type="button"
-              className="work-tab-main"
-              role="tab"
-              aria-selected={tab.active}
-              title={tab.detached ? `${tab.title} (${t('workTabDetached')})` : tab.title}
-              onClick={() => onActivate(tab.id)}
+        {tabs.map((tab) => {
+          const splitSide =
+            split && !split.suspended
+              ? tab.id === split.leftTabId
+                ? 'left'
+                : tab.id === split.rightTabId
+                  ? 'right'
+                  : null
+              : null
+          return (
+            <div
+              key={tab.id}
+              className={`work-tab${tab.active ? ' active' : ''}${tab.detached ? ' detached' : ''}${splitSide ? ' in-split' : ''}`}
+              data-split-pane={splitSide ?? undefined}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                const scale = readUiScale()
+                void window.aiOfficeTabs?.showTabMenu?.(
+                  tab.id,
+                  Math.round(e.clientX * scale),
+                  Math.round(e.clientY * scale),
+                )
+              }}
             >
-              <span className="work-tab-icon" aria-hidden="true">
-                {/* a browser tab shows the live page favicon once the page has one */}
-                {tab.faviconUrl ? (
-                  <img className="work-tab-favicon" src={tab.faviconUrl} alt="" />
-                ) : (
-                  (KIND_ICON[tab.kind] ?? <FallbackDocIcon />)
+              <button
+                type="button"
+                className="work-tab-main"
+                role="tab"
+                aria-selected={tab.active}
+                title={tab.detached ? `${tab.title} (${t('workTabDetached')})` : tab.title}
+                onClick={() => onActivate(tab.id)}
+              >
+                <span className="work-tab-icon" aria-hidden="true">
+                  {/* a browser tab shows the live page favicon once the page has one */}
+                  {tab.faviconUrl ? (
+                    <img className="work-tab-favicon" src={tab.faviconUrl} alt="" />
+                  ) : (
+                    (KIND_ICON[tab.kind] ?? <FallbackDocIcon />)
+                  )}
+                </span>
+                <span className="work-tab-title">{tab.title}</span>
+                {splitSide && (
+                  <span className="work-tab-pane-badge">
+                    {t(splitSide === 'left' ? 'splitPaneLeft' : 'splitPaneRight')}
+                  </span>
                 )}
-              </span>
-              <span className="work-tab-title">{tab.title}</span>
-              {tab.dirty && (
-                <span className="work-tab-dirty" title={t('workTabDirty')} aria-hidden="true" />
-              )}
-            </button>
+                {tab.dirty && (
+                  <span className="work-tab-dirty" title={t('workTabDirty')} aria-hidden="true" />
+                )}
+              </button>
+              <button
+                type="button"
+                className="work-tab-close"
+                aria-label={t('closeTab')}
+                title={t('closeTab')}
+                onClick={() => onClose(tab.id)}
+              >
+                ×
+              </button>
+            </div>
+          )
+        })}
+      </div>
+      {showActions && (
+        <div className="work-tabs-actions">
+          {onSplitToggle && (
             <button
               type="button"
-              className="work-tab-close"
-              aria-label={t('closeTab')}
-              title={t('closeTab')}
-              onClick={() => onClose(tab.id)}
+              className={`work-tabs-action-btn${splitActive ? ' is-active' : ''}`}
+              data-testid="split-toggle-btn"
+              disabled={!canToggleSplit}
+              aria-pressed={splitActive}
+              aria-label={splitTooltip}
+              title={splitTooltip}
+              onClick={onSplitToggle}
             >
-              ×
+              <SplitActionGlyph />
             </button>
-          </div>
-        ))}
-      </div>
+          )}
+          {splitActive && (
+            <>
+              <button
+                type="button"
+                className={`work-tabs-action-btn${split?.syncScroll ? ' is-active' : ''}`}
+                data-testid="split-sync-btn"
+                aria-pressed={Boolean(split?.syncScroll)}
+                aria-label={t('splitSyncScroll')}
+                title={split?.syncScroll ? t('splitSyncScrollOn') : t('splitSyncScrollOff')}
+                onClick={() => onSplitSyncToggle?.()}
+              >
+                <SyncScrollGlyph />
+              </button>
+              <button
+                type="button"
+                className="work-tabs-action-btn"
+                data-testid="split-swap-btn"
+                aria-label={t('splitSwap')}
+                title={t('splitSwap')}
+                onClick={() => onSplitSwap?.()}
+              >
+                <SwapPanesGlyph />
+              </button>
+            </>
+          )}
+          {onOpenCompare && (
+            <button
+              type="button"
+              className="work-tabs-action-btn"
+              data-testid="compare-open-btn"
+              aria-label={t('compareOpen')}
+              title={t('compareOpen')}
+              onClick={onOpenCompare}
+            >
+              <CompareActionGlyph />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

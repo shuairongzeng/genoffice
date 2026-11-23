@@ -1723,6 +1723,10 @@ export async function listSurfaceTabsFromMain() {
   return await registeredBrowserDeps.listSurfaceTabs()
 }
 
+export function browserPageWebContentsFor(chrome: WebContents): WebContents | undefined {
+  return registeredBrowserLinks ? pageWcOf(registeredBrowserLinks, chrome) : undefined
+}
+
 export function registerBrowserSkillIpc(deps: BrowserAgentIpcDeps): void {
   const links = new BrowserPageLinks(isBrowserPageView)
   registeredBrowserDeps = deps

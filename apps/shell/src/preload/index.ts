@@ -94,6 +94,15 @@ import type {
 } from '../shared/pi-agent-api'
 import { normalizePiAgentPrefs, type PiAgentPrefs } from '../shared/pi-agent-prefs'
 import { INTEGRATIONS_CHANNELS } from '../shared/integrations-api'
+import { SPLIT_CHANNELS, type SplitPaneSide, type SplitState } from '../shared/split-api'
+import {
+  COMPARE_CHANNELS,
+  type CompareAskAiPayload,
+  type CompareOpenOptions,
+  type CompareResult,
+  type CompareRunRequest,
+  type CompareTabSource,
+} from '../shared/compare-api'
 import type {
   IntegrationsApi,
   IntegrationsStatus,
@@ -232,6 +241,32 @@ function asRendererDeepLink(payload: unknown): DeepLinkPayload | null {
  * unknown kind, a forged extra shape) is dropped whole rather than half-kept,
  * and a payload without a sane activeId never reaches the handler.
  */
+function asSplitState(value: unknown): SplitState | null {
+  if (!value || typeof value !== 'object') return null
+  const r = value as Partial<SplitState>
+  if (
+    typeof r.leftTabId !== 'string' ||
+    !r.leftTabId ||
+    typeof r.rightTabId !== 'string' ||
+    !r.rightTabId ||
+    (r.activePane !== 'left' && r.activePane !== 'right') ||
+    typeof r.ratio !== 'number' ||
+    !Number.isFinite(r.ratio) ||
+    typeof r.syncScroll !== 'boolean' ||
+    typeof r.suspended !== 'boolean'
+  ) {
+    return null
+  }
+  return {
+    leftTabId: r.leftTabId,
+    rightTabId: r.rightTabId,
+    activePane: r.activePane,
+    ratio: r.ratio,
+    syncScroll: r.syncScroll,
+    suspended: r.suspended,
+  }
+}
+
 function asHomeTabsState(payload: unknown): HomeTabsState | null {
   if (!payload || typeof payload !== 'object') return null
   const p = payload as Partial<HomeTabsState>
@@ -249,7 +284,8 @@ function asHomeTabsState(payload: unknown): HomeTabsState | null {
       typeof t.detached === 'boolean' &&
       (HOME_TAB_KINDS as readonly string[]).includes(t.kind),
   )
-  return { tabs, activeId: p.activeId }
+  const split = asSplitState(p.split)
+  return split ? { tabs, activeId: p.activeId, split } : { tabs, activeId: p.activeId }
 }
 
 // The renderer defers its first render until the locale and a few bootstrap
@@ -1664,6 +1700,56 @@ const homeApi: HomeApi = {
   },
   sendMediaReadSnapshotReply(reply: MediaSnapshotReply) {
     ipcRenderer.send(HOME_CHANNELS.mediaReadSnapshotReply, reply)
+  },
+  async splitOpen(targetTabId?: string, side?: SplitPaneSide) {
+    return asSplitState(await ipcRenderer.invoke(SPLIT_CHANNELS.open, targetTabId, side))
+  },
+  async splitClose() {
+    await ipcRenderer.invoke(SPLIT_CHANNELS.close)
+  },
+  async splitSwap() {
+    return asSplitState(await ipcRenderer.invoke(SPLIT_CHANNELS.swap))
+  },
+  splitSetRatio(ratio: number, commit?: boolean) {
+    ipcRenderer.send(SPLIT_CHANNELS.setRatio, ratio, commit === true)
+  },
+  async splitSetSyncScroll(enabled: boolean) {
+    return asSplitState(await ipcRenderer.invoke(SPLIT_CHANNELS.setSyncScroll, enabled))
+  },
+  async splitFocusPane(side: SplitPaneSide) {
+    await ipcRenderer.invoke(SPLIT_CHANNELS.focusPane, side)
+  },
+  async splitGetState() {
+    return asSplitState(await ipcRenderer.invoke(SPLIT_CHANNELS.getState))
+  },
+  async compareOpen(opts?: CompareOpenOptions) {
+    const result: unknown = await ipcRenderer.invoke(COMPARE_CHANNELS.openTab, opts)
+    return typeof result === 'string' ? result : null
+  },
+  async compareGetInit() {
+    const result: unknown = await ipcRenderer.invoke(COMPARE_CHANNELS.getInit)
+    return result && typeof result === 'object' ? (result as CompareOpenOptions) : null
+  },
+  compareOnInitUpdated(handler) {
+    const listener = (_event: IpcRendererEvent, opts: unknown) => {
+      if (opts && typeof opts === 'object') handler(opts as CompareOpenOptions)
+    }
+    ipcRenderer.on(COMPARE_CHANNELS.initUpdated, listener)
+    return () => ipcRenderer.removeListener(COMPARE_CHANNELS.initUpdated, listener)
+  },
+  async compareListSources() {
+    const result: unknown = await ipcRenderer.invoke(COMPARE_CHANNELS.listSources)
+    return Array.isArray(result) ? (result as CompareTabSource[]) : []
+  },
+  async comparePickFile() {
+    const result: unknown = await ipcRenderer.invoke(COMPARE_CHANNELS.pickFile)
+    return typeof result === 'string' ? result : null
+  },
+  async compareRunDiff(req: CompareRunRequest) {
+    return (await ipcRenderer.invoke(COMPARE_CHANNELS.runDiff, req)) as CompareResult
+  },
+  async compareAskAiSummary(payload: CompareAskAiPayload) {
+    await ipcRenderer.invoke(COMPARE_CHANNELS.askAiSummary, payload)
   },
   ...(bootSnapshot ? { bootSnapshot } : {}),
   signalFirstPaint() {

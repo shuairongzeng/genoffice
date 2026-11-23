@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { HomeApi, HomeTabEntry, WindowChromeState } from '../../shared/home-api'
-import { HomeTabs } from './HomeTabs'
+import type { HomeApi, HomeTabEntry, SplitState, WindowChromeState } from '../../shared/home-api'
+import { HomeTabs, useSplitCompareActions } from './HomeTabs'
 import { useI18n } from './locale'
 
 /** True while the shell renderer is loaded as the doc-mode floating top bar overlay (`?view=topbar`). */
@@ -27,6 +27,7 @@ export function TopBarEntry(): React.JSX.Element {
   const { lang } = useI18n()
   const [tabs, setTabs] = useState<readonly HomeTabEntry[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [splitState, setSplitState] = useState<SplitState | null>(null)
   const [chromeState, setChromeState] = useState<WindowChromeState>(DEFAULT_CHROME_STATE)
 
   useEffect(() => {
@@ -35,19 +36,30 @@ export function TopBarEntry(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
+    let alive = true
     const api = window.aiOffice as Partial<HomeApi> | undefined
     const offTabs = api?.onTabsChanged?.((state) => {
       setTabs(state.tabs.filter((tab) => tab.kind !== 'home'))
       setActiveId(state.activeId)
+      setSplitState(state.split ?? null)
     })
     const offChrome = api?.onWindowChromeStateChanged?.((next) => {
       setChromeState(next)
     })
     void api
+      ?.splitGetState?.()
+      .then((next) => {
+        if (alive) setSplitState(next ?? null)
+      })
+      .catch(() => undefined)
+    void api
       ?.getWindowChromeState?.()
-      .then((next) => setChromeState(next))
+      .then((next) => {
+        if (alive) setChromeState(next)
+      })
       .catch(() => undefined)
     return () => {
+      alive = false
       offTabs?.()
       offChrome?.()
     }
@@ -70,6 +82,12 @@ export function TopBarEntry(): React.JSX.Element {
     fn?.(enter ? { enter: true } : { leave: true })
   }, [])
 
+  const { onSplitToggle, onSplitSwap, onSplitSyncToggle, onOpenCompare } = useSplitCompareActions(
+    tabs,
+    activeId,
+    splitState,
+  )
+
   const docTabActive = activeId !== null && activeId !== 'home'
 
   return (
@@ -86,6 +104,11 @@ export function TopBarEntry(): React.JSX.Element {
         onShowDesktop={onShowDesktop}
         onActivate={onActivate}
         onClose={onClose}
+        split={splitState}
+        onSplitToggle={onSplitToggle}
+        onSplitSwap={onSplitSwap}
+        onSplitSyncToggle={onSplitSyncToggle}
+        onOpenCompare={onOpenCompare}
       />
     </div>
   )

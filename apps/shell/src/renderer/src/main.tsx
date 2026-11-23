@@ -33,6 +33,7 @@ document.body.classList.add(IS_MAC ? 'mac' : 'overlay-title-bar')
 const params = new URLSearchParams(location.search)
 const isHelp = params.get('mode') === 'help'
 const isMedia = params.get('view') === 'media'
+const isCompare = params.get('view') === 'compare'
 // The ask panel's standalone mount (?view=ask-panel): the panel alone, the
 // surface W2's native overlay view above documents loads. Like the manual,
 // it shares this boot (language, theme, panel prefs) but renders none of
@@ -49,7 +50,7 @@ const isTopBar = isTopBarView()
 const isButlerHud = isButlerHudView()
 
 const snap =
-  !isHelp && !isMedia && !isAskPanel && !isDock && !isTopBar && !isButlerHud
+  !isHelp && !isMedia && !isCompare && !isAskPanel && !isDock && !isTopBar && !isButlerHud
     ? window.aiOffice.bootSnapshot
     : undefined
 
@@ -101,6 +102,9 @@ void bootPrefsPromise.then(async ([lang, onboardingSeen, theme]) => {
   const MediaViewer = React.lazy(() =>
     import('./MediaViewer').then((m) => ({ default: m.MediaViewer })),
   )
+  const CompareView = React.lazy(() =>
+    import('./CompareView').then((m) => ({ default: m.CompareView })),
+  )
   createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <LocaleProvider initial={lang}>
@@ -112,6 +116,10 @@ void bootPrefsPromise.then(async ([lang, onboardingSeen, theme]) => {
           <TopBarEntry />
         ) : isButlerHud ? (
           <ButlerHudEntry />
+        ) : isCompare ? (
+          <React.Suspense fallback={<div className="boot" />}>
+            <CompareView />
+          </React.Suspense>
         ) : isMedia ? (
           <React.Suspense fallback={<div className="boot" />}>
             <MediaViewer />

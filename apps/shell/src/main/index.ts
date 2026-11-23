@@ -33,6 +33,7 @@ import { applyUiScaleTo, applyUiScaleToAll, onUiScaleChanged, readUiScale } from
 import trayIcon1x from './assets/tray-icon.png?asset'
 import trayIcon2x from './assets/tray-icon@2x.png?asset'
 import { createI18n, isLang, normalizeLang, setUiLang, type Lang } from '@genoffice/i18n'
+import { parseFileToText } from '@genoffice/file-parse'
 import {
   DROP_OPEN_CHANNEL,
   appMenuLabels,
@@ -291,7 +292,12 @@ import type { SlidesReadOptions } from './mcp/tools/slides-tools'
 import { createSheetsControl, installSheetsBridge } from './mcp/sheets-bridge'
 import { createOpenDocumentsControl, createOpenTargetResolver } from './mcp/open-documents-bridge'
 import { registerAppSkillIpc } from './mcp/app-skill-proxy'
-import { registerBrowserSkillIpc } from './browser-agent'
+import { browserPageWebContentsFor, registerBrowserSkillIpc } from './browser-agent'
+import { SPLIT_CHANNELS } from '../shared/split-api'
+import type { PendingAskQuery } from '../shared/ask-forward'
+import { SplitScrollSyncController } from './split-scroll-sync'
+import { createDocumentTextExtractor } from './compare/document-text-extractor'
+import { registerCompareIpc } from './compare/compare-ipc'
 import { installDocumentAgentBridge } from './document-agent'
 import { collectSurfaceTabs, urlOfWith, type SurfaceContextDeps } from './surface-context'
 import { registerSelectionStore, selectionForWebContents } from './selection-store'
@@ -382,7 +388,6 @@ import { closeTabsInOrder, createRecentlyClosedTracker } from './tab-lifecycle'
 import {
   activateDetached,
   closeDetachedWithoutPrompt,
-  createDetachedEditorWindow,
   detachedFileForWebContents,
   detachedFilePaths,
   detachedOpenDocuments,
@@ -802,6 +807,8 @@ const tMain = createI18n({
     menuTabRename: '重命名',
     menuTabDuplicate: '创建副本（复制已保存的文件）',
     menuTabSplitBeside: '左右分屏',
+    menuTabCloseSplit: '退出分屏',
+    menuTabCompare: '比较文字差异',
     menuTabCopyPath: '复制路径',
     menuTabCopyName: '复制文件名',
     menuTabReveal: '在文件夹中显示',
@@ -837,6 +844,7 @@ const tMain = createI18n({
     untitledMedia: '媒体文件',
     untitledPdf: '未命名 PDF',
     untitledBrowser: '浏览器',
+    untitledCompare: '文档对比',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -936,6 +944,8 @@ const tMain = createI18n({
     menuTabRename: 'Rename',
     menuTabDuplicate: 'Duplicate (copy the saved file)',
     menuTabSplitBeside: 'Split side by side',
+    menuTabCloseSplit: 'Exit split view',
+    menuTabCompare: 'Compare text diff',
     menuTabCopyPath: 'Copy path',
     menuTabCopyName: 'Copy file name',
     menuTabReveal: 'Show in folder',
@@ -975,6 +985,7 @@ const tMain = createI18n({
     untitledMedia: 'Media',
     untitledPdf: 'Untitled PDF',
     untitledBrowser: 'Browser',
+    untitledCompare: 'Document Compare',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1080,6 +1091,8 @@ const tMain = createI18n({
     menuTabRename: 'Đổi tên',
     menuTabDuplicate: 'Nhân bản (sao chép file đã lưu)',
     menuTabSplitBeside: 'Chia đôi màn hình',
+    menuTabCloseSplit: 'Thoát chia đôi màn hình',
+    menuTabCompare: 'So sánh khác biệt văn bản',
     menuTabCopyPath: 'Sao chép đường dẫn',
     menuTabCopyName: 'Sao chép tên file',
     menuTabReveal: 'Mở thư mục chứa file',
@@ -1115,6 +1128,7 @@ const tMain = createI18n({
     untitledMedia: 'Tệp phương tiện',
     untitledPdf: 'PDF chưa có tiêu đề',
     untitledBrowser: 'Trình duyệt',
+    untitledCompare: 'So sánh tài liệu',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1224,6 +1238,8 @@ const tMain = createI18n({
     menuTabRename: '名前を変更',
     menuTabDuplicate: '複製（保存済みファイルのコピー）',
     menuTabSplitBeside: '左右に分割',
+    menuTabCloseSplit: '分割表示を終了',
+    menuTabCompare: 'テキストの差分を比較',
     menuTabCopyPath: 'パスをコピー',
     menuTabCopyName: 'ファイル名をコピー',
     menuTabReveal: 'フォルダーで表示',
@@ -1259,6 +1275,7 @@ const tMain = createI18n({
     untitledMedia: 'メディア',
     untitledPdf: '無題の PDF',
     untitledBrowser: 'ブラウザ',
+    untitledCompare: 'ドキュメント比較',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1368,6 +1385,8 @@ const tMain = createI18n({
     menuTabRename: '이름 바꾸기',
     menuTabDuplicate: '복제(저장된 파일 복사)',
     menuTabSplitBeside: '나란히 분할',
+    menuTabCloseSplit: '분할 보기 종료',
+    menuTabCompare: '텍스트 차이 비교',
     menuTabCopyPath: '경로 복사',
     menuTabCopyName: '파일 이름 복사',
     menuTabReveal: '폴더에서 표시',
@@ -1403,6 +1422,7 @@ const tMain = createI18n({
     untitledMedia: '미디어',
     untitledPdf: '제목 없는 PDF',
     untitledBrowser: '브라우저',
+    untitledCompare: '문서 비교',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1511,6 +1531,8 @@ const tMain = createI18n({
     menuTabRename: 'Renommer',
     menuTabDuplicate: 'Dupliquer (copier le fichier enregistré)',
     menuTabSplitBeside: 'Afficher côte à côte',
+    menuTabCloseSplit: 'Quitter la vue scindée',
+    menuTabCompare: 'Comparer les différences de texte',
     menuTabCopyPath: 'Copier le chemin',
     menuTabCopyName: 'Copier le nom du fichier',
     menuTabReveal: 'Afficher dans le dossier',
@@ -1546,6 +1568,7 @@ const tMain = createI18n({
     untitledMedia: 'Média',
     untitledPdf: 'PDF sans titre',
     untitledBrowser: 'Navigateur',
+    untitledCompare: 'Comparaison de documents',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1656,6 +1679,8 @@ const tMain = createI18n({
     menuTabRename: 'Umbenennen',
     menuTabDuplicate: 'Duplizieren (gespeicherte Datei kopieren)',
     menuTabSplitBeside: 'Nebeneinander teilen',
+    menuTabCloseSplit: 'Geteilte Ansicht beenden',
+    menuTabCompare: 'Textunterschiede vergleichen',
     menuTabCopyPath: 'Pfad kopieren',
     menuTabCopyName: 'Dateinamen kopieren',
     menuTabReveal: 'Im Ordner anzeigen',
@@ -1691,6 +1716,7 @@ const tMain = createI18n({
     untitledMedia: 'Medien',
     untitledPdf: 'Unbenanntes PDF',
     untitledBrowser: 'Browser',
+    untitledCompare: 'Dokumentvergleich',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1802,6 +1828,8 @@ const tMain = createI18n({
     menuTabRename: 'Cambiar nombre',
     menuTabDuplicate: 'Duplicar (copiar archivo guardado)',
     menuTabSplitBeside: 'Dividir en paralelo',
+    menuTabCloseSplit: 'Salir de la vista dividida',
+    menuTabCompare: 'Comparar diferencias de texto',
     menuTabCopyPath: 'Copiar ruta',
     menuTabCopyName: 'Copiar nombre de archivo',
     menuTabReveal: 'Mostrar en la carpeta',
@@ -1837,6 +1865,7 @@ const tMain = createI18n({
     untitledMedia: 'Multimedia',
     untitledPdf: 'PDF sin título',
     untitledBrowser: 'Navegador',
+    untitledCompare: 'Comparación de documentos',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -1948,6 +1977,8 @@ const tMain = createI18n({
     menuTabRename: 'เปลี่ยนชื่อ',
     menuTabDuplicate: 'ทำสำเนา (คัดลอกไฟล์ที่บันทึกไว้)',
     menuTabSplitBeside: 'แบ่งหน้าต่างเคียงข้างกัน',
+    menuTabCloseSplit: 'ออกจากมุมมองแบ่งหน้าจอ',
+    menuTabCompare: 'เปรียบเทียบความแตกต่างข้อความ',
     menuTabCopyPath: 'คัดลอกเส้นทาง',
     menuTabCopyName: 'คัดลอกชื่อไฟล์',
     menuTabReveal: 'แสดงในโฟลเดอร์',
@@ -1983,6 +2014,7 @@ const tMain = createI18n({
     untitledMedia: 'สื่อ',
     untitledPdf: 'PDF ไม่มีชื่อ',
     untitledBrowser: 'เบราว์เซอร์',
+    untitledCompare: 'เปรียบเทียบเอกสาร',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2089,6 +2121,8 @@ const tMain = createI18n({
     menuTabRename: 'Ganti nama',
     menuTabDuplicate: 'Duplikat (salin berkas tersimpan)',
     menuTabSplitBeside: 'Bagi berdampingan',
+    menuTabCloseSplit: 'Keluar dari tampilan terpisah',
+    menuTabCompare: 'Bandingkan perbedaan teks',
     menuTabCopyPath: 'Salin lokasi',
     menuTabCopyName: 'Salin nama berkas',
     menuTabReveal: 'Tampilkan di folder',
@@ -2124,6 +2158,7 @@ const tMain = createI18n({
     untitledMedia: 'Media',
     untitledPdf: 'PDF tanpa judul',
     untitledBrowser: 'Peramban',
+    untitledCompare: 'Perbandingan Dokumen',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2234,6 +2269,8 @@ const tMain = createI18n({
     menuTabRename: 'Переименовать',
     menuTabDuplicate: 'Создать копию (сохранённый файл)',
     menuTabSplitBeside: 'Разделить экран',
+    menuTabCloseSplit: 'Выйти из разделённого экрана',
+    menuTabCompare: 'Сравнить различия в тексте',
     menuTabCopyPath: 'Копировать путь',
     menuTabCopyName: 'Копировать имя файла',
     menuTabReveal: 'Показать в папке',
@@ -2269,6 +2306,7 @@ const tMain = createI18n({
     untitledMedia: 'Медиафайл',
     untitledPdf: 'PDF без названия',
     untitledBrowser: 'Браузер',
+    untitledCompare: 'Сравнение документов',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2379,6 +2417,8 @@ const tMain = createI18n({
     menuTabRename: 'تغيير الاسم',
     menuTabDuplicate: 'تكرار (نسخ الملف المحفوظ)',
     menuTabSplitBeside: 'تقسيم جنبًا إلى جنب',
+    menuTabCloseSplit: 'إغلاق العرض المقسم',
+    menuTabCompare: 'مقارنة اختلافات النص',
     menuTabCopyPath: 'نسخ المسار',
     menuTabCopyName: 'نسخ اسم الملف',
     menuTabReveal: 'إظهار في المجلد',
@@ -2414,6 +2454,7 @@ const tMain = createI18n({
     untitledMedia: 'ملف وسائط',
     untitledPdf: 'PDF بدون عنوان',
     untitledBrowser: 'المتصفح',
+    untitledCompare: 'مقارنة المستندات',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2520,6 +2561,8 @@ const tMain = createI18n({
     menuTabRename: 'Renomear',
     menuTabDuplicate: 'Duplicar (copiar arquivo salvo)',
     menuTabSplitBeside: 'Dividir lado a lado',
+    menuTabCloseSplit: 'Sair da visualização dividida',
+    menuTabCompare: 'Comparar diferenças de texto',
     menuTabCopyPath: 'Copiar caminho',
     menuTabCopyName: 'Copiar nome do arquivo',
     menuTabReveal: 'Mostrar na pasta',
@@ -2555,6 +2598,7 @@ const tMain = createI18n({
     untitledMedia: 'Mídia',
     untitledPdf: 'PDF sem título',
     untitledBrowser: 'Navegador',
+    untitledCompare: 'Comparação de documentos',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2665,6 +2709,8 @@ const tMain = createI18n({
     menuTabRename: 'Rinomina',
     menuTabDuplicate: 'Duplica (copia il file salvato)',
     menuTabSplitBeside: 'Affianca',
+    menuTabCloseSplit: 'Esci dalla vista divisa',
+    menuTabCompare: 'Confronta differenze di testo',
     menuTabCopyPath: 'Copia percorso',
     menuTabCopyName: 'Copia nome file',
     menuTabReveal: 'Mostra nella cartella',
@@ -2700,6 +2746,7 @@ const tMain = createI18n({
     untitledMedia: 'File multimediale',
     untitledPdf: 'PDF senza titolo',
     untitledBrowser: 'Browser',
+    untitledCompare: 'Confronto documenti',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2810,6 +2857,8 @@ const tMain = createI18n({
     menuTabRename: 'Zmień nazwę',
     menuTabDuplicate: 'Powiel (skopiuj zapisany plik)',
     menuTabSplitBeside: 'Podziel obok siebie',
+    menuTabCloseSplit: 'Zamknij widok podzielony',
+    menuTabCompare: 'Porównaj różnice tekstu',
     menuTabCopyPath: 'Kopiuj ścieżkę',
     menuTabCopyName: 'Kopiuj nazwę pliku',
     menuTabReveal: 'Pokaż w folderze',
@@ -2845,6 +2894,7 @@ const tMain = createI18n({
     untitledMedia: 'Plik multimedialny',
     untitledPdf: 'PDF bez tytułu',
     untitledBrowser: 'Przeglądarka',
+    untitledCompare: 'Porównanie dokumentów',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -2955,6 +3005,8 @@ const tMain = createI18n({
     menuTabRename: 'Přejmenovat',
     menuTabDuplicate: 'Duplikovat (zkopírovat uložený soubor)',
     menuTabSplitBeside: 'Rozdělit vedle sebe',
+    menuTabCloseSplit: 'Ukončit rozdělené zobrazení',
+    menuTabCompare: 'Porovnat rozdíly v textu',
     menuTabCopyPath: 'Kopírovat cestu',
     menuTabCopyName: 'Kopírovat název souboru',
     menuTabReveal: 'Zobrazit ve složce',
@@ -2990,6 +3042,7 @@ const tMain = createI18n({
     untitledMedia: 'Multimédia',
     untitledPdf: 'PDF bez názvu',
     untitledBrowser: 'Prohlížeč',
+    untitledCompare: 'Porovnání dokumentů',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3098,6 +3151,8 @@ const tMain = createI18n({
     menuTabRename: 'Naam wijzigen',
     menuTabDuplicate: 'Dupliceren (opgeslagen bestand kopiëren)',
     menuTabSplitBeside: 'Naast elkaar splitsen',
+    menuTabCloseSplit: 'Gesplitste weergave sluiten',
+    menuTabCompare: 'Tekstverschillen vergelijken',
     menuTabCopyPath: 'Pad kopiëren',
     menuTabCopyName: 'Bestandsnaam kopiëren',
     menuTabReveal: 'Weergeven in map',
@@ -3133,6 +3188,7 @@ const tMain = createI18n({
     untitledMedia: 'Media',
     untitledPdf: 'Naamloze PDF',
     untitledBrowser: 'Browser',
+    untitledCompare: 'Documentvergelijking',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3243,6 +3299,8 @@ const tMain = createI18n({
     menuTabRename: 'Namakan semula',
     menuTabDuplicate: 'Duplikasi (salin fail yang disimpan)',
     menuTabSplitBeside: 'Pisahkan bersebelahan',
+    menuTabCloseSplit: 'Keluar paparan belah',
+    menuTabCompare: 'Bandingkan perbezaan teks',
     menuTabCopyPath: 'Salin laluan',
     menuTabCopyName: 'Salin nama fail',
     menuTabReveal: 'Tunjukkan dalam folder',
@@ -3278,6 +3336,7 @@ const tMain = createI18n({
     untitledMedia: 'Media',
     untitledPdf: 'PDF tanpa tajuk',
     untitledBrowser: 'Pelayar',
+    untitledCompare: 'Perbandingan Dokumen',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3387,6 +3446,8 @@ const tMain = createI18n({
     menuTabRename: 'שינוי שם',
     menuTabDuplicate: 'שכפול (העתקת הקובץ השמור)',
     menuTabSplitBeside: 'פיצול זה לצד זה',
+    menuTabCloseSplit: 'יציאה מתצוגה מפוצלת',
+    menuTabCompare: 'השוואת הבדלי טקסט',
     menuTabCopyPath: 'העתקת נתיב',
     menuTabCopyName: 'העתקת שם קובץ',
     menuTabReveal: 'הצגה בתיקייה',
@@ -3422,6 +3483,7 @@ const tMain = createI18n({
     untitledMedia: 'מדיה',
     untitledPdf: 'PDF ללא שם',
     untitledBrowser: 'דפדפן',
+    untitledCompare: 'השוואת מסמכים',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3528,6 +3590,8 @@ const tMain = createI18n({
     menuTabRename: 'नाम बदलें',
     menuTabDuplicate: 'प्रतिलिपि बनाएँ (सहेजी गई फ़ाइल की कॉपी)',
     menuTabSplitBeside: 'अगल-बगल विभाजित करें',
+    menuTabCloseSplit: 'विभाजित दृश्य बंद करें',
+    menuTabCompare: 'पाठ अंतर की तुलना करें',
     menuTabCopyPath: 'पथ कॉपी करें',
     menuTabCopyName: 'फ़ाइल का नाम कॉपी करें',
     menuTabReveal: 'फ़ोल्डर में दिखाएँ',
@@ -3563,6 +3627,7 @@ const tMain = createI18n({
     untitledMedia: 'मीडिया',
     untitledPdf: 'अनाम PDF',
     untitledBrowser: 'ब्राउज़र',
+    untitledCompare: 'दस्तावेज़ तुलना',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -3673,6 +3738,8 @@ const tMain = createI18n({
     menuTabRename: '重新命名',
     menuTabDuplicate: '建立複本（複製已儲存的檔案）',
     menuTabSplitBeside: '並排顯示',
+    menuTabCloseSplit: '結束並排顯示',
+    menuTabCompare: '比較文字差異',
     menuTabCopyPath: '複製路徑',
     menuTabCopyName: '複製檔案名稱',
     menuTabReveal: '在資料夾中顯示',
@@ -3708,6 +3775,7 @@ const tMain = createI18n({
     untitledMedia: '媒體檔案',
     untitledPdf: '未命名 PDF',
     untitledBrowser: '瀏覽器',
+    untitledCompare: '文件比較',
     menuNewSlide: 'AI Slides',
     menuNewMarkdown: 'AI Markdown',
     menuNewHtml: 'AI HTML',
@@ -4259,6 +4327,11 @@ let scheduleDeferredStartupTasks: () => void = () => {}
 // ── the shell window's lifecycle (creation/reveal/detach/pin/tear-off) ──
 // The implementation lives in window-lifecycle.ts; index.ts still owns the
 // shellWindow/tabManager singletons and hands them over through these deps.
+const splitScrollSync = new SplitScrollSyncController({
+  resolveScrollWebContents: (_tabId, kind, wc) =>
+    kind === 'browser' ? browserPageWebContentsFor(wc) : wc,
+})
+
 const shellWindowDeps: ShellWindowDeps = {
   appSettingsPath: APP_SETTINGS_PATH,
   userDataDir: () => app.getPath('userData'),
@@ -4276,13 +4349,43 @@ const shellWindowDeps: ShellWindowDeps = {
   untitledTitle: (kind) =>
     kind === 'help'
       ? tm('menuUserGuide')
-      : appForKind(kind)
-        ? tm(appForKind(kind)!.untitledTitleKey)
-        : tm('untitledSheet'),
+      : kind === 'compare'
+        ? tm('untitledCompare')
+        : appForKind(kind)
+          ? tm(appForKind(kind)!.untitledTitleKey)
+          : tm('untitledSheet'),
   applyMenuFor,
   getTabManager: () => tabManager,
   setTabManager: (manager) => {
     tabManager = manager
+    if (manager) {
+      manager.setSplitChangeListener(() => {
+        const binding = manager.getSplitTabs()
+        splitScrollSync.sync(
+          binding
+            ? {
+                enabled: binding.syncScroll,
+                left: binding.left
+                  ? {
+                      tabId: binding.left.id,
+                      kind: binding.left.kind,
+                      webContents: binding.left.webContents,
+                    }
+                  : null,
+                right: binding.right
+                  ? {
+                      tabId: binding.right.id,
+                      kind: binding.right.kind,
+                      webContents: binding.right.webContents,
+                    }
+                  : null,
+              }
+            : null,
+        )
+      })
+    } else {
+      splitScrollSync.sync(null)
+    }
   },
   getShellWindow: () => shellWindow,
   setShellWindow: (win) => {
@@ -4295,6 +4398,7 @@ const shellWindowDeps: ShellWindowDeps = {
     }
     if (tabManager === manager) {
       tabManager = null
+      splitScrollSync.dispose()
       setDockHost(null)
       publishAllOpenDocuments()
     }
@@ -5259,6 +5363,31 @@ function documentActionDeps(tabs: TabManager): TabDocumentActionDeps {
   }
 }
 
+function openCompareForTab(id: string): void {
+  if (!tabManager) return
+  const split = tabManager.getSplitState()
+  if (split && !split.suspended && (split.leftTabId === id || split.rightTabId === id)) {
+    tabManager.openCompareTab({
+      left: { kind: 'tab', tabId: split.leftTabId },
+      right: { kind: 'tab', tabId: split.rightTabId },
+    })
+    return
+  }
+  const activeId = tabManager.activeTabId()
+  const candidates = tabManager
+    .list()
+    .filter(
+      (t) =>
+        t.id !== id && t.kind !== 'home' && t.kind !== 'compare' && t.kind !== 'help' && !t.present,
+    )
+    .sort((a, b) => (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0))
+  const other = candidates.find((t) => t.id === activeId) ?? candidates[0]
+  tabManager.openCompareTab({
+    left: { kind: 'tab', tabId: id },
+    ...(other ? { right: { kind: 'tab', tabId: other.id } } : {}),
+  })
+}
+
 /** The shell's side of every entry of the tab menu (see tab-menu.ts for what is offered). */
 function tabMenuActions(): TabMenuActions {
   const documentAction = (id: string, action: TabDocumentAction) => {
@@ -5272,29 +5401,14 @@ function tabMenuActions(): TabMenuActions {
     openInNewWindow: (id) => detachTabToWindow(id),
     pinToDesktop: (id) => pinTabToDesktop(id),
     pin: (id, pinned) => tabManager?.setPinned(id, pinned),
-    // two windows side by side, each on its own half of the screen the tab is on
     splitBeside: (id) => {
-      if (!tabManager || !shellWindow) return
-      const record = tabManager.detachTab(id)
-      if (!record) return
-      const win = createDetachedEditorWindow({ ...record, applyMenuFor })
-      const area = screen.getDisplayMatching(shellWindow.getBounds()).workArea
-      const half = Math.floor(area.width / 2)
-      if (shellWindow.isMaximized()) shellWindow.unmaximize()
-      const tile = () => {
-        if (!shellWindow || shellWindow.isDestroyed()) return
-        shellWindow.setBounds({ x: area.x, y: area.y, width: half, height: area.height })
-      }
-      // leaving fullscreen is asynchronous (macOS animates it) and restores the
-      // pre-fullscreen bounds on completion, which would undo an immediate tile
-      if (shellWindow.isFullScreen()) {
-        shellWindow.once('leave-full-screen', tile)
-        shellWindow.setFullScreen(false)
-      } else {
-        tile()
-      }
-      win.setBounds({ x: area.x + half, y: area.y, width: area.width - half, height: area.height })
-      win.focus()
+      tabManager?.openSplit(id, 'right')
+    },
+    closeSplit: () => {
+      tabManager?.closeSplit()
+    },
+    compareWith: (id) => {
+      openCompareForTab(id)
     },
     rename: (id) => {
       if (shellWindow && !shellWindow.isDestroyed())
@@ -5319,6 +5433,28 @@ function tabMenuActions(): TabMenuActions {
 
 function registerTabsIpc(): void {
   ipcMain.on(TABS_CHANNELS.chromePressed, (event) => broadcastChromePressed(event.sender))
+  ipcMain.handle(SPLIT_CHANNELS.open, (_event, targetTabId: unknown, side: unknown) => {
+    const id = typeof targetTabId === 'string' && targetTabId ? targetTabId : undefined
+    const pane = side === 'left' || side === 'right' ? side : undefined
+    return tabManager?.openSplit(id, pane) ?? null
+  })
+  ipcMain.handle(SPLIT_CHANNELS.close, () => {
+    tabManager?.closeSplit()
+  })
+  ipcMain.handle(SPLIT_CHANNELS.swap, () => tabManager?.swapSplit() ?? null)
+  ipcMain.on(SPLIT_CHANNELS.setRatio, (_event, ratio: unknown, commit: unknown) => {
+    if (typeof ratio === 'number' && Number.isFinite(ratio)) {
+      tabManager?.setSplitRatio(ratio, commit === true)
+    }
+  })
+  ipcMain.handle(SPLIT_CHANNELS.setSyncScroll, (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') return tabManager?.getSplitState() ?? null
+    return tabManager?.setSplitSyncScroll(enabled) ?? null
+  })
+  ipcMain.handle(SPLIT_CHANNELS.focusPane, (_event, side: unknown) => {
+    if (side === 'left' || side === 'right') tabManager?.focusSplitPane(side)
+  })
+  ipcMain.handle(SPLIT_CHANNELS.getState, () => tabManager?.getSplitState() ?? null)
   ipcMain.handle(TABS_CHANNELS.list, () => tabManager?.list() ?? [])
   ipcMain.handle(TABS_CHANNELS.activate, (_event, id: unknown) => {
     if (typeof id !== 'string' || !id) return
@@ -5392,12 +5528,16 @@ function registerTabsIpc(): void {
   // per-tab context menu — native for the same reason as the tab list above
   ipcMain.handle(TABS_CHANNELS.showTabMenu, (_event, id: unknown, x: unknown, y: unknown) => {
     if (!tabManager || !shellWindow || typeof id !== 'string') return
-    const tab = tabManager.list().find((t) => t.id === id)
+    const allTabs = tabManager.list()
+    const tab = allTabs.find((t) => t.id === id)
     if (!tab || tab.kind === 'home') return
     const template = tabMenuTemplate({
       tab,
-      tabs: tabManager.list(),
+      tabs: allTabs,
       canDetach: tabManager.canDetachTab(id),
+      split: tabManager.getSplitState(),
+      canSplitInWindow: allTabs.filter((t) => t.kind !== 'home').length >= 2,
+      canCompare: tab.kind !== 'compare',
       fileExists: !!tab.filePath && existsSync(tab.filePath),
       canReopen: recentlyClosed.getEntries().length > 0,
       tm,
@@ -7023,6 +7163,160 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
         if (outcome.error) throw new Error(outcome.error)
         return { text: outcome.text ?? '' }
       },
+    },
+  })
+  const detachedSourceCache = new Map<
+    string,
+    { id: string; kind: TabKind; title: string; filePath?: string }
+  >()
+  const compareExtractor = createDocumentTextExtractor({
+    findTab: (tabId) => {
+      const shellTab = tabManager?.list().find((t) => t.id === tabId)
+      if (shellTab) {
+        return {
+          id: shellTab.id,
+          kind: shellTab.kind,
+          title: shellTab.title,
+          filePath: shellTab.filePath,
+          webContents: tabManager?.webContentsForTab(tabId),
+        }
+      }
+      if (isDetachedTabId(tabId)) {
+        const wc = detachedWebContentsFor(tabId)
+        const cached = detachedSourceCache.get(tabId)
+        const livePath = wc ? detachedFileForWebContents(wc.id) : undefined
+        const filePath = livePath ?? cached?.filePath
+        if (cached || wc) {
+          return {
+            id: tabId,
+            kind: cached?.kind ?? 'docs',
+            title: cached?.title ?? (filePath ? basename(filePath) : tabId),
+            ...(filePath ? { filePath } : {}),
+            ...(wc ? { webContents: wc } : {}),
+          }
+        }
+      }
+      return undefined
+    },
+    readLiveDocs: (wc, payload) =>
+      mcpDocsControl.runCommand(wc.id, 'read_document', payload ?? {}) as Promise<{
+        text?: string
+      }>,
+    readLiveSheets: (wc, payload) =>
+      mcpSheetsControl.runCommand(wc.id, 'read_sheet', payload ?? {}),
+    readLiveSlides: (wc, payload) =>
+      mcpSlidesControl.readDeck(
+        wc.id,
+        payload && Object.keys(payload).length > 0 ? (payload as SlidesReadOptions) : undefined,
+      ),
+    readLivePdf: (wc) => pdfReadText(wc),
+    readLiveMarkdown: async (wc) => String((await mcpAgentIo.markdown?.read?.(wc)) ?? ''),
+    readLiveHtml: async (wc) => String((await mcpAgentIo.html?.read?.(wc)) ?? ''),
+    readLiveBrowser: async (chromeWc) => {
+      const pageWc = browserPageWebContentsFor(chromeWc)
+      if (!pageWc || pageWc.isDestroyed()) return ''
+      const result: unknown = await pageWc
+        .executeJavaScript('document.body?.innerText || ""')
+        .catch(() => '')
+      return typeof result === 'string' ? result : ''
+    },
+    parseFileOnDisk: (filePath) => parseFileToText(filePath),
+  })
+  registerCompareIpc({
+    openCompareTab: (opts) => ensureTabManager().openCompareTab(opts),
+    getCompareInitForSender: (wcId) => tabManager?.getCompareInitForWebContents(wcId),
+    listSources: async () => {
+      const shellEntries = tabManager ? await tabManager.listWithDirty() : []
+      const detachedEntries = await detachedOpenDocuments()
+      detachedSourceCache.clear()
+      for (const d of detachedEntries) {
+        detachedSourceCache.set(d.id, {
+          id: d.id,
+          kind: d.kind,
+          title: d.title,
+          ...(d.filePath ? { filePath: d.filePath } : {}),
+        })
+      }
+      return [
+        ...shellEntries
+          .filter(
+            (t) =>
+              t.kind !== 'home' &&
+              t.kind !== 'compare' &&
+              t.kind !== 'help' &&
+              t.kind !== 'media' &&
+              !t.present,
+          )
+          .map((t) => ({
+            tabId: t.id,
+            title: t.title,
+            kind: t.kind,
+            ...(t.filePath ? { filePath: t.filePath } : {}),
+            dirty: t.dirty === true,
+          })),
+        ...detachedEntries
+          .filter((d) => d.kind !== 'media')
+          .map((d) => ({
+            tabId: d.id,
+            title: d.title,
+            kind: d.kind,
+            ...(d.filePath ? { filePath: d.filePath } : {}),
+            dirty: d.dirty,
+          })),
+      ]
+    },
+    pickFile: async () => {
+      const opts: Electron.OpenDialogOptions = {
+        properties: ['openFile'],
+        filters: [
+          {
+            name: tm('filterSupported'),
+            extensions: [
+              'docx',
+              'doc',
+              'pdf',
+              'pptx',
+              'ppt',
+              'xlsx',
+              'xls',
+              'xlsm',
+              'csv',
+              'md',
+              'markdown',
+              'txt',
+              'html',
+              'htm',
+            ],
+          },
+          { name: '*', extensions: ['*'] },
+        ],
+      }
+      const picked =
+        shellWindow && !shellWindow.isDestroyed()
+          ? await dialog.showOpenDialog(shellWindow, opts)
+          : await dialog.showOpenDialog(opts)
+      return picked.canceled ? null : (picked.filePaths[0] ?? null)
+    },
+    extractor: compareExtractor,
+    askAi: (payload) => {
+      const currentDock = readAiDock(APP_SETTINGS_PATH())
+      if (currentDock.collapsed) {
+        writeAppSetting(APP_SETTINGS_PATH(), AI_DOCK_KEY, {
+          ...currentDock,
+          collapsed: false,
+        })
+      }
+      const prompt = `Please summarize the key text differences between "${payload.leftLabel}" and "${payload.rightLabel}":\n\n${payload.summaryMarkdown}`
+      const query: PendingAskQuery = {
+        text: prompt,
+        seq: Date.now(),
+        origin: 'palette',
+      }
+      if (tabManager?.drawerOverlayLive()) {
+        tabManager.deliverToDrawerOverlay(HOME_CHANNELS.askForwarded, query)
+      } else {
+        sendToShellRenderer(HOME_CHANNELS.askForwarded, query)
+      }
     },
   })
   // The dock's browser skill (charter W2b): browser:* tool calls land here —
