@@ -5,7 +5,12 @@
  * widgets' reserve band. Pure functions — no bridge, no DOM.
  */
 import { describe, expect, it, vi } from 'vitest'
-import type { DesktopPinInfo, FolderRoot, RecentEntry } from '../src/shared/home-api'
+import type {
+  DesktopPinInfo,
+  FolderRoot,
+  RecentEntry,
+  SystemDrivesSnapshot,
+} from '../src/shared/home-api'
 import {
   defaultDesktopProviders,
   droppedFilePaths,
@@ -65,12 +70,13 @@ const ctx = (over: Partial<DesktopItemContext> = {}): DesktopItemContext => ({
 const titles = (items: ReturnType<typeof mergeDesktopItems>): string[] => items.map((i) => i.title)
 
 describe('defaultDesktopProviders', () => {
-  it('registers the five sources in display order', () => {
+  it('registers the six sources in display order', () => {
     expect(defaultDesktopProviders().map((provider) => provider.id)).toEqual([
       'apps',
       'folder-roots',
       'recents',
       'desktop-files',
+      'system-drives',
       'widgets',
     ])
   })
@@ -123,6 +129,69 @@ describe('defaultDesktopProviders', () => {
     expect(terminalRequestDrawer).toHaveBeenCalledTimes(1)
     expect(terminalRequestDrawer).toHaveBeenCalledWith({ action: 'open' })
   })
+
+  it('includes This PC app tile and conditionally surfaces system desktop & drives', () => {
+    const onOpenComputer = vi.fn()
+    const snapshot: SystemDrivesSnapshot = {
+      platform: 'win32',
+      fetchedAt: Date.now(),
+      places: [
+        { id: 'desktop', path: 'C:\\Users\\Demo\\Desktop', name: 'Desktop', accessible: true },
+      ],
+      drives: [
+        {
+          id: 'drive-c',
+          path: 'C:\\',
+          name: 'C:',
+          label: 'OS',
+          kind: 'system',
+          totalBytes: 100,
+          freeBytes: 40,
+          usedBytes: 60,
+          usedRatio: 0.6,
+          accessible: true,
+          isSystem: true,
+        },
+        {
+          id: 'E:',
+          path: 'E:\\',
+          name: 'Data (E:)',
+          label: 'Data',
+          kind: 'fixed',
+          totalBytes: 200,
+          freeBytes: 100,
+          usedBytes: 100,
+          usedRatio: 0.5,
+          accessible: true,
+          isSystem: false,
+        },
+      ],
+    }
+
+    const offItems = mergeDesktopItems(
+      defaultDesktopProviders(),
+      ctx({ onOpenComputer, showSystemDrivesOnDesktop: false, systemDrives: snapshot }),
+    )
+    const pcTile = offItems.find((item) => item.id === 'app:computer')
+    expect(pcTile?.tile).toBe('computer')
+    expect(pcTile?.title).toBe(strings.appComputer)
+    pcTile?.open()
+    expect(onOpenComputer).toHaveBeenCalledTimes(1)
+    expect(offItems.some((item) => item.systemDrive)).toBe(false)
+
+    const onItems = mergeDesktopItems(
+      defaultDesktopProviders(),
+      ctx({ onOpenComputer, showSystemDrivesOnDesktop: true, systemDrives: snapshot }),
+    )
+    const sysDesktop = onItems.find((item) => item.id === 'sys-place:desktop')
+    const sysDrive = onItems.find((item) => item.id === 'sys-drive:drive-c')
+    const sysDriveE = onItems.find((item) => item.id === 'sys-drive:E:')
+    expect(sysDesktop?.title).toBe(strings.placeDesktop)
+    expect(sysDrive?.title).toBe('OS (C:)')
+    expect(sysDriveE?.title).toBe('Data (E:)')
+    sysDrive?.open()
+    expect(onOpenComputer).toHaveBeenCalledWith('C:\\')
+  })
 })
 
 describe('mergeDesktopItems', () => {
@@ -143,6 +212,7 @@ describe('mergeDesktopItems', () => {
       'Settings',
       'Media Player',
       'Terminal',
+      'This PC',
       'Work',
       'alpha.docx',
       'beta.xlsx',

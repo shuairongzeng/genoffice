@@ -2,6 +2,7 @@
 
 :root {
   --dw-bg: color-mix(in srgb, var(--surface) 88%, transparent);
+  --dw-bg-idle: color-mix(in srgb, var(--surface) 76%, transparent);
   --dw-border: color-mix(in srgb, var(--border-strong) 80%, transparent);
   --dw-border-focused: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
   --dw-titlebar-bg: color-mix(in srgb, var(--surface) 74%, transparent);
@@ -10,6 +11,7 @@
   --dw-traffic-close: #ff5f57;
   --dw-traffic-min: #febc2e;
   --dw-traffic-max: #28c840;
+  --dw-traffic-idle: rgb(0 0 0 / 18%);
   --dw-traffic-ink: rgb(0 0 0 / 68%);
   --dw-snap-bg: color-mix(in srgb, var(--accent) 16%, transparent);
   --dw-snap-border: color-mix(in srgb, var(--accent) 68%, transparent);
@@ -17,9 +19,19 @@
 
 [data-theme='dark'] {
   --dw-bg: color-mix(in srgb, var(--surface) 86%, transparent);
+  --dw-bg-idle: color-mix(in srgb, var(--surface) 74%, transparent);
   --dw-border: color-mix(in srgb, var(--border-strong) 72%, transparent);
   --dw-shadow-active: 0 26px 72px rgb(0 0 0 / 56%), 0 6px 20px rgb(0 0 0 / 32%);
   --dw-shadow-idle: 0 12px 32px rgb(0 0 0 / 32%);
+  --dw-traffic-idle: rgb(255 255 255 / 20%);
+}
+
+.desktop-wm-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 36;
+  isolation: isolate;
+  pointer-events: none;
 }
 
 .desktop-window {
@@ -36,13 +48,28 @@
   overflow: hidden;
   transition:
     box-shadow 0.16s ease,
-    border-color 0.16s ease;
+    border-color 0.16s ease,
+    background 0.16s ease;
 }
 
 .desktop-window.is-focused {
-  z-index: 41;
   border-color: var(--dw-border-focused);
   box-shadow: var(--dw-shadow-active);
+}
+
+/* Keep standalone legacy z-index when outside WM layer; inside .desktop-wm-layer inline zIndex drives order. */
+:where(.desktop-window:not([data-window-id])).is-focused {
+  z-index: 41;
+}
+
+.desktop-wm-layer .desktop-window {
+  pointer-events: auto;
+  background: var(--dw-bg-idle);
+  z-index: 1;
+}
+
+.desktop-wm-layer .desktop-window.is-focused {
+  background: var(--dw-bg);
 }
 
 .desktop-window.is-maximized {
@@ -144,7 +171,9 @@
   justify-content: center;
   color: var(--dw-traffic-ink);
   cursor: pointer;
-  transition: transform 0.12s ease, filter 0.12s ease;
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease;
 }
 
 .desktop-window-light svg {
@@ -174,6 +203,10 @@
   background: var(--dw-traffic-max);
 }
 
+.desktop-window:not(.is-focused) .desktop-window-lights:not(:hover) .desktop-window-light {
+  background: var(--dw-traffic-idle);
+}
+
 .desktop-window-title-wrap {
   flex: 1;
   min-width: 0;
@@ -191,7 +224,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: var(--desktop-tile-player, var(--accent));
+  color: var(--accent);
 }
 
 .desktop-window-title-icon svg {
@@ -254,6 +287,20 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.desktop-window-body > .content {
+  min-height: 0;
+  padding: 18px 22px 24px;
+}
+
+.desktop-window-body > .kb-center {
+  max-width: none;
+  padding: 20px 24px 28px;
+}
+
+.desktop-window-body > .sessions-center {
+  padding: 18px 22px;
 }
 
 /* Eight-edge resize handles */

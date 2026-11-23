@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { DragEvent as ReactDragEvent } from 'react'
+import type { DragEvent as ReactDragEvent, ReactElement } from 'react'
 import {
   AiDock,
   aiMotionReduced,
@@ -79,18 +79,38 @@ import { DESKTOP_STRINGS } from './desktop-strings'
 import { Dock, type DockItem, type DockMenuEntry } from './Dock'
 import {
   CloudGlyph,
+  ComputerGlyph,
   DockAskIcon,
   DockDesktopIcon,
   DockRecentIcon,
   DockStarredIcon,
+  DocsGlyph,
+  FolderGlyph,
   GearGlyph,
+  KbGlyph,
   PlayerGlyph,
   PlugGlyph,
+  SessionsGlyph,
   TemplatesGlyph,
 } from './app-glyphs'
 import { TodoCard } from './todo-card'
+import { DesktopWindow } from './DesktopWindow'
 import { DesktopMediaPlayerWindow } from './DesktopMediaPlayerWindow'
-import type { DesktopWindowMode, StageBounds } from './desktop-window-geometry'
+import {
+  INITIAL_DESKTOP_WM_STATE,
+  desktopWmReducer,
+  hasFocusedVisibleWindow,
+  zIndexOfWindow,
+  type DesktopAppWindowKind,
+  type DesktopWindowInstance,
+  type DesktopWmState,
+} from './desktop-wm'
+import type {
+  DesktopWindowMode,
+  DesktopWindowSnap,
+  StageBounds,
+  WindowRect,
+} from './desktop-window-geometry'
 import type {
   MediaExternalCommand,
   MediaExternalLoadRequest,
@@ -114,6 +134,10 @@ const CloudProjectsView = lazy(() =>
 const KbCenterView = lazy(() => import('./KbCenterView').then((m) => ({ default: m.KbCenterView })))
 const SessionsCenterView = lazy(() =>
   import('./SessionsCenterView').then((m) => ({ default: m.SessionsCenterView })),
+)
+const ComputerView = lazy(() => import('./ComputerView').then((m) => ({ default: m.ComputerView })))
+const FilePreviewPane = lazy(() =>
+  import('./FilePreviewPane').then((m) => ({ default: m.FilePreviewPane })),
 )
 const TerminalDrawer = lazy(() =>
   import('./terminal/TerminalDrawer').then((m) => ({ default: m.TerminalDrawer })),
@@ -216,11 +240,44 @@ export function dockOpenViewOf(
   return surface
 }
 
+function findWmWindowByKind(
+  state: DesktopWmState,
+  kind: DesktopAppWindowKind,
+): DesktopWindowInstance | undefined {
+  for (let i = state.order.length - 1; i >= 0; i -= 1) {
+    const win = state.windows[state.order[i]!]
+    if (win?.kind === kind) return win
+  }
+  return undefined
+}
+
+function wmDockVisual(kind: Exclude<DesktopAppWindowKind, 'player'>): {
+  readonly tile: string
+  readonly icon: ReactElement
+} {
+  switch (kind) {
+    case 'computer':
+      return { tile: 'computer', icon: <ComputerGlyph /> }
+    case 'preview':
+      return { tile: 'docs', icon: <DocsGlyph /> }
+    case 'kb':
+      return { tile: 'kb', icon: <KbGlyph /> }
+    case 'sessions':
+      return { tile: 'sessions', icon: <SessionsGlyph /> }
+    case 'folder':
+      return { tile: 'folder', icon: <FolderGlyph /> }
+  }
+}
+
 // ── Main component ──────────────────────────────────────
 
 export function Home() {
   const i18n = useI18n()
   const { t, lang } = i18n
+  const langRef = useRef(lang)
+  langRef.current = lang
+  const tRef = useRef(t)
+  tRef.current = t
   // the in-app confirm/alert pair that replaces the native window.confirm /
   // window.alert calls below; `dialog` renders at the component root
   const { alert: alertBox, dialog: confirmDialog } = useConfirm(t('ok'))
@@ -241,12 +298,27 @@ export function Home() {
   const [viewState, dispatchView] = useReducer(homeViewReducer, undefined, () =>
     initialHomeViewState(readLaunchView()),
   )
+  const [wmState, dispatchWm] = useReducer(desktopWmReducer, INITIAL_DESKTOP_WM_STATE)
+  const wmStateRef = useRef(wmState)
+  wmStateRef.current = wmState
   const { surface, list: view } = viewState
   const desktopMode = surface === 'desktop'
+  const desktopModeRef = useRef(desktopMode)
+  desktopModeRef.current = desktopMode
   // Genspark web projects take over the content area (like a selected folder)
   const cloudMode = surface === 'cloud'
-  // non-null only while the folder surface is up, exactly like the old flag set
-  const selectedFolder = surface === 'folder' ? viewState.folder : null
+  const folderWindow = useMemo(() => {
+    for (let i = wmState.order.length - 1; i >= 0; i -= 1) {
+      const win = wmState.windows[wmState.order[i]!]
+      if (win?.kind === 'folder') return win
+    }
+    return undefined
+  }, [wmState.order, wmState.windows])
+  const folderWindowPath =
+    typeof folderWindow?.payload?.folderPath === 'string' ? folderWindow.payload.folderPath : null
+  // non-null while a folder surface or desktop folder window is up
+  const selectedFolder =
+    surface === 'folder' ? viewState.folder : desktopMode ? folderWindowPath : null
   const [filter, setFilter] = useState('all')
 
   // ── the workbench: the AI drawer (overlay) and the embedded tab strip ──
@@ -576,6 +648,8 @@ export function Home() {
     () => (topBarAutoHide ? { ...windowStage, topInset: 8 } : windowStage),
     [topBarAutoHide, windowStage],
   )
+  const effectiveStageRef = useRef(effectivePlayerStage)
+  effectiveStageRef.current = effectivePlayerStage
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
     const stage = stageRef.current
@@ -624,9 +698,10 @@ export function Home() {
   const [rerankSettingsTick, setRerankSettingsTick] = useState(0)
   const [settingsRequest, setSettingsRequest] = useState<SettingsTarget | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(false)
-  const [playerOpen, setPlayerOpen] = useState(false)
-  const [playerMode, setPlayerMode] = useState<DesktopWindowMode>('normal')
-  const [playerFocused, setPlayerFocused] = useState(true)
+  const playerWin = wmState.windows['player']
+  const playerOpen = playerWin !== undefined
+  const playerMode: DesktopWindowMode = playerWin?.mode ?? 'normal'
+  const playerFocused = playerOpen && wmState.activeId === 'player' && playerMode !== 'minimized'
   const [playerLoadReq, setPlayerLoadReq] = useState<MediaExternalLoadRequest | null>(null)
   const [playerCmd, setPlayerCmd] = useState<MediaExternalCommand | null>(null)
   const [playerPlayback, setPlayerPlayback] = useState<MediaPlaybackReport>({
@@ -639,37 +714,75 @@ export function Home() {
   const playerModeRef = useRef(playerMode)
   playerModeRef.current = playerMode
 
+  const openOrFocusPlayerWindow = useCallback((requestedMode?: DesktopWindowMode) => {
+    const existing = wmStateRef.current.windows['player']
+    dispatchWm({
+      type: 'open',
+      spec: {
+        id: 'player',
+        kind: 'player',
+        title: DESKTOP_STRINGS[langRef.current].appPlayer,
+        stage: effectiveStageRef.current,
+        singleton: true,
+        reuseKey: 'player:main',
+        preferredSize: { width: 920, height: 600 },
+        minSize: { width: 520, height: 360 },
+      },
+    })
+    const targetMode =
+      requestedMode ??
+      (existing?.mode === 'minimized'
+        ? playerRestoreModeRef.current === 'minimized'
+          ? 'normal'
+          : playerRestoreModeRef.current
+        : undefined)
+    if (targetMode && targetMode !== 'minimized') {
+      playerRestoreModeRef.current = targetMode
+      dispatchWm({ type: 'set-mode', id: 'player', mode: targetMode })
+    }
+  }, [])
+
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
     return api.onDesktopMediaOpen?.((payload) => {
       dispatchView({ type: 'show-desktop' })
-      setPlayerOpen(true)
-      setPlayerFocused(true)
-      setPlayerMode((prev) =>
-        payload?.mode === 'mini'
-          ? 'mini'
-          : prev === 'minimized'
-            ? playerRestoreModeRef.current
-            : prev,
-      )
+      openOrFocusPlayerWindow(payload?.mode === 'mini' ? 'mini' : undefined)
       setPlayerLoadReq((prev) => ({
         seq: (prev?.seq ?? 0) + 1,
         ...(payload?.token ? { token: payload.token } : {}),
         ...(payload?.filePath ? { filePath: payload.filePath } : {}),
       }))
     })
-  }, [])
+  }, [openOrFocusPlayerWindow])
 
   const handlePlayerModeChange = useCallback((next: DesktopWindowMode) => {
     if (next !== 'minimized') playerRestoreModeRef.current = next
-    setPlayerMode(next)
-    if (next === 'minimized') setPlayerFocused(false)
+    dispatchWm({ type: 'set-mode', id: 'player', mode: next })
   }, [])
 
   const handleOpenMediaInTab = useCallback((filePath?: string) => {
-    setPlayerOpen(false)
-    setPlayerFocused(false)
+    dispatchWm({ type: 'close', id: 'player' })
     void (window.aiOffice as Partial<HomeApi>).openMediaInTab?.(filePath)
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        !desktopModeRef.current ||
+        docTabActiveRef.current ||
+        !event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.key !== 'Tab' ||
+        wmStateRef.current.order.length === 0
+      ) {
+        return
+      }
+      event.preventDefault()
+      dispatchWm({ type: 'cycle', reverse: event.shiftKey })
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
   // ── bottom terminal drawer state & IPC command sync ──
@@ -922,16 +1035,34 @@ export function Home() {
     if (!selectedFolder || roots.length === 0) return
     const owner = rootOf(selectedFolder, roots)
     if (!owner?.readable) {
-      dispatchView({ type: 'set-folder', dir: null })
+      if (folderWindow && desktopMode) {
+        dispatchWm({ type: 'close', id: folderWindow.id })
+      } else {
+        dispatchView({ type: 'set-folder', dir: null })
+      }
       return
     }
     if (listings.get(selectedFolder)?.missing) {
-      dispatchView({
-        type: 'set-folder',
-        dir: selectedFolder === owner.path ? null : dirOf(selectedFolder),
-      })
+      const fallback = selectedFolder === owner.path ? null : dirOf(selectedFolder)
+      if (folderWindow && desktopMode) {
+        if (fallback) {
+          dispatchWm({
+            type: 'update',
+            id: folderWindow.id,
+            title: fileName(fallback) || fallback,
+            payload: { folderPath: fallback },
+          })
+        } else {
+          dispatchWm({ type: 'close', id: folderWindow.id })
+        }
+      } else {
+        dispatchView({
+          type: 'set-folder',
+          dir: fallback,
+        })
+      }
     }
-  }, [roots, selectedFolder, listings])
+  }, [roots, selectedFolder, listings, folderWindow, desktopMode])
 
   useEffect(() => {
     return window.aiOffice.onFolderChanged((dirs) => {
@@ -1348,22 +1479,107 @@ export function Home() {
     setRowMenu(null)
   }, [])
 
-  /** the KB tile's verb: the knowledge base center takes over the content
-   *  area — a Home surface like the lists, not a modal — so the corpus can
-   *  be managed from wherever the desktop's 知识库 tile is */
+  /** the KB tile's verb: opens the knowledge base center as a floating window on desktop */
   const showKbCenter = useCallback(() => {
-    dispatchView({ type: 'show-kb' })
-    writeLaunchView('kb')
+    dispatchView({ type: 'show-desktop' })
+    writeLaunchView('desktop')
     setSelected(new Set())
     setRowMenu(null)
+    dispatchWm({
+      type: 'open',
+      spec: {
+        kind: 'kb',
+        title: DESKTOP_STRINGS[langRef.current].appKb,
+        stage: effectiveStageRef.current,
+        preferredSize: { width: 940, height: 640 },
+        minSize: { width: 520, height: 380 },
+        singleton: true,
+        reuseKey: 'kb:main',
+      },
+    })
   }, [])
 
-  /** Shows the global AI Sessions center surface. */
+  /** Shows the global AI Sessions center in a floating desktop window. */
   const showSessionsCenter = useCallback(() => {
-    dispatchView({ type: 'show-sessions' })
-    writeLaunchView('sessions')
+    dispatchView({ type: 'show-desktop' })
+    writeLaunchView('desktop')
     setSelected(new Set())
     setRowMenu(null)
+    dispatchWm({
+      type: 'open',
+      spec: {
+        kind: 'sessions',
+        title: DESKTOP_STRINGS[langRef.current].appSessions,
+        stage: effectiveStageRef.current,
+        preferredSize: { width: 960, height: 640 },
+        minSize: { width: 560, height: 400 },
+        singleton: true,
+        reuseKey: 'sessions:main',
+      },
+    })
+  }, [])
+
+  /** Shows the "This PC" local drives & quick places explorer floating window. */
+  const showComputer = useCallback((initialPath?: string) => {
+    dispatchView({ type: 'show-desktop' })
+    writeLaunchView('desktop')
+    setSelected(new Set())
+    setRowMenu(null)
+    dispatchWm({
+      type: 'open',
+      spec: {
+        kind: 'computer',
+        title: initialPath ? fileName(initialPath) || initialPath : tRef.current('pcTitle'),
+        stage: effectiveStageRef.current,
+        preferredSize: { width: 940, height: 620 },
+        minSize: { width: 540, height: 380 },
+        reuseKey: initialPath ? `computer-path:${initialPath}` : 'computer:main',
+        ...(initialPath ? { payload: { initialPath } } : {}),
+      },
+    })
+  }, [])
+
+  /** Always opens a brand-new cascaded "This PC" explorer window on the desktop. */
+  const openNewComputerWindow = useCallback((targetPath?: string) => {
+    dispatchView({ type: 'show-desktop' })
+    writeLaunchView('desktop')
+    setSelected(new Set())
+    setRowMenu(null)
+    dispatchWm({
+      type: 'open',
+      spec: {
+        kind: 'computer',
+        title: targetPath ? fileName(targetPath) || targetPath : tRef.current('pcTitle'),
+        stage: effectiveStageRef.current,
+        preferredSize: { width: 940, height: 620 },
+        minSize: { width: 540, height: 380 },
+        ...(targetPath ? { payload: { initialPath: targetPath } } : {}),
+      },
+    })
+  }, [])
+
+  /** Opens a dedicated QuickLook preview window for the given file path. */
+  const openPreviewWindow = useCallback((filePath: string) => {
+    dispatchView({ type: 'show-desktop' })
+    setSelected(new Set())
+    setRowMenu(null)
+    dispatchWm({
+      type: 'open',
+      spec: {
+        kind: 'preview',
+        title: fileName(filePath) || tRef.current('pcQuickPreview'),
+        stage: effectiveStageRef.current,
+        preferredSize: { width: 760, height: 560 },
+        minSize: { width: 420, height: 340 },
+        reuseKey: `preview:${filePath}`,
+        payload: { filePath },
+      },
+    })
+  }, [])
+
+  /** Opens audio/video directly in the desktop Media Player floating window via main-process token. */
+  const openMediaInDesktopPlayer = useCallback((filePath: string) => {
+    void (window.aiOffice as Partial<HomeApi>).openPath?.(filePath)
   }, [])
 
   const changeFilter = (key: string) => {
@@ -1379,10 +1595,26 @@ export function Home() {
   }
 
   const selectFolder = useCallback((dir: string) => {
-    dispatchView({ type: 'select-folder', dir })
     setSelected(new Set())
     setRowMenu(null)
     setFolderMenu(null)
+    if (desktopModeRef.current) {
+      dispatchWm({
+        type: 'open',
+        spec: {
+          kind: 'folder',
+          title: fileName(dir) || dir,
+          stage: effectiveStageRef.current,
+          preferredSize: { width: 900, height: 600 },
+          minSize: { width: 520, height: 380 },
+          singleton: true,
+          reuseKey: 'folder:workspace',
+          payload: { folderPath: dir },
+        },
+      })
+      return
+    }
+    dispatchView({ type: 'select-folder', dir })
   }, [])
 
   /**
@@ -1550,7 +1782,25 @@ export function Home() {
 
   const openTemplates = useCallback(() => setTemplatesOpen(true), [])
   const openSettings = useCallback((target: SettingsTarget) => setSettingsRequest(target), [])
-  const openFolderView = useCallback((root: FolderRoot) => selectFolder(root.path), [selectFolder])
+  const openFolderView = useCallback((root: FolderRoot) => {
+    dispatchView({ type: 'show-desktop' })
+    setSelected(new Set())
+    setRowMenu(null)
+    setFolderMenu(null)
+    dispatchWm({
+      type: 'open',
+      spec: {
+        kind: 'folder',
+        title: root.name || fileName(root.path) || root.path,
+        stage: effectiveStageRef.current,
+        preferredSize: { width: 900, height: 600 },
+        minSize: { width: 520, height: 380 },
+        singleton: true,
+        reuseKey: 'folder:workspace',
+        payload: { folderPath: root.path },
+      },
+    })
+  }, [])
 
   // ── the dragged-in dock launchers (dockPrefs.customItems) ──
   // The desktop view hands a dropped icon over (onDockDrop below); Home owns
@@ -1676,10 +1926,6 @@ export function Home() {
   // subscription re-arms on its identity)
   const bounceLaunch = bounce.launch
   const bounceSettle = bounce.settle
-  // the translator, mirrored the same way: useI18n's t is a fresh closure
-  // every render, and the verb's notice words are read at click time
-  const tRef = useRef(t)
-  tRef.current = t
 
   /**
    * Run one custom launcher's verb — the desktop icon's own. A file opens
@@ -1703,6 +1949,7 @@ export function Home() {
           onOpenTemplates: openTemplates,
           onOpenSettings: openSettings,
           onOpenTerminal: openTerminalDrawer,
+          onOpenComputer: showComputer,
         })?.()
         bounceSettle(custom.id)
         return
@@ -1774,6 +2021,7 @@ export function Home() {
       openTemplates,
       openSettings,
       openTerminalDrawer,
+      showComputer,
       openFolderView,
       tRef,
     ],
@@ -1794,34 +2042,23 @@ export function Home() {
       if (action === 'show') {
         raiseHomeTab()
         showDesktop()
-        setPlayerOpen(true)
-        setPlayerFocused(true)
-        setPlayerMode((prev) =>
-          prev === 'minimized'
-            ? playerRestoreModeRef.current === 'minimized'
-              ? 'normal'
-              : playerRestoreModeRef.current
-            : prev,
-        )
+        openOrFocusPlayerWindow()
         return
       }
       if (action === 'mini') {
         raiseHomeTab()
         showDesktop()
-        setPlayerOpen(true)
-        setPlayerFocused(true)
         const nextMode = playerModeRef.current === 'mini' ? 'normal' : 'mini'
-        handlePlayerModeChange(nextMode)
+        openOrFocusPlayerWindow(nextMode)
         return
       }
       if (action === 'close') {
-        setPlayerOpen(false)
-        setPlayerFocused(false)
+        dispatchWm({ type: 'close', id: 'player' })
         return
       }
       setPlayerCmd((prev) => ({ seq: (prev?.seq ?? 0) + 1, type: action }))
     },
-    [raiseHomeTab, showDesktop, handlePlayerModeChange],
+    [raiseHomeTab, showDesktop, openOrFocusPlayerWindow],
   )
 
   const performDockNav = useCallback(
@@ -1957,7 +2194,7 @@ export function Home() {
 
   const startCreateFolder = (parent: string) => {
     setFolderMenu(null)
-    dispatchView({ type: 'set-folder', dir: parent })
+    if (!desktopModeRef.current) dispatchView({ type: 'set-folder', dir: parent })
     setCreating({ parent })
     setNewFolderName('')
   }
@@ -2006,7 +2243,19 @@ export function Home() {
       // the selection follows the renamed folder (and anything inside it)
       const rebase = (p: string) =>
         p === pending.path || isUnder(pending.path, p) ? renamed + p.slice(pending.path.length) : p
-      if (selectedFolder) dispatchView({ type: 'set-folder', dir: rebase(selectedFolder) })
+      if (surface === 'folder' && selectedFolder) {
+        dispatchView({ type: 'set-folder', dir: rebase(selectedFolder) })
+      } else if (desktopMode && folderWindow && folderWindowPath) {
+        const nextPath = rebase(folderWindowPath)
+        if (nextPath !== folderWindowPath) {
+          dispatchWm({
+            type: 'update',
+            id: folderWindow.id,
+            title: fileName(nextPath) || nextPath,
+            payload: { folderPath: nextPath },
+          })
+        }
+      }
     }
     refresh()
   }
@@ -2017,7 +2266,21 @@ export function Home() {
     if (!dir) return
     await window.aiOffice.deleteFolder(dir)
     if (selectedFolder && (selectedFolder === dir || isUnder(dir, selectedFolder))) {
-      dispatchView({ type: 'set-folder', dir: dirOf(dir) })
+      const parentDir = dirOf(dir)
+      if (surface === 'folder') {
+        dispatchView({ type: 'set-folder', dir: parentDir })
+      } else if (desktopMode && folderWindow) {
+        if (rootOf(parentDir, roots)?.readable) {
+          dispatchWm({
+            type: 'update',
+            id: folderWindow.id,
+            title: fileName(parentDir) || parentDir,
+            payload: { folderPath: parentDir },
+          })
+        } else {
+          dispatchWm({ type: 'close', id: folderWindow.id })
+        }
+      }
     }
     refresh()
   }
@@ -2037,7 +2300,17 @@ export function Home() {
       // a moved folder that held the selection drags the selection along
       for (const { from, to } of result.moved) {
         if (selectedFolder === from || isUnder(from, selectedFolder)) {
-          dispatchView({ type: 'set-folder', dir: to + selectedFolder.slice(from.length) })
+          const nextPath = to + selectedFolder.slice(from.length)
+          if (surface === 'folder') {
+            dispatchView({ type: 'set-folder', dir: nextPath })
+          } else if (desktopMode && folderWindow) {
+            dispatchWm({
+              type: 'update',
+              id: folderWindow.id,
+              title: fileName(nextPath) || nextPath,
+              payload: { folderPath: nextPath },
+            })
+          }
         }
       }
     }
@@ -2855,6 +3128,33 @@ export function Home() {
   const hasPlayerCustomInDock = dockPrefs.customItems.some(
     (custom) => custom.kind === 'app' && custom.target === 'app:player',
   )
+  const wmWindowsList = Object.values(wmState.windows)
+  const wmLabels = {
+    minimize: t('wmMinimize'),
+    maximize: t('wmMaximize'),
+    restore: t('wmRestore'),
+    close: t('wmClose'),
+  }
+  const coveredWmIds = new Set<string>()
+  const matchCustomWindow = (custom: DockCustomItem): DesktopWindowInstance | undefined => {
+    if (custom.kind === 'app') {
+      if (custom.target === 'app:player') return wmState.windows['player']
+      if (custom.target === 'app:computer') return findWmWindowByKind(wmState, 'computer')
+      if (custom.target === 'app:kb') return findWmWindowByKind(wmState, 'kb')
+      if (custom.target === 'app:sessions') return findWmWindowByKind(wmState, 'sessions')
+      return undefined
+    }
+    if (
+      custom.kind === 'folder' &&
+      folderWindow &&
+      folderWindowPath &&
+      (folderWindowPath === custom.target ||
+        (roots.some((r) => r.path === custom.target) && isUnder(custom.target, folderWindowPath)))
+    ) {
+      return folderWindow
+    }
+    return undefined
+  }
 
   const dockGroupsRef = useRef<readonly (readonly DockItem[])[]>([])
   const dockGroups: readonly (readonly DockItem[])[] = [
@@ -2999,6 +3299,17 @@ export function Home() {
       // that takes the definition and its order entry together
       ...dockPrefs.customItems.map((custom) => {
         const isPlayerCustom = custom.kind === 'app' && custom.target === 'app:player'
+        const matchedWin = matchCustomWindow(custom)
+        if (!isPlayerCustom && matchedWin) {
+          coveredWmIds.add(matchedWin.id)
+        }
+        const focusMatchedWin = matchedWin
+          ? () => {
+              raiseHomeTab()
+              showDesktop()
+              dispatchWm({ type: 'focus', id: matchedWin.id })
+            }
+          : null
         return {
           id: custom.id,
           label:
@@ -3009,9 +3320,21 @@ export function Home() {
           tile: dockCustomTile(custom),
           ...(isPlayerCustom && playerOpen
             ? { running: true, playing: playerPlayback.playing }
-            : {}),
-          onSelect: () =>
-            isPlayerCustom && playerOpen ? launchPlayerCommand('show') : launchDockCustom(custom),
+            : matchedWin
+              ? {
+                  running: true,
+                  active:
+                    desktopMode &&
+                    !docTabActive &&
+                    wmState.activeId === matchedWin.id &&
+                    matchedWin.mode !== 'minimized',
+                }
+              : {}),
+          onSelect: () => {
+            if (isPlayerCustom && playerOpen) launchPlayerCommand('show')
+            else if (focusMatchedWin) focusMatchedWin()
+            else launchDockCustom(custom)
+          },
           menu:
             isPlayerCustom && playerOpen
               ? [
@@ -3022,14 +3345,44 @@ export function Home() {
                     danger: true,
                   },
                 ]
-              : [
-                  { label: t('dockMenuOpen'), onSelect: () => launchDockCustom(custom) },
-                  {
-                    label: t('dockMenuRemove'),
-                    onSelect: () => removeDockCustomItem(custom.id),
-                    danger: true,
-                  },
-                ],
+              : matchedWin && focusMatchedWin
+                ? [
+                    { label: t('dockMenuOpen'), onSelect: focusMatchedWin },
+                    ...(matchedWin.kind === 'computer'
+                      ? [{ label: t('wmOpenNewWindow'), onSelect: () => openNewComputerWindow() }]
+                      : []),
+                    ...(matchedWin.mode !== 'minimized'
+                      ? [
+                          {
+                            label: t('wmMinimize'),
+                            onSelect: () =>
+                              dispatchWm({
+                                type: 'set-mode',
+                                id: matchedWin.id,
+                                mode: 'minimized',
+                              }),
+                          },
+                        ]
+                      : []),
+                    {
+                      label: t('dockMenuClose'),
+                      onSelect: () => dispatchWm({ type: 'close', id: matchedWin.id }),
+                      danger: true,
+                    },
+                    {
+                      label: t('dockMenuRemove'),
+                      onSelect: () => removeDockCustomItem(custom.id),
+                      danger: true,
+                    },
+                  ]
+                : [
+                    { label: t('dockMenuOpen'), onSelect: () => launchDockCustom(custom) },
+                    {
+                      label: t('dockMenuRemove'),
+                      onSelect: () => removeDockCustomItem(custom.id),
+                      danger: true,
+                    },
+                  ],
         } as DockItem
       }),
       ...(playerOpen && !hasPlayerCustomInDock
@@ -3046,6 +3399,55 @@ export function Home() {
             } as DockItem,
           ]
         : []),
+      ...wmWindowsList
+        .filter(
+          (
+            win,
+          ): win is DesktopWindowInstance & {
+            kind: Exclude<DesktopAppWindowKind, 'player'>
+          } => win.kind !== 'player' && !coveredWmIds.has(win.id),
+        )
+        .map((win) => {
+          const visual = wmDockVisual(win.kind)
+          const focusWmWindow = () => {
+            raiseHomeTab()
+            showDesktop()
+            dispatchWm({ type: 'focus', id: win.id })
+          }
+          return {
+            id: `wm-dock:${win.id}`,
+            label: win.title,
+            icon: visual.icon,
+            tile: visual.tile,
+            running: true,
+            active:
+              desktopMode &&
+              !docTabActive &&
+              wmState.activeId === win.id &&
+              win.mode !== 'minimized',
+            onSelect: focusWmWindow,
+            menu: [
+              { label: t('dockMenuOpen'), onSelect: focusWmWindow },
+              ...(win.kind === 'computer'
+                ? [{ label: t('wmOpenNewWindow'), onSelect: () => openNewComputerWindow() }]
+                : []),
+              ...(win.mode !== 'minimized'
+                ? [
+                    {
+                      label: t('wmMinimize'),
+                      onSelect: () =>
+                        dispatchWm({ type: 'set-mode', id: win.id, mode: 'minimized' }),
+                    },
+                  ]
+                : []),
+              {
+                label: t('dockMenuClose'),
+                onSelect: () => dispatchWm({ type: 'close', id: win.id }),
+                danger: true,
+              },
+            ],
+          } as DockItem
+        }),
     ],
     [
       {
@@ -3074,25 +3476,229 @@ export function Home() {
         <div className="home-desktop-backdrop" aria-hidden="true" ref={setBackdropHost} />
       )}
       {desktopMode && <TodoCard lang={lang} />}
-      {playerOpen && (
-        <DesktopMediaPlayerWindow
-          lang={lang}
-          visible={desktopMode && !docTabActive}
-          focused={playerFocused}
-          stage={effectivePlayerStage}
-          mode={playerMode}
-          autoHideHeaderOnMaximize={autoHideTopBarEnabled}
-          loadRequest={playerLoadReq}
-          command={playerCmd}
-          onFocus={() => setPlayerFocused(true)}
-          onModeChange={handlePlayerModeChange}
-          onClose={() => {
-            setPlayerOpen(false)
-            setPlayerFocused(false)
-          }}
-          onOpenInTab={handleOpenMediaInTab}
-          onPlaybackChange={setPlayerPlayback}
-        />
+      {wmWindowsList.length > 0 && (
+        <div className="desktop-wm-layer" data-testid="desktop-wm-layer">
+          {wmWindowsList.map((win) => {
+            const zIndex = zIndexOfWindow(wmState, win.id)
+            const focused = wmState.activeId === win.id && win.mode !== 'minimized'
+            const visible = desktopMode && !docTabActive
+            if (win.kind === 'player') {
+              return (
+                <DesktopMediaPlayerWindow
+                  key={win.id}
+                  windowId={win.id}
+                  zIndex={zIndex}
+                  lang={lang}
+                  visible={visible}
+                  focused={focused}
+                  stage={effectivePlayerStage}
+                  mode={win.mode}
+                  autoHideHeaderOnMaximize={autoHideTopBarEnabled}
+                  loadRequest={playerLoadReq}
+                  command={playerCmd}
+                  onFocus={() => dispatchWm({ type: 'focus', id: win.id })}
+                  onModeChange={handlePlayerModeChange}
+                  onClose={() => dispatchWm({ type: 'close', id: win.id })}
+                  onOpenInTab={handleOpenMediaInTab}
+                  onPlaybackChange={setPlayerPlayback}
+                />
+              )
+            }
+            const onFocus = () => dispatchWm({ type: 'focus', id: win.id })
+            const onRectChange = (rect: WindowRect, snap?: DesktopWindowSnap) =>
+              dispatchWm({ type: 'set-rect', id: win.id, rect, snap })
+            const onModeChange = (mode: DesktopWindowMode, snap?: DesktopWindowSnap) =>
+              dispatchWm({ type: 'set-mode', id: win.id, mode, snap })
+            const onClose = () => dispatchWm({ type: 'close', id: win.id })
+            if (win.kind === 'computer') {
+              const initialPath =
+                typeof win.payload?.initialPath === 'string' ? win.payload.initialPath : null
+              return (
+                <DesktopWindow
+                  key={win.id}
+                  windowId={win.id}
+                  zIndex={zIndex}
+                  testId="desktop-computer-window"
+                  title={win.title}
+                  icon={<ComputerGlyph />}
+                  mode={win.mode}
+                  snap={win.snap}
+                  rect={win.rect}
+                  stage={effectivePlayerStage}
+                  focused={focused}
+                  visualHidden={!visible}
+                  minWidth={540}
+                  minHeight={380}
+                  labels={wmLabels}
+                  autoHideHeaderOnMaximize={autoHideTopBarEnabled}
+                  headerActions={
+                    <button
+                      type="button"
+                      className="desktop-window-action-btn"
+                      data-testid="wm-new-computer-btn"
+                      title={t('pcNewWindow')}
+                      onClick={() => openNewComputerWindow()}
+                    >
+                      {t('pcNewWindow')}
+                    </button>
+                  }
+                  onFocus={onFocus}
+                  onRectChange={onRectChange}
+                  onModeChange={onModeChange}
+                  onClose={onClose}
+                >
+                  <Suspense fallback={null}>
+                    <ComputerView
+                      embeddedInWindow
+                      initialPath={initialPath}
+                      onBackToDesktop={onClose}
+                      onOpenTerminalAtPath={openTerminalAtPath}
+                      onAddedFolderRoot={loadRoot}
+                      onTitleChange={(title) => dispatchWm({ type: 'update', id: win.id, title })}
+                      onPreviewFile={openPreviewWindow}
+                      onOpenMediaInPlayer={openMediaInDesktopPlayer}
+                      onNewWindow={openNewComputerWindow}
+                    />
+                  </Suspense>
+                </DesktopWindow>
+              )
+            }
+            if (win.kind === 'preview') {
+              const previewPath =
+                typeof win.payload?.filePath === 'string' ? win.payload.filePath : null
+              return (
+                <DesktopWindow
+                  key={win.id}
+                  windowId={win.id}
+                  zIndex={zIndex}
+                  testId="desktop-preview-window"
+                  title={win.title}
+                  icon={<DocsGlyph />}
+                  mode={win.mode}
+                  snap={win.snap}
+                  rect={win.rect}
+                  stage={effectivePlayerStage}
+                  focused={focused}
+                  visualHidden={!visible}
+                  minWidth={420}
+                  minHeight={340}
+                  labels={wmLabels}
+                  autoHideHeaderOnMaximize={autoHideTopBarEnabled}
+                  onFocus={onFocus}
+                  onRectChange={onRectChange}
+                  onModeChange={onModeChange}
+                  onClose={onClose}
+                >
+                  <Suspense fallback={null}>
+                    <FilePreviewPane
+                      filePath={previewPath}
+                      variant="window"
+                      onOpenInEditor={(p) => void window.aiOffice.openPath?.(p)}
+                      onOpenInMediaPlayer={openMediaInDesktopPlayer}
+                      onOpenSystemDefault={(p) =>
+                        void (window.aiOffice as Partial<HomeApi>).desktopOpenExternal?.(p)
+                      }
+                      onClose={onClose}
+                    />
+                  </Suspense>
+                </DesktopWindow>
+              )
+            }
+            if (win.kind === 'kb') {
+              return (
+                <DesktopWindow
+                  key={win.id}
+                  windowId={win.id}
+                  zIndex={zIndex}
+                  testId="desktop-kb-window"
+                  title={win.title}
+                  icon={<KbGlyph />}
+                  mode={win.mode}
+                  snap={win.snap}
+                  rect={win.rect}
+                  stage={effectivePlayerStage}
+                  focused={focused}
+                  visualHidden={!visible}
+                  minWidth={520}
+                  minHeight={380}
+                  labels={wmLabels}
+                  autoHideHeaderOnMaximize={autoHideTopBarEnabled}
+                  onFocus={onFocus}
+                  onRectChange={onRectChange}
+                  onModeChange={onModeChange}
+                  onClose={onClose}
+                >
+                  <Suspense fallback={null}>
+                    <KbCenterView
+                      lang={lang}
+                      onOpenScopeSettings={() => openSettings({ section: 'general' })}
+                    />
+                  </Suspense>
+                </DesktopWindow>
+              )
+            }
+            if (win.kind === 'sessions') {
+              return (
+                <DesktopWindow
+                  key={win.id}
+                  windowId={win.id}
+                  zIndex={zIndex}
+                  testId="desktop-sessions-window"
+                  title={win.title}
+                  icon={<SessionsGlyph />}
+                  mode={win.mode}
+                  snap={win.snap}
+                  rect={win.rect}
+                  stage={effectivePlayerStage}
+                  focused={focused}
+                  visualHidden={!visible}
+                  minWidth={560}
+                  minHeight={400}
+                  labels={wmLabels}
+                  autoHideHeaderOnMaximize={autoHideTopBarEnabled}
+                  onFocus={onFocus}
+                  onRectChange={onRectChange}
+                  onModeChange={onModeChange}
+                  onClose={onClose}
+                >
+                  <Suspense fallback={null}>
+                    <SessionsCenterView onOpenSession={openSessionFromCenter} />
+                  </Suspense>
+                </DesktopWindow>
+              )
+            }
+            const winFolderPath =
+              typeof win.payload?.folderPath === 'string' ? win.payload.folderPath : null
+            return (
+              <DesktopWindow
+                key={win.id}
+                windowId={win.id}
+                zIndex={zIndex}
+                testId="desktop-folder-window"
+                title={win.title}
+                icon={<FolderGlyph />}
+                mode={win.mode}
+                snap={win.snap}
+                rect={win.rect}
+                stage={effectivePlayerStage}
+                focused={focused}
+                visualHidden={!visible}
+                minWidth={520}
+                minHeight={380}
+                labels={wmLabels}
+                autoHideHeaderOnMaximize={autoHideTopBarEnabled}
+                onFocus={onFocus}
+                onRectChange={onRectChange}
+                onModeChange={onModeChange}
+                onClose={onClose}
+              >
+                {winFolderPath && rootOf(winFolderPath, roots)?.readable
+                  ? renderFolderContent()
+                  : null}
+              </DesktopWindow>
+            )
+          })}
+        </div>
       )}
       <SettingsModalHost
         onStatusChange={handleAccountStatus}
@@ -3203,6 +3809,8 @@ export function Home() {
               onOpenSettings={openSettings}
               onOpenTerminal={openTerminalDrawer}
               onOpenTerminalAtPath={openTerminalAtPath}
+              onOpenComputer={showComputer}
+              onAddedFolderRoot={loadRoot}
               onOpenFolder={openFolderView}
               onAddFolderRoot={addFolderRoot}
               onRemoveFolderRoot={removeFolderRoot}
@@ -3212,8 +3820,8 @@ export function Home() {
               onDockDrop={handleDockDrop}
               onDockHover={handleDockHover}
               backdropHost={backdropHost}
-              windowFocused={playerOpen && playerFocused && playerMode !== 'minimized'}
-              onSurfaceFocus={() => setPlayerFocused(false)}
+              windowFocused={hasFocusedVisibleWindow(wmState)}
+              onSurfaceFocus={() => dispatchWm({ type: 'blur-all' })}
             />
           ) : selectedFolder && rootOf(selectedFolder, roots)?.readable ? (
             renderFolderContent()
@@ -3231,6 +3839,18 @@ export function Home() {
           ) : surface === 'sessions' ? (
             <Suspense fallback={null}>
               <SessionsCenterView onOpenSession={openSessionFromCenter} />
+            </Suspense>
+          ) : surface === 'computer' ? (
+            <Suspense fallback={null}>
+              <ComputerView
+                initialPath={viewState.computerPath}
+                onBackToDesktop={showDesktop}
+                onOpenTerminalAtPath={openTerminalAtPath}
+                onAddedFolderRoot={loadRoot}
+                onPreviewFile={openPreviewWindow}
+                onOpenMediaInPlayer={openMediaInDesktopPlayer}
+                onNewWindow={openNewComputerWindow}
+              />
             </Suspense>
           ) : (
             renderGlobalContent()

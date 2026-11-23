@@ -917,6 +917,9 @@ export function normalizePrefs(raw: unknown): DesktopPrefs {
   if (typeof source.autoHideTopBarOnMaximize === 'boolean') {
     prefs.autoHideTopBarOnMaximize = source.autoHideTopBarOnMaximize
   }
+  if (typeof source.showSystemDrivesOnDesktop === 'boolean') {
+    prefs.showSystemDrivesOnDesktop = source.showSystemDrivesOnDesktop
+  }
   return prefs
 }
 
@@ -950,6 +953,12 @@ function isDesktopPrefs(value: unknown): value is DesktopPrefs {
   if (
     prefs.autoHideTopBarOnMaximize !== undefined &&
     typeof prefs.autoHideTopBarOnMaximize !== 'boolean'
+  ) {
+    return false
+  }
+  if (
+    prefs.showSystemDrivesOnDesktop !== undefined &&
+    typeof prefs.showSystemDrivesOnDesktop !== 'boolean'
   ) {
     return false
   }

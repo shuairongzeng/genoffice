@@ -29,6 +29,8 @@
   --desktop-tile-settings: #64748b;
   --desktop-tile-player: #e11d48;
   --desktop-tile-terminal: #0f766e;
+  --desktop-tile-computer: #2563eb;
+  --desktop-tile-drive: #0284c7;
 
   /* the wallpaper's four brand hues (logo.svg) */
   --desktop-aurora-blue: #0f7fff;
@@ -49,6 +51,8 @@
   --desktop-tile-highlight: rgb(255 255 255 / 28%);
   --desktop-icon-shadow: 0 2px 10px rgb(0 0 0 / 14%);
   --desktop-icon-shadow-hover: 0 8px 22px rgb(0 0 0 / 24%);
+  --desktop-computer-shadow: drop-shadow(0 2px 8px rgb(0 0 0 / 16%));
+  --desktop-computer-shadow-hover: drop-shadow(0 8px 18px rgb(0 0 0 / 26%));
 
   /* label legibility over the aurora */
   --desktop-label-shadow: 0 1px 2px rgb(0 0 0 / 28%), 0 0 10px rgb(0 0 0 / 16%);
@@ -79,6 +83,8 @@
   --desktop-tile-highlight: rgb(255 255 255 / 16%);
   --desktop-icon-shadow: 0 2px 12px rgb(0 0 0 / 40%);
   --desktop-icon-shadow-hover: 0 10px 26px rgb(0 0 0 / 55%);
+  --desktop-computer-shadow: drop-shadow(0 2px 10px rgb(0 0 0 / 42%));
+  --desktop-computer-shadow-hover: drop-shadow(0 10px 22px rgb(0 0 0 / 56%));
   --desktop-label-shadow: 0 1px 3px rgb(0 0 0 / 60%), 0 0 12px rgb(0 0 0 / 40%);
   --desktop-glass-fill: color-mix(in srgb, var(--surface) 26%, transparent);
   --desktop-glass-edge: color-mix(in srgb, var(--border-strong) 45%, transparent);
@@ -95,6 +101,8 @@
     --desktop-tile-highlight: rgb(255 255 255 / 16%);
     --desktop-icon-shadow: 0 2px 12px rgb(0 0 0 / 40%);
     --desktop-icon-shadow-hover: 0 10px 26px rgb(0 0 0 / 55%);
+    --desktop-computer-shadow: drop-shadow(0 2px 10px rgb(0 0 0 / 42%));
+    --desktop-computer-shadow-hover: drop-shadow(0 10px 22px rgb(0 0 0 / 56%));
     --desktop-label-shadow: 0 1px 3px rgb(0 0 0 / 60%), 0 0 12px rgb(0 0 0 / 40%);
     --desktop-glass-fill: color-mix(in srgb, var(--surface) 26%, transparent);
     --desktop-glass-edge: color-mix(in srgb, var(--border-strong) 45%, transparent);
@@ -596,6 +604,49 @@
   border-color: color-mix(in srgb, var(--desktop-tile-terminal) 55%, transparent);
 }
 
+.desktop-tile-computer {
+  --tile-color: transparent;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.desktop-tile-computer svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: var(--desktop-computer-shadow);
+  transition: filter 0.15s;
+}
+
+.desktop-icon-item:hover .desktop-tile-computer,
+.desktop-icon-avatar .desktop-tile-computer {
+  box-shadow: none;
+}
+
+.desktop-icon-item:hover .desktop-tile-computer svg,
+.desktop-icon-avatar .desktop-tile-computer svg {
+  filter: var(--desktop-computer-shadow-hover);
+}
+
+.desktop-tile-drive {
+  --tile-color: var(--desktop-tile-drive);
+  background: color-mix(in srgb, var(--desktop-tile-drive) 10%, var(--desktop-glass-fill));
+  border-color: color-mix(in srgb, var(--desktop-tile-drive) 24%, var(--desktop-glass-edge));
+  color: color-mix(in srgb, var(--desktop-tile-drive) 72%, var(--text));
+  box-shadow:
+    inset 0 1px 0 var(--desktop-tile-highlight),
+    var(--desktop-icon-shadow);
+}
+
+.desktop-tile-drive svg {
+  width: 82%;
+  height: 82%;
+  display: block;
+}
+
 /* folders have no brand color: plain glass with the theme's own ink */
 .desktop-tile-folder {
   --tile-color: transparent;
@@ -666,6 +717,10 @@
   }
 
   .desktop-tile {
+    transition: none;
+  }
+
+  .desktop-tile-computer svg {
     transition: none;
   }
 

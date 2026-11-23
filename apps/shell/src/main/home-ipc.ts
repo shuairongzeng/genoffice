@@ -46,6 +46,13 @@ import {
   withoutExtraRoot,
   FOLDER_ROOTS_KEY,
 } from './folder-roots'
+import {
+  isDriveRootPath,
+  listSystemDirectory,
+  listSystemDrives,
+  searchSystemDirectory,
+} from './system-drives'
+import { previewSystemFile } from './system-preview'
 import { createDefaultAppService, execFileRunner } from './default-app'
 import {
   createKnowledgeDocument,
@@ -103,8 +110,14 @@ import type {
   RecentEntry,
   RecentPage,
   RenameResult,
+  SystemDirListing,
+  SystemDrivesSnapshot,
+  SystemPreviewResult,
+  SystemSearchOpts,
+  SystemSearchResult,
 } from '../shared/home-api'
 import { HOME_CHANNELS } from '../shared/home-api'
+import { MAX_SYSTEM_SEARCH_QUERY_LEN } from '../shared/system-search-matcher'
 
 /**
  * The Home file domain's IPC: the paged recents/starred lists, the local file
@@ -813,9 +826,7 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
 
   ipcMain.handle('kb:delete-file', (_event, raw: unknown) => kbHandlers.deleteFile(raw))
 
-  ipcMain.handle('kb:cli-context', (_event, sessionId: unknown) =>
-    kbHandlers.cliContext(sessionId),
-  )
+  ipcMain.handle('kb:cli-context', (_event, sessionId: unknown) => kbHandlers.cliContext(sessionId))
 
   ipcMain.handle('kb:run-cli', (_event, raw: unknown) => kbHandlers.runCli(raw))
 
@@ -1145,6 +1156,7 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     const added: FolderRoot[] = []
     const files: string[] = []
     for (const path of stringPaths(paths)) {
+      if (isDriveRootPath(path)) continue
       if (!describeExtraRoot(path).readable) {
         files.push(path)
         continue
@@ -1172,6 +1184,174 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
       if (!insideRoot(dir)) return { dir: String(dir), mtimeMs: 0, folders: [], files: [] }
       const known = typeof knownMtimeMs === 'number' ? knownMtimeMs : undefined
       return listFolder(dir, new Set(readStarredFiles()), known)
+    },
+  )
+
+  ipcMain.handle(
+    HOME_CHANNELS.systemDrives,
+    (_event, forceRefresh: unknown): Promise<SystemDrivesSnapshot> =>
+      listSystemDrives({ forceRefresh: forceRefresh === true }),
+  )
+
+  ipcMain.handle(
+    HOME_CHANNELS.systemListDir,
+    async (_event, dir: unknown, opts: unknown): Promise<SystemDirListing> => {
+      if (typeof dir !== 'string' || dir.length === 0 || dir.length > 4096 || !isAbsolute(dir)) {
+        return {
+          dir: String(dir ?? ''),
+          parentDir: null,
+          isDriveRoot: false,
+          folders: [],
+          files: [],
+          totalCount: 0,
+          truncated: false,
+          error: 'missing',
+        }
+      }
+      const rawOpts = opts && typeof opts === 'object' ? (opts as Record<string, unknown>) : {}
+      return listSystemDirectory(dir, {
+        showAllFiles: rawOpts.showAllFiles === true,
+        showHidden: rawOpts.showHidden === true,
+      })
+    },
+  )
+
+  const activeSystemSearches = new Map<number, { searchId: string; controller: AbortController }>()
+  let systemSearchSeq = 0
+
+  ipcMain.handle(
+    HOME_CHANNELS.systemSearch,
+    async (event, dir: unknown, opts: unknown): Promise<SystemSearchResult> => {
+      const rawOpts = opts && typeof opts === 'object' ? (opts as Record<string, unknown>) : {}
+      const rawQuery = typeof rawOpts.query === 'string' ? rawOpts.query : ''
+      const makeEmptyResult = (
+        overrides?: Partial<Pick<SystemSearchResult, 'cancelled' | 'error'>>,
+        rootDir = String(dir ?? ''),
+      ): SystemSearchResult => ({
+        rootDir,
+        query: rawQuery,
+        folders: [],
+        files: [],
+        scannedDirs: 0,
+        scannedEntries: 0,
+        truncated: false,
+        timedOut: false,
+        cancelled: overrides?.cancelled ?? false,
+        ...(overrides?.error ? { error: overrides.error } : {}),
+      })
+
+      if (typeof dir !== 'string' || dir.length === 0 || dir.length > 4096 || !isAbsolute(dir)) {
+        return makeEmptyResult({ error: 'missing' })
+      }
+
+      if (typeof rawOpts.query !== 'string') {
+        return makeEmptyResult(undefined, dir)
+      }
+      const trimmedQuery = rawOpts.query.trim()
+      if (trimmedQuery.length === 0) {
+        return makeEmptyResult(undefined, dir)
+      }
+      if (rawOpts.query.length > 4096 || trimmedQuery.length > MAX_SYSTEM_SEARCH_QUERY_LEN) {
+        return makeEmptyResult({ error: 'invalid-regex' }, dir)
+      }
+
+      const sender = event?.sender
+      if (typeof sender?.isDestroyed === 'function' && sender.isDestroyed()) {
+        return makeEmptyResult({ cancelled: true }, dir)
+      }
+
+      const senderId = typeof sender?.id === 'number' ? sender.id : -1
+      const searchId =
+        typeof rawOpts.searchId === 'string' && rawOpts.searchId.length > 0
+          ? rawOpts.searchId
+          : `sys-search-${++systemSearchSeq}`
+
+      const prev = activeSystemSearches.get(senderId)
+      if (prev) {
+        prev.controller.abort()
+        activeSystemSearches.delete(senderId)
+      }
+
+      const controller = new AbortController()
+      const entry = { searchId, controller }
+      activeSystemSearches.set(senderId, entry)
+
+      const onSenderDestroyed = () => {
+        if (activeSystemSearches.get(senderId) === entry) {
+          activeSystemSearches.delete(senderId)
+        }
+        controller.abort()
+      }
+      if (typeof sender?.once === 'function') {
+        sender.once('destroyed', onSenderDestroyed)
+      }
+
+      const clampPositiveInt = (value: unknown, max: number): number | undefined => {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined
+        return Math.min(Math.floor(value), max)
+      }
+
+      const maxResults = clampPositiveInt(rawOpts.maxResults, 5_000)
+      const maxVisitedDirs = clampPositiveInt(rawOpts.maxVisitedDirs, 200_000)
+      const timeoutMs = clampPositiveInt(rawOpts.timeoutMs, 60_000)
+
+      const searchOpts: SystemSearchOpts = {
+        query: rawQuery,
+        regex: rawOpts.regex === true,
+        showAllFiles: rawOpts.showAllFiles === true,
+        showHidden: rawOpts.showHidden === true,
+        ...(maxResults !== undefined ? { maxResults } : {}),
+        ...(maxVisitedDirs !== undefined ? { maxVisitedDirs } : {}),
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        searchId,
+      }
+
+      try {
+        return await searchSystemDirectory(dir, searchOpts, controller.signal)
+      } finally {
+        if (typeof sender?.removeListener === 'function') {
+          sender.removeListener('destroyed', onSenderDestroyed)
+        }
+        if (activeSystemSearches.get(senderId) === entry) {
+          activeSystemSearches.delete(senderId)
+        }
+      }
+    },
+  )
+
+  ipcMain.handle(HOME_CHANNELS.systemCancelSearch, (event, searchId?: unknown): void => {
+    const senderId = typeof event?.sender?.id === 'number' ? event.sender.id : -1
+    const active = activeSystemSearches.get(senderId)
+    if (!active) return
+    if (typeof searchId === 'string' && searchId.length > 0 && active.searchId !== searchId) {
+      return
+    }
+    active.controller.abort()
+    activeSystemSearches.delete(senderId)
+  })
+
+  ipcMain.handle(
+    HOME_CHANNELS.systemPreviewFile,
+    async (_event, filePath: unknown): Promise<SystemPreviewResult> => {
+      if (
+        typeof filePath !== 'string' ||
+        filePath.length === 0 ||
+        filePath.length > 4096 ||
+        !isAbsolute(filePath)
+      ) {
+        return {
+          path: typeof filePath === 'string' ? filePath : '',
+          name: '',
+          ext: '',
+          size: 0,
+          mtimeMs: 0,
+          kind: 'unsupported',
+          mime: 'application/octet-stream',
+          canOpenInEditor: false,
+          error: 'missing',
+        }
+      }
+      return previewSystemFile(filePath)
     },
   )
 

@@ -31,7 +31,9 @@ interface MiniPos {
 
 function readMiniPos(): MiniPos | undefined {
   try {
-    const raw = JSON.parse(localStorage.getItem(PLAYER_MINI_POS_KEY) ?? 'null') as Partial<MiniPos> | null
+    const raw = JSON.parse(
+      localStorage.getItem(PLAYER_MINI_POS_KEY) ?? 'null',
+    ) as Partial<MiniPos> | null
     if (!raw || typeof raw.x !== 'number' || typeof raw.y !== 'number') return undefined
     if (!Number.isFinite(raw.x) || !Number.isFinite(raw.y)) return undefined
     return { x: raw.x, y: raw.y }
@@ -52,6 +54,8 @@ export interface DesktopMediaPlayerWindowProps {
   readonly lang: Lang
   readonly visible: boolean
   readonly focused: boolean
+  readonly windowId?: string
+  readonly zIndex?: number
   readonly stage: StageBounds
   readonly mode: DesktopWindowMode
   readonly autoHideHeaderOnMaximize?: boolean
@@ -68,6 +72,8 @@ export function DesktopMediaPlayerWindow({
   lang,
   visible,
   focused,
+  windowId,
+  zIndex,
   stage,
   mode,
   autoHideHeaderOnMaximize = true,
@@ -148,6 +154,8 @@ export function DesktopMediaPlayerWindow({
     >
       <DesktopWindow
         testId="desktop-media-window"
+        windowId={windowId}
+        zIndex={zIndex}
         title={titleText}
         icon={<PlayerGlyph />}
         mode={mode}
@@ -176,7 +184,15 @@ export function DesktopMediaPlayerWindow({
               onClick={() => handleModeChange('mini', 'none')}
             >
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <rect x="2" y="3" width="12" height="10" rx="2.2" stroke="currentColor" strokeWidth="1.3" />
+                <rect
+                  x="2"
+                  y="3"
+                  width="12"
+                  height="10"
+                  rx="2.2"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                />
                 <rect x="7.5" y="7.5" width="5" height="4" rx="1" fill="currentColor" />
               </svg>
               <span>{ps.miniMode}</span>

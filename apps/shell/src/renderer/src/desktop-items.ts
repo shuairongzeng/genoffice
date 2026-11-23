@@ -1,4 +1,10 @@
-import type { DesktopPinInfo, FolderRoot, HomeApi, RecentEntry } from '../../shared/home-api'
+import type {
+  DesktopPinInfo,
+  FolderRoot,
+  HomeApi,
+  RecentEntry,
+  SystemDrivesSnapshot,
+} from '../../shared/home-api'
 import type { SettingsTarget } from './SettingsModal'
 import type { DesktopStrings } from './desktop-strings'
 
@@ -21,6 +27,7 @@ export type AppTile =
   | 'sessions'
   | 'player'
   | 'terminal'
+  | 'computer'
 
 /**
  * One thing on the desktop, whichever source it came from — the model every
@@ -48,6 +55,8 @@ export interface DesktopItem {
   readonly mtimeMs?: number
   /** a user-placed alias: removable from the desktop, opened by the OS when unknown */
   readonly alias: boolean
+  /** virtual shortcut mapped directly from OS drives or user Desktop folder */
+  readonly systemDrive?: boolean
   /** whether the file behind a file item is starred (drives the batch
    * favorite label); absent for apps, folders and widgets */
   readonly starred?: boolean
@@ -89,7 +98,10 @@ export interface DesktopItemContext {
   readonly onOpenTemplates: () => void
   readonly onOpenSettings: (target: SettingsTarget) => void
   readonly onOpenTerminal?: () => void
+  readonly onOpenComputer?: (initialPath?: string) => void
   readonly onOpenFolder: (root: FolderRoot) => void
+  readonly showSystemDrivesOnDesktop?: boolean
+  readonly systemDrives?: SystemDrivesSnapshot | null
   /**
    * An alias the OS-open gate refused (the file vanished, the launch gate
    * said no): the view surfaces it as its transient surface notice so a
@@ -101,7 +113,7 @@ export interface DesktopItemContext {
 
 /** one source of desktop items; the registry order is the display order */
 export interface DesktopItemProvider {
-  readonly id: 'apps' | 'folder-roots' | 'recents' | 'desktop-files' | 'widgets'
+  readonly id: 'apps' | 'folder-roots' | 'recents' | 'desktop-files' | 'system-drives' | 'widgets'
   getItems(ctx: DesktopItemContext): DesktopItem[]
 }
 
@@ -112,6 +124,7 @@ export function defaultDesktopProviders(): DesktopItemProvider[] {
     createFolderRootsProvider(),
     createRecentsProvider(),
     createDesktopFilesProvider(),
+    createSystemDrivesProvider(),
     createWidgetsProvider(),
   ]
 }
@@ -160,6 +173,7 @@ export interface DesktopAppOpenHost {
   readonly onOpenTemplates: () => void
   readonly onOpenSettings: (target: SettingsTarget) => void
   readonly onOpenTerminal?: () => void
+  readonly onOpenComputer?: (initialPath?: string) => void
 }
 
 /** one app tile's identity: its item id, tile art and strings key */
@@ -192,6 +206,7 @@ const APP_ENTRIES: readonly DesktopAppEntry[] = [
   { id: 'app:settings', tile: 'settings', titleKey: 'appSettings' },
   { id: 'app:player', tile: 'player', titleKey: 'appPlayer' },
   { id: 'app:terminal', tile: 'terminal', titleKey: 'appTerminal' },
+  { id: 'app:computer', tile: 'computer', titleKey: 'appComputer' },
 ]
 
 /** the app an id names: its tile and strings key; null for any other id */
@@ -218,6 +233,7 @@ const APP_OPEN_VERBS: Readonly<Record<string, (host: DesktopAppOpenHost) => () =
     if (host.onOpenTerminal) host.onOpenTerminal()
     else void host.api.terminalRequestDrawer?.({ action: 'open' })
   },
+  'app:computer': (host) => () => host.onOpenComputer?.(),
 }
 
 /**
@@ -343,6 +359,58 @@ function createDesktopFilesProvider(): DesktopItemProvider {
           void ctx.api.openPath?.(entry.path)
         },
       }))
+    },
+  }
+}
+
+/**
+ * Virtual desktop entries for the user's real OS Desktop and mounted local drives
+ * when `showSystemDrivesOnDesktop` is enabled. Never stored in `folderRoots` so
+ * system drives never trigger background watchers, indexing, or AI sandbox widening.
+ */
+function createSystemDrivesProvider(): DesktopItemProvider {
+  return {
+    id: 'system-drives',
+    getItems(ctx) {
+      if (!ctx.showSystemDrivesOnDesktop || !ctx.systemDrives) return []
+      const items: DesktopItem[] = []
+      const desktopPlace = ctx.systemDrives.places.find(
+        (place) => place.id === 'desktop' && place.accessible,
+      )
+      if (desktopPlace) {
+        items.push({
+          id: 'sys-place:desktop',
+          kind: 'folder',
+          title: ctx.strings.placeDesktop,
+          tile: null,
+          ext: '',
+          path: desktopPlace.path,
+          alias: false,
+          systemDrive: true,
+          draggable: true,
+          open: () => ctx.onOpenComputer?.(desktopPlace.path),
+        })
+      }
+      for (const drive of ctx.systemDrives.drives) {
+        if (!drive.accessible) continue
+        const title =
+          drive.label && !drive.name.includes(drive.label)
+            ? `${drive.label} (${drive.name})`
+            : drive.name
+        items.push({
+          id: `sys-drive:${drive.id}`,
+          kind: 'folder',
+          title,
+          tile: null,
+          ext: '',
+          path: drive.path,
+          alias: false,
+          systemDrive: true,
+          draggable: true,
+          open: () => ctx.onOpenComputer?.(drive.path),
+        })
+      }
+      return items
     },
   }
 }

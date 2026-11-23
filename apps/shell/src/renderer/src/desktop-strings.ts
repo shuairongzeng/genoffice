@@ -182,6 +182,11 @@ export interface DesktopStrings {
   boxColor: string
   boxDissolve: string
   boxLimitNotice: string
+  /** This PC / system drives entry & desktop integration */
+  appComputer: string
+  viewShowSystemDrives: string
+  placeDesktop: string
+  menuAddToWorkspace: string
 }
 
 export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
@@ -324,6 +329,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: '盒子配色',
     boxDissolve: '解散分组盒子',
     boxLimitNotice: '桌面最多可创建 {n} 个分组盒子。',
+    appComputer: '此电脑',
+    viewShowSystemDrives: '显示本机磁盘与桌面',
+    placeDesktop: '本机桌面',
+    menuAddToWorkspace: '添加到桌面工作区',
   },
   en: {
     navDesktop: 'Desktop',
@@ -464,6 +473,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Box color',
     boxDissolve: 'Dissolve group box',
     boxLimitNotice: 'You can create at most {n} group boxes on the desktop.',
+    appComputer: 'This PC',
+    viewShowSystemDrives: 'Show System Drives & Desktop',
+    placeDesktop: 'System Desktop',
+    menuAddToWorkspace: 'Add to Desktop Workspace',
   },
   ja: {
     navDesktop: 'デスクトップ',
@@ -608,6 +621,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'ボックスの色',
     boxDissolve: 'グループボックスを解除',
     boxLimitNotice: 'グループボックスは最大 {n} 個まで作成できます。',
+    appComputer: 'PC',
+    viewShowSystemDrives: 'システムドライブとデスクトップを表示',
+    placeDesktop: 'システムデスクトップ',
+    menuAddToWorkspace: 'デスクトップワークスペースに追加',
   },
   ko: {
     navDesktop: '데스크톱',
@@ -750,6 +767,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: '상자 색상',
     boxDissolve: '그룹 상자 해제',
     boxLimitNotice: '바탕 화면에는 그룹 상자를 최대 {n}개까지 만들 수 있습니다.',
+    appComputer: '내 PC',
+    viewShowSystemDrives: '시스템 드라이브 및 바탕 화면 표시',
+    placeDesktop: '시스템 바탕 화면',
+    menuAddToWorkspace: '데스크톱 작업 공간에 추가',
   },
   fr: {
     navDesktop: 'Bureau',
@@ -894,6 +915,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Couleur de la boîte',
     boxDissolve: 'Dissoudre la boîte de groupe',
     boxLimitNotice: 'Vous pouvez créer au maximum {n} boîtes de groupe sur le bureau.',
+    appComputer: 'Ce PC',
+    viewShowSystemDrives: 'Afficher les lecteurs système et le Bureau',
+    placeDesktop: 'Bureau système',
+    menuAddToWorkspace: 'Ajouter à l’espace de travail Bureau',
   },
   de: {
     navDesktop: 'Desktop',
@@ -1039,6 +1064,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Box-Farbe',
     boxDissolve: 'Gruppenbox auflösen',
     boxLimitNotice: 'Es können höchstens {n} Gruppenboxen auf dem Schreibtisch erstellt werden.',
+    appComputer: 'Dieser PC',
+    viewShowSystemDrives: 'Systemlaufwerke & Desktop anzeigen',
+    placeDesktop: 'System-Desktop',
+    menuAddToWorkspace: 'Zum Desktop-Arbeitsbereich hinzufügen',
   },
   es: {
     navDesktop: 'Escritorio',
@@ -1182,6 +1211,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Color de la caja',
     boxDissolve: 'Disolver caja de grupo',
     boxLimitNotice: 'Solo puedes crear hasta {n} cajas de grupo en el escritorio.',
+    appComputer: 'Este equipo',
+    viewShowSystemDrives: 'Mostrar unidades del sistema y Escritorio',
+    placeDesktop: 'Escritorio del sistema',
+    menuAddToWorkspace: 'Añadir al espacio de trabajo del Escritorio',
   },
   th: {
     navDesktop: 'เดสก์ท็อป',
@@ -1322,6 +1355,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'สีของกล่อง',
     boxDissolve: 'สลายกล่องจัดกลุ่ม',
     boxLimitNotice: 'สามารถสร้างกล่องจัดกลุ่มบนเดสก์ท็อปได้สูงสุด {n} กล่อง',
+    appComputer: 'พีซีเครื่องนี้',
+    viewShowSystemDrives: 'แสดงไดรฟ์ระบบและเดสก์ท็อป',
+    placeDesktop: 'เดสก์ท็อปของระบบ',
+    menuAddToWorkspace: 'เพิ่มไปยังพื้นที่ทำงานเดสก์ท็อป',
   },
   id: {
     navDesktop: 'Desktop',
@@ -1463,6 +1500,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Warna kotak',
     boxDissolve: 'Bubarkan kotak grup',
     boxLimitNotice: 'Maksimal hanya dapat membuat {n} kotak grup di desktop.',
+    appComputer: 'PC Ini',
+    viewShowSystemDrives: 'Tampilkan Drive Sistem & Desktop',
+    placeDesktop: 'Desktop Sistem',
+    menuAddToWorkspace: 'Tambahkan ke Ruang Kerja Desktop',
   },
   ru: {
     navDesktop: 'Рабочий стол',
@@ -1605,6 +1646,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Цвет контейнера',
     boxDissolve: 'Расформировать контейнер',
     boxLimitNotice: 'На рабочем столе можно создать не более {n} контейнеров.',
+    appComputer: 'Этот компьютер',
+    viewShowSystemDrives: 'Показать системные диски и рабочий стол',
+    placeDesktop: 'Системный рабочий стол',
+    menuAddToWorkspace: 'Добавить в рабочую область рабочего стола',
   },
   ar: {
     navDesktop: 'سطح المكتب',
@@ -1745,6 +1790,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'لون الصندوق',
     boxDissolve: 'تفكيك صندوق المجموعة',
     boxLimitNotice: 'يمكنك إنشاء ما يصل إلى {n} صناديق مجموعة على سطح المكتب.',
+    appComputer: 'هذا الكمبيوتر',
+    viewShowSystemDrives: 'إظهار أقراص النظام وسطح المكتب',
+    placeDesktop: 'سطح مكتب النظام',
+    menuAddToWorkspace: 'إضافة إلى مساحة عمل سطح المكتب',
   },
   pt: {
     navDesktop: 'Área de trabalho',
@@ -1889,6 +1938,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Cor da caixa',
     boxDissolve: 'Dissolver caixa de grupo',
     boxLimitNotice: 'Você pode criar no máximo {n} caixas de grupo na área de trabalho.',
+    appComputer: 'Este Computador',
+    viewShowSystemDrives: 'Mostrar unidades do sistema e Área de Trabalho',
+    placeDesktop: 'Área de trabalho do sistema',
+    menuAddToWorkspace: 'Adicionar ao espaço de trabalho do Desktop',
   },
   it: {
     navDesktop: 'Desktop',
@@ -2032,6 +2085,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Colore riquadro',
     boxDissolve: 'Sciogli riquadro di gruppo',
     boxLimitNotice: 'Puoi creare al massimo {n} riquadri di gruppo sul desktop.',
+    appComputer: 'Questo PC',
+    viewShowSystemDrives: 'Mostra unità di sistema e Desktop',
+    placeDesktop: 'Desktop di sistema',
+    menuAddToWorkspace: 'Aggiungi allo spazio di lavoro Desktop',
   },
   pl: {
     navDesktop: 'Pulpit',
@@ -2174,6 +2231,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Kolor pudełka',
     boxDissolve: 'Rozwiąż pudełko grupy',
     boxLimitNotice: 'Na pulpicie można utworzyć najwyżej {n} pudełek grup.',
+    appComputer: 'Ten komputer',
+    viewShowSystemDrives: 'Pokaż dyski systemowe i Pulpit',
+    placeDesktop: 'Pulpit systemowy',
+    menuAddToWorkspace: 'Dodaj do obszaru roboczego Pulpitu',
   },
   cs: {
     navDesktop: 'Plocha',
@@ -2315,6 +2376,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Barva boxu',
     boxDissolve: 'Rozpustit skupinový box',
     boxLimitNotice: 'Na ploše můžete vytvořit nejvýše {n} skupinových boxů.',
+    appComputer: 'Tento počítač',
+    viewShowSystemDrives: 'Zobrazit systémové jednotky a Plochu',
+    placeDesktop: 'Systémová plocha',
+    menuAddToWorkspace: 'Přidat do pracovního prostoru Plochy',
   },
   nl: {
     navDesktop: 'Bureaublad',
@@ -2460,6 +2525,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Boxkleur',
     boxDissolve: 'Groepsbox opheffen',
     boxLimitNotice: 'U kunt maximaal {n} groepsboxen op het bureaublad maken.',
+    appComputer: 'Deze pc',
+    viewShowSystemDrives: 'Systeemschijven & Bureaublad weergeven',
+    placeDesktop: 'Systeembureaublad',
+    menuAddToWorkspace: 'Toevoegen aan bureaubladwerkruimte',
   },
   ms: {
     navDesktop: 'Desktop',
@@ -2601,6 +2670,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Warna kotak',
     boxDissolve: 'Bubarkan kotak kumpulan',
     boxLimitNotice: 'Anda boleh mencipta maksimum {n} kotak kumpulan pada desktop.',
+    appComputer: 'PC Ini',
+    viewShowSystemDrives: 'Papar Pemacu Sistem & Desktop',
+    placeDesktop: 'Desktop Sistem',
+    menuAddToWorkspace: 'Tambah ke Ruang Kerja Desktop',
   },
   he: {
     navDesktop: 'שולחן עבודה',
@@ -2741,6 +2814,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'צבע התיבה',
     boxDissolve: 'פרק תיבת קבוצה',
     boxLimitNotice: 'ניתן ליצור לכל היותר {n} תיבות קבוצה בשולחן העבודה.',
+    appComputer: 'מחשב זה',
+    viewShowSystemDrives: 'הצג כונני מערכת ושולחן עבודה',
+    placeDesktop: 'שולחן עבודה של המערכת',
+    menuAddToWorkspace: 'הוסף לסביבת העבודה של שולחן העבודה',
   },
   hi: {
     navDesktop: 'डेस्कटॉप',
@@ -2882,6 +2959,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'बॉक्स रंग',
     boxDissolve: 'समूह बॉक्स भंग करें',
     boxLimitNotice: 'डेस्कटॉप पर अधिकतम {n} समूह बॉक्स बनाए जा सकते हैं।',
+    appComputer: 'यह पीसी',
+    viewShowSystemDrives: 'सिस्टम ड्राइव और डेस्कटॉप दिखाएँ',
+    placeDesktop: 'सिस्टम डेस्कटॉप',
+    menuAddToWorkspace: 'डेस्कटॉप कार्यक्षेत्र में जोड़ें',
   },
   'zh-TW': {
     navDesktop: '桌面',
@@ -3022,6 +3103,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: '盒子配色',
     boxDissolve: '解散分組盒子',
     boxLimitNotice: '桌面最多可建立 {n} 個分組盒子。',
+    appComputer: '此電腦',
+    viewShowSystemDrives: '顯示本機磁碟與桌面',
+    placeDesktop: '本機桌面',
+    menuAddToWorkspace: '新增至桌面工作區',
   },
   vi: {
     navDesktop: 'Màn hình chính',
@@ -3162,6 +3247,10 @@ export const DESKTOP_STRINGS: Record<Lang, DesktopStrings> = {
     boxColor: 'Màu hộp',
     boxDissolve: 'Giải tán hộp nhóm',
     boxLimitNotice: 'Bạn chỉ có thể tạo tối đa {n} hộp nhóm trên màn hình.',
+    appComputer: 'Máy tính này',
+    viewShowSystemDrives: 'Hiện ổ đĩa hệ thống & màn hình nền',
+    placeDesktop: 'Màn hình nền hệ thống',
+    menuAddToWorkspace: 'Thêm vào không gian làm việc trên màn hình',
   },
 }
 

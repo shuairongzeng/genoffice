@@ -20,7 +20,7 @@
 // mechanism the folder tree's expansion state uses (Home has no other
 // renderer-writable settings door, and no view pref existed before).
 
-export type LaunchView = 'desktop' | 'recent' | 'starred' | 'cloud' | 'kb' | 'sessions'
+export type LaunchView = 'desktop' | 'recent' | 'starred' | 'cloud' | 'kb' | 'sessions' | 'computer'
 const VIEW_PREF_KEY = 'home.view'
 
 export function readLaunchView(): LaunchView {
@@ -31,7 +31,8 @@ export function readLaunchView(): LaunchView {
       raw === 'starred' ||
       raw === 'cloud' ||
       raw === 'kb' ||
-      raw === 'sessions'
+      raw === 'sessions' ||
+      raw === 'computer'
     )
       return raw
     // a build before the workbench docked the ask panel could store 'ask':
@@ -52,7 +53,7 @@ export function writeLaunchView(view: LaunchView): void {
 }
 
 /** which surface owns the content column; exactly one at a time */
-export type HomeSurface = 'desktop' | 'list' | 'folder' | 'cloud' | 'kb' | 'sessions'
+export type HomeSurface = 'desktop' | 'list' | 'folder' | 'cloud' | 'kb' | 'sessions' | 'computer'
 
 export interface HomeViewState {
   surface: HomeSurface
@@ -60,6 +61,8 @@ export interface HomeViewState {
   list: 'recent' | 'starred'
   /** the folder the folder surface shows; null whenever another surface is up */
   folder: string | null
+  /** optional initial directory when opening the "This PC" explorer surface */
+  computerPath?: string | null
 }
 
 export type HomeViewAction =
@@ -81,32 +84,43 @@ export type HomeViewAction =
   | { type: 'show-kb' }
   /** the AI Sessions center's tile: global per-document and free session manager */
   | { type: 'show-sessions' }
+  /** the "This PC" computer explorer surface */
+  | { type: 'show-computer'; path?: string | null }
   /** logout only: the cloud view leaves, everything else stays untouched */
   | { type: 'exit-cloud' }
 
 export function homeViewReducer(state: HomeViewState, action: HomeViewAction): HomeViewState {
   switch (action.type) {
     case 'show-desktop':
-      return { ...state, surface: 'desktop', folder: null }
+      return { surface: 'desktop', list: state.list, folder: null }
     case 'show-list':
-      return { ...state, surface: 'list', list: action.list, folder: null }
+      return { surface: 'list', list: action.list, folder: null }
     case 'select-folder':
-      return { ...state, surface: 'folder', folder: action.dir }
+      return { surface: 'folder', list: state.list, folder: action.dir }
     case 'set-folder':
       if (action.dir === null) {
         // only the folder surface falls back to the list; on any other surface
         // the folder path is already null and nothing changes
-        return state.surface === 'folder' ? { ...state, surface: 'list', folder: null } : state
+        return state.surface === 'folder'
+          ? { surface: 'list', list: state.list, folder: null }
+          : state
       }
-      return { ...state, surface: 'folder', folder: action.dir }
+      return { surface: 'folder', list: state.list, folder: action.dir }
     case 'show-cloud':
-      return { ...state, surface: 'cloud', folder: null }
+      return { surface: 'cloud', list: state.list, folder: null }
     case 'show-kb':
-      return { ...state, surface: 'kb', folder: null }
+      return { surface: 'kb', list: state.list, folder: null }
     case 'show-sessions':
-      return { ...state, surface: 'sessions', folder: null }
+      return { surface: 'sessions', list: state.list, folder: null }
+    case 'show-computer':
+      return {
+        surface: 'computer',
+        list: state.list,
+        folder: null,
+        computerPath: action.path ?? null,
+      }
     case 'exit-cloud':
-      return state.surface === 'cloud' ? { ...state, surface: 'list' } : state
+      return state.surface === 'cloud' ? { surface: 'list', list: state.list, folder: null } : state
   }
 }
 
@@ -121,7 +135,9 @@ export function initialHomeViewState(launch: LaunchView): HomeViewState {
             ? 'kb'
             : launch === 'sessions'
               ? 'sessions'
-              : 'list',
+              : launch === 'computer'
+                ? 'computer'
+                : 'list',
     list: launch === 'starred' ? 'starred' : 'recent',
     folder: null,
   }

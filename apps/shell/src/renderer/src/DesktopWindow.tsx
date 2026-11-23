@@ -26,6 +26,8 @@ export interface DesktopWindowLabels {
 }
 
 export interface DesktopWindowProps {
+  readonly windowId?: string
+  readonly zIndex?: number
   readonly title: string
   readonly icon?: ReactNode
   readonly mode: DesktopWindowMode
@@ -60,6 +62,8 @@ function applyRectStyle(el: HTMLDivElement | null, r: WindowRect): void {
 }
 
 export function DesktopWindow({
+  windowId,
+  zIndex,
   title,
   icon,
   mode,
@@ -156,7 +160,6 @@ export function DesktopWindow({
     const target = event.target as HTMLElement | null
     if (target?.closest('button, input, a, [data-window-no-drag="true"]')) return
     event.preventDefault()
-    onFocus()
 
     const startClientX = event.clientX
     const startClientY = event.clientY
@@ -258,7 +261,6 @@ export function DesktopWindow({
     if (event.button !== 0 || mode === 'maximized') return
     event.preventDefault()
     event.stopPropagation()
-    onFocus()
 
     const startClientX = event.clientX
     const startClientY = event.clientY
@@ -330,7 +332,6 @@ export function DesktopWindow({
     const target = event.target as HTMLElement | null
     if (target?.closest('button, input, a, [data-window-no-drag="true"]')) return
     event.preventDefault()
-    onFocus()
 
     const startClientX = event.clientX
     const startClientY = event.clientY
@@ -428,6 +429,8 @@ export function DesktopWindow({
         ref={winRef}
         className={classNames}
         data-testid={testId}
+        data-window-id={windowId}
+        data-focused={focused ? 'true' : 'false'}
         role="dialog"
         aria-label={title}
         aria-hidden={isHidden || undefined}
@@ -439,10 +442,11 @@ export function DesktopWindow({
                 top: activeRect.y,
                 width: activeRect.width,
                 height: mode === 'mini' ? undefined : activeRect.height,
+                ...(zIndex !== undefined ? { zIndex } : {}),
               }
         }
+        onPointerDownCapture={() => onFocus()}
         onPointerDown={(event) => {
-          onFocus()
           if (mode === 'mini') startMiniDrag(event)
         }}
       >

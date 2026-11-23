@@ -136,6 +136,10 @@ const sessionsByToken = new Map<string, MediaSessionEntry>()
 const tokenByWcId = new Map<number, string>()
 const viewContexts = new Map<number, MediaViewContext>()
 
+export const MAX_TRANSIENT_PREVIEW_TOKENS = 64
+const transientPreviewTokens: string[] = []
+const transientTokenByPath = new Map<string, string>()
+
 interface PendingSnapshotWaiter {
   wcId: number
   resolve: (result: MediaSnapshotResult) => void
@@ -236,6 +240,63 @@ export function registerMediaSession(wcId: number, filePath: string): MediaSessi
   return entry
 }
 
+/** Register or LRU-refresh a bounded transient media URL for read-only preview without touching player state. */
+export function registerTransientPreviewUrl(
+  filePath: string,
+  mime?: string,
+  ext?: string,
+): string {
+  const resolvedPath = resolve(filePath)
+  const pathKey = normalizeMediaPathKey(resolvedPath)
+  const existingToken = transientTokenByPath.get(pathKey)
+  if (existingToken !== undefined && sessionsByToken.has(existingToken)) {
+    const idx = transientPreviewTokens.indexOf(existingToken)
+    if (idx !== -1) {
+      transientPreviewTokens.splice(idx, 1)
+      transientPreviewTokens.push(existingToken)
+      return mediaStreamUrl(existingToken)
+    }
+  }
+
+  const rawExt = typeof ext === 'string' && ext.trim() ? ext : extname(resolvedPath)
+  const cleanExt = normalizeMediaExt(rawExt)
+  const resolvedMime =
+    typeof mime === 'string' && mime.trim()
+      ? mime.trim()
+      : cleanExt === 'pdf'
+        ? 'application/pdf'
+        : mimeForMediaExt(cleanExt)
+  const token = randomUUID()
+  const entry: MediaSessionEntry = {
+    token,
+    wcId: -1,
+    filePath: resolvedPath,
+    fileName: basename(resolvedPath),
+    ext: cleanExt,
+    mediaKind: mediaKindForExt(cleanExt) ?? 'image',
+    mime: resolvedMime,
+    subtitles: new Map<string, MediaSubtitleEntry>(),
+  }
+  sessionsByToken.set(token, entry)
+  transientTokenByPath.set(pathKey, token)
+  transientPreviewTokens.push(token)
+
+  while (transientPreviewTokens.length > MAX_TRANSIENT_PREVIEW_TOKENS) {
+    const evicted = transientPreviewTokens.shift()
+    if (!evicted) break
+    const evictedEntry = sessionsByToken.get(evicted)
+    sessionsByToken.delete(evicted)
+    if (evictedEntry) {
+      const evictedKey = normalizeMediaPathKey(evictedEntry.filePath)
+      if (transientTokenByPath.get(evictedKey) === evicted) {
+        transientTokenByPath.delete(evictedKey)
+      }
+    }
+  }
+
+  return mediaStreamUrl(token)
+}
+
 export function unregisterMediaSessionByWcId(wcId: number): boolean {
   const token = tokenByWcId.get(wcId)
   if (!token) return false
@@ -249,6 +310,12 @@ export function unregisterMediaSessionByToken(token: string): boolean {
   if (!entry) return false
   sessionsByToken.delete(token)
   if (tokenByWcId.get(entry.wcId) === token) tokenByWcId.delete(entry.wcId)
+  if (entry.wcId === -1) {
+    const idx = transientPreviewTokens.indexOf(token)
+    if (idx !== -1) transientPreviewTokens.splice(idx, 1)
+    const pathKey = normalizeMediaPathKey(entry.filePath)
+    if (transientTokenByPath.get(pathKey) === token) transientTokenByPath.delete(pathKey)
+  }
   return true
 }
 
@@ -261,6 +328,8 @@ export function clearMediaSessions(): void {
   tokenByWcId.clear()
   viewContexts.clear()
   pendingSnapshots.clear()
+  transientPreviewTokens.length = 0
+  transientTokenByPath.clear()
 }
 
 export function mediaSessionForToken(token: string): MediaSessionEntry | undefined {

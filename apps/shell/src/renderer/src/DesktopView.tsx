@@ -19,6 +19,7 @@ import type {
   FolderRoot,
   HomeApi,
   RecentEntry,
+  SystemDrivesSnapshot,
 } from '../../shared/home-api'
 import type { DockCustomAddStatus, DockCustomCandidate } from '../../shared/dock-prefs'
 import type { DockGhostFrom } from './dock-ghost'
@@ -49,12 +50,15 @@ import { handleMenuKeyDown } from './menu-keyboard'
 import type { SettingsTarget } from './SettingsModal'
 import {
   BrowserGlyph,
+  ComputerGlyph,
   DocsGlyph,
+  DriveGlyph,
   FolderGlyph,
   GearGlyph,
   HtmlGlyph,
   KbGlyph,
   MarkdownGlyph,
+  OsDesktopGlyph,
   PdfGlyph,
   PlayerGlyph,
   PlugGlyph,
@@ -250,6 +254,10 @@ export interface DesktopViewProps {
   readonly onOpenTerminal?: () => void
   /** open the bottom terminal drawer at a target file/folder path */
   readonly onOpenTerminalAtPath?: (targetPath?: string) => void
+  /** open the "This PC" local drives & quick places explorer */
+  readonly onOpenComputer?: (initialPath?: string) => void
+  /** refresh Home folder roots after pinning a local folder to the workspace */
+  readonly onAddedFolderRoot?: () => void
   /** open one folder root's list view */
   readonly onOpenFolder: (root: FolderRoot) => void
   /**
@@ -334,6 +342,11 @@ const PLAYABLE_MEDIA_EXTS = new Set([
   'm4v',
   'mkv',
 ])
+
+const isClientDriveRoot = (dirPath: string): boolean => {
+  const trimmed = dirPath.trim()
+  return /^[a-zA-Z]:[\\/]?$/.test(trimmed) || trimmed === '/' || /^\/Volumes\/[^/]+$/.test(trimmed)
+}
 
 const isPlayableMediaItem = (icon: DesktopItem | undefined): boolean => {
   if (!icon) return false
@@ -569,6 +582,8 @@ export function DesktopView({
   onOpenSettings,
   onOpenTerminal,
   onOpenTerminalAtPath,
+  onOpenComputer,
+  onAddedFolderRoot,
   onOpenFolder,
   onAddFolderRoot,
   onRemoveFolderRoot,
@@ -591,6 +606,8 @@ export function DesktopView({
   const [aliasList, setAliasList] = useState<readonly string[]>([])
   /** the document widgets pinned to the desktop (main-process windows) */
   const [pins, setPins] = useState<readonly DesktopPinInfo[]>([])
+  /** mounted OS drives & desktop quick place, loaded lazily when desktop drive mirroring is enabled */
+  const [systemDrives, setSystemDrives] = useState<SystemDrivesSnapshot | null>(null)
 
   // ── look-and-feel prefs (wallpaper, carousel, icon size, sort) ──
   const [prefs, setPrefs] = useState<DesktopPrefs>(DEFAULT_PREFS)
@@ -777,7 +794,10 @@ export function DesktopView({
         onOpenTemplates,
         onOpenSettings,
         onOpenTerminal,
+        onOpenComputer,
         onOpenFolder,
+        showSystemDrivesOnDesktop: prefs.showSystemDrivesOnDesktop === true,
+        systemDrives,
         onOpenExternalFailed,
       }),
     [
@@ -788,12 +808,15 @@ export function DesktopView({
       aliases,
       aliasPaths,
       pins,
+      prefs.showSystemDrivesOnDesktop,
+      systemDrives,
       onOpenAsk,
       onOpenKb,
       onOpenSessions,
       onOpenTemplates,
       onOpenSettings,
       onOpenTerminal,
+      onOpenComputer,
       onOpenFolder,
       onOpenExternalFailed,
     ],
@@ -1030,6 +1053,23 @@ export function DesktopView({
 
   const prefsRef = useRef(prefs)
   prefsRef.current = prefs
+
+  const loadSystemDrives = useCallback((forceRefresh = false) => {
+    const fetchDrives = (window.aiOffice as Partial<HomeApi>).systemDrives
+    if (!fetchDrives) return
+    void fetchDrives(forceRefresh).then(
+      (snap) => setSystemDrives(snap),
+      () => undefined,
+    )
+  }, [])
+
+  useEffect(() => {
+    if (prefs.showSystemDrivesOnDesktop === true) {
+      loadSystemDrives(false)
+    } else {
+      setSystemDrives(null)
+    }
+  }, [prefs.showSystemDrivesOnDesktop, loadSystemDrives])
 
   /** apply a prefs patch now and persist the whole object; a refused save is
    * retried by nothing (the next choice), the UI already shows the choice */
@@ -2106,9 +2146,14 @@ export function DesktopView({
   const menuIcon = menu ? icons.find((icon) => icon.id === menu.id) : undefined
   const menuOwnerBoxId = menu ? (ownerByItemId.get(menu.id) ?? null) : null
   const menuTargetBoxes = boxes.filter((box) => box.id !== menuOwnerBoxId)
-  // reveal applies to file icons and to aliases of either kind — a real file
-  // or folder is on disk behind them (app icons and folder roots offer none)
-  const menuPath = menuIcon && (menuIcon.kind === 'file' || menuIcon.alias) ? menuIcon.path : null
+  // reveal applies to file icons, aliases, and virtual system drives/places
+  const menuPath =
+    menuIcon && (menuIcon.kind === 'file' || menuIcon.alias || menuIcon.systemDrive)
+      ? menuIcon.path
+      : null
+  const menuCanAddWorkspace =
+    Boolean(menuIcon?.systemDrive && menuIcon.path && !isClientDriveRoot(menuIcon.path)) &&
+    !roots.some((r) => r.path === menuIcon?.path)
   const menuTerminalPath =
     menuIcon && (menuIcon.kind === 'file' || menuIcon.kind === 'folder') && menuIcon.path
       ? menuIcon.path
@@ -2552,7 +2597,10 @@ export function DesktopView({
     setSurfaceMenu(null)
     setSurfaceSub(null)
     reloadRecents()
-  }, [reloadRecents])
+    if (prefsRef.current.showSystemDrivesOnDesktop === true) {
+      loadSystemDrives(true)
+    }
+  }, [reloadRecents, loadSystemDrives])
 
   /** the surface menu's add-folder verb: Home owns the picker flow */
   const addFolderRoot = useCallback(() => {
@@ -2934,6 +2982,13 @@ export function DesktopView({
       )
     }
     if (icon.kind === 'folder') {
+      if (icon.systemDrive) {
+        return (
+          <span className="desktop-tile desktop-tile-drive">
+            {icon.id === 'sys-place:desktop' ? <OsDesktopGlyph /> : <DriveGlyph />}
+          </span>
+        )
+      }
       return (
         <span className="desktop-tile desktop-tile-folder">
           <FolderGlyph />
@@ -2957,6 +3012,7 @@ export function DesktopView({
         {icon.tile === 'sessions' && <SessionsGlyph />}
         {icon.tile === 'player' && <PlayerGlyph />}
         {icon.tile === 'terminal' && <TerminalGlyph />}
+        {icon.tile === 'computer' && <ComputerGlyph />}
       </span>
     )
   }
@@ -3134,7 +3190,7 @@ export function DesktopView({
               <li
                 key={icon.id}
                 className={`desktop-icon${dragging ? ' drag-source' : ''}${selectedIds.has(icon.id) ? ' selected' : ''}`}
-                style={{ ...style, animationDelay: `${Math.min(index, 24) * 60}ms` }}
+                style={{ ...style, animationDelay: `${Math.min(index, 12) * 20}ms` }}
                 role="presentation"
               >
                 <div
@@ -3571,6 +3627,23 @@ export function DesktopView({
                 {s.menuOpenInTerminal}
               </button>
             )}
+            {menuCanAddWorkspace && menuIcon?.path && (
+              <button
+                role="menuitem"
+                data-testid="desktop-icon-menu-add-workspace"
+                onClick={() => {
+                  const targetPath = menuIcon.path!
+                  setMenu(null)
+                  void (window.aiOffice as Partial<HomeApi>)
+                    .dropFolderRoots?.([targetPath])
+                    .then(() => {
+                      onAddedFolderRoot?.()
+                    })
+                }}
+              >
+                {s.menuAddToWorkspace}
+              </button>
+            )}
             {menuPropsIcon !== null && (
               <button role="menuitem" onClick={() => openIconProps(menuPropsIcon)}>
                 {s.menuProps}
@@ -3937,6 +4010,21 @@ export function DesktopView({
                     }}
                   >
                     {s.viewUseStacks}
+                  </button>
+                  <button
+                    role="menuitem"
+                    data-testid="desktop-view-show-drives"
+                    className={prefs.showSystemDrivesOnDesktop === true ? 'checked' : undefined}
+                    onClick={() => {
+                      clearSubHoverTimer()
+                      setSurfaceMenu(null)
+                      setSurfaceSub(null)
+                      applyPrefs({
+                        showSystemDrivesOnDesktop: !(prefs.showSystemDrivesOnDesktop === true),
+                      })
+                    }}
+                  >
+                    {s.viewShowSystemDrives}
                   </button>
                   <div className="row-menu-divider" />
                   <div className="desktop-submenu-label">{s.viewRecentsLabel}</div>

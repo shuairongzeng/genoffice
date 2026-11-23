@@ -14,6 +14,7 @@
   --timeline-user-text: #5a6170;
   /* lift for the active segment in gray-track tab pills */
   --shadow-pill: 0 1px 2px rgb(0 0 0 / 8%);
+  --dock-computer-shadow: drop-shadow(0 2px 6px rgb(0 0 0 / 18%));
 }
 
 /* ── Dark mode overrides ─────────────────────────────────── */
@@ -29,6 +30,7 @@
   --timeline-user-bg: #2a2a3a;
   --timeline-user-text: #b0b0c0;
   --shadow-pill: 0 1px 2px rgb(0 0 0 / 40%);
+  --dock-computer-shadow: drop-shadow(0 2px 7px rgb(0 0 0 / 36%));
 }
 
 /* System dark: no data-theme or data-theme="system" — follow OS preference */
@@ -43,6 +45,7 @@
     --timeline-user-bg: #2a2a3a;
     --timeline-user-text: #b0b0c0;
     --shadow-pill: 0 1px 2px rgb(0 0 0 / 40%);
+    --dock-computer-shadow: drop-shadow(0 2px 7px rgb(0 0 0 / 36%));
   }
 }
 
@@ -698,6 +701,20 @@ html.dock-view body {
 
 .dock-tile-terminal {
   --tile-color: var(--desktop-tile-terminal);
+}
+
+.dock-tile-computer {
+  --tile-color: transparent;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.dock-tile-computer svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: var(--dock-computer-shadow);
 }
 
 /* a dragged-in folder: the desktop's plain glass tile, at the pill's scale */
@@ -3500,10 +3517,12 @@ body.ai-pet-dragging .ask-panel-entry .ai-pet {
  * two-number geometry that the grid cannot express, its drag re-clamps to
  * the stage on every resize, and its default perch takes the right-edge
  * margin past the icon flow — an overlap with a long icon column is
- * recoverable by one drag, and the placement persists. */
+ * recoverable by one drag, and the placement persists.
+ * Stacks above wallpaper & desktop icons, below desktop application windows
+ * (.desktop-wm-layer: 36) and the dock (43). */
 .desktop-todo {
   position: absolute;
-  z-index: 40;
+  z-index: 32;
   display: flex;
   flex-direction: column;
   width: 264px;

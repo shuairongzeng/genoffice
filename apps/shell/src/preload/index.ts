@@ -27,6 +27,11 @@ import type {
   DockPrefs,
   FolderListing,
   FolderRoot,
+  SystemDirListing,
+  SystemDrivesSnapshot,
+  SystemSearchOpts,
+  SystemSearchResult,
+  SystemPreviewResult,
   MoveResult,
   AuthorNameSetting,
   DesktopMediaOpenPayload,
@@ -701,6 +706,24 @@ const homeApi: HomeApi = {
   },
   async listFolder(dir, knownMtimeMs) {
     return (await ipcRenderer.invoke(HOME_CHANNELS.listFolder, dir, knownMtimeMs)) as FolderListing
+  },
+  async systemDrives(forceRefresh) {
+    return (await ipcRenderer.invoke(
+      HOME_CHANNELS.systemDrives,
+      forceRefresh === true,
+    )) as SystemDrivesSnapshot
+  },
+  async systemListDir(dir, opts) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.systemListDir, dir, opts)) as SystemDirListing
+  },
+  async systemSearch(dir, opts) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.systemSearch, dir, opts)) as SystemSearchResult
+  },
+  async systemCancelSearch(searchId) {
+    await ipcRenderer.invoke(HOME_CHANNELS.systemCancelSearch, searchId)
+  },
+  async systemPreviewFile(filePath) {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.systemPreviewFile, filePath)) as SystemPreviewResult
   },
   async createFolder(parent, name) {
     return (await ipcRenderer.invoke(HOME_CHANNELS.createFolder, parent, name)) as RenameResult

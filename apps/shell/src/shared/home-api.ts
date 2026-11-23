@@ -840,6 +840,8 @@ export interface DesktopPrefs {
   hiddenRecentPaths?: string[]
   /** auto-hide the shell window top tab bar and window header when maximized or fullscreen (defaults to true) */
   autoHideTopBarOnMaximize?: boolean
+  /** mirror system desktop shortcut and local drives directly on the desktop grid */
+  showSystemDrivesOnDesktop?: boolean
 }
 
 /** Main-window chrome visibility and top-bar auto-hide state pushed to renderers. */
@@ -1730,6 +1732,16 @@ export interface HomeApi {
    *  answers `{ unchanged: true }` without re-reading it (the focus refresh
    *  probes instead of re-listing) */
   listFolder(dir: string, knownMtimeMs?: number): Promise<FolderListing>
+  /** enumerate OS quick-access folders (Desktop/Downloads/Documents/Pictures) and mounted local/network drives */
+  systemDrives(forceRefresh?: boolean): Promise<SystemDrivesSnapshot>
+  /** read-only single-level lazy directory listing for system drives & quick places without indexing or watching */
+  systemListDir(dir: string, opts?: SystemListDirOpts): Promise<SystemDirListing>
+  /** read-only recursive directory search under `dir` supporting substrings, globs, and regexes */
+  systemSearch(dir: string, opts: SystemSearchOpts): Promise<SystemSearchResult>
+  /** cancels an active recursive system search for the current caller */
+  systemCancelSearch(searchId?: string): Promise<void>
+  /** read-only bounded preview metadata, decoded text excerpt, or transient media URL for a system file */
+  systemPreviewFile(filePath: string): Promise<SystemPreviewResult>
   /** create `parent/name`; resolves to the new path */
   createFolder(parent: string, name: string): Promise<RenameResult>
   /** rename a folder in place (files inside keep their recents/stars/chat history) */
@@ -2140,6 +2152,116 @@ export interface FolderListing {
   unchanged?: boolean
 }
 
+export type SystemPlaceId = 'desktop' | 'downloads' | 'documents' | 'pictures'
+
+export interface SystemPlaceInfo {
+  readonly id: SystemPlaceId
+  readonly path: string
+  readonly name: string
+  readonly accessible: boolean
+}
+
+export type SystemDriveKind = 'system' | 'fixed' | 'removable' | 'network' | 'optical' | 'unknown'
+
+export interface SystemDriveInfo {
+  readonly id: string
+  readonly path: string
+  readonly name: string
+  readonly label: string
+  readonly kind: SystemDriveKind
+  readonly totalBytes: number
+  readonly freeBytes: number
+  readonly usedBytes: number
+  readonly usedRatio: number
+  readonly accessible: boolean
+  readonly isSystem: boolean
+}
+
+export interface SystemDrivesSnapshot {
+  readonly platform: string
+  readonly places: readonly SystemPlaceInfo[]
+  readonly drives: readonly SystemDriveInfo[]
+  readonly fetchedAt: number
+}
+
+export interface SystemDirEntry {
+  readonly name: string
+  readonly path: string
+  readonly kind: 'folder' | 'file'
+  readonly ext: string
+  readonly size: number
+  readonly mtimeMs: number
+  readonly supported: boolean
+  readonly relativeDir?: string
+}
+
+export interface SystemDirListing {
+  readonly dir: string
+  readonly parentDir: string | null
+  readonly isDriveRoot: boolean
+  readonly folders: readonly SystemDirEntry[]
+  readonly files: readonly SystemDirEntry[]
+  readonly totalCount: number
+  readonly truncated: boolean
+  readonly error?: 'missing' | 'denied' | 'not-directory'
+}
+
+export interface SystemListDirOpts {
+  readonly showAllFiles?: boolean
+  readonly showHidden?: boolean
+}
+
+export interface SystemSearchOpts {
+  readonly query: string
+  readonly regex?: boolean
+  readonly showAllFiles?: boolean
+  readonly showHidden?: boolean
+  readonly maxResults?: number
+  readonly maxVisitedDirs?: number
+  readonly timeoutMs?: number
+  readonly searchId?: string
+}
+
+export interface SystemSearchResult {
+  readonly rootDir: string
+  readonly query: string
+  readonly folders: readonly SystemDirEntry[]
+  readonly files: readonly SystemDirEntry[]
+  readonly scannedDirs: number
+  readonly scannedEntries: number
+  readonly truncated: boolean
+  readonly timedOut: boolean
+  readonly cancelled: boolean
+  readonly error?: 'missing' | 'denied' | 'not-directory' | 'invalid-regex'
+}
+
+export type SystemPreviewKind =
+  | 'image'
+  | 'audio'
+  | 'video'
+  | 'pdf'
+  | 'text'
+  | 'markdown'
+  | 'html'
+  | 'office'
+  | 'unsupported'
+
+export interface SystemPreviewResult {
+  readonly path: string
+  readonly name: string
+  readonly ext: string
+  readonly size: number
+  readonly mtimeMs: number
+  readonly kind: SystemPreviewKind
+  readonly mime: string
+  readonly mediaUrl?: string
+  readonly text?: string
+  readonly language?: string
+  readonly truncated?: boolean
+  readonly canOpenInEditor: boolean
+  readonly error?: 'missing' | 'denied' | 'not-file' | 'too-large' | 'parse-failed'
+}
+
 /** what to do when a moved item's name already exists in the target */
 export type MoveConflictPolicy = 'ask' | 'replace' | 'keepBoth' | 'skip'
 
@@ -2387,6 +2509,11 @@ export const HOME_CHANNELS = {
   dropFolderRoots: 'home:folder-root-drop',
   removeFolderRoot: 'home:folder-root-remove',
   listFolder: 'home:folder-list',
+  systemDrives: 'home:system-drives',
+  systemListDir: 'home:system-list-dir',
+  systemSearch: 'home:system-search',
+  systemCancelSearch: 'home:system-cancel-search',
+  systemPreviewFile: 'home:system-preview-file',
   createFolder: 'home:folder-create',
   renameFolder: 'home:folder-rename',
   movePaths: 'home:move-paths',
