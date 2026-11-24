@@ -112,12 +112,40 @@ export {
   MEDIA_SCHEME_PRIVILEGE,
   RENDERER_SCHEME,
   DOCX_MEDIA_SCHEME_PRIVILEGE,
+  SLIDE_MEDIA_SCHEME_PRIVILEGE,
   RENDERER_SCHEME_PRIVILEGE,
   rendererUrl,
   resolveRendererFile,
   type RendererHost,
 } from './renderer-scheme'
 export { installRendererProtocol, registerRendererScheme } from './renderer-protocol'
+export {
+  decryptOoxml,
+  encryptOoxml,
+  isCfbFile,
+  isEncryptedOoxml,
+  OoxmlDecryptError,
+  type OoxmlDecryptFailReason,
+} from './ooxml-encryption'
+export {
+  EXCLUDED_FOLDERS_KEY,
+  isUnderExcludedFolder,
+  normalizeExcludedFolders,
+  readExcludedFolders,
+} from './excluded-folders'
+export {
+  MAX_REMOTE_TABLE_BYTES,
+  MAX_REMOTE_TABLE_CELL_CHARS,
+  MAX_REMOTE_TABLE_COLUMNS,
+  MAX_REMOTE_TABLE_ROWS,
+  detectDelimiter,
+  fetchRemoteTable,
+  parseDelimitedRow,
+  parseDelimitedTable,
+  parseHtmlTable,
+  type RemoteTable,
+  type RemoteTableSource,
+} from './remote-table'
 export {
   atomicCopyFile,
   atomicWriteFile,
@@ -143,3 +171,27 @@ export {
 } from './print-window'
 export { abortOnDestroyed, type DestroyableSender } from './abort-on-destroyed'
 export { recoveryCopyDiskNewer } from './recovery-copy'
+export {
+  LEGACY_IMPORT_KINDS,
+  LEGACY_IMPORT_SKIP_KEY,
+  readLegacyImportPrompt,
+  readLegacyImportSkip,
+  writeLegacyImportPrompt,
+  writeLegacyImportSkip,
+  type LegacyImportKind,
+} from './legacy-import-prefs'
+export {
+  PDF_DEFAULT_ZOOM_KEY,
+  PDF_DEFAULT_ZOOMS,
+  readPdfDefaultZoom,
+  sanitizePdfDefaultZoom,
+  writePdfDefaultZoom,
+  type PdfDefaultZoom,
+} from './pdf-zoom-prefs'
+export {
+  tileRects,
+  tileWindows,
+  TILE_MIN_ROW_HEIGHT,
+  type TileRect,
+  type TileWindow,
+} from './window-tiles'

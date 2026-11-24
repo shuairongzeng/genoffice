@@ -28,6 +28,7 @@ import {
 } from 'electron'
 import type { MenuItemConstructorOptions, Rectangle, WebContents } from 'electron'
 import { atomicCopyFile, atomicWriteFile } from './atomic-write'
+import { registerAiNamingIpc } from './ai-naming-service'
 import { tabStripOverlay } from './title-bar-overlay'
 import { applyUiScaleTo, applyUiScaleToAll, onUiScaleChanged, readUiScale } from './ui-scale'
 import trayIcon1x from './assets/tray-icon.png?asset'
@@ -6634,6 +6635,7 @@ installDeepLinkListener(deliverDeepLink)
 installNavigationGuard(app)
 installContextMenu(app, () => contextMenuLabels(currentLang()))
 registerAiIpc()
+registerAiNamingIpc(() => currentLang())
 const openHomeSettings = (section: 'aiModel' | 'skills' | 'aiPet' | 'butler'): void => {
   const win = shellWindow
   if (!win || win.isDestroyed()) return

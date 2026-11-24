@@ -44,6 +44,18 @@ export const MEDIA_SCHEME_PRIVILEGE: CustomScheme = {
   },
 }
 
+/** Slides serves archive pictures outside structured-clone IPC payloads. */
+export const SLIDE_MEDIA_SCHEME_PRIVILEGE: CustomScheme = {
+  scheme: 'genoffice-slide-media',
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    corsEnabled: true,
+    stream: true,
+  },
+}
+
 export type RendererHost =
   'docs' | 'sheets' | 'slides' | 'pdf' | 'markdown' | 'html' | 'browser' | 'help'
 

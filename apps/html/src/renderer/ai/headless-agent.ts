@@ -7,6 +7,7 @@ import {
   type AgentTaskStatusKind,
   type AgentToolDef,
 } from '@genoffice/agent-core'
+import { imageGenerationAvailable } from '@genoffice/ai-provider/browser'
 import { aiLangDirective } from '../i18n/locale'
 import type { HtmlAiDeps } from './AiPanel'
 import { createDocumentSkill } from './html-skill'
@@ -33,6 +34,8 @@ const STATUS_KIND_BY_TOOL: Record<string, AgentTaskStatusKind> = {
   apply_ops: 'writing',
   write_document: 'writing',
   web_search: 'image',
+  search_images: 'image',
+  generate_image: 'image',
 }
 
 const HEADLESS_EXCLUDED_TOOLS: ReadonlySet<string> = new Set(['ask_clarification', 'plan_page'])
@@ -78,10 +81,12 @@ async function runTask(
   if (!bridgeDeps.isReady()) {
     return { ok: false, summary: 'the HTML document is not ready', edits: [] }
   }
-  const [settings, lang] = await Promise.all([
+  const [settings, gskRes, lang] = await Promise.all([
     window.htmlApi.getAiSettings(),
+    window.htmlApi.aiGskStatus().catch(() => ({ loggedIn: false })),
     window.htmlApi.getLanguage().catch(() => 'en' as const),
   ])
+  const gskLoggedIn = Boolean(gskRes?.loggedIn)
   const docDeps = bridgeDeps.getDeps()
   const snapshotBefore = docDeps.getSnapshot()
   const transport = createElectronTransport(() => settings)
@@ -112,18 +117,21 @@ async function runTask(
     return { ok: false, error: outcome.error ?? outcome.reason }
   }
 
-  const baseSkill = createDocumentSkill({
-    getText: () => bridgeDeps.getDeps().access.getText(),
-    getVersion: () => bridgeDeps.getDeps().access.getVersion(),
-    getMap: () => bridgeDeps.getDeps().access.getMap(),
-    getLastManualVersion: () => bridgeDeps.getDeps().access.getLastManualVersion(),
-    getFilePath: () => bridgeDeps.getDeps().access.getFilePath(),
-    getSelectedSid: () => bridgeDeps.getDeps().access.getSelectedSid(),
-    applyOps: (ops, label) => bridgeDeps.getDeps().access.applyOps(ops, label),
-    replaceAll: (html, label) => bridgeDeps.getDeps().access.replaceAll(html, label),
-    writePage,
-    getInstruction: () => task,
-  })
+  const baseSkill = createDocumentSkill(
+    {
+      getText: () => bridgeDeps.getDeps().access.getText(),
+      getVersion: () => bridgeDeps.getDeps().access.getVersion(),
+      getMap: () => bridgeDeps.getDeps().access.getMap(),
+      getLastManualVersion: () => bridgeDeps.getDeps().access.getLastManualVersion(),
+      getFilePath: () => bridgeDeps.getDeps().access.getFilePath(),
+      getSelectedSid: () => bridgeDeps.getDeps().access.getSelectedSid(),
+      applyOps: (ops, label) => bridgeDeps.getDeps().access.applyOps(ops, label),
+      replaceAll: (html, label) => bridgeDeps.getDeps().access.replaceAll(html, label),
+      writePage,
+      getInstruction: () => task,
+    },
+    () => imageGenerationAvailable(settings, gskLoggedIn),
+  )
 
   const headlessSkill: AgentSkill = {
     ...baseSkill,

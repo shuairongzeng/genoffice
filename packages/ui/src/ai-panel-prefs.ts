@@ -36,6 +36,10 @@ export interface AiPanelPrefs {
   readonly showThinking: boolean
   /** Render per-tool-call activity entries in the chat log */
   readonly showToolCalls: boolean
+  /** Off: the floating AI-edit chip that follows the text selection is hidden.
+   * The chip is a quick Ask-AI entry; users who find it in the way can turn it
+   * off here without losing the AI panel itself. */
+  readonly showAiAskTrigger: boolean
 }
 
 export const DEFAULT_AI_PANEL_PREFS: AiPanelPrefs = {
@@ -48,6 +52,7 @@ export const DEFAULT_AI_PANEL_PREFS: AiPanelPrefs = {
   showStreaming: true,
   showThinking: true,
   showToolCalls: true,
+  showAiAskTrigger: true,
 }
 
 export function isAiFontSize(value: unknown): value is AiFontSize {
@@ -84,7 +89,8 @@ export function sameAiPanelPrefs(a: AiPanelPrefs, b: AiPanelPrefs): boolean {
     a.showAiSidebar === b.showAiSidebar &&
     a.showStreaming === b.showStreaming &&
     a.showThinking === b.showThinking &&
-    a.showToolCalls === b.showToolCalls
+    a.showToolCalls === b.showToolCalls &&
+    a.showAiAskTrigger === b.showAiAskTrigger
   )
 }
 
@@ -118,5 +124,9 @@ export function normalizeAiPanelPrefs(raw: unknown): AiPanelPrefs {
       typeof obj.showToolCalls === 'boolean'
         ? obj.showToolCalls
         : DEFAULT_AI_PANEL_PREFS.showToolCalls,
+    showAiAskTrigger:
+      typeof obj.showAiAskTrigger === 'boolean'
+        ? obj.showAiAskTrigger
+        : DEFAULT_AI_PANEL_PREFS.showAiAskTrigger,
   }
 }

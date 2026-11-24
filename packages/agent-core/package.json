@@ -7,6 +7,7 @@
   "description": "Generic ReAct agent loop: pluggable skills (tools + prompt + context), pluggable LLM transport; shared by AI Docs and future apps (Excel / PPT)",
   "exports": {
     ".": "./src/index.ts",
+    "./mind-map": "./src/mind-map.ts",
     "./redact-range": "./src/redact-range.ts",
     "./redact-core": "./src/redact-core.ts"
   },

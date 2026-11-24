@@ -74,6 +74,7 @@ import {
 } from './asset-mime'
 import { buildPreviewDocument } from './preview-document'
 import { inlineImagesForSingleFile, singleFileExportBaseName } from './single-file-html'
+import { registerHtmlAiSearchIpc } from './ai-search-ipc'
 import {
   assetBaseHref,
   previewUrlFor,
@@ -1217,9 +1218,21 @@ async function resolveSaveTarget(
   }
   const win =
     BrowserWindow.fromWebContents(e.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined
-  const defaultPath = current
-    ? join(dirname(current), basename(current))
-    : join(configuredDefaultSaveDir(app), `${fileNameBase(defaultName) || tm('untitledFile')}.html`)
+  // A name proposed by the model (or the page's own title) prefills the dialog
+  // rather than replacing it: the reader still chooses the location, and
+  // cancelling still cancels. Without one, the dialog opens on the file's own
+  // name, or on the untitled default for a page that has never been saved.
+  const proposed = fileNameBase(defaultName)
+  const defaultPath = proposed
+    ? // keep the open file's extension: an .html proposal must not offer to
+      // rewrite an opened .htm file, or a Save As on an .html one
+      join(
+        current ? dirname(current) : configuredDefaultSaveDir(app),
+        `${proposed}${current ? extname(current) : '.html'}`,
+      )
+    : current
+      ? join(dirname(current), basename(current))
+      : join(configuredDefaultSaveDir(app), `${tm('untitledFile')}.html`)
   const picked = await showSaveDialogWithMemory(dialog, win, {
     title: tm('dlgSaveTitle'),
     defaultPath,
@@ -1999,6 +2012,8 @@ export function startHtmlStandalone(): void {
   void app.whenReady().then(() => {
     installRendererProtocol({ html: join(__dirname, '../renderer') })
     registerHtmlIpc()
+    // shell mode leaves the shared ai:* search channels to docs-main registerAiIpc
+    registerHtmlAiSearchIpc()
     const win = new BrowserWindow({
       width: 1200,
       height: 850,
