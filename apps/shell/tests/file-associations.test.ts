@@ -22,6 +22,7 @@ const installerNsh = readFileSync(resolve(import.meta.dirname, '../build/install
 type AssociationEntry = {
   ext: string
   name: string
+  icon?: string
   description?: string
   mimeType?: string
 }
@@ -51,14 +52,26 @@ describe('packaged file associations', () => {
     }
   })
 
-  it('resolves Windows to 55 unique associations without duplicating entries or leaking .bat', () => {
+  it('gives legacy .ppt its binary mimeType and the OOXML icon on non-Windows associations', () => {
+    for (const platform of ['mac', 'linux'] as const) {
+      const association = effectiveAssociations(platform).find((entry) => entry.ext === 'ppt')
+      expect(association, `no file association declared for .ppt on ${platform}`).toBeTruthy()
+      expect(association?.mimeType, `.${platform} .ppt mimeType`).toBe(
+        'application/vnd.ms-powerpoint',
+      )
+      expect(association?.icon).toBe('pptx')
+    }
+  })
+
+  it('resolves Windows to 55 unique associations without duplicating entries or leaking open-with-only types', () => {
     const winList = effectiveAssociations('win')
     const winExts = winList.map((entry) => entry.ext)
-    const expectedWinExts = LAUNCHABLE_EXTS.filter((ext) => ext !== 'bat')
+    const expectedWinExts = LAUNCHABLE_EXTS.filter((ext) => ext !== 'bat' && ext !== 'ppt')
 
     expect(config.win.fileAssociations).toBeUndefined()
     expect(new Set(winExts).size).toBe(winExts.length)
     expect(winExts).not.toContain('bat')
+    expect(winExts).not.toContain('ppt')
     expect(winExts).toHaveLength(expectedWinExts.length)
     for (const ext of expectedWinExts) {
       const entry = winList.find((item) => item.ext === ext)
