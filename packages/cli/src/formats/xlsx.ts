@@ -38,7 +38,6 @@ import {
   parseStylesheetFormats,
   type StylesheetFormats,
 } from '@genoffice/xlsx-gateway/gateway/xlsx-style-read'
-import { readFile } from 'node:fs/promises'
 import { atomicWriteFile } from '../../../../apps/sheets/src/main/atomic-write'
 import { XlsxSidecarClient } from '../../../../apps/sheets/src/main/xlsx-sidecar-client'
 import { CliError, EXIT } from '../result'
