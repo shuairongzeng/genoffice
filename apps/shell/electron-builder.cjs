@@ -603,9 +603,21 @@ const FILE_ASSOCIATIONS = [
   { ext: 'opus', name: 'Opus Audio', role: 'Viewer', icon: 'icon', mimeType: 'audio/opus' },
   { ext: 'mp4', name: 'MP4 Video', role: 'Viewer', icon: 'icon', mimeType: 'video/mp4' },
   { ext: 'webm', name: 'WebM Video', role: 'Viewer', icon: 'icon', mimeType: 'video/webm' },
-  { ext: 'mov', name: 'QuickTime Video', role: 'Viewer', icon: 'icon', mimeType: 'video/quicktime' },
+  {
+    ext: 'mov',
+    name: 'QuickTime Video',
+    role: 'Viewer',
+    icon: 'icon',
+    mimeType: 'video/quicktime',
+  },
   { ext: 'm4v', name: 'M4V Video', role: 'Viewer', icon: 'icon', mimeType: 'video/x-m4v' },
-  { ext: 'mkv', name: 'Matroska Video', role: 'Viewer', icon: 'icon', mimeType: 'video/x-matroska' },
+  {
+    ext: 'mkv',
+    name: 'Matroska Video',
+    role: 'Viewer',
+    icon: 'icon',
+    mimeType: 'video/x-matroska',
+  },
 ].map((entry) => ({ description: entry.name, ...entry }))
 
 const SHARED_FILE_ASSOCIATIONS = FILE_ASSOCIATIONS.filter(
@@ -625,7 +637,7 @@ const config = {
   directories: {
     output: process.env.BUILD_DIR || 'release',
   },
-  files: ['out/**', '!**/*.map', '!**/*.d.ts'],
+  files: ['out/**', '!out/pi-runtime/**', '!**/*.map', '!**/*.d.ts'],
   extraResources: [
     {
       from: 'build/THIRD-PARTY-NOTICES.txt',
@@ -749,8 +761,9 @@ const config = {
     // files outside app.asar for ESM dynamic import, jiti extensions, workers,
     // and ELECTRON_RUN_AS_NODE subagents).
     {
-      from: 'out/pi-runtime',
-      to: 'pi-runtime',
+      from: 'out/pi-runtime/node_modules',
+      to: 'pi-runtime/node_modules',
+      filter: ['**/*'],
     },
   ],
   // `mimeType` is read only by the Linux target, where it becomes the
