@@ -58,10 +58,12 @@ import type { Editor } from '@tiptap/core'
 import { aiLangDirective, t as tGlobal, useI18n } from '../i18n/locale'
 import { clearAiHighlights } from '../editor/aiHighlight'
 import { setInactiveSelectionShown } from '../editor/inactiveSelection'
+import { uiOp } from '../editor/ops'
 import { redactTextBetween } from '../editor/redact'
 import { createMarkdownSkill, MARKDOWN_RULES } from './markdown-skill'
 import { createPlainTextSkill } from './plain-text-skill'
 import { MindMapCard } from './MindMapCard'
+import { mindMapToMermaid } from '@genoffice/agent-core/mind-map'
 import {
   buildDocWriterRequest,
   countMarkdownBlocks,
@@ -1256,6 +1258,15 @@ export function AiPanel({
                   onJumpBlock={(index) => {
                     const current = depsRef.current.getEditor()
                     if (current) navigateToBlock(current, index)
+                  }}
+                  onInsert={() => {
+                    const current = depsRef.current.getEditor()
+                    if (!current || !entry.mindmap) return
+                    uiOp(current, {
+                      op: 'insertContent',
+                      after: current.state.doc.childCount - 1,
+                      markdown: ['```mermaid', mindMapToMermaid(entry.mindmap), '```'].join('\n'),
+                    })
                   }}
                 />
               )}
