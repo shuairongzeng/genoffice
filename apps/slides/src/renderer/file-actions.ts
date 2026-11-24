@@ -4,12 +4,19 @@
  * (Printing lives in components/PrintDialog.tsx — preview + options dialog.)
  */
 import type { RenderSlide } from '@genoffice/pptx-render'
+import { shortFileError } from '@genoffice/ui'
 import type { ExportPdfLink } from '../shared/ipc'
 import { baseName } from '../shared/base-name'
+import { modelSaveAsName } from './file-naming'
 import type { ActionCtx } from './action-context'
 import { collectExportPdfLinks } from './export-links'
 import { renderSlidesToPdfPages } from './export-pages'
-import { renderSlidesToPngBase64 } from './export-render'
+import { renderSlidesToImageBase64 } from './export-render'
+import {
+  exportVideo,
+  type VideoExportOptions,
+  type VideoExportResult,
+} from './video-export/export-video'
 import { t } from './i18n/locale'
 import { showToast } from './components/toast-bus'
 
@@ -93,6 +100,9 @@ export async function save(getCtx: () => ActionCtx, quiet = false): Promise<bool
     const ctx = getCtx()
     await flushActiveEdit(ctx)
     await ctx.flushNotes()
+    // No name is proposed here: a save never waits on a model round-trip. An
+    // untitled deck keeps the app's own name, the localized "Untitled
+    // presentation" the main process produces in `pickDraftPath`.
     const r = await window.slidesApi.save()
     if (r.ok) {
       if (r.slides) adoptSavedSlides(ctx, r.slides)
@@ -102,7 +112,10 @@ export async function save(getCtx: () => ActionCtx, quiet = false): Promise<bool
       ctx.setStatus(saved)
       if (!quiet) showToast(saved)
     } else {
-      const failed = t('appStatusSaveFailed', { error: r.error ?? t('appErrorCanceled') })
+      if (r.error) console.error('[slides] save failed', r.error)
+      const failed = t('appStatusSaveFailed', {
+        error: shortFileError(r.error ?? t('appErrorCanceled')),
+      })
       ctx.setStatus(failed)
       // quiet suppresses the success toast only — a failed save (incl. the 30s
       // auto-save) must surface, or edits silently stop reaching disk
@@ -113,14 +126,47 @@ export async function save(getCtx: () => ActionCtx, quiet = false): Promise<bool
 }
 
 export async function saveAs(getCtx: () => ActionCtx): Promise<void> {
+  await saveAsWithName(getCtx, null)
+}
+
+/**
+ * Ask the model to name this deck, on request, then open Save As with its
+ * answer prefilled.
+ *
+ * The stem goes into the dialog rather than renaming the file on disk: a deck
+ * that may be open elsewhere, presented from another machine, or synced is not
+ * something to move behind the reader's back. A declined or empty answer
+ * leaves the dialog on the deck's current name, so this is a no-op rather than
+ * a failure.
+ */
+export async function nameWithAi(getCtx: () => ActionCtx): Promise<void> {
+  const ctx = getCtx()
+  // the model reads the deck, so an edit still being typed has to land first
+  const editing = ctx.editingActiveRef.current
+  await flushActiveEdit(ctx)
+  // that commit can replace the deck, so read it again rather than from the
+  // snapshot taken before the flush
+  const deck = editing ? getCtx() : ctx
+  const stem = await modelSaveAsName(deck.slides)
+  if (!stem) return
+  await saveAsWithName(getCtx, `${stem}.pptx`)
+}
+
+/**
+ * Save As with a name the reader (or the model, via `nameWithAi`) chose.
+ *
+ * A null name means "the deck's current name", which is read inside the queue:
+ * a save that landed while this call was waiting may have changed it.
+ */
+export async function saveAsWithName(getCtx: () => ActionCtx, name: string | null): Promise<void> {
   // Same queue as save(): Save + Save As (or double Save As) write through
   // the same main-process pipe and would interleave without it.
   await runSerialized(async () => {
     const ctx = getCtx()
     await flushActiveEdit(ctx)
     await ctx.flushNotes()
-    const name = baseName(ctx.path ?? '') || 'presentation.pptx'
-    const r = await window.slidesApi.saveAs(name)
+    const target = name ?? (baseName(ctx.path ?? '') || 'presentation.pptx')
+    const r = await window.slidesApi.saveAs(target)
     if (r.ok) {
       if (r.slides) adoptSavedSlides(ctx, r.slides)
       ctx.setPath(r.path ?? ctx.path)
@@ -131,7 +177,8 @@ export async function saveAs(getCtx: () => ActionCtx): Promise<void> {
     } else if (r.error) {
       // a canceled dialog returns ok:false without error — only real write
       // failures surface, matching the docs/sheets save-as feedback
-      const failed = t('appStatusSaveFailed', { error: r.error })
+      console.error('[slides] save failed', r.error)
+      const failed = t('appStatusSaveFailed', { error: shortFileError(r.error) })
       ctx.setStatus(failed)
       showToast(failed, 'error')
     }
@@ -143,8 +190,8 @@ export function exportBaseName(ctx: ActionCtx): string {
   return (baseName(ctx.path ?? '') || t('appUntitledPresentation')).replace(/\.pptx$/i, '')
 }
 
-/** Export as images: each page (skipping hidden ones) rendered offscreen to 2x PNG, written to disk by the main process */
-export async function exportImages(ctx: ActionCtx): Promise<void> {
+/** Export as images: each page (skipping hidden ones) rendered offscreen to 2x PNG or JPG, written to disk by the main process */
+export async function exportImages(ctx: ActionCtx, format: 'png' | 'jpg' = 'png'): Promise<void> {
   const visible = ctx.slides.filter((s) => !s.hidden)
   if (visible.length === 0) {
     ctx.setStatus(t('appExportNoSlides'))
@@ -154,11 +201,12 @@ export async function exportImages(ctx: ActionCtx): Promise<void> {
   if (!dir) return
   ctx.setStatus(t('appExportImagesProgress', { count: visible.length }))
   try {
-    const pngs = await renderSlidesToPngBase64(visible, ctx.images)
+    const pages = await renderSlidesToImageBase64(visible, ctx.images, { format })
     const r = await window.slidesApi.exportImages({
       dir,
       baseName: exportBaseName(ctx),
-      pngsBase64: pngs,
+      format,
+      pngsBase64: pages,
     })
     ctx.setStatus(
       r.ok
@@ -168,6 +216,38 @@ export async function exportImages(ctx: ActionCtx): Promise<void> {
   } catch (err) {
     ctx.setStatus(t('appExportImagesFailed', { error: String(err) }))
   }
+}
+
+/** Export as video: save dialog, then the offline show encoded to MP4; the dialog shows progress and cancels */
+export async function exportVideoFile(
+  ctx: ActionCtx,
+  opts: VideoExportOptions,
+  onProgress: (fraction: number) => void,
+  signal: AbortSignal,
+): Promise<VideoExportResult> {
+  if (!ctx.slides.some((s) => !s.hidden)) {
+    ctx.setStatus(t('appExportNoSlides'))
+    return { ok: false, cancelled: true }
+  }
+  const path = await window.slidesApi.pickExportVideoPath(`${exportBaseName(ctx)}.mp4`)
+  if (!path) return { ok: false, cancelled: true }
+  const r = await exportVideo(
+    { slides: ctx.slides, images: ctx.images, path },
+    opts,
+    onProgress,
+    signal,
+  )
+  if (r.ok) {
+    ctx.setStatus(t('appExportVideoDone', { path: r.path }))
+    showToast(t('appExportVideoDone', { path: r.path }))
+  } else if (!r.cancelled) {
+    const msg = r.unsupported
+      ? t('appExportVideoUnsupported')
+      : t('appExportVideoFailed', { error: r.error })
+    ctx.setStatus(msg)
+    showToast(msg, 'error')
+  }
+  return r
 }
 
 /**

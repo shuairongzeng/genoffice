@@ -30,6 +30,7 @@ const MAX_CHECKPOINTS = 20
 const STATUS_KIND_BY_TOOL: Record<string, AgentTaskStatusKind> = {
   read_pages: 'reading',
   search_text: 'reading',
+  find_sensitive_info: 'reading',
   goto_page: 'reading',
   read_annotations: 'reading',
   list_inserted_text: 'reading',

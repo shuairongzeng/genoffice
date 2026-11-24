@@ -220,8 +220,8 @@ describe('the descriptor table itself', () => {
         seen.set(ext, app.id)
       }
     }
-    // 26 document/text extensions + 9 code extensions + 21 media extensions = 56
-    expect(seen.size).toBe(56)
+    // 27 document/text extensions + 9 code extensions + 21 media extensions = 57
+    expect(seen.size).toBe(57)
   })
 
   it('every descriptor carries the faces the shell dispatches through', () => {
@@ -263,6 +263,7 @@ describe('appForPath (file → app routing)', () => {
   it('is case-insensitive, because the filesystem is', () => {
     expect(appForPath('/x/NOTES.MD')).toBe('markdown')
     expect(appForPath('/x/DECK.PPTX')).toBe('slides')
+    expect(appForPath('/x/LEGACY.PPT')).toBe('slides')
   })
 })
 

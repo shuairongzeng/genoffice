@@ -314,8 +314,10 @@ function ensureThirdPartyNotices() {
 /** @type {import('electron-builder').Configuration} */
 // NSIS registers every declared Windows association with a ProgId and `.ext`
 // default association. Keep `.bat` open-with-only so double-clicking a batch
-// script continues to execute it in Windows instead of opening an editor.
-const WIN_OPEN_WITH_ONLY_EXTS = new Set(['bat'])
+// script continues to execute it in Windows instead of opening an editor, and
+// keep legacy `.ppt` open-with-only so Windows does not hijack PowerPoint's
+// default opener (mac/Linux still declare it for Open With).
+const WIN_OPEN_WITH_ONLY_EXTS = new Set(['bat', 'ppt'])
 const FILE_ASSOCIATIONS = [
   {
     ext: 'docx',
@@ -347,6 +349,14 @@ const FILE_ASSOCIATIONS = [
     role: 'Editor',
     icon: 'pptx',
     mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  },
+  {
+    // import-only: opens as a converted .pptx copy, GenOffice never writes .ppt
+    ext: 'ppt',
+    name: 'PowerPoint 97-2003 Presentation',
+    role: 'Editor',
+    icon: 'pptx',
+    mimeType: 'application/vnd.ms-powerpoint',
   },
   {
     ext: 'xls',
@@ -785,8 +795,9 @@ const config = {
   // tools/gen-file-association-icons.mjs.
   // app-builder-lib concatenates top-level `fileAssociations` with each platform
   // target's own `fileAssociations` instead of overriding. Keep the 55 safe
-  // shared associations at top level and append Windows-excluded types (`.bat`)
-  // only on mac/linux so Windows neither duplicates NSIS macros nor hijacks `.bat`.
+  // shared associations at top level and append Windows-excluded types (`.bat`,
+  // `.ppt`) only on mac/linux so Windows neither duplicates NSIS macros nor
+  // hijacks those openers.
   fileAssociations: SHARED_FILE_ASSOCIATIONS,
   // The genoffice:// deep link (src/main/system-presence.ts: genoffice://ask?q=… →
   // Home's Ask AI). electron-builder writes CFBundleURLTypes into the macOS
@@ -834,7 +845,7 @@ const config = {
       },
     ],
     // Intentionally omit `fileAssociations`: Windows receives the 55 top-level
-    // SHARED_FILE_ASSOCIATIONS entries once (zero duplicate ProgIDs, no `.bat`).
+    // SHARED_FILE_ASSOCIATIONS entries once (zero duplicate ProgIDs, no `.bat` or `.ppt`).
     extraResources: [
       {
         from: WIN_SIDECAR,

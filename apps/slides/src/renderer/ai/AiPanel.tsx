@@ -9,6 +9,7 @@ import {
   type AiPermissionModePickerBridge,
   AiSkillChips,
   AiSkillsMenu,
+  useImeEnterGuard,
 } from '@genoffice/ui'
 import { boundChatHistory } from '@genoffice/ui/chat-retention'
 import React, { useEffect, useRef, useState, useCallback, type SetStateAction } from 'react'
@@ -84,6 +85,7 @@ import {
   type AiTokenUsageView,
 } from '@genoffice/ui'
 import { GensparkMark } from '../components/icons'
+import { showToast } from '../components/toast-bus'
 import filePdfIcon from '../assets/file-pdf.png'
 import fileWordIcon from '../assets/file-word.png'
 import fileExcelIcon from '../assets/file-excel.png'
@@ -632,6 +634,7 @@ export function AiPanel({
   >([])
   const logRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const ime = useImeEnterGuard()
   /** Stop following once the user scrolls up; re-attach when near the bottom */
   const stickToBottomRef = useRef(true)
   /** Current chat's projectId/chatId, set after resolve succeeds */
@@ -696,6 +699,24 @@ export function AiPanel({
       window.removeEventListener('focus', refresh)
     }
   }, [])
+
+  // A browser-approved Genspark login landed (from this panel's sign-in button
+  // or any other surface): confirm it where the user is and retire the inline
+  // sign-in buttons — nothing else in an editor view changes visibly on login.
+  useEffect(
+    () =>
+      window.slidesApi?.onGskLoginLanded?.(() => {
+        gskLoggedInRef.current = true
+        setGskLoggedIn(true)
+        setChat((prev) =>
+          prev.some((e) => e.loginRequired)
+            ? prev.map((e) => (e.loginRequired ? { ...e, loginRequired: false } : e))
+            : prev,
+        )
+        showToast(tGlobal('aiGskLoginOk'), 'success')
+      }),
+    [],
+  )
   /**
    * No usable chat provider and no Genspark login: the bespoke composer gates
    * sending until setup, mirroring the docs panel's empty-state CTA rule.
@@ -2374,10 +2395,13 @@ export function AiPanel({
                 inputEditedSinceRunRef.current = true
                 setInput(e.target.value)
               }}
+              onCompositionStart={ime.handleCompositionStart}
+              onCompositionEnd={ime.handleCompositionEnd}
               onKeyDown={(e) => {
                 if (slash.onKeyDown(e)) return
-                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
+                  if (ime.isImeConfirm(e.nativeEvent)) return
                   if (aiSetupNeeded) return
                   if (busy) enqueueDraft()
                   else run()

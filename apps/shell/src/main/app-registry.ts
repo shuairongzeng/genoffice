@@ -264,7 +264,7 @@ export const documentApps: readonly AppDescriptor[] = [
   {
     id: 'slides',
     family: 'pptx',
-    extensions: ['pptx', 'odp', 'otp'],
+    extensions: ['pptx', 'ppt', 'odp', 'otp'],
     untitledTitle: 'AI Slides',
     untitledTitleKey: 'untitledDeck',
     createView: createSlidesView,

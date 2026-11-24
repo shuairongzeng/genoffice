@@ -26,15 +26,16 @@ describe('format registry', () => {
       'ods',
       'ots',
     ])
-    expect(formatFamily('pptx').editorOpen).toEqual(['pptx', 'odp', 'otp'])
+    expect(formatFamily('pptx').editorOpen).toEqual(['pptx', 'odp', 'otp', 'ppt'])
   })
 
-  it('keeps the converted-copy formats open-only: they convert on open and never save as ODF', () => {
-    // the xlsx family converts .tsv/.ods to .xlsx; docx/pptx take .odt/.odp the same way
+  it('keeps the converted-copy formats open-only: they convert on open and never save as the source', () => {
+    // the xlsx family converts .tsv/.ods to .xlsx; docx/pptx take .odt/.odp and
+    // legacy .ppt the same way
     for (const [family, exts] of [
       ['xlsx', ['tsv', 'ods', 'ots']],
       ['docx', ['odt', 'ott']],
-      ['pptx', ['odp', 'otp']],
+      ['pptx', ['odp', 'otp', 'ppt']],
     ] as const) {
       const entry = formatFamily(family)
       for (const ext of exts) {
