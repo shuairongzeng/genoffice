@@ -43,8 +43,6 @@ function dragHandlePlugin(editor: Editor): Plugin {
   return new Plugin({
     key: new PluginKey('blockDragHandle'),
     view(view) {
-      const container = view.dom.parentElement
-
       const handle = document.createElement('div')
       handle.className = 'md-block-gutter'
       handle.style.display = 'none'
@@ -71,12 +69,41 @@ function dragHandlePlugin(editor: Editor): Plugin {
       menu.className = 'md-block-menu'
       menu.style.display = 'none'
 
-      const previousContainerPosition = container?.style.position ?? ''
-      const setContainerPosition = Boolean(container && !container.style.position)
-      if (container) {
-        container.style.position ||= 'relative'
-        container.append(handle, menu)
+      let trackedHost: HTMLElement | null = null
+      let previousHostPosition = ''
+      let setHostPosition = false
+
+      const restoreHostPosition = () => {
+        if (trackedHost && setHostPosition && trackedHost.style.position === 'relative') {
+          trackedHost.style.position = previousHostPosition
+        }
+        trackedHost = null
+        previousHostPosition = ''
+        setHostPosition = false
       }
+
+      // TipTap mounts the view into a temporary detached wrapper and React later
+      // reparents its children into the live <EditorContent> host, so resolve
+      // the container on every use rather than caching it once at init.
+      const resolveHost = (): HTMLElement | null => {
+        const parent = view.dom.parentElement
+        if (!parent) return null
+        if (parent !== trackedHost) {
+          restoreHostPosition()
+          trackedHost = parent
+          previousHostPosition = parent.style.position
+          setHostPosition = !parent.style.position
+          if (setHostPosition) parent.style.position = 'relative'
+        } else if (!parent.style.position) {
+          previousHostPosition = ''
+          setHostPosition = true
+          parent.style.position = 'relative'
+        }
+        if (handle.parentElement !== parent) parent.append(handle)
+        if (menu.parentElement !== parent) parent.append(menu)
+        return parent
+      }
+      resolveHost()
 
       let hoverPos: number | null = null
       let menuPos: number | null = null
@@ -100,6 +127,7 @@ function dragHandlePlugin(editor: Editor): Plugin {
       }
 
       const onMouseMove = (event: MouseEvent) => {
+        const container = resolveHost()
         if (!view.editable || !container) return
         const pos = topLevelPosAt(view, { left: event.clientX, top: event.clientY })
         if (pos === null) return
@@ -113,10 +141,14 @@ function dragHandlePlugin(editor: Editor): Plugin {
         // CSS-zoomed page are layout pixels. Convert the deltas back so the
         // gutter is scaled exactly once with the rest of the page.
         const scale = container.offsetWidth ? containerRect.width / container.offsetWidth : 1
+        const page = container.closest<HTMLElement>('.doc-page')
+        const minLeft = page
+          ? (page.getBoundingClientRect().left - containerRect.left) / scale + 4
+          : -52
         hoverPos = pos
         handle.style.display = 'flex'
         handle.style.top = `${(blockRect.top - containerRect.top) / scale + container.scrollTop + 2}px`
-        handle.style.left = `${Math.max(0, (blockRect.left - containerRect.left) / scale - 52)}px`
+        handle.style.left = `${Math.max(minLeft, (blockRect.left - containerRect.left) / scale - 52)}px`
       }
 
       // hoverPos was computed on a past mousemove — validate before selecting
@@ -187,6 +219,7 @@ function dragHandlePlugin(editor: Editor): Plugin {
       ]
 
       const openMenu = () => {
+        const container = resolveHost()
         if (hoverPos === null || !container) return
         menuPos = hoverPos
         menu.replaceChildren(
@@ -276,9 +309,7 @@ function dragHandlePlugin(editor: Editor): Plugin {
           document.removeEventListener('scroll', onScrollOrLeave, true)
           handle.remove()
           menu.remove()
-          if (container && setContainerPosition && container.style.position === 'relative') {
-            container.style.position = previousContainerPosition
-          }
+          restoreHostPosition()
         },
       }
     },

@@ -3767,6 +3767,7 @@ button {
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 /* ── Digital signatures: banner, panel, certificate dialog ── */
 .pdf-sig-banner {

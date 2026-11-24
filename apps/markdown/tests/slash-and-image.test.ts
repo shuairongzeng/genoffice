@@ -299,4 +299,72 @@ describe('BlockDragHandle teardown', () => {
     wrapper.remove()
     vi.restoreAllMocks()
   })
+
+  it('re-tracks the live host after <EditorContent> reparenting and restores its position on destroy', async () => {
+    const { Editor } = await import('@tiptap/core')
+    const { buildExtensions } = await import('../src/renderer/editor/extensions')
+
+    const tempHost = document.createElement('div')
+    const editor = new Editor({
+      element: tempHost,
+      extensions: buildExtensions({
+        slashController: { onOpen() {}, onUpdate() {}, onKeyDown: () => false, onClose() {} },
+        slashItems: () => [],
+      }),
+      content: '<p>hello block</p>',
+    })
+    editors.push(editor)
+
+    const page = document.createElement('div')
+    page.className = 'doc-page'
+    const realHost = document.createElement('div')
+    page.appendChild(realHost)
+    document.body.appendChild(page)
+
+    const makeRect = (left: number, top: number, width: number, height: number): DOMRect =>
+      ({
+        left,
+        top,
+        width,
+        height,
+        right: left + width,
+        bottom: top + height,
+        x: left,
+        y: top,
+        toJSON: () => ({}),
+      }) as DOMRect
+
+    vi.spyOn(page, 'getBoundingClientRect').mockReturnValue(makeRect(100, 100, 860, 600))
+    vi.spyOn(realHost, 'getBoundingClientRect').mockReturnValue(makeRect(172, 140, 716, 400))
+    Object.defineProperty(realHost, 'offsetWidth', { value: 716, configurable: true })
+
+    // Simulate @tiptap/react's <EditorContent> reparenting view.dom childNodes
+    realHost.append(...tempHost.childNodes)
+
+    const p = editor.view.dom.querySelector('p')!
+    vi.spyOn(p, 'getBoundingClientRect').mockReturnValue(makeRect(172, 260, 716, 28))
+    vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({ pos: 2, inside: 0 })
+
+    editor.view.dom.dispatchEvent(
+      new MouseEvent('mousemove', { clientX: 200, clientY: 270, bubbles: true }),
+    )
+
+    const handle = realHost.querySelector<HTMLElement>('.md-block-gutter')!
+    expect(realHost.style.position).toBe('relative')
+    expect(tempHost.style.position).toBe('')
+    expect(handle).not.toBeNull()
+    expect(handle.parentElement).toBe(realHost)
+    expect(handle.style.display).toBe('flex')
+    expect(handle.style.top).toBe('122px')
+    expect(handle.style.left).toBe('-52px')
+
+    editor.destroy()
+    editors.pop()
+
+    expect(realHost.style.position).toBe('')
+    expect(realHost.querySelector('.md-block-gutter')).toBeNull()
+    expect(realHost.querySelector('.md-block-menu')).toBeNull()
+
+    page.remove()
+  })
 })

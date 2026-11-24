@@ -127,6 +127,9 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  /* The document itself never scrolls: overflowing chrome or editor content
+     must scroll inside its own container, never raise a root scrollbar. */
+  overflow: hidden;
 }
 body {
   /* same UI stack as the docs/slides chrome ('Segoe UI' first + per-language
@@ -152,6 +155,7 @@ button {
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .center-note {
@@ -1598,6 +1602,7 @@ html.genoffice-popover-open .ribbon-tabs {
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 
 .disk-notice {
@@ -1629,13 +1634,6 @@ html.genoffice-popover-open .ribbon-tabs {
 .disk-notice button:hover {
   background: var(--hover);
 }
-/* ---- main layout: AI dock (left) + editor ---- */
-.app-main {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-}
-
 .app-main .editor-scroll {
   flex: 1;
   min-width: 0;

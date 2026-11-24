@@ -12132,6 +12132,7 @@ tr > .page-gap-cut {
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 /* Shape draw mode (Word parity): crosshair over the whole document while armed */
 .ProseMirror.doc-shape-drawing,
