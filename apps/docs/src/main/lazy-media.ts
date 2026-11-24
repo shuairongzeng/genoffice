@@ -234,7 +234,7 @@ export async function readLazyMedia(url: string): Promise<{ body: Buffer; mime: 
   if (!zip || !entry) return null
   // Bounded serve: the lazy path skips the bulk open's metered-inflate gate,
   // so a forged size header must not turn the inflate into the memory
-  // primitive (see readMediaPartBounded; null -> 404 below).
+  // primitive (see readMediaPartBounded; null → 404 below).
   const body = await readMediaPartBounded(entry, (offset, length) => zip.read(offset, length))
   if (!body) return null
   const ext = ref.partPath.split('.').pop()?.toLowerCase() ?? ''
@@ -262,6 +262,9 @@ export function registerLazyMediaProtocol(): void {
     }
     const media = await readLazyMedia(request.url)
     if (!media) return new Response(null, { status: 404 })
-    return new Response(new Uint8Array(media.body), { headers: { 'Content-Type': media.mime } })
+    // readable by the renderer's fetch: Reduce File Size resamples these bytes
+    return new Response(new Uint8Array(media.body), {
+      headers: { 'Content-Type': media.mime, 'Access-Control-Allow-Origin': '*' },
+    })
   })
 }

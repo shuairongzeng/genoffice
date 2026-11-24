@@ -2,7 +2,7 @@ import { useMemo, useState, type CSSProperties } from 'react'
 import type { StyleInfo, StyleParaProps, StyleRunProps, StyleUpsert } from '@genoffice/docx-engine'
 import { useI18n } from '../i18n/locale'
 import { fontFamiliesFor } from '../font-list'
-import { cssFontFamily } from '../line-metrics'
+import { cssFontFamily } from '../text-layout/font-rules'
 import { styleLabel, type StyleMap } from '../style-gallery'
 import { useModalKeys } from './modal-keys'
 
@@ -142,6 +142,7 @@ export function StyleDialog({ target, initial, styles, pending, onSubmit, onClos
     ) ||
       Object.values(pending).some(
         (up) =>
+          !up.remove &&
           up.styleId !== target?.styleId &&
           (up.name ?? styles.get(up.styleId)?.name ?? up.styleId).toLowerCase() === lower,
       ))

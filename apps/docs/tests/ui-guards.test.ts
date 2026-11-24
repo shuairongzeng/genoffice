@@ -107,11 +107,11 @@ describe('FindPanel', () => {
     const editor = createEditor('hello world')
     const { container, unmount } = render(createElement(FindPanel, { editor, onClose: () => {} }))
     expect(container.querySelectorAll('.find-tab')).toHaveLength(3)
-    expect(container.querySelectorAll('.find-row')).toHaveLength(2)
+    expect(container.querySelectorAll('.find-row')).toHaveLength(3)
     act(() => {
       container.querySelectorAll<HTMLButtonElement>('.find-tab')[1].click()
     })
-    expect(container.querySelectorAll('.find-row')).toHaveLength(3)
+    expect(container.querySelectorAll('.find-row')).toHaveLength(4)
     expect(container.querySelectorAll('.find-action')).toHaveLength(2)
     unmount()
     editor.destroy()
@@ -191,6 +191,19 @@ describe('FindPanel', () => {
     expect(document.activeElement).not.toBe(input)
     rerender(createElement(FindPanel, { editor, onClose: () => {}, focusFindNonce: 1 }))
     expect(document.activeElement).toBe(input)
+    unmount()
+    editor.destroy()
+  })
+
+  it('keeps focus in the find field when switching to the Replace tab', () => {
+    const editor = createEditor('hello world')
+    const { container, unmount } = render(createElement(FindPanel, { editor, onClose: () => {} }))
+    act(() => {
+      container.querySelectorAll<HTMLButtonElement>('.find-tab')[1].click()
+    })
+    const [find, replace] = Array.from(container.querySelectorAll<HTMLInputElement>('.find-input'))
+    expect(replace).toBeTruthy()
+    expect(document.activeElement).toBe(find)
     unmount()
     editor.destroy()
   })

@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import JSZip from 'jszip'
+import * as opentype from 'opentype.js'
+import { Editor } from '@tiptap/core'
 import { describe, expect, it } from 'vitest'
 import {
   markerFallbackFace,
@@ -10,42 +12,88 @@ import {
   sectionSettingsFromXml,
   type Block,
   type ParsedDoc,
+  type ParsedDocFull,
   type SectionInfo,
   type SectionSettings,
+  type TabStop,
 } from '@genoffice/docx-engine'
 import {
   autoSpacingPt,
   autospaceMode,
-  cjkDeclaredLineFactor,
   computeLineHeight,
-  cssFontFamily,
   cssLeadTop,
   fontBoxCss,
-  krCharsetRoute,
   krNoBreakOffsets,
+  oversizedMarkerExtraPt,
+  symbolBulletLinePt,
+  mixedLatinLineFactor,
+  isCjk,
+} from '../src/renderer/line-metrics'
+import {
+  cjkDeclaredLineFactor,
+  cssFontFamily,
+  krCharsetRoute,
   latinAutospaceGapEm,
   latinLineFactor,
   lineHeightFactor,
   missingLatinSubstitute,
-  oversizedMarkerExtraPt,
   setDocFontTable,
   setEmbeddedLineMetrics,
   simsunGapLineFactor,
-  symbolBulletLinePt,
   wordMetricAliasFace,
-} from '../src/renderer/line-metrics'
+  wordSlotFaces,
+  latinViaEastAsiaSlotFor,
+} from '../src/renderer/text-layout/font-rules'
+import { setOpenDocumentText } from '../src/renderer/text-layout/open-document'
+import { docBodyEaFont, docBodyFont } from '../src/renderer/doc-style-css'
+import { inlineRunsOf, inlineSegments } from '../src/renderer/text-layout/inline-segments'
 import { listFirstLineTw, rowHeightCss, tableRowEatCss } from '../src/renderer/editor/extensions'
 import { resolveTabTarget } from '../src/renderer/editor/decoration-extensions'
+import { planStrayTab } from '../src/renderer/text-layout/stray-tab-stop'
 import {
+  prefetchFaces,
+  resolveDeclaredFace,
+  setFontMetricsProvider,
+} from '../src/renderer/font-resolve'
+import { resolveTableWidth } from '../src/renderer/editor/table-geometry'
+import {
+  hfRowFloatLeftPx,
+  hfRowGeomOf,
+  hfRowStyle,
+  hfStripGeom,
+} from '../src/renderer/editor/hf-dom'
+import {
+  blockPictureAnchor,
+  resolveAnchor,
+  runPictureAnchor,
+  tableFloatAnchor,
+  type AnchorFrame,
+} from '../src/renderer/editor/anchor-geometry'
+import {
+  declaredCjkStrutClass,
+  fromHfParagraph,
+  fromNoteRuns,
+  fromRuns,
+  layoutParaOfRuns,
+  paraLineFactor,
+  type LineBoxSpec,
+} from '../src/renderer/editor/para-layout-spec'
+import { textParaLineBox } from '../src/renderer/text-layout/para-line-box'
+import {
+  blocksToPmDoc,
   cellSpacingGridSharesTwips,
   distributeContentAutofit,
   expandAutofitColWidths,
+  pmDocOptions,
 } from '../src/renderer/editor/convert'
+import { layoutTableColumns, textMeasureOf, type TextMeasure } from '../src/renderer/table-layout'
+import { editorExtensions } from '../src/renderer/editor/extensions'
 import {
   sectionCharSpacePt,
   sectionGeoms,
   singleByteCharSpacePt,
 } from '../src/renderer/pagination-sections'
+import { buildBlockPlan, planPropsOf } from '../src/renderer/pagination-plan'
 import {
   computeSectionedSlicesF2,
   insertParityBlanks,
@@ -89,7 +137,28 @@ export interface Truth {
   class: 'pure' | 'render'
   status?: 'failing'
   docx?: string
+  /** faces the probe machine had installed: stand in for the main-process font index */
+  installed?: InstalledFace[]
   cases: TruthCase[]
+}
+
+interface InstalledFace {
+  family: string
+  unitsPerEm: number
+  hheaAscender: number
+  hheaDescender: number
+  hheaLineGap: number
+  xAvgCharWidth?: number
+  codePageRange1?: number
+}
+
+async function stubInstalledFaces(faces: InstalledFace[]): Promise<void> {
+  const byKey = new Map(faces.map((f) => [f.family.normalize('NFKC').toLowerCase(), f]))
+  setFontMetricsProvider(async (family) => {
+    const f = byKey.get(family)
+    return f ? ({ ...f, xAvgCharWidth: f.xAvgCharWidth ?? null } as never) : null
+  })
+  await prefetchFaces(faces.map((f) => f.family))
 }
 
 export function loadTruths(cls: 'pure' | 'render'): Array<Truth & { dir: string }> {
@@ -128,6 +197,25 @@ async function load(dir: string, docx = 'probe.docx'): Promise<Resolved> {
     return sections[i === -1 ? sections.length - 1 : i]
   }
   return { parsed, sections, sectionOfBlock }
+}
+
+/** a TextMeasure from per-character em advances (`advancesEm`, `boldAdvancesEm`): the probe
+ * face's real widths under the renderer's own tokenizer, so a Word column width can be
+ * asserted to the twip; East Asian characters without an entry are 1 em, others 0.5 em */
+function advanceMeasure(c: TruthCase): TextMeasure {
+  const regular = c.advancesEm as Record<string, number>
+  const bold = { ...regular, ...((c.boldAdvancesEm as Record<string, number> | undefined) ?? {}) }
+  return textMeasureOf({
+    metrics: (style) => ({ ascent: 0, descent: 0, lineHeight: style.fontSizePx }),
+    measure: (text, style) =>
+      [...text].reduce(
+        (sum, ch) =>
+          sum +
+          ((style.bold ? bold : regular)[ch] ?? (isCjk(ch.codePointAt(0) ?? 0) ? 1 : 0.5)) *
+            style.fontSizePx,
+        0,
+      ),
+  })
 }
 
 function blockAt(parsed: ParsedDoc, i: number): Block {
@@ -364,6 +452,16 @@ function tableOpenSlices(res: Resolved, c: TruthCase): number[] {
   ).map((s) => s.start)
 }
 
+/** convert-time width resolution of a top-level table within its section's budget */
+function tableGeom(res: Resolved, c: TruthCase) {
+  const model = blockAt(res.parsed, c.block!).table!
+  const sect = res.sectionOfBlock(c.block!)
+  const paper = sect.pageWidth
+  const avail = paper - sect.marginLeft
+  const budget = { avail, fit: avail - sect.marginRight, paper }
+  return resolveTableWidth(model, budget, { legacyIndent: false })
+}
+
 function charSpace(res: Resolved, c: TruthCase): { fullWidth: number; singleByte: number } {
   const settings = res.sections[c.section ?? res.sections.length - 1]
   const d = sectionCharSpacePt({ settings } as SectionInfo)
@@ -460,8 +558,8 @@ function leadTopPt(c: TruthCase): number | string {
   return Math.round(evalCalc(expr) * 1000) / 1000
 }
 
-/** px the renderer resolves a tab at (inputs in pt, grid/stops in pt) */
-function tabTargetPt(c: TruthCase): number {
+/** the renderer's tab resolution (inputs in pt, grid/stops in pt) */
+function tabResolve(c: TruthCase) {
   const p = c as TruthCase & {
     xPt: number
     gridPt?: number
@@ -469,8 +567,9 @@ function tabTargetPt(c: TruthCase): number {
     segWidthPt?: number
     paraWPt?: number
     minAdvPx?: number
+    restBlank?: boolean
   }
-  const r = resolveTabTarget({
+  return resolveTabTarget({
     x: p.xPt * PX_PER_PT,
     minAdv: p.minAdvPx ?? 4,
     segWidth: (p.segWidthPt ?? 20) * PX_PER_PT,
@@ -478,8 +577,12 @@ function tabTargetPt(c: TruthCase): number {
     paraW: (p.paraWPt ?? 468) * PX_PER_PT,
     gridPx: (p.gridPt ?? 0) * PX_PER_PT,
     stops: (p.stopsPt ?? []).map((s) => ({ x: s.pos * PX_PER_PT, val: s.val ?? 'left' })),
+    ...(p.restBlank !== undefined ? { restBlank: p.restBlank } : {}),
   })
-  return Math.round((r.target / PX_PER_PT) * 1000) / 1000
+}
+
+function tabTargetPt(c: TruthCase): number {
+  return Math.round((tabResolve(c).target / PX_PER_PT) * 1000) / 1000
 }
 
 const EM_TEXT_RE = /\S/
@@ -573,11 +676,263 @@ function pageStartBlocks(res: Resolved, c: TruthCase): number[] {
   })
 }
 
+/** line box of a read-only cell paragraph (table block, row/cell/para), a
+ *  textbox paragraph (box/para), a header/footer strip paragraph (part/para) or
+ *  a footnote row (note_index/para), as protected-render / hf-dom / note-dom emit it */
+function lineBoxOf(res: Resolved, c: TruthCase): LineBoxSpec {
+  if (c.kind === 'noteLineBox') {
+    const note = res.parsed.footnotes![(c.note_index as number | undefined) ?? 0]
+    return fromNoteRuns(note.richParas![(c.para as number | undefined) ?? 0])
+  }
+  if (c.kind === 'hfLineBox') {
+    // header/footer parts in rId order (one part per section in the probes);
+    // `cell` selects a layout-table cell paragraph of the row paragraph
+    const parts = Object.entries(res.parsed.hfParts ?? {}).sort(([a], [b]) => a.localeCompare(b))
+    const para =
+      parts[(c.part as number | undefined) ?? 0][1].paras[(c.para as number | undefined) ?? 0]
+    if (c.cell != null) {
+      const cell = para.cells![c.cell as number]
+      const k = (c.cellPara as number | undefined) ?? 0
+      return fromHfParagraph(cell.paraProps?.[k] ?? {}, cell.paras[k])
+    }
+    return fromHfParagraph(para)
+  }
+  const b = blockAt(res.parsed, c.block!)
+  if (c.kind === 'cellLineBox') {
+    const cell = b.table!.rows[c.row ?? 0][(c.cell as number | undefined) ?? 0]
+    const p = cell.richParas![(c.para as number | undefined) ?? 0]
+    const runs = p.runs.filter((r) => r.text !== '' || r.image)
+    return fromRuns(p, runs, runs.map((r) => r.text).join(''), 'cell')
+  }
+  const p =
+    b.textboxes![(c.box as number | undefined) ?? 0].paras[(c.para as number | undefined) ?? 0]
+  return fromRuns(p, p.runs, p.runs.map((r) => r.text).join(''), 'textbox')
+}
+
+/** page position (pt) of a block's anchored picture: the paragraph frame is
+ *  unknown here, so paragraph-relative axes stay undefined */
+function anchorPt(res: Resolved, c: TruthCase): { x?: number; y?: number } {
+  const block = blockAt(res.parsed, c.block!)
+  const set = res.sectionOfBlock(c.block!)
+  const px = (tw: number) => tw / 15
+  const frame: AnchorFrame = {
+    page: { w: px(set.pageWidth), h: px(set.pageHeight) },
+    margins: {
+      left: px(set.marginLeft),
+      right: px(set.marginRight),
+      top: px(set.marginTop),
+      bottom: px(set.marginBottom),
+    },
+    column: { x: px(set.marginLeft), w: px(set.pageWidth - set.marginLeft - set.marginRight) },
+  }
+  const run = block.runs?.find((r) => r.image?.wrap)?.image
+  const input = run
+    ? runPictureAnchor(run as unknown as Record<string, unknown>)
+    : blockPictureAnchor(block as unknown as Record<string, unknown>)
+  const a = resolveAnchor(input, frame, { kind: 'body', surface: 'measure' })
+  return {
+    ...(a.pageX !== undefined ? { x: a.pageX / PX_PER_PT } : {}),
+    ...(a.pageY !== undefined ? { y: a.pageY / PX_PER_PT } : {}),
+  }
+}
+
+/** page frame (px) of the section a block lives in */
+function sectionFrame(res: Resolved, block: number): AnchorFrame {
+  const set = res.sectionOfBlock(block)
+  const px = (tw: number) => tw / 15
+  return {
+    page: { w: px(set.pageWidth), h: px(set.pageHeight) },
+    margins: {
+      left: px(set.marginLeft),
+      right: px(set.marginRight),
+      top: px(set.marginTop),
+      bottom: px(set.marginBottom),
+    },
+    column: { x: px(set.marginLeft), w: px(set.pageWidth - set.marginLeft - set.marginRight) },
+  }
+}
+
+/** page x extent (pt) of a top-level floating table's grid box */
+function floatTableGeom(
+  res: Resolved,
+  c: TruthCase,
+): { left: number; right: number; side: string } {
+  const model = blockAt(res.parsed, c.block!).table!
+  const w = (model.colWidthsTwips?.reduce((a, b) => a + b, 0) ?? 0) / 15
+  const a = resolveAnchor(
+    tableFloatAnchor(model.floatPos!, model.floatSide ?? 'left', w),
+    sectionFrame(res, c.block!),
+    { kind: 'body', surface: 'measure' },
+  )
+  const left = (a.pageX ?? Number.NaN) / PX_PER_PT
+  return { left, right: left + w / PX_PER_PT, side: model.floatSide ?? 'none' }
+}
+
+/** page x extent (pt) of a floating table nested in a cell of a top-level table:
+ *  every band is the cell box (its x from tblInd and the preceding grid columns) */
+function nestedFloatGeom(res: Resolved, c: TruthCase): { left: number; right: number } {
+  const outer = blockAt(res.parsed, c.block!).table!
+  const set = res.sectionOfBlock(c.block!)
+  const cols = outer.colWidthsTwips ?? []
+  const cellIdx = (c.cell as number | undefined) ?? 0
+  let at = 0
+  let gridAt = 0
+  for (const cell of outer.rows[c.row ?? 0]) {
+    if (at === cellIdx) break
+    gridAt += cell.colSpan ?? 1
+    at++
+  }
+  const span = outer.rows[c.row ?? 0][cellIdx].colSpan ?? 1
+  const cellX =
+    set.marginLeft + (outer.indentTwips ?? 0) + cols.slice(0, gridAt).reduce((a, b) => a + b, 0)
+  const cellW = cols.slice(gridAt, gridAt + span).reduce((a, b) => a + b, 0)
+  const nested = outer.rows[c.row ?? 0][cellIdx].nestedTables![(c.nth as number | undefined) ?? 0]
+  const w = (nested.colWidthsTwips?.reduce((a, b) => a + b, 0) ?? 0) / 15
+  const frame: AnchorFrame = {
+    column: { x: cellX / 15, w: cellW / 15 },
+    cell: { x: cellX / 15, w: cellW / 15 },
+  }
+  const a = resolveAnchor(
+    { ...tableFloatAnchor(nested.floatPos!, nested.floatSide ?? 'left', w), relH: 'margin' },
+    frame,
+    { kind: 'nested', surface: 'measure' },
+  )
+  const left = (a.pageX ?? Number.NaN) / PX_PER_PT
+  return { left, right: left + w / PX_PER_PT }
+}
+
+/** strip-relative left (pt) and gap below the strip top (pt) of a header/footer layout-table row */
+function hfRowFloatPt(res: Resolved, c: TruthCase): { left: number | null; top: number } {
+  const parts = Object.entries(res.parsed.hfParts ?? {}).sort(([a], [b]) => a.localeCompare(b))
+  const [name, part] = parts[(c.part as number | undefined) ?? 0]
+  const kind = /footer|ftr/i.test(name) ? 'footer' : 'header'
+  const set = res.sections[(c.section as number | undefined) ?? 0]
+  const geom = hfRowGeomOf(kind, hfStripGeom(set))
+  const idx = (c.para as number | undefined) ?? 0
+  const row = part.paras[idx].row!
+  const left = hfRowFloatLeftPx(row, geom)
+  const top = parseFloat(hfRowStyle(row, geom, idx === 0).marginTop ?? '0') || 0
+  return { left: left == null ? null : left / PX_PER_PT, top: top / PX_PER_PT }
+}
+
 function parityPageCount(res: Resolved): number {
   const infos = readSections(res.parsed)
   const geoms = sectionGeoms(infos, undefined, res.parsed.evenAndOddHeaders === true)
   const slices = infos.map((_s, i) => ({ start: i, end: i + 1, section: i }))
   return insertParityBlanks(slices, geoms).length
+}
+
+/** class tokens and `name: value` declarations of a body block's rendered
+ *  element (editor DOM: list-marker decorations included), as a LineBoxSpec */
+function withEditor<T>(res: Resolved, fn: (editor: Editor) => T): T {
+  const editor = new Editor({
+    element: document.createElement('div'),
+    extensions: editorExtensions,
+  })
+  // the document-language font-slot rule file-actions applies at load time
+  setOpenDocumentText({
+    latinViaEaSlot: latinViaEastAsiaSlotFor(res.parsed),
+    bodyEaSlot: docBodyEaFont(res.parsed as ParsedDocFull),
+  })
+  try {
+    editor.storage.listNumbering.defs = res.parsed.numbering
+    editor.storage.listNumbering.styles = res.parsed.styles
+    editor.storage.listNumbering.docDefaults = res.parsed.docDefaults
+    editor.commands.setContent(
+      blocksToPmDoc(res.parsed.blocks, readSections(res.parsed), pmDocOptions(res.parsed)) as never,
+    )
+    return fn(editor)
+  } finally {
+    editor.destroy()
+    setOpenDocumentText(null)
+  }
+}
+
+/** the BlockPlan's space before (pt) of a body block */
+function planSpaceBeforePt(res: Resolved, block: number): number {
+  return withEditor(res, (editor) => {
+    const props = planPropsOf(res.parsed, readSections(res.parsed), false)
+    for (const p of buildBlockPlan(editor.state.doc, props).values())
+      if (p.docxIndex === block) return p.spaceBeforePt ?? NaN
+    throw new Error(`no plan for docxIndex ${block}`)
+  })
+}
+
+/** classes/styles of a body paragraph's DOM, or of its fallback-glyph spans (.doc-run-lf / .doc-sym-fb) */
+function bodyParaDom(res: Resolved, block: number, runs = false): LineBoxSpec {
+  return withEditor(res, (editor) => {
+    let el: HTMLElement | null = null
+    editor.state.doc.descendants((node, pos) => {
+      if (el || node.attrs.docxIndex !== block) return !el
+      el = editor.view.nodeDOM(pos) as HTMLElement
+      return false
+    })
+    if (!el) throw new Error(`no rendered block with docxIndex ${block}`)
+    const doms = runs
+      ? [...(el as HTMLElement).querySelectorAll<HTMLElement>('.doc-run-lf, .doc-sym-fb')]
+      : [el as HTMLElement]
+    return {
+      classes: doms.flatMap((dom) =>
+        (dom.getAttribute('class') ?? '').split(/\s+/).filter(Boolean),
+      ),
+      styles: doms.flatMap((dom) =>
+        (dom.getAttribute('style') ?? '')
+          .split(';')
+          .map((d) => d.trim())
+          .filter(Boolean),
+      ),
+    }
+  })
+}
+
+const RENDERER_CSS = readFileSync(resolve(__dirname, '../src/renderer/styles.css'), 'utf8')
+const GENERATED_FONT_CSS = readFileSync(
+  resolve(__dirname, '../src/renderer/fonts/fonts.generated.css'),
+  'utf8',
+)
+const FONT_DIR = resolve(__dirname, '../src/renderer/fonts')
+const bundledFonts = new Map<string, opentype.Font>()
+
+/** em advance of `text` through a generated metric alias family: the bundled
+ *  base file per face, size-adjust applied, later unicode-range faces winning */
+function aliasWidthEm(family: string, text: string, weight: string, style: string): number {
+  const faces = [...GENERATED_FONT_CSS.matchAll(/@font-face\s*\{[^}]*\}/g)]
+    .map((m) => m[0])
+    .filter(
+      (f) =>
+        f.includes(`font-family: '${family}'`) &&
+        f.includes(`font-weight: ${weight}`) &&
+        f.includes(`font-style: ${style}`),
+    )
+    .map((f) => {
+      const range = /unicode-range:\s*([^;]+);/.exec(f)?.[1]
+      return {
+        adjust: Number(/size-adjust:\s*([\d.]+)%/.exec(f)?.[1] ?? 100) / 100,
+        ranges: range
+          ? range.split(',').map((r) => {
+              const [a, b] = r.trim().replace('U+', '').split('-')
+              return [parseInt(a, 16), parseInt(b ?? a, 16)] as [number, number]
+            })
+          : null,
+        file: /url\('\.\/([^']+)'\)/.exec(f)![1],
+      }
+    })
+  expect(faces.length, `${family} ${weight}/${style} faces`).toBeGreaterThan(0)
+  let em = 0
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!
+    const face = [...faces]
+      .reverse()
+      .find((f) => !f.ranges || f.ranges.some(([a, b]) => cp >= a && cp <= b))!
+    let font = bundledFonts.get(face.file)
+    if (!font) {
+      const buf = readFileSync(join(FONT_DIR, face.file))
+      font = opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength))
+      bundledFonts.set(face.file, font)
+    }
+    em += (font.charToGlyph(ch).advanceWidth! / font.unitsPerEm) * face.adjust
+  }
+  return em
 }
 
 describe('executable Word truths (pure formulas over parsed props)', () => {
@@ -592,6 +947,7 @@ describe('executable Word truths (pure formulas over parsed props)', () => {
         const failing = t.status === 'failing' || c.status === 'failing'
         const run = failing ? it.skip : it
         run(`case ${i}: ${c.kind}${c.note ? ` - ${c.note}` : ''}`, async () => {
+          if (t.installed) await stubInstalledFaces(t.installed)
           const res = await load(t.dir, (c.docx as string | undefined) ?? t.docx)
           setDocFontTable(res.parsed.fontTable)
           try {
@@ -609,11 +965,17 @@ describe('executable Word truths (pure formulas over parsed props)', () => {
               case 'latinSubstitute':
                 expect(missingLatinSubstitute(c.font!)).toBe(c.expect)
                 break
+              case 'resolvedFace':
+                expect(resolveDeclaredFace(c.font!)?.family).toBe(c.expect)
+                break
               case 'rowPt':
                 expect(rowPt(res, c)).toBeCloseToPt(c.expect as number, tol)
                 break
               case 'paraGapPt':
                 expect(paraGapPt(res, c)).toBeCloseToPt(c.expect as number, tol)
+                break
+              case 'planSpaceBeforePt':
+                expect(planSpaceBeforePt(res, c.block!)).toBeCloseToPt(c.expect as number, tol)
                 break
               case 'charSpacePt': {
                 const got = charSpace(res, c)
@@ -650,11 +1012,30 @@ describe('executable Word truths (pure formulas over parsed props)', () => {
               case 'latinLineFactor':
                 expect(latinLineFactor(c.font!)).toBeCloseToPt(c.expect as number, c.tol ?? 0.0001)
                 break
+              case 'paraFactor': {
+                const b = blockAt(res.parsed, c.block!)
+                const text = (b.runs ?? []).map((r) => r.text).join('')
+                expect(
+                  paraLineFactor(
+                    layoutParaOfRuns(b.runs ?? null, text, b.format?.lineRule ?? null),
+                  ),
+                ).toBe(c.expect)
+                break
+              }
               case 'aliasFace':
                 expect(wordMetricAliasFace(c.font!)).toBe(c.expect)
                 break
               case 'cssFamilyIncludes':
                 expect(cssFontFamily(c.font!)).toContain(c.expect)
+                break
+              case 'slotFaces':
+                expect(
+                  wordSlotFaces(
+                    c.ascii as string,
+                    c.eastAsia as string,
+                    latinViaEastAsiaSlotFor(res.parsed),
+                  ),
+                ).toEqual(c.expect)
                 break
               case 'krNoBreakIncludes': {
                 const got = krNoBreakOffsets(c.text as string, (c.prev as string) ?? '')
@@ -681,6 +1062,12 @@ describe('executable Word truths (pure formulas over parsed props)', () => {
                 ).toBeCloseToPt(c.expect as number, tol)
                 break
               }
+              case 'mixedLatinLineFactor':
+                expect(mixedLatinLineFactor(c.fonts as string[])).toBeCloseToPt(
+                  c.expect as number,
+                  tol,
+                )
+                break
               case 'oversizedMarkerExtraPt': {
                 const p = c as TruthCase & { markerFont: string; markerPt: number; textPt: number }
                 const got = oversizedMarkerExtraPt(p.markerFont, p.markerPt, p.textPt)
@@ -718,7 +1105,15 @@ describe('executable Word truths (pure formulas over parsed props)', () => {
               case 'autofitCols': {
                 const model = blockAt(res.parsed, c.block!).table!
                 const avail = c.availTwips as number
-                const got = expandAutofitColWidths(model, avail, avail, null).colWidthsTwips ?? []
+                const fit = (c.fitTwips as number | undefined) ?? avail
+                const legacy = c.legacy === true
+                const got = c.advancesEm
+                  ? (layoutTableColumns(model, { avail, fit }, advanceMeasure(c), {
+                      legacy,
+                      defaults: pmDocOptions(res.parsed).defaultRun,
+                    }).widths ?? [])
+                  : (expandAutofitColWidths(model, avail, fit, null, false, legacy)
+                      .colWidthsTwips ?? [])
                 const want = c.expect as number[] | { sum: number }
                 if (Array.isArray(want)) {
                   expect(got.length).toBe(want.length)
@@ -726,6 +1121,16 @@ describe('executable Word truths (pure formulas over parsed props)', () => {
                 } else {
                   expect(got.reduce((a, b) => a + b, 0)).toBeCloseToPt(want.sum, c.tol ?? 1)
                 }
+                break
+              }
+              case 'tableGeom': {
+                const { model: _m, log: _l, ...geom } = tableGeom(res, c)
+                expect(geom).toMatchObject(c.expect as object)
+                break
+              }
+              case 'nestedCols': {
+                const nt = tableGeom(res, c).model.rows[c.row!][c.cell as number].nestedTables![0]
+                expect(nt.colWidthsTwips).toEqual(c.expect)
                 break
               }
               case 'leadTopPt': {
@@ -757,6 +1162,110 @@ describe('executable Word truths (pure formulas over parsed props)', () => {
               }
               case 'tabTargetPt':
                 expect(tabTargetPt(c)).toBeCloseToPt(c.expect as number, tol)
+                break
+              case 'tabWrap':
+                expect(tabResolve(c).wrap).toBe(c.expect)
+                break
+              case 'strayTabPlan': {
+                const p = c as TruthCase & {
+                  stops: TabStop[]
+                  leftTwips: number
+                  tabCount: number
+                }
+                expect(planStrayTab(p.stops, p.leftTwips, p.tabCount)).toEqual(c.expect)
+                break
+              }
+              case 'cellLineBox':
+              case 'boxLineBox':
+              case 'hfLineBox':
+              case 'noteLineBox':
+              case 'bodyParaDom':
+              case 'bodyRunDom': {
+                const spec =
+                  c.kind === 'bodyParaDom' || c.kind === 'bodyRunDom'
+                    ? bodyParaDom(res, c.block!, c.kind === 'bodyRunDom')
+                    : lineBoxOf(res, c)
+                const want = c.expect as {
+                  classes?: string[]
+                  styles?: string[]
+                  /** declaration prefixes that must be present, e.g. "font-family:'Arial'" */
+                  stylesStartWith?: string[]
+                  notClasses?: string[]
+                  /** declaration prefixes that must be absent, e.g. "text-indent" */
+                  notStyles?: string[]
+                }
+                for (const cls of want.classes ?? []) expect(spec.classes).toContain(cls)
+                for (const st of want.styles ?? []) expect(spec.styles).toContain(st)
+                for (const st of want.stylesStartWith ?? [])
+                  expect(
+                    spec.styles.some((x) => x.startsWith(st)),
+                    st,
+                  ).toBe(true)
+                for (const cls of want.notClasses ?? []) expect(spec.classes).not.toContain(cls)
+                for (const st of want.notStyles ?? [])
+                  expect(spec.styles.filter((x) => x.startsWith(st))).toEqual([])
+                break
+              }
+              case 'stylesheetRule': {
+                // the stylesheet twin of a para-layout-spec class: the rule block of
+                // `selector` carries the declaration
+                const sel = (c.selector as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                const block = new RegExp(`${sel}\\s*\\{([^}]*)\\}`).exec(RENDERER_CSS)
+                expect(block, c.selector as string).not.toBeNull()
+                expect(block![1].replace(/\s+/g, ' ')).toContain(c.expect as string)
+                break
+              }
+              case 'aliasWidthEm':
+                expect(
+                  aliasWidthEm(
+                    c.family as string,
+                    c.text as string,
+                    (c.weight as string | undefined) ?? 'normal',
+                    (c.style as string | undefined) ?? 'normal',
+                  ),
+                ).toBeCloseToPt(c.expect as number, tol)
+                break
+              case 'bodyLineBox':
+                {
+                  // the live paragraph's line box (textParaLineBox over the block's runs):
+                  // --doc-line-factor, --doc-strut and font-family, as the decoration emits them
+                  const runs = blockAt(res.parsed, c.block!).runs ?? []
+                  const text = runs.map((r) => r.text).join('')
+                  const box = textParaLineBox(layoutParaOfRuns(runs, text, null))
+                  const styles = Object.fromEntries(
+                    box.styles.map((d) => {
+                      const i = d.indexOf(':')
+                      return [d.slice(0, i), d.slice(i + 1)]
+                    }),
+                  )
+                  expect({ ...styles, classes: box.classes }).toMatchObject(c.expect as object)
+                }
+                break
+              case 'inlineClasses':
+                {
+                  // classes the text-layout inline rules put on the block's runs
+                  const runs = blockAt(res.parsed, c.block!).runs ?? []
+                  const segs = inlineSegments({
+                    runs: inlineRunsOf(runs).runs,
+                    autospace: null,
+                    inheritedAscii: null,
+                    inheritedEa: null,
+                    wordWrap: true,
+                    balancedSpaces: false,
+                    justified: false,
+                    simsunGapLineHeight: null,
+                  })
+                  expect(segs.segments.map((s) => s.cls ?? '').sort()).toEqual(c.expect)
+                }
+                break
+              case 'strutClass':
+                {
+                  const runs = blockAt(res.parsed, c.block!).runs ?? []
+                  const text = runs.map((r) => r.text).join('')
+                  expect(declaredCjkStrutClass(layoutParaOfRuns(runs, text, null)) ?? null).toBe(
+                    c.expect,
+                  )
+                }
                 break
               case 'styleProps': {
                 const st = res.parsed.styles.get(c.styleId as string) as
@@ -808,17 +1317,71 @@ describe('executable Word truths (pure formulas over parsed props)', () => {
                   c.expect,
                 )
                 break
+              case 'csAsciiDigits': {
+                const runs = blockAt(res.parsed, c.block!).runs ?? []
+                const text = runs.map((r) => r.text).join('')
+                const segs = inlineSegments({
+                  runs: inlineRunsOf(runs).runs,
+                  autospace: null,
+                  inheritedAscii: docBodyFont(res.parsed as ParsedDocFull) ?? null,
+                  inheritedEa: null,
+                  wordWrap: true,
+                  balancedSpaces: false,
+                  justified: false,
+                  simsunGapLineHeight: null,
+                  lineMultiple: 'inherited',
+                }).segments.filter((s) => s.cls === 'doc-cs-ascii')
+                expect(segs.map((s) => text.slice(s.from, s.to))).toEqual(c.expect)
+                if (c.lift !== undefined)
+                  for (const s of segs) expect(s.style?.includes('line-height:')).toBe(c.lift)
+                break
+              }
               case 'pageStartBlocks':
                 expect(pageStartBlocks(res, c)).toEqual(c.expect)
                 break
               case 'parityPages':
                 expect(parityPageCount(res)).toBe(c.expect)
                 break
+              case 'floatTableGeom': {
+                const got = floatTableGeom(res, c)
+                const want = c.expect as Partial<typeof got>
+                if (want.side !== undefined) expect(got.side).toBe(want.side)
+                if (want.left !== undefined) expect(got.left).toBeCloseToPt(want.left, c.tol ?? 1)
+                if (want.right !== undefined)
+                  expect(got.right).toBeCloseToPt(want.right, c.tol ?? 1)
+                break
+              }
+              case 'nestedFloatGeom': {
+                const got = nestedFloatGeom(res, c)
+                const want = c.expect as Partial<typeof got>
+                if (want.left !== undefined) expect(got.left).toBeCloseToPt(want.left, c.tol ?? 1)
+                if (want.right !== undefined)
+                  expect(got.right).toBeCloseToPt(want.right, c.tol ?? 1)
+                break
+              }
+              case 'hfRowFloatPt': {
+                const got = hfRowFloatPt(res, c)
+                const want = c.expect as Partial<typeof got>
+                if (want.left !== undefined) {
+                  expect(got.left).not.toBeNull()
+                  expect(got.left!).toBeCloseToPt(want.left!, c.tol ?? 1)
+                }
+                if (want.top !== undefined) expect(got.top).toBeCloseToPt(want.top, c.tol ?? 1)
+                break
+              }
+              case 'anchorPt': {
+                const got = anchorPt(res, c)
+                const want = c.expect as { x?: number; y?: number }
+                if (want.x !== undefined) expect(got.x).toBeCloseToPt(want.x, tol)
+                if (want.y !== undefined) expect(got.y).toBeCloseToPt(want.y, tol)
+                break
+              }
               default:
                 throw new Error(`unknown truth case kind "${c.kind}" in ${t.id}`)
             }
           } finally {
             setDocFontTable(null)
+            if (t.installed) setFontMetricsProvider(undefined)
           }
         })
       }

@@ -9,6 +9,7 @@ export const es = {
   aiStarterContinue: 'Continúa escribiendo desde donde termina el documento',
   aiStarterFillTemplate: 'Encuentra y completa los marcadores de posición del documento',
   aiGskLoginBtn: 'Iniciar sesión en Genspark',
+  aiGskLoginOk: 'Sesión iniciada en Genspark',
   aiPanelTitle: 'Genspark',
   aiOpenAssistant: 'Abrir el asistente de IA',
   aiSummarizeBtn: 'Resumen IA',
@@ -104,6 +105,11 @@ export const es = {
     'Control de cambios activado: los cambios de contenido de la IA se marcan como revisiones (inserciones subrayadas, eliminaciones tachadas); acéptalas o recházalas en Revisar',
   aiTrackOffTitle:
     'Control de cambios desactivado: los cambios de la IA se aplican de inmediato (aún puedes revertir mediante instantáneas de versión)',
+  aiRevisionBarTitle: 'Revisiones',
+  aiRevisionCount: '{count} cambios pendientes',
+  aiRevisionRejectAll: 'Rechazar todo',
+  aiRevisionAcceptAll: 'Aceptar todo',
+  aiRevisionPara: 'Párrafo {n}',
   aiTurnLimit:
     '(Se alcanzó el límite de llamadas a herramientas de esta solicitud; la respuesta anterior refleja los pasos completados hasta ahora y puede estar incompleta.)',
   aiStopped: '(Detenido)',
@@ -204,7 +210,12 @@ export const es = {
   aiMindMapAskPrompt: 'Háblame de «{label}» en este documento',
   aiMindMapJump: 'Ir al pasaje citado',
   aiMindMapExport: 'Exportar PNG',
+  aiMindMapExportSvg: 'Exportar SVG',
+  aiMindMapInsert: 'Insertar en el documento',
   aiMindMapReset: 'Restablecer vista',
   aiMindMapExpand: 'Expandir rama',
   aiMindMapCollapse: 'Contraer rama',
+  aiMindMapToggleLayout: 'Cambiar diseño',
+  aiMindMapLayoutTopDown: 'Cambiar al diseño de arriba abajo',
+  aiMindMapLayoutLeftRight: 'Cambiar al diseño de izquierda a derecha',
 } satisfies Record<keyof typeof zh, string>

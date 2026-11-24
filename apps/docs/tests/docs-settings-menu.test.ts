@@ -33,9 +33,9 @@ describe('docs-main settings menu wiring', () => {
   it('inserts the top-level Settings Center menu immediately before the Window menu', () => {
     const settingsMenu = source.indexOf('settingsMenuTemplate(labels,')
     const windowMenu = source.indexOf('windowMenuTemplate(process.platform')
-    const toolsMenu = source.indexOf("label: tm('menuTools')")
-    expect(toolsMenu).toBeGreaterThan(-1)
-    expect(settingsMenu).toBeGreaterThan(toolsMenu)
+    const layoutMenu = source.indexOf('...layout.map(')
+    expect(layoutMenu).toBeGreaterThan(-1)
+    expect(settingsMenu).toBeGreaterThan(layoutMenu)
     expect(settingsMenu).toBeLessThan(windowMenu)
     // the fallback action is preserved (shell-registered invoker wins when present)
     expect(source).toContain("settingsMenuTemplate(labels, () => sendCommand('preferences'))")

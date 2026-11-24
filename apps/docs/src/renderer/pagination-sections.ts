@@ -1,8 +1,10 @@
 // Section geometry: page box, margins, columns, doc-grid pitch and the
 // per-block column / width / vertical-alignment specs derived from sections.
+import { charPitchPt, LINE_GRIDS } from './char-grid'
 import type { SectionInfo, SectionSettings, TextFlowDirection } from '@genoffice/docx-engine'
 
 import { mirrorShiftPx } from './page-margins'
+import { hfHasVariant, hfVariantReservedPx, type HfVariant } from './pagination-hf'
 import { columnLineSplits } from './pagination-slices'
 import type {
   BlockBox,
@@ -73,10 +75,43 @@ export function effectiveBottomPx(set: SectionSettings, footerPx: number): numbe
   return Math.max(twipsToPx(set.marginBottom), footerPx > 0 ? dist + footerPx : 0)
 }
 
-/** Typed line-grid pitch (pt) of one section (w:docGrid lines/linesAndChars), else null */
+/** Single-section slicing geometry of the first-page / even-page variants: the
+ *  page renders the variant's strips (pageHfOf), so its capacity must follow
+ *  their push-down. An even capacity equal to the default one is omitted. */
+export function singleVariantGeomOf(
+  set: SectionSettings,
+  hf: SectionHfHeights,
+): Pick<
+  SectionGeom,
+  | 'firstContentHeight'
+  | 'evenContentHeight'
+  | 'marginBottomPx'
+  | 'firstMarginBottomPx'
+  | 'evenMarginBottomPx'
+> {
+  const bottom = (variant: HfVariant) =>
+    effectiveBottomPx(set, hfVariantReservedPx(hf, variant).footerPx)
+  const capacity = (variant: HfVariant) =>
+    twipsToPx(set.pageHeight) -
+    effectiveTopPx(set, hfVariantReservedPx(hf, variant).headerPx) -
+    bottom(variant)
+  const base = capacity('default')
+  const even = hfHasVariant(hf, 'even') ? capacity('even') : undefined
+  return {
+    marginBottomPx: bottom('default'),
+    ...(hfHasVariant(hf, 'first')
+      ? { firstContentHeight: capacity('first'), firstMarginBottomPx: bottom('first') }
+      : {}),
+    ...(even !== undefined && Math.abs(even - base) > 0.01
+      ? { evenContentHeight: even, evenMarginBottomPx: bottom('even') }
+      : {}),
+  }
+}
+
+/** Typed line-grid pitch (pt) of one section (w:docGrid lines/linesAndChars/snapToChars), else null */
 export function sectionGridPitchPt(s: SectionInfo): number | null {
   const g = s.settings.docGrid
-  if (!g || (g.type !== 'lines' && g.type !== 'linesAndChars') || !g.linePitch) return null
+  if (!g || !LINE_GRIDS.includes(g.type) || !g.linePitch) return null
   return g.linePitch / 20
 }
 
@@ -108,13 +143,51 @@ export function docGridPitchPt(sections: SectionInfo[]): number | null {
  * characters (Latin, digits, spaces, halfwidth kana, any font or size) get
  * half of it (N/8192) while full-width ones keep N/4096
  * (singleByteCharSpacePt). Types lines/default ignore charSpace; snapToChars
- * snaps to a Normal-style-based pitch instead (not modeled). Table cells and
+ * snaps to cells instead (sectionCharCellPt). Table cells and
  * snapToGrid=0 paragraphs are spaced too; headers and footers are not.
  */
 export function sectionCharSpacePt(s: SectionInfo): number {
   const g = s.settings.docGrid
   if (!g || g.type !== 'linesAndChars' || !g.charSpace) return 0
   return g.charSpace / 4096
+}
+
+/**
+ * Character-cell pitch (pt) of a snapToChars section, else 0. Word probe
+ * 2026-10-22 (MS Mincho 10.5pt, Arial 12pt, charSpace -820, cells of 11.8pt):
+ * a full-width character takes whole cells and sits centred in them; Latin
+ * text keeps its natural advances. `basePt` is the default paragraph style's
+ * size (gridBaseSizePt).
+ */
+export function sectionCharCellPt(s: SectionInfo, basePt: number): number {
+  const g = s.settings.docGrid
+  if (g?.type !== 'snapToChars') return 0
+  return Math.max(1, charPitchPt(basePt, g.charSpace))
+}
+
+/** the cell pitch every section snaps to, else null (per block through sectionCharCellSpecs) */
+export function docCharCellPt(sections: SectionInfo[], basePt: number): number | null {
+  if (sections.length === 0) return null
+  const v = sectionCharCellPt(sections[0], basePt)
+  for (const s of sections) if (sectionCharCellPt(s, basePt) !== v) return null
+  return v !== 0 ? v : null
+}
+
+/** per-block cell pitch for documents whose sections disagree on it */
+export function sectionCharCellSpecs(
+  blocks: BlockBox[],
+  sections: SectionInfo[],
+  basePt: number,
+): ColumnBlockPlacement[] {
+  const cells = sections.map((s) => sectionCharCellPt(s, basePt))
+  if (!cells.some((c) => c !== 0) || cells.every((c) => c === cells[0])) return []
+  const specs: ColumnBlockPlacement[] = []
+  for (const b of blocks) {
+    if (!b.el) continue
+    const c = cells[Math.max(0, Math.min(b.section ?? 0, cells.length - 1))] ?? 0
+    if (c !== 0) specs.push({ el: b.el, dx: 0, dy: 0, charCellPt: c })
+  }
+  return specs
 }
 
 /** letter-spacing of single-byte characters for a full-width delta of `pt` */
@@ -183,7 +256,35 @@ export function sectionColGeom(s: SectionInfo): {
   let equalWidth = true
   let widths = Array.from({ length: cols }, () => even)
   let gaps = Array.from({ length: Math.max(cols - 1, 0) }, () => gapPx)
-  if (cols > 1 && /<w:cols[^>]*w:equalWidth="0"/.test(s.sectPrXml ?? '')) {
+  const fileCols = (attr: 'w' | 'space'): number[] => {
+    const colsXml = /<w:cols\b[^>]*>([\s\S]*?)<\/w:cols>/.exec(s.sectPrXml ?? '')?.[1] ?? ''
+    return Array.from(colsXml.matchAll(/<w:col\b([^>]*w:w="[\d.]+"[^>]*)>/g), (m) =>
+      Math.round(parseFloat(new RegExp(`w:${attr}="([\\d.]+)"`).exec(m[1])?.[1] ?? '0')),
+    )
+  }
+  const own = set.colWidths
+  const ownSpaces = set.colSpaces
+  const sameAsFile = (): boolean =>
+    fileCols('w').length === cols &&
+    fileCols('w').every((w, i) => w === own![i]) &&
+    (ownSpaces === undefined ||
+      fileCols('space')
+        .slice(0, -1)
+        .every((sp, i) => sp === ownSpaces[i]))
+  if (cols > 1 && set.colEqualWidth === true) {
+    // equal columns asked for in this session: the file's width list no longer applies
+  } else if (
+    cols > 1 &&
+    set.colEqualWidth === false &&
+    own?.length === cols &&
+    own.every((w) => twipsToPx(w) >= MIN_USABLE_COL_PX) &&
+    !sameAsFile()
+  ) {
+    // widths set in this session, not yet in the file's sectPr
+    equalWidth = false
+    widths = own.map(twipsToPx)
+    gaps = gaps.map((gap, i) => (ownSpaces?.[i] !== undefined ? twipsToPx(ownSpaces[i]) : gap))
+  } else if (cols > 1 && /<w:cols[^>]*w:equalWidth="0"/.test(s.sectPrXml ?? '')) {
     const colsXml = /<w:cols\b[^>]*>([\s\S]*?)<\/w:cols>/.exec(s.sectPrXml ?? '')?.[1] ?? ''
     const list = Array.from(colsXml.matchAll(/<w:col\b([^>]*)\/?>/g), (m) => ({
       w: twipsToPx(parseFloat(/w:w="([\d.]+)"/.exec(m[1])?.[1] ?? '0')),
@@ -555,6 +656,50 @@ export function sectionTopMarginSpecs(
 }
 
 /**
+ * Blocks that open a new page by instruction: the first block of every section
+ * that starts one (nextPage/evenPage/oddPage) and the block after an explicit
+ * page break (a trailing w:br page or the block's own pageBreakBefore / leading
+ * w:br). A w:tblpPr table floated at the bottom of the closing page is a CSS
+ * float whose box reaches past the break in the DOM: a table opening the next
+ * section was pushed below it and the band charged to the new page; a heading
+ * after a break-only paragraph sat inside the band and the page turn, clamped
+ * below the float, left it on the closing page above the table (prod holdout
+ * 040). Word never carries a float across a page, so the opener clears it (the
+ * cleared position is the page boundary).
+ */
+export function sectionPageStartSpecs(
+  blocks: BlockBox[],
+  sections: SectionInfo[],
+): ColumnBlockPlacement[] {
+  const openers = new Set<HTMLElement>()
+  for (let i = 1; i < sections.length; i++) {
+    const s = sections[i]
+    if (s.startType === 'continuous' || s.startType === 'nextColumn') continue
+    const first = blocks.find((b) => b.docxIndex === s.firstBlockIndex && b.el)
+    if (first?.el) openers.add(first.el)
+  }
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i]
+    if (!b.el || b.floated) continue
+    const prev = i > 0 ? blocks[i - 1] : undefined
+    if (b.breakBefore || prev?.breakAfter) openers.add(b.el)
+  }
+  return [...openers].map((el) => ({ el, dx: 0, dy: 0, sectionPageStart: true }))
+}
+
+/** edge-triggered: the pass whose wrap widths or section-start clears differ
+ *  from the last pass's follows up once with them in the DOM */
+export function wrapWidthSig(specs: ColumnBlockPlacement[]): string {
+  return specs
+    .map((s) =>
+      s.sectionPageStart
+        ? `clear:${s.el.dataset.idx ?? '?'}`
+        : `${Math.round(s.widthPx ?? -1)}:${Math.round(s.contentWPx ?? -1)}`,
+    )
+    .join(',')
+}
+
+/**
  * Per-block docGrid pitch for documents whose sections disagree on the typed
  * line grid (mixed pitches, or typed + untyped): each block carries its own
  * section's pitch through the layout decoration channel. Uniform docs get no
@@ -689,6 +834,43 @@ export function mirrorMarginSpecs(
   return specs
 }
 
+function sideIndentsPx(el: HTMLElement): { left: number; right: number } {
+  const cs = getComputedStyle(el)
+  const px = (v: string) => parseFloat(v) || 0
+  return {
+    left: px(cs.marginLeft) + px(cs.paddingLeft),
+    right: px(cs.marginRight) + px(cs.paddingRight),
+  }
+}
+
+/**
+ * w:mirrorIndents: the left and right indents are inside and outside, so a
+ * paragraph on an even-numbered page trades them. Both keep their size, which
+ * leaves the line width alone: the block translates by right − left. Placed by
+ * the page holding its top, like mirrorMarginSpecs.
+ */
+export function mirrorIndentSpecs(
+  blocks: BlockBox[],
+  slices: PageSlice[],
+  nums: number[],
+  indentsOf: (el: HTMLElement) => { left: number; right: number } = sideIndentsPx,
+): ColumnBlockPlacement[] {
+  const specs: ColumnBlockPlacement[] = []
+  let bi = 0
+  slices.forEach((slice, i) => {
+    const even = (nums[i] ?? i + 1) % 2 === 0
+    while (bi < blocks.length && blocks[bi].top < slice.end - 0.5) {
+      const b = blocks[bi++]
+      if (!even || !b.el || b.floated || b.top < slice.start - 0.5) continue
+      if (!b.el.classList.contains('doc-mirror-ind')) continue
+      const { left, right } = indentsOf(b.el)
+      if (Math.abs(right - left) >= 0.01)
+        specs.push({ el: b.el, dx: right - left, dy: 0, mirrorDx: right - left })
+    }
+  })
+  return specs
+}
+
 /** sectPr w:textDirection modes the renderer lays out sideways (lrTbV and unknown values stay horizontal) */
 export function sectionVertical(set: SectionSettings | undefined): TextFlowDirection | undefined {
   const d = set?.textDirection
@@ -804,25 +986,40 @@ export function sectionGeoms(
     const set = s.settings
     const hf = hfHeights?.[i]
     const vertical = sectionVertical(set)
-    const firstContentHeight =
-      !vertical && (hf?.firstHeaderPx !== undefined || hf?.firstFooterPx !== undefined)
-        ? twipsToPx(set.pageHeight) -
-          effectiveTopPx(set, hf.firstHeaderPx ?? 0) -
-          effectiveBottomPx(set, hf.firstFooterPx ?? 0)
-        : undefined
-    const bodyH =
-      twipsToPx(set.pageHeight) -
-      effectiveTopPx(set, hf?.headerPx ?? 0) -
-      effectiveBottomPx(set, hf?.footerPx ?? 0)
+    const hfOf = (variant: HfVariant) =>
+      hf ? hfVariantReservedPx(hf, variant) : { headerPx: 0, footerPx: 0 }
+    const bodyHOf = (variant: HfVariant) => {
+      const { headerPx, footerPx } = hfOf(variant)
+      return (
+        twipsToPx(set.pageHeight) - effectiveTopPx(set, headerPx) - effectiveBottomPx(set, footerPx)
+      )
+    }
+    const firstBodyH = hf && hfHasVariant(hf, 'first') ? bodyHOf('first') : undefined
+    const firstContentHeight = vertical ? undefined : firstBodyH
+    const bodyH = bodyHOf('default')
+    const evenBodyH = hf && hfHasVariant(hf, 'even') ? bodyHOf('even') : undefined
     const bodyW = twipsToPx(set.pageWidth - set.marginLeft - set.marginRight)
     return {
       // vertical text fills the page sideways: lines are bodyH long and stack across bodyW
       contentHeight: vertical ? bodyW : bodyH,
       ...(firstContentHeight !== undefined ? { firstContentHeight } : {}),
+      ...(!vertical && evenBodyH !== undefined && Math.abs(evenBodyH - bodyH) > 0.01
+        ? { evenContentHeight: evenBodyH }
+        : {}),
+      ...(vertical && firstBodyH !== undefined ? { firstBodyHeight: firstBodyH } : {}),
+      ...(vertical && evenBodyH !== undefined ? { evenBodyHeight: evenBodyH } : {}),
+      ...(s.pageNumberStart !== undefined ? { pageNumberStart: s.pageNumberStart } : {}),
       contentWidth: vertical ? bodyH : bodyW,
       ...(vertical ? { vertical } : {}),
-      topPx: effectiveTopPx(set, hf?.headerPx ?? 0),
+      topPx: effectiveTopPx(set, hfOf('default').headerPx),
       pageHeightPx: twipsToPx(set.pageHeight),
+      marginBottomPx: effectiveBottomPx(set, hfOf('default').footerPx),
+      ...(hf && hfHasVariant(hf, 'first')
+        ? { firstMarginBottomPx: effectiveBottomPx(set, hfOf('first').footerPx) }
+        : {}),
+      ...(hf && hfHasVariant(hf, 'even')
+        ? { evenMarginBottomPx: effectiveBottomPx(set, hfOf('even').footerPx) }
+        : {}),
       forceBreak,
       startType: s.startType,
       ...(numberingParity ? { numberingParity } : {}),
@@ -902,6 +1099,10 @@ export function assignSections(blocks: BlockBox[], sections: SectionInfo[]): voi
     if (block.docxIndex !== undefined) {
       const i = ends.findIndex((end) => block.docxIndex! <= end)
       s = i >= 0 ? i : ends.length - 1
+    } else {
+      // typed after an unsaved break: the break closed its section
+      for (let n = block.unsavedSectBreaksBefore ?? 0; n > 0 && sections[s]?.pendingBreak; n--)
+        s = Math.min(s + 1, sections.length - 1)
     }
     block.section = s
     prev = s
@@ -912,7 +1113,9 @@ export function assignSections(blocks: BlockBox[], sections: SectionInfo[]): voi
 /**
  * Word keeps a paragraph's space-before when it opens a forced section start
  * (unlike a paragraph that merely flowed to a page top, where the margin is
- * folded into the previous block's space-after and dropped with it).
+ * folded into the previous block's space-after and dropped with it). Planned
+ * blocks keep only the excess over the previous paragraph's space after
+ * (sectionLeadSpacePx); the DOM margin is trimmed to it below the gap (leadMtPx).
  */
 export function foldSectionStartSpaceBefore(blocks: BlockBox[], geoms: SectionGeom[]): void {
   for (let i = 1; i < blocks.length; i++) {
@@ -920,8 +1123,12 @@ export function foldSectionStartSpaceBefore(blocks: BlockBox[], geoms: SectionGe
     const prev = blocks[i - 1]
     const sec = block.section ?? 0
     if (!block.el || sec === (prev.section ?? sec) || !geoms[sec]?.forceBreak) continue
+    if (block.leadMtPx !== undefined) continue
     const after = prev.spaceAfterPx ?? 0
-    const sb = Math.min(parseFloat(getComputedStyle(block.el).marginTop) || 0, after)
+    const margin = block.marginBeforePx ?? (parseFloat(getComputedStyle(block.el).marginTop) || 0)
+    const cap = block.sectionLeadSpacePx
+    const sb = Math.min(margin, after, cap ?? Infinity)
+    if (cap !== undefined && sb < margin - 0.5) block.leadMtPx = Math.max(0, sb)
     if (sb <= 0.5) continue
     prev.spaceAfterPx = after - sb
     prev.height -= sb

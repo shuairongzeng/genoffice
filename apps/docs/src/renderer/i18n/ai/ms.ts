@@ -9,6 +9,7 @@ export const ms = {
   aiStarterContinue: 'Teruskan menulis dari bahagian akhir dokumen',
   aiStarterFillTemplate: 'Cari dan isi ruang letak dalam dokumen ini',
   aiGskLoginBtn: 'Log masuk ke Genspark',
+  aiGskLoginOk: 'Berjaya log masuk ke Genspark',
   aiPanelTitle: 'Genspark',
   aiOpenAssistant: 'Buka pembantu AI',
   aiSummarizeBtn: 'Ringkasan AI',
@@ -103,6 +104,11 @@ export const ms = {
     'Jejak perubahan dihidupkan: suntingan kandungan AI ditandakan sebagai semakan (sisipan bergaris bawah, pemadaman bergaris batal); terima atau tolak dalam Semakan',
   aiTrackOffTitle:
     'Jejak perubahan dimatikan: suntingan AI terus berkuat kuasa (masih boleh dikembalikan melalui snapshot versi)',
+  aiRevisionBarTitle: 'Semakan',
+  aiRevisionCount: '{count} perubahan belum selesai',
+  aiRevisionRejectAll: 'Tolak semua',
+  aiRevisionAcceptAll: 'Terima semua',
+  aiRevisionPara: 'Perenggan {n}',
   aiTurnLimit:
     '(Had pusingan panggilan alat untuk permintaan ini telah dicapai; jawapan di atas berdasarkan langkah yang telah selesai dan mungkin tidak lengkap.)',
   aiStopped: '(Dihentikan)',
@@ -200,7 +206,12 @@ export const ms = {
   aiMindMapAskPrompt: 'Terangkan tentang "{label}" dalam dokumen ini',
   aiMindMapJump: 'Lompat ke petik yang dirujuk',
   aiMindMapExport: 'Eksport PNG',
+  aiMindMapExportSvg: 'Eksport SVG',
+  aiMindMapInsert: 'Sisipkan ke dokumen',
   aiMindMapReset: 'Set semula pandangan',
   aiMindMapExpand: 'Kembangkan cabang',
   aiMindMapCollapse: 'Lipat cabang',
+  aiMindMapToggleLayout: 'Tukar susun atur',
+  aiMindMapLayoutTopDown: 'Tukar kepada susun atur atas ke bawah',
+  aiMindMapLayoutLeftRight: 'Tukar kepada susun atur kiri ke kanan',
 } satisfies Record<keyof typeof zh, string>

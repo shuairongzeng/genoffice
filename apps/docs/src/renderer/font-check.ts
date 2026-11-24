@@ -1,5 +1,5 @@
 import type { ParsedDoc, TableModel } from '@genoffice/docx-engine'
-import { BUNDLED_FONTS, cssFontFamily, isBundledFont } from './line-metrics'
+import { BUNDLED_FONTS, cssFontFamily, isBundledFont } from './text-layout/font-rules'
 
 const GENERIC = new Set(['serif', 'sans-serif', 'monospace'])
 
@@ -35,6 +35,16 @@ export function collectDocFonts(parsed: ParsedDoc): string[] {
     add(s.display?.fontAscii)
   }
   return [...names]
+}
+
+/**
+ * The document's declared fonts that an alias update covers: the alias map
+ * only matters for a font the open document declares, so an update that
+ * touches no declared font must not reflow it (genoffice#2449).
+ */
+export function docFontsCoveredBy(parsed: ParsedDoc, names: readonly string[]): string[] {
+  const declared = new Set(collectDocFonts(parsed))
+  return names.filter((name) => declared.has(name))
 }
 
 // document.fonts.check is useless here: Chromium answers true for any family
@@ -101,18 +111,29 @@ export interface FontSubstitution {
   name: string
   /** first available family in the fallback chain, null = only bundled fallback left */
   substitute: string | null
+  /** the substitute is the user's pick in Font Substitution, not the app's own choice */
+  chosen?: true
 }
 
 /**
  * Declared fonts that don't resolve on this system, with the family that
  * actually renders instead (substitution used to be silent).
  */
-export function checkMissingFonts(names: string[]): FontSubstitution[] {
+export function checkMissingFonts(
+  names: string[],
+  chosen: (name: string) => string | null = () => null,
+): FontSubstitution[] {
   if (typeof document === 'undefined') return []
   const cx = ctx2d()
   if (!cx) return []
   const out: FontSubstitution[] = []
   for (const name of names) {
+    // a picked stand-in answers to the missing font's name, so the probe below would call it installed
+    const pick = chosen(name)
+    if (pick) {
+      out.push({ name, substitute: pick, chosen: true })
+      continue
+    }
     // a declared bundled face resolves in canvas yet still renders the subset fallback — report it
     if (!isBundledFont(name) && fontAvailableIn(cx, name)) continue
     const chain = cssFontFamily(name)

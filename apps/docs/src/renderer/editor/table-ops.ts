@@ -1,3 +1,4 @@
+import type { Editor } from '@tiptap/core'
 import type { Fragment, Node as PmNode, Schema } from '@tiptap/pm/model'
 import type { Command, EditorState, Transaction } from '@tiptap/pm/state'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
@@ -22,6 +23,89 @@ import {
   pctOf,
   reflowColumns,
 } from '../ai/table-ops'
+import { TRACK_IGNORE, activeTracking, revisionDateNow, withTrackMarker } from './revisions'
+
+/** cells (by position in the table) covering grid columns [left, right) */
+function columnCells(table: PmNode, map: TableMap, left: number, right: number): number[] {
+  const seen = new Set<number>()
+  for (let row = 0; row < map.height; row++)
+    for (let col = left; col < right; col++) seen.add(map.map[row * map.width + col]!)
+  return [...seen]
+}
+
+/** Word records a column insert as w:cellIns on each new cell */
+function recordColumnInsert(
+  tr: Transaction,
+  tablePos: number,
+  left: number,
+  right: number,
+  author: string,
+): void {
+  const table = tr.doc.nodeAt(tablePos)!
+  const map = TableMap.get(table)
+  const date = revisionDateNow()
+  for (const pos of columnCells(table, map, left, right)) {
+    const rect = map.findCell(pos)
+    // a widened merged cell is not a new one
+    if (rect.left < left || rect.right > right) continue
+    const cell = table.nodeAt(pos)!
+    tr.setNodeMarkup(tablePos + 1 + pos, undefined, {
+      ...cell.attrs,
+      cellRevision: { kind: 'ins', author, date },
+      rawTcPr: withTrackMarker(
+        cell.attrs.rawTcPr as string | null,
+        'w:cellIns',
+        'w:tcPr',
+        author,
+        date,
+      ),
+    })
+  }
+  tr.setMeta(TRACK_IGNORE, true)
+}
+
+/** Word keeps a tracked-deleted column visible: w:cellDel on each cell, its text struck */
+function recordColumnDelete(
+  state: EditorState,
+  tablePos: number,
+  left: number,
+  right: number,
+  author: string,
+): Transaction | null {
+  const table = state.doc.nodeAt(tablePos)!
+  const map = TableMap.get(table)
+  // a merged cell reaching into surviving columns cannot carry the deletion: it stays
+  const cells = columnCells(table, map, left, right).filter((pos) => {
+    const rect = map.findCell(pos)
+    return rect.left >= left && rect.right <= right
+  })
+  if (cells.length === 0) return null
+  const ownInsertion = (pos: number) => {
+    const rev = table.nodeAt(pos)!.attrs.cellRevision as { kind?: string; author?: string } | null
+    return rev?.kind === 'ins' && rev.author === author
+  }
+  if (cells.every(ownInsertion)) return null
+  const date = revisionDateNow()
+  const tr = state.tr.setMeta(TRACK_IGNORE, true)
+  const del = state.schema.marks.del.create({ author, date })
+  for (const pos of cells.sort((a, b) => b - a)) {
+    const cell = table.nodeAt(pos)!
+    const at = tablePos + 1 + pos
+    tr.setNodeMarkup(at, undefined, {
+      ...cell.attrs,
+      cellRevision: { kind: 'del', author, date },
+      rawTcPr: withTrackMarker(
+        cell.attrs.rawTcPr as string | null,
+        'w:cellDel',
+        'w:tcPr',
+        author,
+        date,
+      ),
+    })
+    tr.addMark(at + 1, at + cell.nodeSize - 1, del)
+  }
+  return tr
+}
 
 /** Word's Table menu operations that prosemirror-tables has no command for.
  *  Structural edits rebuild the whole table node from a placed-cell grid: a
@@ -289,15 +373,29 @@ export function splitCellsInto(rows: number, cols: number, mergeFirst: boolean):
   }
 }
 
-/** Split Table: the selection's first row starts a new table, an empty paragraph between */
+/**
+ * Split Table: the selection's first row starts a new table, an empty paragraph
+ * between; from the first row the paragraph goes above the table.
+ */
 export function splitTableAtSelection(): Command {
   return (state, dispatch) => {
     if (!isInTable(state)) return false
     const rect = selectedRect(state)
     const row = rect.top
-    if (row <= 0) return false
     const { table } = rect
     const tablePos = rect.tableStart - 1
+    if (row <= 0) {
+      // Word: in the first row there is nothing to cut off, so the table moves down a paragraph
+      const $table = state.doc.resolve(tablePos)
+      const paragraph = table.type.schema.nodes.docParagraph
+      if (!$table.parent.canReplaceWith($table.index(), $table.index(), paragraph)) return false
+      if (dispatch) {
+        const tr = state.tr.insert(tablePos, paragraph.create())
+        dispatch(tr.setSelection(TextSelection.create(tr.doc, tablePos + 1)).scrollIntoView())
+      }
+      return true
+    }
+    if (!dispatch) return true
     const g = gridOf(table)
     const schema = table.type.schema
     const upper: GridCell[] = []
@@ -339,7 +437,7 @@ export function splitTableAtSelection(): Command {
       lowerTable,
     ])
     caretIntoCell(tr, tablePos + upperTable.nodeSize + gap.nodeSize, lowerTable, 0, 0)
-    dispatch?.(tr.scrollIntoView())
+    dispatch(tr.scrollIntoView())
     return true
   }
 }
@@ -452,9 +550,46 @@ export function insertRowsOrColumns(
     const fitted =
       newWidths && total > maxWidthPx ? newWidths.map((w) => (w * maxWidthPx) / total) : newWidths
     reflowColumns(tr, tablePos, fitted, newPct)
+    const track = activeTracking(state)
+    if (track) recordColumnInsert(tr, tablePos, at, at + n, track.author)
     dispatch?.(tr)
     return true
   }
+}
+
+/** Delete Columns: prosemirror-tables removes the cells but leaves the table's
+ *  width grid untouched, so the surviving columns inherit the deleted columns'
+ *  shares and the layout shifts (public issue #2231). Word keeps the surviving
+ *  columns' widths: drop the deleted columns' entries and reflow — a px grid
+ *  shrinks the table by the deleted width, a percentage grid renormalizes onto
+ *  the survivors. */
+export const deleteTableColumn: Command = (state, dispatch) => {
+  if (!isInTable(state)) return false
+  const rect = selectedRect(state)
+  const tablePos = rect.tableStart - 1
+  const track = activeTracking(state)
+  const recorded = track && recordColumnDelete(state, tablePos, rect.left, rect.right, track.author)
+  if (recorded) {
+    dispatch?.(recorded)
+    return true
+  }
+  const widths = columnWidthsPx(rect.table, rect.map)
+  const pct = pctOf(rect.table, rect.map, widths)
+  const captured: { tr?: Transaction } = {}
+  if (!deleteColumn(state, (t) => (captured.tr = t)) || !captured.tr) return false
+  const tr = captured.tr
+  if (!tr.doc.nodeAt(tablePos)) return false
+  // the grid lost [rect.left, rect.right): reflowColumns re-derives every
+  // cell's px slice and renormalizes the table's shares over the survivors
+  const keep = (col: number) => col < rect.left || col >= rect.right
+  reflowColumns(
+    tr,
+    tablePos,
+    widths ? widths.filter((_, col) => keep(col)) : null,
+    pct.filter((_, col) => keep(col)),
+  )
+  dispatch?.(tr)
+  return true
 }
 
 export type DeleteCellsMode = 'shiftLeft' | 'shiftUp' | 'row' | 'column'
@@ -471,7 +606,7 @@ export function deleteCells(mode: DeleteCellsMode): Command {
   return (state, dispatch) => {
     if (!isInTable(state)) return false
     if (mode === 'row') return deleteRow(state, dispatch)
-    if (mode === 'column') return deleteColumn(state, dispatch)
+    if (mode === 'column') return deleteTableColumn(state, dispatch)
     if (!canShiftCells(state)) return false
     const rect = selectedRect(state)
     const { table } = rect
@@ -678,6 +813,33 @@ export function enterSelectedTable(
   if (!cells) return false
   dispatch?.(state.tr.setSelection(cells))
   return true
+}
+
+/**
+ * A right-click inside selected cells: the browser puts its caret where the press
+ * landed and the editor follows it a moment later. That one move is taken back, so
+ * the menu acts on the cells.
+ */
+export function keepCellSelection(editor: Editor, cells: CellSelection): void {
+  const stop = () => {
+    editor.off('transaction', restore)
+    window.clearTimeout(timer)
+  }
+  function restore({ transaction }: { transaction: Transaction }) {
+    if (transaction.docChanged) return stop()
+    const { selection, doc } = editor.state
+    const followed =
+      transaction.getMeta('pointer') === true &&
+      selection.empty &&
+      cells.ranges.some(
+        ({ $from, $to }) => selection.from >= $from.pos && selection.from <= $to.pos,
+      )
+    if (!followed) return
+    stop()
+    if (doc === cells.$anchorCell.doc) editor.view.dispatch(editor.state.tr.setSelection(cells))
+  }
+  const timer = window.setTimeout(stop, 300)
+  editor.on('transaction', restore)
 }
 
 /** the table move handle selects the whole table as a NodeSelection; cell commands need a caret inside */
