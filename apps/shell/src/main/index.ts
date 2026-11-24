@@ -176,7 +176,7 @@ import {
   watchGskApiKey,
 } from '@genoffice/ai-search'
 
-import { blankXlsxBuffer } from '@genoffice/xlsx-gateway/gateway/csv-import'
+import { blankXlsxBuffer } from '@genoffice/xlsx-gateway/gateway/csv-import-xlsx'
 import {
   // the AppDescriptor registry: the shell's single import site for the
   // bundled apps' main modules plus the table routing, menus and MCP agent

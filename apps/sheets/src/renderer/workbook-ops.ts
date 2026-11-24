@@ -313,6 +313,9 @@ const LAYOUT_ERROR_KEYS = {
   tooManyRowLines: 'appPivotTooManyRowLines',
   needsValues: 'appPivotNeedsValues',
   pageItemMissing: 'appPivotPageItemMissing',
+  baseFieldMissing: 'appPivotBaseFieldMissing',
+  baseFieldNotAxis: 'appPivotBaseFieldNotAxis',
+  baseItemMissing: 'appPivotBaseItemMissing',
 } satisfies Record<PivotLayoutErrorCode, Parameters<typeof t>[0]>
 
 /// Rows the report-filter block occupies above the table body: one per page

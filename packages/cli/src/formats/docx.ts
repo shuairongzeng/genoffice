@@ -830,11 +830,9 @@ function mergePropertyChanges(
 ): PropertyChanges {
   if (!current || next.clear) return next
   const merged: PropertyChanges = { ...current }
-  for (const section of ['core', 'app', 'custom'] as const) {
-    const values = next[section]
-    if (!values) continue
-    merged[section] = { ...(current[section] ?? {}), ...values }
-  }
+  if (next.core) merged.core = { ...(current.core ?? {}), ...next.core }
+  if (next.app) merged.app = { ...(current.app ?? {}), ...next.app }
+  if (next.custom) merged.custom = { ...(current.custom ?? {}), ...next.custom }
   return merged
 }
 

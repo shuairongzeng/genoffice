@@ -99,6 +99,7 @@ function assertExtraResourceSources() {
     '../../node_modules/electron/dist/LICENSES.chromium.html',
     '../../node_modules/@embedpdf/pdfium/dist/pdfium.wasm',
     '../pdf/node_modules/harfbuzzjs/hb-subset.wasm',
+    '../../node_modules/@rhwp/core/rhwp_bg.wasm',
   ]) {
     if (!existsSync(join(__dirname, rel))) {
       throw new Error(
@@ -684,6 +685,11 @@ const config = {
     {
       from: '../pdf/node_modules/harfbuzzjs/hb-subset.wasm',
       to: 'wasm/hb-subset.wasm',
+    },
+    // .hwp import (packages/hwp2docx/src/hwp.ts): rhwp reads HWP binaries into HWPX
+    {
+      from: '../../node_modules/@rhwp/core/rhwp_bg.wasm',
+      to: 'wasm/rhwp_bg.wasm',
     },
     // platform system-OCR helpers for scanned-page recovery (each exists only
     // on its own build platform; electron-builder skips absent sources and the

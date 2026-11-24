@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { ZoteroCommand } from '../../shared/ipc'
 import {
-  bibliographyLine,
+  bibliographyEntries,
   citationText,
   generateCaptionXml,
   generateIndexFieldXml,
@@ -429,10 +429,10 @@ export function ReferencesTab({
         attrs: { docxIndex: null, styleId: null, aiChanged: false, level: 1 },
         content: [{ type: 'text', text: t('ribbonBibliographyHeading') }],
       },
-      ...sources.map((s) => ({
+      ...bibliographyEntries(sources, 'apa').map((segments) => ({
         type: 'docParagraph',
         attrs: { docxIndex: null, styleId: null, aiChanged: false },
-        content: [{ type: 'text', text: bibliographyLine(s) }],
+        content: [{ type: 'text', text: segments.map((seg) => seg.text).join('') }],
       })),
     ]
     editor

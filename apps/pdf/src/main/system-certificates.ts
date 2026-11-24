@@ -4,6 +4,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { decodeUtf8 } from '@genoffice/electron-utils'
 import type { CertificateErrorCode } from '../shared/ipc'
 import type { ExternalSigner } from './pdf-sign'
 import { describeCertificate } from './pdf-signatures'
@@ -85,15 +86,15 @@ export const runCommand: Runner = (file, args, options) =>
         timeout: COMMAND_TIMEOUT_MS,
         maxBuffer: 16 * 1024 * 1024,
         windowsHide: true,
-        encoding: 'utf8',
+        encoding: 'buffer',
         env: { ...process.env, ...options?.env },
       },
       (error, stdout, stderr) => {
         const failure = error as (NodeJS.ErrnoException & { code?: unknown }) | null
         resolve({
           code: !failure ? 0 : typeof failure.code === 'number' ? failure.code : 1,
-          stdout: String(stdout ?? ''),
-          stderr: String(stderr ?? ''),
+          stdout: decodeUtf8(stdout ?? ''),
+          stderr: decodeUtf8(stderr ?? ''),
           missing: failure?.code === 'ENOENT',
         })
       },
@@ -185,6 +186,7 @@ async function listNss(
   storePassword?: string,
 ): Promise<SystemCertificateListing> {
   const out: SystemCertificateListing = { certs: [], issues: [] }
+  const readConcurrency = 8
   const dirs = nssDatabaseDirs(env.home)
   if (dirs.length === 0) return out
   await withPrivateDir(async (scratch) => {
@@ -205,20 +207,32 @@ async function listNss(
         if (looksLocked(keys.stderr)) out.issues.push('store-locked')
         continue
       }
-      for (const nickname of parseNssKeyList(keys.stdout)) {
-        const pem = await env.run('certutil', ['-L', '-d', db, '-n', nickname, '-a', ...pwArgs])
-        if (pem.code !== 0) continue
-        try {
-          out.certs.push(
-            toListed(
-              { source: 'nss', dir, nickname },
-              nickname,
-              new X509Certificate(pem.stdout),
-              env.now(),
-            ),
-          )
-        } catch {
-          /* a nickname that is not an X.509 certificate is not a signing identity */
+      const nicknames = parseNssKeyList(keys.stdout)
+      for (let offset = 0; offset < nicknames.length; offset += readConcurrency) {
+        const batch = nicknames.slice(offset, offset + readConcurrency)
+        // Drain all reads before releasing the password file, even if a runner rejects.
+        const results = await Promise.allSettled(
+          batch.map((nickname) =>
+            env.run('certutil', ['-L', '-d', db, '-n', nickname, '-a', ...pwArgs]),
+          ),
+        )
+        for (const [index, result] of results.entries()) {
+          if (result.status === 'rejected') throw result.reason
+          const nickname = batch[index]!
+          const pem = result.value
+          if (pem.code !== 0) continue
+          try {
+            out.certs.push(
+              toListed(
+                { source: 'nss', dir, nickname },
+                nickname,
+                new X509Certificate(pem.stdout),
+                env.now(),
+              ),
+            )
+          } catch {
+            /* a nickname that is not an X.509 certificate is not a signing identity */
+          }
         }
       }
     }

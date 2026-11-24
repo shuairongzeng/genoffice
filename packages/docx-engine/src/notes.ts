@@ -1,6 +1,7 @@
 import { decodeEntities } from './parse-xml-text'
+import { applyRevisionResolutions } from './revision-xml'
 import { patchParagraphTexts } from './text-patch'
-import type { NoteInfo, NoteRun } from './types'
+import type { NoteInfo, NoteRun, NoteSeparator } from './types'
 import { escapeXmlAttr, escapeXmlText } from './xml-utils'
 
 /**
@@ -110,6 +111,23 @@ export function parseNotesXml(xml: string, kind: NoteKind, read?: NoteParagraphR
   })
 }
 
+/** the separator entry (w:type="separator"): a paragraph whose pPr chain sizes the row above a page's notes */
+export function parseNoteSeparator(
+  xml: string,
+  kind: NoteKind,
+  read: NoteParagraphReader,
+): NoteSeparator | undefined {
+  const entry = ENTRY[kind]
+  // the attribute run must not end in "/": a self-closing separator entry is not an opener
+  const m = new RegExp(
+    `<${entry}\\s(?=[^>]*w:type=(?:"separator"|'separator'))[^>]*[^/>]>([\\s\\S]*?)</${entry}>`,
+  ).exec(xml)
+  const pXml = m ? noteParagraphsOf(m[1])[0] : undefined
+  if (!pXml) return undefined
+  const para = read(pXml)
+  return { ...(para.styleId ? { styleId: para.styleId } : {}), spacing: para.spacing }
+}
+
 /** the entry's paragraph slices in order (self-closing form first: the
  *  open-to-close alternative would swallow it) */
 function noteParagraphsOf(entryXml: string): string[] {
@@ -132,16 +150,16 @@ function noteEntriesOf(
     if (/w:type=(?:"[^"]*"|'[^']*')/.test(attrs)) continue // separator / continuation entries
     const id = /w:id=(?:"([^"]+)"|'([^']+)')/.exec(attrs)?.slice(1, 3).find(Boolean)
     if (!id) continue
-    const paras: string[] = []
-    // the self-closing form first: the open-to-close alternative would swallow it
-    const pRe = /<w:p(?:\s[^>]*)?\/>|<w:p[\s>][\s\S]*?<\/w:p>/g
-    let p: RegExpExecArray | null
-    while ((p = pRe.exec(m[2])) !== null) paras.push(notePlainText(p[0]))
-    // the first paragraph starts with the self-reference mark + a spacer
-    if (paras.length > 0) paras[0] = paras[0].replace(/^\s+/, '')
-    out.push({ id, text: paras.join('\n'), xml: m[0] })
+    out.push({ id, text: noteEntryPlainText(m[2]), xml: m[0] })
   }
   return out
+}
+
+/** paragraph texts joined with newlines; the first paragraph starts with the self-reference mark + a spacer */
+function noteEntryPlainText(innerXml: string): string {
+  const paras = noteParagraphsOf(innerXml).map(notePlainText)
+  if (paras.length > 0) paras[0] = paras[0].replace(/^\s+/, '')
+  return paras.join('\n')
 }
 
 function notePlainText(xml: string): string {
@@ -181,13 +199,71 @@ function noteRunXml(run: NoteRun): string {
     props.push(`<w:sz w:val="${run.sizeHalfPoints}"/><w:szCs w:val="${run.sizeHalfPoints}"/>`)
   }
   const rPr = props.length > 0 ? `<w:rPr>${props.join('')}</w:rPr>` : ''
-  return `<w:r>${rPr}<w:t xml:space="preserve">${escapeXmlText(run.text)}</w:t></w:r>`
+  const textTag = run.del ? 'w:delText' : 'w:t'
+  return `<w:r>${rPr}<${textTag} xml:space="preserve">${escapeXmlText(run.text)}</${textTag}></w:r>`
 }
 
-function noteEntryXml(kind: NoteKind, note: NoteInfo): string {
-  const entry = ENTRY[kind]
+type NoteRev = NonNullable<NoteRun['ins']>
+const noteRevKey = (r: NoteRun) =>
+  r.ins || r.del ? JSON.stringify([r.ins ?? null, r.del ?? null]) : ''
+
+/** w:ins / w:del attributes with ids unique across one notes part (kept
+ *  original entries included, so a rebuilt entry never reuses their ids) */
+type NoteRevAttrs = (info: NoteRev) => string
+function noteRevAllocator(originalXml: string | null): NoteRevAttrs {
+  let seq = 7001
+  const emitted = new Set<string>()
+  for (const m of (originalXml ?? '').matchAll(/<w:(?:ins|del)\s[^>]*?\bw:id="([^"]*)"/g)) {
+    emitted.add(m[1])
+  }
+  return (info) => {
+    let id = info.id && !emitted.has(info.id) ? info.id : String(seq++)
+    while (emitted.has(id)) id = String(seq++)
+    emitted.add(id)
+    return (
+      ` w:id="${escapeXmlAttr(id)}" w:author="${escapeXmlAttr(info.author)}"` +
+      (info.date ? ` w:date="${escapeXmlAttr(info.date)}"` : '')
+    )
+  }
+}
+
+/** rich runs → run XML; consecutive runs of one tracked change share a w:ins / w:del wrapper */
+function noteRunsXml(runs: NoteRun[], attrs: NoteRevAttrs): string {
+  let out = ''
+  for (let g = 0; g < runs.length;) {
+    const key = noteRevKey(runs[g])
+    let end = g
+    while (end < runs.length && noteRevKey(runs[end]) === key) end++
+    const { ins, del } = runs[g]
+    const inner = runs.slice(g, end).map(noteRunXml).join('')
+    const wrapped = del ? `<w:del${attrs(del)}>${inner}</w:del>` : inner
+    out += ins ? `<w:ins${attrs(ins)}>${wrapped}</w:ins>` : wrapped
+    g = end
+  }
+  return out
+}
+
+/** the opening run of a rebuilt entry: the self-reference mark, a custom mark, or nothing */
+function noteLeadXml(kind: NoteKind, note: NoteInfo, szXml: string): { xml: string; skip: number } {
+  const superscript = `<w:rPr><w:vertAlign w:val="superscript"/>${szXml}</w:rPr>`
+  if (note.customMark && note.text.startsWith(note.customMark)) {
+    const mark = `<w:r>${superscript}<w:t xml:space="preserve">${escapeXmlText(note.customMark)}</w:t></w:r>`
+    return { xml: mark, skip: note.customMark.length }
+  }
+  // Word numbers an entry only where the mark run exists: a note without one stays without
+  if (note.noRefMark) return { xml: '', skip: 0 }
   const refTag = kind === 'footnote' ? 'w:footnoteRef' : 'w:endnoteRef'
-  if (note.richParas?.length) {
+  return {
+    xml:
+      `<w:r>${superscript}<${refTag}/></w:r>` +
+      `<w:r>${szXml ? `<w:rPr>${szXml}</w:rPr>` : ''}<w:t xml:space="preserve"> </w:t></w:r>`,
+    skip: 0,
+  }
+}
+
+function noteEntryXml(kind: NoteKind, note: NoteInfo, revAttrs: NoteRevAttrs): string {
+  const entry = ENTRY[kind]
+  if (note.richParas?.length && !note.customMark) {
     // rich rebuild (P17): runs keep their measured size/font, the reference
     // mark + spacer shrink to the first run's size, and the paragraph pins
     // single spacing — a note rendered from measured source content must not
@@ -196,28 +272,49 @@ function noteEntryXml(kind: NoteKind, note: NoteInfo): string {
     const paras = note.richParas.map((runs, i) => {
       const sz = runs[0]?.sizeHalfPoints
       const szXml = sz ? `<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>` : ''
-      const refRun =
-        i === 0
-          ? `<w:r><w:rPr><w:vertAlign w:val="superscript"/>${szXml}</w:rPr><${refTag}/></w:r>` +
-            `<w:r>${sz ? `<w:rPr>${szXml}</w:rPr>` : ''}<w:t xml:space="preserve"> </w:t></w:r>`
-          : ''
+      const refRun = i === 0 ? noteLeadXml(kind, note, szXml).xml : ''
       const pPr = '<w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'
-      return `<w:p>${pPr}${refRun}${runs.map(noteRunXml).join('')}</w:p>`
+      return `<w:p>${pPr}${refRun}${noteRunsXml(runs, revAttrs)}</w:p>`
     })
     return `<${entry} w:id="${escapeXmlAttr(note.id)}">${paras.join('')}</${entry}>`
   }
   const paras = note.text.split('\n').map((line, i) => {
     // OOXML convention: the note body starts with the self-reference mark
-    const refRun =
-      i === 0
-        ? `<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><${refTag}/></w:r>` +
-          '<w:r><w:t xml:space="preserve"> </w:t></w:r>'
-        : ''
+    const lead = i === 0 ? noteLeadXml(kind, note, '') : { xml: '', skip: 0 }
+    const rest = line.slice(lead.skip)
     const textRun =
-      line === '' ? '' : `<w:r><w:t xml:space="preserve">${escapeXmlText(line)}</w:t></w:r>`
-    return `<w:p>${refRun}${textRun}</w:p>`
+      rest === '' ? '' : `<w:r><w:t xml:space="preserve">${escapeXmlText(rest)}</w:t></w:r>`
+    return `<w:p>${lead.xml}${textRun}</w:p>`
   })
   return `<${entry} w:id="${escapeXmlAttr(note.id)}">${paras.join('')}</${entry}>`
+}
+
+/**
+ * A note entry's bytes rewritten for the other notes part (Convert): the entry
+ * element, its id and the self-reference mark change kind; note styles follow
+ * only where the document defines the target style.
+ */
+function convertedEntryXml(
+  xml: string,
+  from: NoteKind,
+  to: NoteKind,
+  id: string,
+  styleIds: ReadonlySet<string>,
+): string {
+  const cap = (k: NoteKind) => (k === 'footnote' ? 'Footnote' : 'Endnote')
+  let out = xml
+    .replace(new RegExp(`^<${ENTRY[from]}\\b[^>]*>`), `<${ENTRY[to]} w:id="${escapeXmlAttr(id)}">`)
+    .replace(new RegExp(`</${ENTRY[from]}>$`), `</${ENTRY[to]}>`)
+    .replace(new RegExp(`<w:${from}Ref\\b(\\s*/?>)`, 'g'), `<w:${to}Ref$1`)
+    .replace(new RegExp(`</w:${from}Ref>`, 'g'), `</w:${to}Ref>`)
+  for (const suffix of ['Text', 'Reference']) {
+    if (!styleIds.has(`${cap(to)}${suffix}`)) continue
+    out = out.replace(
+      new RegExp(`(<w:[pr]Style w:val=")${cap(from)}${suffix}(")`, 'g'),
+      `$1${cap(to)}${suffix}$2`,
+    )
+  }
+  return out
 }
 
 /**
@@ -233,6 +330,8 @@ export function buildNotesXml(
   kind: NoteKind,
   notes: NoteInfo[],
   originalXml: string | null,
+  /** the other notes part and the document's style ids: where converted notes (NoteInfo.origin) come from */
+  other?: { xml: string | null; styleIds: ReadonlySet<string> },
 ): string {
   const entry = ENTRY[kind]
   let structural = ''
@@ -245,16 +344,40 @@ export function buildNotesXml(
     structural = (originalXml.match(re) ?? []).join('')
     for (const e of noteEntriesOf(originalXml, kind)) originals.set(e.id, e)
   }
+  const otherKind: NoteKind = kind === 'footnote' ? 'endnote' : 'footnote'
+  const foreign = new Map(
+    other?.xml ? noteEntriesOf(other.xml, otherKind).map((e) => [e.id, e] as const) : [],
+  )
+  const originalOf = (n: NoteInfo) => {
+    if (!n.origin) return n.created ? undefined : originals.get(n.id)
+    if (n.origin.kind === kind) {
+      const own = originals.get(n.origin.id)
+      return own && { ...own, xml: convertedEntryXml(own.xml, kind, kind, n.id, new Set()) }
+    }
+    const from = foreign.get(n.origin.id)
+    return (
+      from && {
+        ...from,
+        xml: convertedEntryXml(from.xml, otherKind, kind, n.id, other?.styleIds ?? new Set()),
+      }
+    )
+  }
   if (!structural) structural = separatorEntries(kind)
+  const revAttrs = noteRevAllocator(originalXml)
   const body = notes
     .map((n) => {
-      const orig = originals.get(n.id)
-      if (!orig) return noteEntryXml(kind, n)
+      let orig = originalOf(n)
+      if (!orig) return noteEntryXml(kind, n, revAttrs)
+      if (n.revisionsResolved?.length) {
+        const xml = applyRevisionResolutions(orig.xml, n.revisionsResolved)
+        const inner = new RegExp(`^<${entry}[^>]*>([\\s\\S]*)</${entry}>$`).exec(xml)?.[1] ?? ''
+        orig = { text: noteEntryPlainText(inner), xml }
+      }
       if (orig.text === n.text) return orig.xml
       const patched = patchParagraphTexts(orig.xml, n.text, {
         stripFirstParaLeadingSpace: true,
       })
-      return patched ?? noteEntryXml(kind, n)
+      return patched ?? noteEntryXml(kind, n, revAttrs)
     })
     .join('')
   return (

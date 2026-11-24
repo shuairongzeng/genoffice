@@ -71,6 +71,7 @@ import {
   MAX_REMOTE_IMAGE_BYTES,
   readBodyCapped,
   readJsonCached,
+  restrictFileToOwner,
   writeJsonAtomic,
   recoveryCopyDiskNewer,
 } from '@genoffice/electron-utils'
@@ -165,6 +166,7 @@ import {
   isOpenableDocPath,
 } from '../shared/open-file'
 import { atomicWriteFile } from './atomic-write'
+import { bareFileName } from './file-name'
 import {
   adoptLazyMediaHashes,
   forgetLazyMediaOwner,
@@ -3365,12 +3367,18 @@ export function defaultSaveDir(): string {
   return configuredDefaultSaveDir(app)
 }
 
-/** first free path for fileName inside dir: name.ext, name-2.ext, name-3.ext… */
+/** first free path for fileName inside dir: name.ext, name-2.ext, name-3.ext…
+ *  fileName arrives from renderers and MCP callers as a *suggestion*, so it is
+ *  reduced to its bare name first (file-name.ts): a `..` segment or an
+ *  absolute path must not steer the write out of dir — docs:save-new's
+ *  suggested name had no dialog or grant behind it, and every new-file write
+ *  funnels through here. */
 export function uniquePathIn(dir: string, fileName: string): string {
-  const dot = fileName.lastIndexOf('.')
-  const base = dot > 0 ? fileName.slice(0, dot) : fileName
-  const ext = dot > 0 ? fileName.slice(dot) : ''
-  let candidate = join(dir, fileName)
+  const bare = bareFileName(fileName)
+  const dot = bare.lastIndexOf('.')
+  const base = dot > 0 ? bare.slice(0, dot) : bare
+  const ext = dot > 0 ? bare.slice(dot) : ''
+  let candidate = join(dir, bare)
   for (let i = 2; existsSync(candidate); i++) candidate = join(dir, `${base}-${i}${ext}`)
   return candidate
 }
@@ -3915,6 +3923,19 @@ async function prepareDocumentForOpen(
   )
   if (picked.canceled || !picked.filePath) return null
   try {
+    // Imports are read whole and handed to the converter: apply the same
+    // size cap as .docx open (MAX_OPEN_BYTES) before reading a byte.
+    if ((await stat(filePath)).size > MAX_OPEN_BYTES) {
+      const mb = MAX_OPEN_BYTES / 1024 / 1024
+      if (parent && !parent.isDestroyed()) {
+        await dialog.showMessageBox(parent, {
+          type: 'error',
+          message: tm('dlgOpenDoc'),
+          detail: `${basename(filePath)}: ${tm('errTooLarge', { mb })}`,
+        })
+      }
+      return null
+    }
     const result = await convertOdtToDocx(new Uint8Array(await readFile(filePath)))
     await atomicWriteFile(picked.filePath, Buffer.from(result.docx))
   } catch {
@@ -4228,8 +4249,11 @@ export function readLiveAiSettingsFromMain(): AiSettings {
   const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(SETTINGS_PATH(), {})
   if ((stored.provider ?? 'genspark') === 'genspark' && stored.gskToolsEnabled === false) {
     stored.gskToolsEnabled = true
-    writeJsonAtomic(SETTINGS_PATH(), stored)
+    writeJsonAtomic(SETTINGS_PATH(), stored, 0o600)
   }
+  // heal the file mode of a settings file saved by an older build: BYOK keys
+  // are credentials and must not stay readable by other local accounts
+  restrictFileToOwner(SETTINGS_PATH())
   const settings = resolveAiSettings(stored, defaultAiSettings())
   settings.provider = activeProvider(settings)
   return settings
@@ -4285,7 +4309,7 @@ export function registerAiIpc(): void {
       console.warn('[ai] rejected invalid ai:set-settings payload')
       return
     }
-    writeJsonAtomic(SETTINGS_PATH(), sanitized)
+    writeJsonAtomic(SETTINGS_PATH(), sanitized, 0o600)
     broadcastAiSettingsChanged()
   })
 

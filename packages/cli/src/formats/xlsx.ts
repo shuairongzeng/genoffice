@@ -1,11 +1,13 @@
 import JSZip from 'jszip'
+import { loadUserZip } from './gated-zip'
+import { neutralizeCsvFormulaField } from '@genoffice/xlsx-gateway/domain/csv-formula-guard'
 import * as numfmt from 'numfmt'
 import {
-  blankXlsxBuffer,
   decodeCsvBuffer,
   isNumericCell,
   parseCsv,
 } from '@genoffice/xlsx-gateway/gateway/csv-import'
+import { blankXlsxBuffer } from '@genoffice/xlsx-gateway/gateway/csv-import-xlsx'
 import { columnLabel, parseAddress } from '@genoffice/xlsx-gateway/domain/cell-address'
 import {
   assembleWithJsZip,
@@ -36,7 +38,6 @@ import {
   parseStylesheetFormats,
   type StylesheetFormats,
 } from '@genoffice/xlsx-gateway/gateway/xlsx-style-read'
-import { readFile } from 'node:fs/promises'
 import { atomicWriteFile } from '../../../../apps/sheets/src/main/atomic-write'
 import { XlsxSidecarClient } from '../../../../apps/sheets/src/main/xlsx-sidecar-client'
 import { CliError, EXIT } from '../result'
@@ -585,7 +586,7 @@ export async function readSheet(path: string, opts: ReadOptions): Promise<SheetR
 }
 
 async function hasThemePart(source: Buffer): Promise<boolean> {
-  const zip = await JSZip.loadAsync(source)
+  const zip = await loadUserZip(source)
   return zip.file('xl/theme/theme1.xml') !== null
 }
 
@@ -636,7 +637,7 @@ function sameStyleColor(a: StyleColor | undefined, b: StyleColor | undefined): b
 
 async function storedFormats(path: string): Promise<StylesheetFormats | undefined> {
   try {
-    const zip = await JSZip.loadAsync(await readFile(path))
+    const zip = await loadUserZip(path)
     const xml = await zip.file('xl/styles.xml')?.async('string')
     return xml === undefined ? undefined : parseStylesheetFormats(xml)
   } catch {
@@ -826,7 +827,10 @@ export interface SheetCsv {
  * same shape the app's Export as CSV writes. Rows are produced band by band so
  * a wide, sparse used range never needs a dense grid of the whole sheet.
  */
-export async function sheetToCsv(path: string, opts: { sheet?: string }): Promise<SheetCsv> {
+export async function sheetToCsv(
+  path: string,
+  opts: { sheet?: string; neutralizeFormulas?: boolean },
+): Promise<SheetCsv> {
   return withOpenWorkbook(path, async (client, wb) => {
     const meta = pickSheet(wb, opts.sheet) as SheetMeta
     const styles = wb.styles ?? []
@@ -874,7 +878,8 @@ export async function sheetToCsv(path: string, opts: { sheet?: string }): Promis
           }
         }
         for (const row of grid) {
-          const line = row.map(csvField).join(',') + '\r\n'
+          const line =
+            row.map((cell) => csvField(cell, opts.neutralizeFormulas === true)).join(',') + '\r\n'
           chars += line.length
           if (chars > MAX_CSV_CHARS) {
             throw new CliError(EXIT.conversion, 'sheet is too large to export as CSV', {
@@ -917,10 +922,16 @@ function isCalendarDatePattern(pattern: string): boolean {
   }
 }
 
-// same quoting as the app's csv-export.ts (RFC 4180: quote on comma, quote or newline)
-function csvField(text: string): string {
+// same quoting as the app's csv-export.ts (RFC 4180: quote on comma, quote or
+// newline). The formula-injection guard both writers share (xlsx-gateway
+// domain/csv-formula-guard) is opt-in (--neutralize-formulas): ordinary data
+// never gains the apostrophe Excel does not hide on CSV open; the opt-in
+// neutralizes only the shapes the next app actually evaluates (=, a function
+// call behind @/+/-, the DDE program|topic!cell form).
+function csvField(text: string, neutralizeFormulas = false): string {
   const normalized = text.replace(/\r\n|\r/g, '\n')
-  return /[",\n]/.test(normalized) ? `"${normalized.replace(/"/g, '""')}"` : normalized
+  const guarded = neutralizeFormulas ? neutralizeCsvFormulaField(normalized) : normalized
+  return /[",\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded
 }
 
 // ── writing ────────────────────────────────────────────────────────────

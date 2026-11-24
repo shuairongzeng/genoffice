@@ -15,6 +15,14 @@ const parser = new XMLParser({
   removeNSPrefix: true,
 })
 
+const notesParser = new XMLParser({
+  ignoreAttributes: false,
+  trimValues: false,
+  parseTagValue: false,
+  preserveOrder: true,
+  removeNSPrefix: true,
+})
+
 function stripNamespacePrefix(name: string): string {
   const separator = name.indexOf(':')
   return separator < 0 ? name : name.slice(separator + 1)
@@ -46,7 +54,25 @@ function slideNumber(path: string): number {
 }
 
 async function presentationSlideEntries(zip: JSZip): Promise<(string | null)[] | null> {
-  const presXml = await zipText(zip, 'ppt/presentation.xml')
+  let presentationPath = 'ppt/presentation.xml'
+  const packageRels = await zipText(zip, '_rels/.rels')
+  if (packageRels) {
+    const root = manifestParser.parse(packageRels)
+    for (const rel of asArray(root.Relationships?.Relationship) as Record<string, string>[]) {
+      if (
+        !String(rel['@_Type'] ?? '').endsWith('/officeDocument') ||
+        String(rel['@_TargetMode'] ?? '').toLowerCase() === 'external'
+      )
+        continue
+      const target = String(rel['@_Target'] ?? '')
+      const resolved = target ? resolveTarget('', target) : ''
+      if (resolved) {
+        presentationPath = resolved
+        break
+      }
+    }
+  }
+  const presXml = await zipText(zip, presentationPath)
   if (presXml === undefined) return null
   const pres = manifestParser.parse(presXml) as {
     presentation?: {
@@ -56,7 +82,7 @@ async function presentationSlideEntries(zip: JSZip): Promise<(string | null)[] |
   const slideIds = asArray(pres.presentation?.sldIdLst?.sldId)
 
   const rels = new Map<string, { target: string; type: string; external: boolean }>()
-  const relsXml = await zipText(zip, 'ppt/_rels/presentation.xml.rels')
+  const relsXml = await zipText(zip, presentationPath.replace(/([^/]+)$/, '_rels/$1.rels'))
   if (relsXml) {
     const doc = manifestParser.parse(relsXml) as {
       Relationships?: { Relationship?: Record<string, string> | Record<string, string>[] }
@@ -77,7 +103,7 @@ async function presentationSlideEntries(zip: JSZip): Promise<(string | null)[] |
     const rel = rels.get(relationshipId(sldId))
     entries.push(
       rel && !rel.external && rel.target && rel.type.endsWith('/slide')
-        ? resolveTarget('ppt/presentation.xml', rel.target)
+        ? resolveTarget(presentationPath, rel.target)
         : null,
     )
   }
@@ -99,15 +125,19 @@ const NOTES_SLIDE_REL =
   'http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide'
 
 async function notesXmlForSlide(zip: JSZip, slidePath: string): Promise<string | undefined> {
-  const slash = slidePath.lastIndexOf('/')
-  const relsPath = `${slidePath.slice(0, slash)}/_rels/${slidePath.slice(slash + 1)}.rels`
+  const relsPath = slidePath.replace(/([^/]+)$/, '_rels/$1.rels')
   const relsXml = await zipText(zip, relsPath)
   if (!relsXml) return undefined
   const doc = manifestParser.parse(relsXml) as {
     Relationships?: { Relationship?: Record<string, string> | Record<string, string>[] }
   }
   for (const rel of asArray(doc.Relationships?.Relationship)) {
-    if (String(rel['@_Type'] ?? '') !== NOTES_SLIDE_REL) continue
+    const type = String(rel['@_Type'] ?? '')
+    if (
+      type !== NOTES_SLIDE_REL &&
+      type !== 'http://purl.oclc.org/ooxml/officeDocument/relationships/notesSlide'
+    )
+      continue
     if (String(rel['@_TargetMode'] ?? '').toLowerCase() === 'external') continue
     const target = String(rel['@_Target'] ?? '')
     return target ? zipText(zip, resolveTarget(slidePath, target)) : undefined
@@ -118,10 +148,26 @@ async function notesXmlForSlide(zip: JSZip, slidePath: string): Promise<string |
 /** body placeholder only: the notes page's slide-number field would read as a stray digit */
 function notesParagraphs(notesXml: string): string[] {
   const out: string[] = []
-  for (const m of notesXml.matchAll(/<p:sp>[\s\S]*?<\/p:sp>/g)) {
-    if (!/<p:ph\b[^>]*type="body"/.test(m[0])) continue
-    collectParagraphs(parser.parse(m[0]), out)
+  type Node = Record<string, unknown>
+  const child = (nodes: Node[], name: string): Node[] =>
+    (nodes.find((node) => Array.isArray(node[name]))?.[name] as Node[] | undefined) ?? []
+  const tree = notesParser.parse(notesXml) as Node[]
+  const shapes = child(child(child(tree, 'notes'), 'cSld'), 'spTree')
+  const walkShapes = (nodes: Node[]): void => {
+    for (const shape of nodes) {
+      if (Array.isArray(shape.grpSp)) walkShapes(shape.grpSp as Node[])
+      if (Array.isArray(shape.AlternateContent))
+        walkShapes(mcBranch(shape.AlternateContent) as Node[])
+      if (!Array.isArray(shape.sp)) continue
+      const children = shape.sp as Node[]
+      const properties = child(child(children, 'nvSpPr'), 'nvPr')
+      const placeholder = properties.find((node) => Array.isArray(node.ph))
+      const attributes = placeholder?.[':@'] as Record<string, string> | undefined
+      if (attributes?.['@_type'] !== 'body') continue
+      collectParagraphs(child(children, 'txBody'), out)
+    }
   }
+  walkShapes(shapes)
   return out
 }
 
