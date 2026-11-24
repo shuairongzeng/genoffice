@@ -46,6 +46,7 @@ import {
   MAX_REMOTE_IMAGE_BYTES,
   fetchRemoteImage,
   readBodyCapped,
+  restrictFileToOwner,
   writeJsonAtomic,
 } from '@genoffice/electron-utils'
 import {
@@ -131,6 +132,9 @@ export function registerAiIpc(): void {
 
   ipcMain.handle('ai:get-settings', (): AiSettings => {
     const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(AI_SETTINGS_PATH(), {})
+    // heal the file mode of a settings file saved by an older build: BYOK keys
+    // are credentials and must not stay readable by other local accounts
+    restrictFileToOwner(AI_SETTINGS_PATH())
     const settings = resolveAiSettings(stored, defaultAiSettings())
     // a stored BYOK provider is honored when usable; half-filled configs fall back to genspark
     settings.provider = activeProvider(settings)
@@ -164,7 +168,7 @@ export function registerAiIpc(): void {
       console.warn('[ai] rejected invalid ai:set-settings payload')
       return
     }
-    writeJsonAtomic(AI_SETTINGS_PATH(), sanitized)
+    writeJsonAtomic(AI_SETTINGS_PATH(), sanitized, 0o600)
     for (const wc of webContents.getAllWebContents())
       if (!wc.isDestroyed()) wc.send('ai:settings-changed')
   })

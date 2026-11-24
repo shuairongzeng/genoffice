@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import {
+  chmodSync,
   closeSync,
+  existsSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -131,8 +133,13 @@ export async function atomicCopyFile(source: string, filePath: string): Promise<
  * sleeps block the caller, which is acceptable for a few KB under a transient
  * Windows lock. Every successful write primes the cached-json read cache, so
  * the next read of the same file skips the disk read.
+ *
+ * `mode` restricts the file's permissions (e.g. 0o600 for the AI settings
+ * file, whose BYOK keys must not be readable by other local accounts): it
+ * applies at creation so the rename lands the restricted file, and the
+ * in-place fallback passes it too. Ignored on platforms without POSIX modes.
  */
-export function writeJsonAtomic(filePath: string, value: unknown): void {
+export function writeJsonAtomic(filePath: string, value: unknown, mode?: number): void {
   mkdirSync(dirname(filePath), { recursive: true })
   const json = JSON.stringify(value, null, 2)
   const tmp = tempPathBeside(filePath)
@@ -144,7 +151,7 @@ export function writeJsonAtomic(filePath: string, value: unknown): void {
     }
   }
   try {
-    writeFileSync(tmp, json, { encoding: 'utf8', flag: 'wx' })
+    writeFileSync(tmp, json, { encoding: 'utf8', flag: 'wx', ...(mode ? { mode } : {}) })
     syncFileBestEffortSync(tmp)
     for (let attempt = 0; ; attempt += 1) {
       try {
@@ -158,12 +165,26 @@ export function writeJsonAtomic(filePath: string, value: unknown): void {
     }
   } catch (error) {
     if (isRetryableRename(error)) {
-      writeFileSync(filePath, json, 'utf8')
+      writeFileSync(filePath, json, { encoding: 'utf8', ...(mode ? { mode } : {}) })
       primeJsonCache(filePath, json)
       removeTemp()
       return
     }
     removeTemp()
     throw error
+  }
+}
+
+/**
+ * Best-effort owner-only permissions for a credentials file that may predate
+ * the 0600 write (a file saved by an older build stays world-readable until
+ * the next save). Called from the settings readers, which run at every app
+ * start, so one launch heals the mode. No-op on platforms without POSIX modes.
+ */
+export function restrictFileToOwner(filePath: string): void {
+  try {
+    if (existsSync(filePath)) chmodSync(filePath, 0o600)
+  } catch {
+    /* a locked or unusual filesystem must not break the read that follows */
   }
 }

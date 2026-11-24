@@ -27,6 +27,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { cleanupExpiredGeneratedPages } from './generated-page-temp'
 import { exportSlidesPdf } from './pdf-export'
+import { isSlidesScreenRecordingSource } from './display-media-gate'
 import { printSlidesHtml } from './print-window'
 import { setGskProxyUrl } from '@genoffice/ai-search'
 import {
@@ -1361,7 +1362,16 @@ export function registerSlidesIpc(): void {
   void app.whenReady().then(() => {
     try {
       electronSession.defaultSession.setDisplayMediaRequestHandler(
-        (_request, callback) => {
+        (request, callback) => {
+          // The handler rides the shared default session, so every app's
+          // frames reach it; only the Slides renderer may record a screen.
+          // On Windows/Linux a grant here is silent (no system picker), and
+          // a hostile document one click away in the HTML preview otherwise
+          // gets the user's screen — see display-media-gate.ts.
+          if (!isSlidesScreenRecordingSource(request.frame?.url, runtime.rendererDevUrl)) {
+            callback({})
+            return
+          }
           desktopCapturer
             .getSources({ types: ['screen', 'window'] })
             .then((sources) => {

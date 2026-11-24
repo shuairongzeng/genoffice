@@ -3,6 +3,7 @@ import { readFile as readFileText, realpath } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { isSafeRevealPath } from './reveal-path-guard'
 import {
   DEFAULT_SAVE_DIR_KEY,
   GITHUB_REPO_URL,
@@ -1032,8 +1033,10 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     removeStarredFiles(stringPaths(paths))
   })
 
-  ipcMain.handle(HOME_CHANNELS.revealPath, (_event, path: unknown) => {
-    if (typeof path === 'string' && existsSync(path)) shell.showItemInFolder(path)
+  ipcMain.handle(HOME_CHANNELS.revealPath, (event, path: unknown) => {
+    const win = host.getShellWindow()
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) return
+    if (isSafeRevealPath(path) && existsSync(path)) shell.showItemInFolder(path)
   })
 
   ipcMain.handle(
