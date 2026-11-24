@@ -1,5 +1,6 @@
 // Pure XML -> value readers for paragraph, run and table-cell properties
 // (no document context, no recursion into block builders).
+import { eqLayoutOf } from './eq-field'
 import {
   attrsOf,
   childrenOf,
@@ -92,19 +93,60 @@ export const LAYOUT_RUN_CONTENT_BESIDES_BREAKS =
  * paragraph are handled by run.commentIds; this only catches cross-paragraph ones so a
  * paragraph rebuild does not leave orphaned commentRangeEnd/Start markers.
  */
-export function crossParaCommentMarkers(xml: string): {
+export function crossParaCommentMarkers(
+  xml: string,
+  /** the ids the paragraph's runs carry; without it only cross-paragraph ends are returned */
+  carriedByRuns?: ReadonlySet<string>,
+): {
   commentStarts: string[] | undefined
   commentEnds: string[] | undefined
 } {
   const ids = (re: RegExp) => [...xml.matchAll(re)].map((m) => m[1])
   const starts = ids(/<w:commentRangeStart\b[^>]*\bw:id\s*=\s*["']([^"']+)["']/g)
   const ends = ids(/<w:commentRangeEnd\b[^>]*\bw:id\s*=\s*["']([^"']+)["']/g)
-  const onlyStarts = starts.filter((id) => !ends.includes(id))
-  const onlyEnds = ends.filter((id) => !starts.includes(id))
+  // a range around no run at all (a comment on an empty paragraph) has no run to ride on
+  const around = carriedByRuns
+    ? starts.filter((id) => ends.includes(id) && !carriedByRuns.has(id))
+    : []
+  const onlyStarts = [...starts.filter((id) => !ends.includes(id)), ...around]
+  const onlyEnds = [...ends.filter((id) => !starts.includes(id)), ...around]
   return {
     commentStarts: onlyStarts.length ? onlyStarts : undefined,
     commentEnds: onlyEnds.length ? onlyEnds : undefined,
   }
+}
+
+// white space between the elements is allowed: a pretty-printed part has it
+const NOTE_MARK_RANGE =
+  /((?:<w:bookmarkStart\b[^>]*\/>\s*)+)<w:r\b[^>]*>(?:(?!<\/w:r>)[\s\S])*?<w:(footnote|endnote)Reference\b([^>]*)\/>(?:(?!<\/w:r>)[\s\S])*?<\/w:r>((?:\s*<w:bookmarkEnd\b[^>]*\/>)+)/g
+
+const xmlAttr = (attrs: string, name: string): string | undefined => {
+  const m = new RegExp(`\\b${name}=(?:"([^"]*)"|'([^']*)')`).exec(attrs)
+  return m ? (m[1] ?? m[2]) : undefined
+}
+
+/**
+ * The bookmarks of a paragraph that wrap one footnote / endnote reference mark
+ * and nothing else (the target of a NOTEREF field), by "kind:id" of the note.
+ */
+export function noteMarkBookmarks(xml: string): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  if (!xml.includes('<w:bookmarkStart') || !/<w:(?:footnote|endnote)Reference\b/.test(xml))
+    return out
+  for (const m of xml.matchAll(NOTE_MARK_RANGE)) {
+    const noteId = xmlAttr(m[3], 'w:id')
+    if (noteId === undefined) continue
+    const closed = new Set(
+      [...m[4].matchAll(/<w:bookmarkEnd\b([^>]*)\/>/g)].map((e) => xmlAttr(e[1], 'w:id')),
+    )
+    const names: string[] = []
+    for (const start of m[1].matchAll(/<w:bookmarkStart\b([^>]*)\/>/g)) {
+      const name = xmlAttr(start[1], 'w:name')
+      if (name && closed.has(xmlAttr(start[1], 'w:id'))) names.push(decodeEntities(name))
+    }
+    if (names.length > 0) out.set(`${m[2]}:${noteId}`, names)
+  }
+  return out
 }
 
 /** user bookmark names starting in this paragraph; Word internals (_Toc/_Ref/_GoBack…) split out as hiddenBookmarks */
@@ -114,8 +156,11 @@ export function bookmarkNamesOf(xml: string): {
 } {
   const names: string[] = []
   const hidden: string[] = []
+  // a bookmark on a note mark stays on the mark: the run carries it
+  const onMarks = new Set([...noteMarkBookmarks(xml).values()].flat())
   for (const m of xml.matchAll(/<w:bookmarkStart [^>]*w:name=(?:"([^"]+)"|'([^']+)')/g)) {
     const name = decodeEntities(m[1] ?? m[2] ?? '')
+    if (onMarks.has(name)) continue
     // A _ prefix marks Word internal bookmarks (_Ref/_Toc/_Hlk): hidden from the UI, but
     // they must be re-emitted when the paragraph rebuilds, otherwise REF cross-references
     // and TOC anchors pointing at them break
@@ -381,7 +426,23 @@ export function ptabDisplayStops(pNode: XNode): import('./types').TabStop[] {
 /** paragraphs whose only fields are XE / REF stay editable (extractRuns round-trips them) */
 /** Simple instructions foldable into an editable inline-field run (the cached result is the display text) */
 export const SIMPLE_INLINE_FIELD_RE =
-  /^\s*(DATE|TIME|CREATEDATE|SAVEDATE|NUMPAGES|FILENAME|AUTHOR|PAGEREF|PAGE)\b/
+  /^\s*(DATE|TIME|CREATEDATE|SAVEDATE|NUMPAGES|FILENAME|AUTHOR|PAGEREF|NOTEREF|PAGE)\b/
+
+/** Word's formula field (`=SUM(ABOVE)`): read where a paragraph's runs are, as in a table cell */
+export const FORMULA_FIELD_RE = /^\s*=/
+
+/** a citation of a source in the document's sources part: its cached result is the citation as styled */
+export const CITATION_FIELD_RE = /^\s*CITATION\s+\S/
+
+/**
+ * What stands for a field Word keeps without a result (a NEXT, a SKIPIF): the
+ * run needs a character to carry the field, and this one takes no room. It is
+ * never written to the file.
+ */
+export const NO_FIELD_RESULT = '\u200b'
+
+/** the mail-merge rule fields that carry no nested field: the merge works them out, the page shows no result */
+export const MERGE_CONTROL_FIELD_RE = /^\s*(?:NEXT|MERGEREC|MERGESEQ|ASK|FILLIN|SET)(?=\s|$)/
 
 /**
  * Mail-merge fields. Word resolves the result from a data source when the user
@@ -390,6 +451,94 @@ export const SIMPLE_INLINE_FIELD_RE =
  * (a column header may contain spaces) or bare; switches follow it.
  */
 export const MERGEFIELD_INSTR_RE = /^\s*MERGEFIELD\s+(?:"([^"]*)"|(\S+))/
+
+/**
+ * The column a nested MERGEFIELD names when it can stand as `«Name»` inside
+ * an IF instruction: no switch but Word's own MERGEFORMAT, so writing it back
+ * as a bare nested field loses nothing.
+ */
+export function bareMergeFieldName(instr: string): string | null {
+  const m = /^\s*MERGEFIELD\s+(?:"([^"«»]*)"|([^\s"«»\\]+))\s*(?:\\\*\s*MERGEFORMAT\s*)?$/i.exec(
+    instr,
+  )
+  return m ? (m[1] ?? m[2] ?? null) : null
+}
+
+/** a mail-merge IF as one instruction: its nested merge fields stand as `«Name»` */
+export const MERGE_IF_INSTR_RE = /^\s*IF\s[^«]*«[^»]+»/
+
+/**
+ * The mail-merge fields whose `«Name»` operands are written as nested merge
+ * fields: Word reads a data column no other way, in a SKIPIF or a NEXTIF as in
+ * an IF.
+ */
+export const MERGE_RULE_INSTR_RE = /^\s*(?:IF|SKIPIF|NEXTIF)\s[^«]*«[^»]+»/
+
+/**
+ * True when every IF field of the paragraph is a mail-merge IF the editor can
+ * carry as one instruction: top-level, its nested fields all bare MERGEFIELDs
+ * sitting in the instruction (the way Word writes `IF «City» = "x" "a" "b"`).
+ * Anything else (a PAGE operand, a field in the result) stays byte-preserved.
+ */
+export function mergeIfsFoldable(xml: string): boolean {
+  interface Frame {
+    own: string
+    inResult: boolean
+    parent: Frame | null
+    children: number
+    ok: boolean
+    bookmark: boolean
+  }
+  const stack: Frame[] = []
+  const re =
+    /<w:fldChar\b[^>]*>|<w:fldSimple\b|<w:bookmarkStart\b|<w:instrText\b[^>]*>([\s\S]*?)<\/w:instrText>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(xml)) !== null) {
+    const top = stack[stack.length - 1]
+    if (m[0].startsWith('<w:instrText')) {
+      if (top && !top.inResult) top.own += decodeEntities(m[1]!)
+      continue
+    }
+    if (m[0].startsWith('<w:fldSimple')) {
+      for (const frame of stack) frame.ok = false
+      continue
+    }
+    if (m[0].startsWith('<w:bookmarkStart')) {
+      if (top) top.bookmark = true
+      continue
+    }
+    const type = /\bw:fldCharType\s*=\s*["'](begin|separate|end)["']/.exec(m[0])?.[1]
+    if (type === 'begin') {
+      if (top) {
+        top.children++
+        // a field in the IF's result, or one nested deeper than its operands
+        if (top.inResult || top.parent) for (const frame of stack) frame.ok = false
+      }
+      stack.push({
+        own: '',
+        inResult: false,
+        parent: top ?? null,
+        children: 0,
+        ok: true,
+        bookmark: false,
+      })
+    } else if (type === 'separate') {
+      if (top) top.inResult = true
+    } else if (type === 'end') {
+      const frame = stack.pop()
+      if (!frame) continue
+      if (frame.parent) {
+        if (bareMergeFieldName(frame.own) === null) frame.parent.ok = false
+      } else if (/^\s*(?:IF|SKIPIF|NEXTIF)\b/.test(frame.own)) {
+        if (!frame.ok || frame.children === 0 || /[«»]/.test(frame.own)) return false
+      } else if (MERGE_CONTROL_FIELD_RE.test(frame.own)) {
+        // a SET or an ASK Word has run keeps its bookmark in the result
+        if (frame.children > 0 || frame.bookmark) return false
+      }
+    }
+  }
+  return true
+}
 
 /** every fldChar closes inside the paragraph: a stray end (the last TOC entry
  *  carries the TOC field's end) or an unclosed begin must stay byte-preserved */
@@ -425,6 +574,18 @@ export function onlyOleFields(xml: string): boolean {
   const instrs = fieldInstructions(xml)
   if (instrs.length === 0) return false
   return instrs.every((text) => /^\s*(EMBED|LINK)\b/.test(text))
+}
+
+function fieldsNested(xml: string): boolean {
+  let depth = 0
+  const re = /<w:fldChar\b[^>]*\bw:fldCharType=["'](begin|end)["']/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(xml)) !== null) {
+    if (m[1] === 'begin') {
+      if (++depth > 1) return true
+    } else depth--
+  }
+  return false
 }
 
 /** Complex-field instructions, one string per field: Word splits a long
@@ -467,10 +628,13 @@ export function onlyXeFields(xml: string): boolean {
   const instrs = fieldInstructions(xml)
   if (instrs.length === 0 && simple.length === 0) return false
   if (!fieldCharsBalanced(xml)) return false
+  // an instruction-less field stays editable unless it nests another field,
+  // which the empty-instruction run could not carry through a save
+  if (instrs.some((text) => text.trim() === '') && fieldsNested(xml)) return false
   const simpleOk = simple.every((raw) => {
     const text = decodeEntities(raw!)
     return (
-      /^\s*XE[\s"]/.test(text) ||
+      /^\s*(?:XE|TA|TC)[\s"\\]/.test(text) ||
       /^\s*REF\s/.test(text) ||
       SIMPLE_INLINE_FIELD_RE.test(text) ||
       MERGEFIELD_INSTR_RE.test(text)
@@ -478,18 +642,25 @@ export function onlyXeFields(xml: string): boolean {
   })
   if (!simpleOk) return false
   let checkboxInstrs = 0
+  const mergeIfs = mergeIfsFoldable(xml)
   const ok = instrs.every((text) => {
     if (/^\s*FORMCHECKBOX\s*$/.test(text)) {
       checkboxInstrs++
       return true
     }
     return (
-      /^\s*XE[\s"]/.test(text) ||
+      text.trim() === '' ||
+      /^\s*(?:XE|TA|TC)[\s"\\]/.test(text) ||
       /^\s*REF\s/.test(text) ||
       ZOTERO_INLINE_FIELD_RE.test(text) ||
       SIMPLE_INLINE_FIELD_RE.test(text) ||
       MERGEFIELD_INSTR_RE.test(text) ||
-      convertibleHyperlink(text) !== null
+      CITATION_FIELD_RE.test(text) ||
+      (mergeIfs &&
+        (/^\s*(?:IF|SKIPIF|NEXTIF)\b/.test(text) || MERGE_CONTROL_FIELD_RE.test(text))) ||
+      convertibleHyperlink(text) !== null ||
+      // enclosed and combined characters fold into one run that writes the field back
+      eqLayoutOf(text) !== null
     )
   })
   if (!ok) return false
@@ -666,9 +837,10 @@ export function emptyParaSizeHalfPoints(
 ): number | undefined {
   // an rtl mark is sized by its Cs twin, the chain's szCs when it has none (Word:
   // a `<w:sz 36/><w:rtl/>` mark under a szCs=24 style lays a 12pt empty line)
-  const sizeOf = (rPr: XNode | undefined): string | undefined => {
+  const bidi = pPr ? onOffOf(pPr, 'w:bidi') === true : false
+  const sizeOf = (rPr: XNode | undefined, isMark = false): string | undefined => {
     if (!rPr) return undefined
-    if (onOffOf(rPr, 'w:rtl') === true) {
+    if ((isMark && bidi) || onOffOf(rPr, 'w:rtl') === true) {
       return (
         attrsOf(findChild(rPr, 'w:szCs') ?? {})['w:val'] ??
         (csSizeHalfPoints !== undefined ? String(csSizeHalfPoints) : undefined)
@@ -676,7 +848,7 @@ export function emptyParaSizeHalfPoints(
     }
     return attrsOf(findChild(rPr, 'w:sz') ?? {})['w:val']
   }
-  let sz = pPr ? sizeOf(findChild(pPr, 'w:rPr')) : undefined
+  let sz = pPr ? sizeOf(findChild(pPr, 'w:rPr'), true) : undefined
   if (!sz && !markOnly) {
     for (const r of findChildren(pNode, 'w:r')) {
       const v = sizeOf(findChild(r, 'w:rPr'))
@@ -704,7 +876,7 @@ export function emptyParaMarkFont(
     // an East Asian slot alone leaves the inherited Latin face in charge (Word probe
     // 2026-09-05: a DengXian-only mark lays its line with the ascii face)
     const rf = themedRFonts(a, themeFonts)
-    return rf.ascii ?? rf.hAnsi
+    return rf.ascii
   }
   let font = pPr ? pick(findChild(pPr, 'w:rPr')) : undefined
   if (!font && !markOnly) {
@@ -804,7 +976,7 @@ export function rubyPartText(rubyNode: XNode, part: 'w:rubyBase' | 'w:rt'): stri
 }
 
 /** Word's face for an East Asian theme slot whose typeface is empty (<a:ea typeface=""/>) */
-const EMPTY_EA_THEME_FONT = 'DengXian'
+export const EMPTY_EA_THEME_FONT = 'DengXian'
 
 /** empty EA slot faces by settings.xml w:themeFontLang w:eastAsia (zh-CN / missing → DengXian) */
 const EMPTY_EA_SLOT_BY_LANG: Record<string, { major: string; minor: string }> = {
@@ -874,27 +1046,40 @@ function emptyEaSlotFont(fonts: ThemeFonts, eaRef: string | undefined): string {
   return themeLangEaSlotFont(fonts, eaRef) ?? EMPTY_EA_THEME_FONT
 }
 
+/** theme script-table face (<a:font script=…>) of the font group for themeFontLang
+ * w:eastAsia. Word lays an EA theme slot with this face whenever the table names one,
+ * over the literal <a:ea> typeface (Word probe 2026-11-03: a:ea Batang + Hang Malgun
+ * under ko-KR -> Malgun, the reverse -> Batang, no table -> the literal; a:ea MS Mincho
+ * + Jpan Yu Mincho under ja-JP -> Yu Mincho). */
+export function themeScriptEaFont(
+  fonts: ThemeFonts,
+  eaRef: string | undefined,
+): string | undefined {
+  const full = fonts.eaLang?.toLowerCase()
+  if (!full || (eaRef !== 'majorEastAsia' && eaRef !== 'minorEastAsia')) return undefined
+  const script = EA_LANG_SCRIPT[full] ?? EA_LANG_SCRIPT[full.split('-')[0]]
+  const table = eaRef === 'majorEastAsia' ? fonts.majorScripts : fonts.minorScripts
+  return (script ? table?.[script] : undefined) || undefined
+}
+
 /** empty-EA-slot face themeFontLang specifically resolves (theme script table first,
  * then the probed per-language defaults); undefined = only the generic DengXian applies */
 export function themeLangEaSlotFont(
   fonts: ThemeFonts,
   eaRef: string | undefined,
 ): string | undefined {
-  const full = fonts.eaLang?.toLowerCase()
-  if (!full) return undefined
-  const lang = full.split('-')[0]
-  const script = EA_LANG_SCRIPT[full] ?? EA_LANG_SCRIPT[lang]
-  const table = eaRef === 'majorEastAsia' ? fonts.majorScripts : fonts.minorScripts
-  const fromScript = script ? table?.[script] : undefined
+  const fromScript = themeScriptEaFont(fonts, eaRef)
   if (fromScript) return fromScript
-  const byLang = EMPTY_EA_SLOT_BY_LANG[lang]
+  const lang = fonts.eaLang?.toLowerCase().split('-')[0]
+  const byLang = lang ? EMPTY_EA_SLOT_BY_LANG[lang] : undefined
   return byLang ? (eaRef === 'majorEastAsia' ? byLang.major : byLang.minor) : undefined
 }
 
 /** w:rFonts with theme references resolved: theme attrs supersede same-slot literal
  * values (ECMA-376 §17.3.2.26). Unresolvable references fall back to the literal,
  * except an empty eastAsia theme slot: Word keeps the theme's authority and renders
- * the theme language's default face, never the leftover literal name (eaSlotEmpty marks this). */
+ * the theme language's default face, never the leftover literal name (eaSlotEmpty marks this).
+ * A filled EA slot still yields to the script table's themeFontLang face (themeScriptEaFont). */
 export function themedRFonts(
   attrs: Record<string, string | undefined>,
   fonts: ThemeFonts | null | undefined,
@@ -928,15 +1113,17 @@ export function themedRFonts(
     }
   }
   const eaRef = attrs['w:eastAsiaTheme']
-  const themedEa = themeVal(eaRef)
+  const literalEa = themeVal(eaRef)
   const eaSlotEmpty =
-    !themedEa && !!fonts && (eaRef === 'majorEastAsia' || eaRef === 'minorEastAsia')
+    !literalEa && !!fonts && (eaRef === 'majorEastAsia' || eaRef === 'minorEastAsia')
+  const themedEa = literalEa && fonts ? (themeScriptEaFont(fonts, eaRef) ?? literalEa) : literalEa
   // an empty cs or EA slot likewise keeps the theme's authority over the
   // literal: a Latin slot pointing at minorEastAsia renders the language
   // default EA face (Word probe 2026-09-17: MS Mincho digits under ja-JP)
   const themedOrEmptySlot = (ref: string | undefined): string | undefined => {
     const themed = themeVal(ref)
-    if (themed || !fonts) return themed
+    if (!fonts) return themed
+    if (themed) return themeScriptEaFont(fonts, ref) ?? themed
     if (ref === 'majorBidi' || ref === 'minorBidi') return emptyCsSlotFont(fonts, ref)
     if (ref === 'majorEastAsia' || ref === 'minorEastAsia') return emptyEaSlotFont(fonts, ref)
     return undefined
@@ -984,6 +1171,7 @@ function sameStyle(a: Run, b: Run): boolean {
   if (a.math || b.math) return false
   if (a.sym || b.sym) return false
   if (a.ruby || b.ruby) return false
+  if (a.eqLayout || b.eqLayout) return false
   if (a.image || b.image) return false
   return (
     (a.rawRPr ?? '') === (b.rawRPr ?? '') &&
@@ -1054,6 +1242,16 @@ export function shdDisplayFill(
   const ink =
     themed('w:themeColor', 'w:themeTint', 'w:themeShade') ??
     (a['w:color'] === 'auto' ? undefined : hex(a['w:color']))
+  return shdPatternDisplay(val, ink, fill)
+}
+
+/** the one colour a w:shd pattern shows as: its ink blended over the fill at the pattern's coverage */
+export function shdPatternDisplay(
+  val: string,
+  ink: string | undefined,
+  fill: string | undefined,
+): string | undefined {
+  if (val === 'clear' || val === 'nil') return fill
   if (val === 'solid') return ink ?? '000000'
   let ratio: number | undefined
   if (val.startsWith('pct')) {
@@ -1064,6 +1262,15 @@ export function shdDisplayFill(
   }
   if (ratio === undefined) return fill
   return blendHex(ink ?? '000000', fill ?? 'FFFFFF', ratio)
+}
+
+/** the pattern of a w:shd and its own colour; undefined for a plain fill */
+export function shdPatternOf(shd: XNode): { val: string; color?: string } | undefined {
+  const a = attrsOf(shd)
+  const val = a['w:val']
+  if (!val || val === 'clear' || val === 'nil') return undefined
+  const color = a['w:color'] && a['w:color'] !== 'auto' ? stripHash(a['w:color']) : undefined
+  return { val, ...(color ? { color } : {}) }
 }
 
 /** w:tblStyleRowBandSize of a tblPr (instance or style level); undefined when absent or not positive */
@@ -1167,6 +1374,9 @@ export function paraBorderSidesOf(
     if (Number.isFinite(sz) && sz > 0) line.szPt = sz / 8
     const space = parseInt(a['w:space'] ?? '', 10)
     if (Number.isFinite(space) && space > 0) line.spacePt = space
+    if (val && val !== 'single') line.val = val
+    if (a['w:shadow'] !== undefined && isOn(a['w:shadow'])) line.shadow = true
+    if (a['w:frame'] !== undefined && isOn(a['w:frame'])) line.frame = true
     sides[ch] = line
   }
   return Object.keys(sides).length > 0 ? sides : undefined
@@ -1188,7 +1398,14 @@ export function paraBordersOf(sides: ParaBorderSides): ParaBorderModel {
       continue
     }
     borders += ch
-    if (line.color !== undefined || line.szPt !== undefined || line.spacePt !== undefined)
+    if (
+      line.color !== undefined ||
+      line.szPt !== undefined ||
+      line.spacePt !== undefined ||
+      line.val !== undefined ||
+      line.shadow ||
+      line.frame
+    )
       lines[ch] = line
   }
   if (borders) out.borders = borders

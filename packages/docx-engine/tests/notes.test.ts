@@ -9,7 +9,7 @@ import {
   type SaveBlock,
 } from '../src/index'
 import { buildDocx } from './helpers/build-docx'
-import { parseNotesXml } from '../src/notes'
+import { parseNoteSeparator, parseNotesXml } from '../src/notes'
 import { standaloneNoteParagraphReader } from '../src/parse'
 
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
@@ -327,7 +327,7 @@ describe('index entries (XE)', () => {
     expect(doc.blocks[0].runs?.[0]?.instrField).toBe('PAGE')
   })
 
-  it('generateIndexFieldXml sorts, dedupes and wraps in one dirty INDEX field', () => {
+  it('generateIndexFieldXml sorts, dedupes and wraps in one INDEX field, dirty for want of pages', () => {
     const paras = generateIndexFieldXml(['术语B', '术语A', '术语A'])
     expect(paras).toHaveLength(2)
     expect(paras[0]).toContain('fldCharType="begin" w:dirty="true"')
@@ -339,11 +339,15 @@ describe('index entries (XE)', () => {
 })
 
 describe('captions', () => {
-  it('generateCaptionXml emits a dirty SEQ field with the static number', () => {
+  it('generateCaptionXml emits a SEQ field with its number as the result, unmarked', () => {
     const xml = generateCaptionXml('图', 3, '系统架构')
     expect(xml).toContain(' SEQ 图 \\* ARABIC ')
-    expect(xml).toContain('w:dirty="true"')
+    expect(xml).not.toContain('w:dirty')
     expect(xml).toContain('<w:t>3</w:t>')
+    // a number that is only a guess is left for Word to renumber
+    expect(generateCaptionXml('Figure', 3, '', { dirty: true })).toContain(
+      '<w:fldChar w:fldCharType="begin" w:dirty="true"/>',
+    )
     expect(xml).toContain('系统架构')
   })
 
@@ -391,7 +395,7 @@ describe('rich-text footnote display runs', () => {
     expect(notes[1].text).toBe('纯文本')
   })
 
-  it('recovers the direct Latin font of a run (w:ascii, else w:hAnsi); font alone makes the note rich', async () => {
+  it('recovers the direct Latin font of a run (w:ascii only, a lone w:hAnsi inherits); font alone makes the note rich', async () => {
     const footnotesXml =
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
       '<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
@@ -407,7 +411,7 @@ describe('rich-text footnote display runs', () => {
     const notes = parseNotesXml(footnotesXml, 'footnote', standaloneNoteParagraphReader())
     expect(notes[0].richParas?.[0]).toEqual([
       { text: 'Source ANSD', sizeHalfPoints: 18, fontAscii: 'Times New Roman' },
-      { text: ', 2023', fontAscii: 'Garamond' },
+      { text: ', 2023' },
     ])
     expect(notes[1].richParas?.[0]).toEqual([{ text: 'font only', fontAscii: 'Arial' }])
   })
@@ -527,5 +531,50 @@ describe('rich-text footnote display runs', () => {
     const notes = parseNotesXml(footnotesXml, 'footnote', standaloneNoteParagraphReader())
     expect(notes).toHaveLength(1)
     expect(notes[0]!.text).toBe('A — B')
+  })
+})
+
+describe('separator paragraph', () => {
+  const part = (sep: string) =>
+    XML_DECL +
+    '<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+    `<w:footnote w:type="separator" w:id="-1"><w:p>${sep}<w:r><w:separator/></w:r></w:p></w:footnote>` +
+    '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:pPr><w:spacing w:before="900"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>' +
+    '<w:footnote w:id="1"><w:p><w:r><w:footnoteRef/></w:r><w:r><w:t>note</w:t></w:r></w:p></w:footnote>' +
+    '</w:footnotes>'
+
+  it('reads the separator entry\u2019s own paragraph spacing, not the continuation separator\u2019s', () => {
+    const sep = parseNoteSeparator(
+      part('<w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'),
+      'footnote',
+      standaloneNoteParagraphReader(),
+    )
+    expect(sep?.spacing).toMatchObject({ afterTwips: 0, lineRule: 'auto', lineRawTwips: 240 })
+    expect(sep?.styleId).toBeUndefined()
+  })
+
+  it('a bare separator paragraph resolves through the defaults like any note paragraph', () => {
+    const sep = parseNoteSeparator(part(''), 'footnote', standaloneNoteParagraphReader())
+    expect(sep).toBeDefined()
+    expect(sep?.spacing?.lineRawTwips).toBeUndefined()
+  })
+
+  it('does not read a self-closing separator entry as the opener of the next entry', () => {
+    const xml =
+      XML_DECL +
+      '<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:footnote w:type="separator" w:id="-1"/>' +
+      '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:pPr><w:spacing w:before="900"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>' +
+      '</w:footnotes>'
+    expect(parseNoteSeparator(xml, 'footnote', standaloneNoteParagraphReader())).toBeUndefined()
+  })
+
+  it('is absent when the part has no separator entry', () => {
+    const xml =
+      XML_DECL +
+      '<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:footnote w:id="1"><w:p><w:r><w:footnoteRef/></w:r><w:r><w:t>note</w:t></w:r></w:p></w:footnote>' +
+      '</w:footnotes>'
+    expect(parseNoteSeparator(xml, 'footnote', standaloneNoteParagraphReader())).toBeUndefined()
   })
 })

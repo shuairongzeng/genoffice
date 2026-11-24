@@ -13,6 +13,7 @@ import {
 } from '../font-size'
 import {
   addImageMediaAndRel,
+  isSupportedImageExt,
   cleanupSupersededSlideResources,
   DEFAULT_BODY_INSETS,
   ensureRunLinkRels,
@@ -104,6 +105,21 @@ function centerParagraphs(paragraphs: Paragraph[]): void {
   for (const p of paragraphs) if (!p.align) p.align = 'center'
 }
 
+/**
+ * True when a traced paragraph or run landed at a different index than its source
+ * (reordered, split or inserted). The in-place run patch then writes the text into
+ * the old run at its new position and keeps that run's attributes, so setText flags
+ * the element and save rebuilds the txBody from the traced model runs instead. The
+ * flag stays set until the element is reparsed/materialized.
+ */
+function textMovedInPlace(paragraphs: EditParagraph[]): boolean {
+  return paragraphs.some(
+    (p, pi) =>
+      (p.srcPara != null && p.srcPara !== pi) ||
+      p.runs.some((r, ri) => r.srcRun != null && r.srcRun !== ri),
+  )
+}
+
 // ── setText ─────────────────────────────────────────────────────────────
 // Run-level rich-text rebuild (srcPara/srcRun back-tracing preserves unedited
 // formatting). Level changes are rematerialized here (they change inherited
@@ -112,6 +128,14 @@ function centerParagraphs(paragraphs: Paragraph[]): void {
  * Picture-bullet source → media part + slide rel, once per distinct image within a
  * transaction; the engine patch carries only the landed rel.
  */
+function requireBulletImageFormat(opName: string, ext: unknown): void {
+  if (typeof ext === 'string' && !isSupportedImageExt(ext)) {
+    throw new GuidedError(
+      `op "${opName}": unsupported picture bullet format ".${ext}" (png/jpg/jpeg/gif/bmp/webp/tif supported).`,
+    )
+  }
+}
+
 function landBulletImage(
   opened: OpenedPptx,
   slide: Slide,
@@ -147,10 +171,15 @@ register({
     if (!Array.isArray(op.paragraphs)) {
       throw new GuidedError('op "setText" needs "paragraphs": an EditParagraph array.')
     }
-    for (const p of op.paragraphs as Array<{ runs?: Array<{ link?: unknown }> }>) {
+    for (const p of op.paragraphs as Array<{
+      runs?: Array<{ link?: unknown }>
+      bullet?: unknown
+      bulletImage?: { ext?: unknown }
+    }>) {
       for (const r of p?.runs ?? []) {
         if (r && r.link !== undefined) requireLinkTarget('setText', r.link, 'runs[].link')
       }
+      if (p?.bullet === 'blip') requireBulletImageFormat('setText', p.bulletImage?.ext)
     }
     if (op.group) {
       const { index, slide } = resolveSlide(ctx, op)
@@ -183,6 +212,7 @@ register({
       const before = plainText(childBody.paragraphs)
       const oldParas = childBody.paragraphs
       childBody.paragraphs = applyEditParagraphs(oldParas, paragraphs)
+      if (textMovedInPlace(paragraphs)) textChild.textMoved = true
       const note = freshBody
         ? undefined
         : fontSizeDriftNote(oldParas, paragraphs, childBody.paragraphs)
@@ -217,6 +247,7 @@ register({
     const levelDirty = levelsChanged(body.paragraphs, paragraphs)
     const oldParas = body.paragraphs
     body.paragraphs = applyEditParagraphs(oldParas, paragraphs)
+    if (textMovedInPlace(paragraphs)) te.textMoved = true
     const note = freshBody ? undefined : fontSizeDriftNote(oldParas, paragraphs, body.paragraphs)
     if (autoShape) centerParagraphs(body.paragraphs)
     // Link rels and level rematerialization are deck-slide concerns (rels live on
@@ -351,6 +382,7 @@ register({
           'op "setParagraphFormat": bullet "blip" needs "format.bulletImage": { base64, ext }.',
         )
       }
+      requireBulletImageFormat('setParagraphFormat', img.ext)
     }
     if (fmt.rtl !== undefined && typeof fmt.rtl !== 'boolean') {
       throw new GuidedError('op "setParagraphFormat": "format.rtl" must be a boolean.')

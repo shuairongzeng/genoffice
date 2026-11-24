@@ -196,6 +196,10 @@ export const cs = {
   appInvalidGroupField: 'Neplatné pole seskupení.',
   appInvalidPageField: 'Neplatné pole filtru sestavy.',
   appPivotPageItemMissing: 'Položka filtru „{item}“ není členem pole „{label}“.',
+  appPivotBaseFieldMissing: 'Režim „Zobrazit hodnoty jako“ pole hodnot vyžaduje základní pole.',
+  appPivotBaseFieldNotAxis:
+    'Základní pole „{label}“ musí být v řádcích nebo sloupcích kontingenční tabulky.',
+  appPivotBaseItemMissing: 'Základní položka „{item}“ není členem pole „{label}“.',
   appInvalidLabelFilterField: 'Pole filtru popisků je neplatné.',
   appInvalidValueFieldIndex: 'Index pole hodnot {index} je neplatný.',
   appInvalidValueField: 'Neplatné pole hodnot.',

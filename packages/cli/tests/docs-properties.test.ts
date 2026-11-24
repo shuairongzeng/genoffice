@@ -82,6 +82,7 @@ describe('genoffice docs (document properties)', () => {
       },
       app: { template: 'Normal.dotm', company: '\u67d0\u67d0\u5f8b\u5e08\u4e8b\u52a1\u6240' },
       custom: { MatterId: 'M-2026-114' },
+      customTypes: { MatterId: 'lpwstr' },
     })
   })
 

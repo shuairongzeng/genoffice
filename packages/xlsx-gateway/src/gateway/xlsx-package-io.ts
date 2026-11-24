@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { closeSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, rename, rm, stat, unlink } from 'node:fs/promises'
+import { closeSync, constants, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
+import { copyFile, mkdir, mkdtemp, open, rename, rm, stat, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
 
@@ -26,6 +26,7 @@ import type {
   SheetProtectionState,
   SheetTabColorState,
   SheetPivotAddition,
+  SheetSlicerState,
   SheetSparklineAddition,
   SheetStructuralOps,
   SheetTableAddition,
@@ -33,6 +34,7 @@ import type {
   SheetVisualAddition,
   SheetFormulaValues,
   SheetCellImageAddition,
+  ExternalLinkOps,
 } from './xlsx-gateway'
 import { planCellEditsToXlsx, syncFileBestEffort } from './xlsx-gateway'
 import { normalizeOoxmlPartPrefix } from './xlsx-namespace'
@@ -108,13 +110,19 @@ export interface StreamingSaveRequest {
   readonly pivotRefreshUpdates?: readonly PivotRefreshUpdate[] | undefined
   readonly visualEdits?: readonly WorkbookVisualEdit[] | undefined
   readonly sparklineAdditions?: readonly SheetSparklineAddition[] | undefined
+  /// Session slicer/timeline panels written as x14/x15 slicer parts; null =
+  /// no slicer changes ride this save.
+  readonly slicerState?: SheetSlicerState | null | undefined
   /// Recalculated formula-cell values written into <v>
   readonly formulaValues?: readonly SheetFormulaValues[] | undefined
+  /// External-link breaks and source retargets, resolved on the final contents
+  readonly externalLinkOps?: ExternalLinkOps | null | undefined
   readonly themeState?: WorkbookThemeState | null | undefined
   readonly workbookProtectionState?: { readonly lockStructure: boolean } | null | undefined
   readonly protectedRangeStates?: readonly SheetProtectedRangesState[] | undefined
   readonly tabColorStates?: readonly SheetTabColorState[] | undefined
-  readonly redactionStates?: readonly SheetRedactionState[] | undefined
+  /** null/undefined = the caller does not know the marks; the part is left as it is */
+  readonly redactionStates?: readonly SheetRedactionState[] | null | undefined
 }
 
 export interface StreamingSaveResult {
@@ -143,6 +151,32 @@ export async function readArchiveEntryText(
   }
 }
 
+/// One-shot text read of several archive entries via the sidecar (extract to a
+/// temp dir, read, clean up). The sidecar fails the whole request when one of
+/// the names is missing, so the caller must ask for names it knows exist.
+export async function readArchiveEntriesText(
+  client: ArchiveClient,
+  sourcePath: string,
+  entryNames: readonly string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  if (entryNames.length === 0) return out
+  const workDir = await mkdtemp(join(tmpdir(), 'ai-excel-read-'))
+  try {
+    const extracted = readEntriesResultSchema.parse(
+      await client.readEntries({ path: sourcePath, entries: [...entryNames], outputDir: workDir }),
+    )
+    for (const [index, entry] of extracted.entries.entries()) {
+      const name = entryNames[index]
+      if (name === undefined || !entry.path) continue
+      out.set(name, normalizeOoxmlPartPrefix(readFileSync(entry.path, 'utf8')))
+    }
+    return out
+  } finally {
+    await rm(workDir, { recursive: true, force: true })
+  }
+}
+
 /// Streaming save channel: the gateway plans patched entry contents in
 /// memory, the sidecar reassembles the archive on disk — untouched entries
 /// are raw-copied compressed bytes, verified afterwards via CRC manifests.
@@ -150,7 +184,10 @@ export async function saveWorkbookViaSidecar(
   request: StreamingSaveRequest,
 ): Promise<StreamingSaveResult> {
   const workDir = await mkdtemp(join(tmpdir(), 'ai-excel-save-'))
-  const temporaryTarget = join(dirname(request.targetPath), `.${randomUUID()}.tmp.xlsx`)
+  const temporaryTarget = join(
+    dirname(request.targetPath),
+    `${basename(request.targetPath)}.${randomUUID()}.tmp`,
+  )
   try {
     const manifest = manifestResultSchema.parse(
       await request.client.archiveManifest(request.sourcePath),
@@ -185,7 +222,9 @@ export async function saveWorkbookViaSidecar(
       request.tabColorStates ?? [],
       request.tableEdits ?? [],
       request.cellImageAdditions ?? [],
-      request.redactionStates ?? [],
+      request.externalLinkOps ?? null,
+      request.redactionStates ?? null,
+      request.slicerState ?? null,
     )
 
     const replacements = await writePlanContents(workDir, 'replace', plan.replaced)
@@ -427,14 +466,17 @@ async function copyOverLockedTarget(temporaryPath: string, path: string): Promis
     }
   }
   try {
-    await copyFile(temporaryPath, path)
+    await copyInPlace(temporaryPath, path)
   } catch (error) {
     if (backup && before) {
       const after = await stat(path).catch(() => null)
       const untouched = after?.size === before.size && after?.mtimeMs === before.mtimeMs
+      // Once the read-and-write copy has opened the workbook it has truncated
+      // it, whatever a cached stat on a FUSE mount still reports.
+      const opened = process.platform !== 'win32' && targetWasOpened(error)
       const restored =
-        untouched ||
-        (await copyFile(backup, path).then(
+        (untouched && !opened) ||
+        (await copyInPlace(backup, path).then(
           () => true,
           () => false,
         ))
@@ -455,6 +497,96 @@ async function copyOverLockedTarget(temporaryPath: string, path: string): Promis
   if (backup) await unlink(backup).catch(() => {})
 }
 
+/** One buffer of this size carries a whole copy, so a large workbook is never read into RAM. */
+const COPY_CHUNK_BYTES = 1024 * 1024
+
+/**
+ * Overwrite `target` with `source` in place, never unlinking it. Outside
+ * Windows plain reads and writes do it. No same-file check: the source is
+ * always the save's fresh temp or the tmpdir backup, never the workbook.
+ *
+ * Outside Windows, the platform copy (libuv) sets the destination's mode before
+ * it copies. A mount without permission support (GNOME gvfs SMB, WebDAV)
+ * refuses that, and libuv then unlinks the destination it had opened: copied
+ * over the workbook, that deletes it. Windows copies through CopyFileW, which
+ * does neither, so the platform copy stays the only step there.
+ */
+async function copyInPlace(source: string, target: string): Promise<void> {
+  if (process.platform === 'win32') {
+    await copyFile(source, target)
+    return
+  }
+  await writeCopy(source, target, 'w')
+}
+
+/**
+ * Copy to a new name, leaving any file already there untouched (EEXIST). When
+ * the platform copy fails otherwise, outside Windows the bytes go through plain
+ * reads and writes. If only that second attempt finds the name taken, the first
+ * error is reported, so EEXIST always means the file was there before.
+ */
+async function copyExclusive(source: string, target: string): Promise<void> {
+  let platformError: unknown
+  try {
+    await copyFile(source, target, constants.COPYFILE_EXCL)
+    return
+  } catch (error) {
+    if (process.platform === 'win32' || errorCode(error) === 'EEXIST') throw error
+    platformError = error
+  }
+  try {
+    await writeCopy(source, target, 'wx')
+  } catch (error) {
+    throw errorCode(error) === 'EEXIST' ? platformError : error
+  }
+}
+
+const errorCode = (error: unknown) => (error as NodeJS.ErrnoException).code ?? ''
+
+/** Set by writeCopy on a failure after it opened the target, which it truncates. */
+const targetWasOpened = (error: unknown) =>
+  (error as { targetOpened?: boolean } | null)?.targetOpened === true
+
+/** Front-to-back copy through one buffer; the mode goes in at creation, as a separate chmod is what these mounts refuse. */
+async function writeCopy(source: string, target: string, flags: 'w' | 'wx'): Promise<void> {
+  const input = await open(source, 'r')
+  try {
+    const stats = await input.stat()
+    if (!stats.isFile()) {
+      throw Object.assign(new Error(`EINVAL: not a regular file, copy '${source}'`), {
+        code: 'EINVAL',
+      })
+    }
+    const output = await open(target, flags, stats.mode & 0o777)
+    let closed = false
+    try {
+      const buffer = Buffer.allocUnsafe(COPY_CHUNK_BYTES)
+      for (;;) {
+        const { bytesRead } = await input.read(buffer, 0, buffer.length, null)
+        if (bytesRead === 0) break
+        let written = 0
+        while (written < bytesRead) {
+          const { bytesWritten } = await output.write(buffer, written, bytesRead - written, null)
+          if (bytesWritten === 0) {
+            throw Object.assign(new Error('EIO: the copy stopped making progress'), { code: 'EIO' })
+          }
+          written += bytesWritten
+        }
+      }
+      closed = true
+      // gvfs hands the bytes to the server on close, so a failed close is a failed copy.
+      await output.close()
+    } catch (error) {
+      if (!closed) await output.close().catch(() => {})
+      // Only a file this call created is removed; 'w' holds the user's workbook.
+      if (flags === 'wx') await unlink(target).catch(() => {})
+      throw error instanceof Error ? Object.assign(error, { targetOpened: true }) : error
+    }
+  } finally {
+    await input.close().catch(() => {})
+  }
+}
+
 /** Openable as a workbook wherever it ends up: keeps the name and extension. */
 const recoveredName = (path: string, tag: string) => {
   const ext = extname(path)
@@ -465,7 +597,7 @@ const recoveredName = (path: string, tag: string) => {
 async function preserveBackup(backup: string, path: string): Promise<string> {
   const recovered = join(dirname(path), recoveredName(path, String(Date.now())))
   try {
-    await copyFile(backup, recovered)
+    await copyExclusive(backup, recovered)
   } catch {
     return backup
   }

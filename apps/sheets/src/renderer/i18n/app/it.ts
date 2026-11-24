@@ -206,6 +206,11 @@ export const it = {
   appInvalidGroupField: 'Campo di raggruppamento non valido.',
   appInvalidPageField: 'Campo del filtro rapporto non valido.',
   appPivotPageItemMissing: 'L\'elemento del filtro "{item}" non appartiene al campo "{label}".',
+  appPivotBaseFieldMissing:
+    'La modalità "Mostra valori come" di un campo valore richiede un campo base.',
+  appPivotBaseFieldNotAxis:
+    'Il campo base "{label}" deve trovarsi nelle righe o nelle colonne della tabella pivot.',
+  appPivotBaseItemMissing: 'L\'elemento base "{item}" non appartiene al campo "{label}".',
   appInvalidLabelFilterField: 'Il campo del filtro etichette non è valido.',
   appInvalidValueFieldIndex: "L'indice del campo valori {index} non è valido.",
   appInvalidValueField: 'Campo valori non valido.',

@@ -459,6 +459,25 @@ describe('buildChartSpaceXml style options (generate → parse round-trip)', () 
     expect(m.gapWidthPct).toBe(80)
   })
 
+  it('an empty axis <c:title> (no c:tx) reads as the "Axis Title" placeholder', () => {
+    const xml = buildChartSpaceXml({ ...BASE, valAxisTitle: 'Sales' }).replace(
+      /(<c:valAx>.*?<c:title>)<c:tx>.*?<\/c:tx>/s,
+      '$1',
+    )
+    expect(xml).toContain('<c:title>')
+    const m = parseChartXml(xml)!
+    expect(m.valAxis?.title).toBe('Axis Title')
+    expect(m.catAxis?.title).toBeUndefined()
+  })
+
+  it('a cell-linked axis title (c:tx/c:strRef) keeps its cached text', () => {
+    const xml = buildChartSpaceXml({ ...BASE, valAxisTitle: 'Sales' }).replace(
+      /(<c:valAx>.*?<c:title>)<c:tx>.*?<\/c:tx>/s,
+      '$1<c:tx><c:strRef><c:f>Sheet1!$$A$$1</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>Linked</c:v></c:pt></c:strCache></c:strRef></c:tx>',
+    )
+    expect(parseChartXml(xml)!.valAxis?.title).toBe('Linked')
+  })
+
   it('legendPos none writes no c:legend', () => {
     const xml = buildChartSpaceXml({ ...BASE, legendPos: 'none' })
     expect(xml).not.toContain('<c:legend>')
@@ -1561,5 +1580,16 @@ describe('parseChartXml: data table and value cache format', () => {
     expect(
       parseChartXml(xml.replace(/<c:dTable>[\s\S]*<\/c:dTable>/, ''))!.dataTable,
     ).toBeUndefined()
+  })
+})
+
+describe('seriesless chart', () => {
+  it('keeps a plot with no c:ser as a chart model (title survives, no series)', () => {
+    const m = parseChartXml(
+      `<c:chartSpace xmlns:c="c" xmlns:a="a"><c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>Orders</a:t></a:r></a:p></c:rich></c:tx></c:title><c:plotArea><c:barChart><c:barDir val="col"/><c:axId val="1"/><c:axId val="2"/></c:barChart><c:catAx><c:axId val="1"/><c:delete val="1"/></c:catAx><c:valAx><c:axId val="2"/><c:delete val="1"/></c:valAx></c:plotArea></c:chart></c:chartSpace>`,
+    )
+    expect(m).not.toBeNull()
+    expect(m!.series).toEqual([])
+    expect(m!.title).toBe('Orders')
   })
 })

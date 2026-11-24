@@ -197,6 +197,10 @@ export const vi = {
   appInvalidGroupField: 'Trường nhóm không hợp lệ.',
   appInvalidPageField: 'Trường bộ lọc báo cáo không hợp lệ.',
   appPivotPageItemMissing: 'Mục bộ lọc "{item}" không thuộc trường "{label}".',
+  appPivotBaseFieldMissing:
+    'Chế độ "Hiển thị giá trị dưới dạng" của trường giá trị cần một trường cơ sở.',
+  appPivotBaseFieldNotAxis: 'Trường cơ sở "{label}" phải nằm trong hàng hoặc cột của bảng trục.',
+  appPivotBaseItemMissing: 'Mục cơ sở "{item}" không thuộc trường "{label}".',
   appInvalidLabelFilterField: 'Trường lọc nhãn không hợp lệ.',
   appInvalidValueFieldIndex: 'Chỉ mục trường giá trị {index} không hợp lệ.',
   appInvalidValueField: 'Trường giá trị không hợp lệ.',
