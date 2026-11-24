@@ -6,6 +6,7 @@ export const fr = {
   aiEmptyBuildBody:
     "Décrivez le tableau, les données ou le graphique voulu — l'IA les crée directement.",
   aiGskLoginBtn: 'Se connecter à Genspark',
+  aiGskLoginOk: 'Connecté à Genspark',
   aiUndelivered: 'Non envoyé',
   aiRetry: 'Réessayer',
   aiOpenAssistant: "Ouvrir l'assistant IA",
@@ -19,15 +20,12 @@ export const fr = {
   aiSettingsTitle: 'Paramètres IA',
   aiSetUp: "Configurer l'IA",
   aiNewChat: 'Nouvelle conversation',
-  aiCopyReplyTitle: 'Copier la réponse',
-  aiCopyCode: 'Copier le code',
   aiCollapsePanel: 'Réduire le volet IA',
   aiHistorySep: '—— Conversation précédente ——',
   aiEmptyTitle: "Interroger l'IA sur ce classeur",
   aiEmptyBodyLine1: 'Décrivez une modification ou posez une question sur les données.',
   aiThinkingAria: 'Réflexion',
   aiThinking: 'Réflexion…',
-  aiThinkingBlock: 'Raisonnement',
   aiWorkedSteps: 'Terminé · {n} étapes',
   aiGroupWorking: 'En cours…',
   aiWorking: 'Exécution…',
@@ -43,8 +41,6 @@ export const fr = {
   aiCellEmpty: 'vide',
   aiRemoveAttachment: 'Supprimer la pièce jointe',
   aiAttachTitle: 'Joindre des fichiers locaux (ou les faire glisser sur le volet)',
-  aiSetupNeeded:
-    "Aucun modèle d'IA configuré pour l'instant — configurez-en un ou connectez-vous avec Genspark.",
   aiComposerPlaceholder: "Demandez à l'IA d'analyser ou de modifier ce classeur…",
   aiHintIdle: 'Entrée pour envoyer',
   aiHintBusy: 'Échap pour arrêter',
@@ -115,5 +111,10 @@ export const fr = {
   aiScopeRangeTip:
     "L'IA interprète « cette colonne / ces lignes / la partie sélectionnée » comme cette plage, figée pendant toute l'exécution dès l'envoi",
   aiScopeClearTitle: 'Retirer la portée de la plage et viser toute la feuille',
+  aiCopyReplyTitle: 'Copier la réponse',
+  aiCopyCode: 'Copier le code',
+  aiThinkingBlock: 'Raisonnement',
+  aiSetupNeeded:
+    "Aucun modèle d'IA configuré pour l'instant — configurez-en un ou connectez-vous avec Genspark.",
   aiAppName: 'Feuilles de calcul',
 } satisfies Record<keyof typeof zh, string>

@@ -435,14 +435,18 @@ export function AiChatPanel({
     refresh()
     window.addEventListener('focus', refresh)
     let off: (() => void) | undefined
+    let offLogin: (() => void) | undefined
     try {
       off = MODEL_BRIDGE.onSettingsChanged?.(refresh)
+      offLogin = window.desktopApi?.onGskLoginLanded?.(refresh)
     } catch {
       off = undefined
+      offLogin = undefined
     }
     return () => {
       window.removeEventListener('focus', refresh)
       off?.()
+      offLogin?.()
     }
   }, [])
 

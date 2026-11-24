@@ -25,6 +25,19 @@ declare global {
       setAiPermissions(mode: 'auto' | 'smart' | 'paranoid'): Promise<unknown>
       onAiPermissionsChanged(handler: (mode: 'auto' | 'smart' | 'paranoid') => void): () => void
     }
+    /** model file naming bridge (shell main ai:suggest-file-name) */
+    readonly aiNamingApi?: {
+      readonly suggestFileName?: (input: { content: string }) => Promise<{
+        ok: boolean
+        name?: string
+        reason?: string
+      }>
+    }
+    /** the frame's spell engine, bridged from webFrame in the preload */
+    readonly nativeSpell?: {
+      readonly isWordMisspelled: (word: string) => boolean
+      readonly getWordSuggestions: (word: string) => string[]
+    }
   }
 }
 

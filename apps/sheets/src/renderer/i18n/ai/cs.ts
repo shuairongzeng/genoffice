@@ -6,6 +6,7 @@ export const cs = {
   aiEmptyBuildBody:
     'Popište tabulku, data nebo graf, které potřebujete — AI je vytvoří přímo na místě.',
   aiGskLoginBtn: 'Přihlásit se ke Genspark',
+  aiGskLoginOk: 'Přihlášeno ke Genspark',
   aiUndelivered: 'Neodesláno',
   aiRetry: 'Zkusit znovu',
   aiOpenAssistant: 'Otevřít asistenta AI',
@@ -18,15 +19,12 @@ export const cs = {
   aiSettingsTitle: 'Nastavení AI',
   aiSetUp: 'Nastavit AI',
   aiNewChat: 'Nová konverzace',
-  aiCopyReplyTitle: 'Kopírovat odpověď',
-  aiCopyCode: 'Kopírovat kód',
   aiCollapsePanel: 'Sbalit panel AI',
   aiHistorySep: '—— Předchozí konverzace ——',
   aiEmptyTitle: 'Zeptejte se AI na tento sešit',
   aiEmptyBodyLine1: 'Popište změnu nebo se zeptejte na data.',
   aiThinkingAria: 'Přemýšlí',
   aiThinking: 'Přemýšlí…',
-  aiThinkingBlock: 'Proces myšlení',
   aiWorkedSteps: 'Hotovo · {n} kroků',
   aiGroupWorking: 'Pracuje…',
   aiWorking: 'Pracuje…',
@@ -42,8 +40,6 @@ export const cs = {
   aiCellEmpty: 'prázdná',
   aiRemoveAttachment: 'Odebrat přílohu',
   aiAttachTitle: 'Připojit místní soubory (nebo je přetáhněte na panel)',
-  aiSetupNeeded:
-    'Zatím není nakonfigurován žádný AI model — nastavte ho, nebo se přihlaste přes Genspark.',
   aiComposerPlaceholder: 'Požádejte AI o analýzu nebo úpravu tohoto sešitu…',
   aiHintIdle: 'Enter odešle',
   aiHintBusy: 'Esc zastaví',
@@ -114,5 +110,10 @@ export const cs = {
   aiScopeRangeTip:
     'AI chápe „tento sloupec / tyto řádky / vybranou část“ jako tuto oblast, která po odeslání zůstává pro celý běh pevná',
   aiScopeClearTitle: 'Zrušit omezení na oblast a pracovat s celým listem',
+  aiCopyReplyTitle: 'Kopírovat odpověď',
+  aiCopyCode: 'Kopírovat kód',
+  aiThinkingBlock: 'Proces myšlení',
+  aiSetupNeeded:
+    'Zatím není nakonfigurován žádný AI model — nastavte ho, nebo se přihlaste přes Genspark.',
   aiAppName: 'Sheets',
 } satisfies Record<keyof typeof zh, string>

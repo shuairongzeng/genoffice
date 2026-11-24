@@ -5,6 +5,7 @@ export const vi = {
   aiEmptyBuildTitle: 'Để AI xây dựng sổ làm việc này cho bạn',
   aiEmptyBuildBody: 'Mô tả bảng, dữ liệu hoặc biểu đồ bạn cần — AI sẽ tạo trực tiếp tại chỗ.',
   aiGskLoginBtn: 'Đăng nhập vào Genspark',
+  aiGskLoginOk: 'Đã đăng nhập Genspark',
   aiUndelivered: 'Chưa gửi',
   aiRetry: 'Thử lại',
   aiOpenAssistant: 'Mở trợ lý AI',
@@ -18,15 +19,12 @@ export const vi = {
   aiSettingsTitle: 'Cài đặt AI',
   aiSetUp: 'Thiết lập AI',
   aiNewChat: 'Cuộc trò chuyện mới',
-  aiCopyReplyTitle: 'Sao chép câu trả lời',
-  aiCopyCode: 'Sao chép mã',
   aiCollapsePanel: 'Thu gọn bảng điều khiển AI',
   aiHistorySep: '—— Cuộc trò chuyện trước đó ——',
   aiEmptyTitle: 'Hỏi AI về sổ làm việc này',
   aiEmptyBodyLine1: 'Mô tả thay đổi hoặc đặt câu hỏi về dữ liệu.',
   aiThinkingAria: 'Đang suy nghĩ',
   aiThinking: 'Đang suy nghĩ…',
-  aiThinkingBlock: 'Quá trình suy nghĩ',
   aiWorkedSteps: 'Đã thực hiện · {n} bước',
   aiGroupWorking: 'Đang xử lý…',
   aiWorking: 'Đang thực hiện…',
@@ -42,8 +40,6 @@ export const vi = {
   aiCellEmpty: 'trống',
   aiRemoveAttachment: 'Xóa tệp đính kèm',
   aiAttachTitle: 'Đính kèm tệp cục bộ (hoặc kéo thả vào bảng điều khiển)',
-  aiSetupNeeded:
-    'Chưa có mô hình AI nào được cấu hình — hãy thiết lập một mô hình hoặc đăng nhập bằng Genspark.',
   aiComposerPlaceholder: 'Yêu cầu AI phân tích hoặc cập nhật sổ làm việc này…',
   aiHintIdle: 'Nhấn Enter để gửi',
   aiHintBusy: 'Nhấn Esc để dừng',
@@ -113,5 +109,10 @@ export const vi = {
   aiScopeRangeTip:
     'AI sẽ hiểu "cột này / các hàng này / phần đã chọn" là dải ô này và vùng này sẽ được cố định cho lượt chạy sau khi bạn gửi',
   aiScopeClearTitle: 'Bỏ phạm vi dải ô và áp dụng cho toàn bộ trang tính',
+  aiCopyReplyTitle: 'Sao chép câu trả lời',
+  aiCopyCode: 'Sao chép mã',
+  aiThinkingBlock: 'Quá trình suy nghĩ',
+  aiSetupNeeded:
+    'Chưa có mô hình AI nào được cấu hình — hãy thiết lập một mô hình hoặc đăng nhập bằng Genspark.',
   aiAppName: 'Bảng tính',
 } satisfies Record<keyof typeof zh, string>
