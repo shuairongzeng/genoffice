@@ -6,7 +6,7 @@
  * textpages: content-order text, per-page size and a char count that doubles
  * as the "does this page have a text layer at all" probe (scanned pages are 0).
  */
-import { chainPdfium, loadPdfium, withDocument, type Pdfium } from './text-edit'
+import { chainPdfium, loadPdfium, restoreLineHyphens, withDocument, type Pdfium } from './text-edit'
 
 export interface PdfPageText {
   /** 1-based page number */
@@ -39,6 +39,8 @@ export interface ReadPdfTextOptions {
   pages?: readonly number[]
   /** stop extracting once the accumulated text reaches this many chars */
   charBudget?: number
+  /** user password for an encrypted file */
+  password?: string
 }
 
 /**
@@ -78,12 +80,10 @@ function pageText(m: Pdfium, textPage: number, count: number): string {
   try {
     const written = m._FPDFText_GetText(textPage, 0, count, buf)
     if (written <= 0) return ''
-    return Buffer.from(m.HEAPU8.subarray(buf, buf + written * 2))
+    const raw = Buffer.from(m.HEAPU8.subarray(buf, buf + written * 2))
       .toString('utf16le')
       .replace(/\0+$/, '')
-      .replace(/\r\n/g, '\n')
-      .replace(/\r/g, '\n')
-      .trimEnd()
+    return restoreLineHyphens(raw).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd()
   } finally {
     m._free(buf)
   }
@@ -99,7 +99,7 @@ export function readPdfText(
 ): Promise<PdfTextDoc> {
   return chainPdfium(async () => {
     const m = await loadPdfium()
-    return withDocument(m, bytes, async (doc) => {
+    const extract = async (doc: number): Promise<PdfTextDoc> => {
       const pageCount = m._FPDF_GetPageCount(doc)
       const from = Math.max(1, Math.min(options.fromPage ?? 1, pageCount))
       const to = Math.max(from, Math.min(options.toPage ?? pageCount, pageCount))
@@ -172,6 +172,7 @@ export function readPdfText(
         }
       }
       return { pageCount, info, pages, truncated }
-    })
+    }
+    return withDocument(m, bytes, extract, options.password)
   })
 }

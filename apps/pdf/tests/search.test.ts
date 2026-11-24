@@ -87,8 +87,8 @@ describe('buildSearchIndex', () => {
     expect(index[0]!.items[1]!.rot).toBe(true)
   })
 
-  it('synthetic italic shear (c ≠ 0, horizontal baseline) is not flagged as rotated', async () => {
-    // ~12° shear as writers emit for fake italics: b = 0, c = tan(12°) × size
+  it('synthetic italic shear (c \u2260 0, horizontal baseline) is not flagged as rotated', async () => {
+    // ~12\u00b0 shear as writers emit for fake italics: b = 0, c = tan(12\u00b0) \u00d7 size
     const doc = fakeDoc([
       [{ str: 'emphasis', transform: [12, 0, 2.55, 12, 100, 700], width: 48, height: 12 }],
     ])
@@ -168,30 +168,29 @@ describe('searchInIndex', () => {
   })
 
   it('keeps folded text the same length so rects stay aligned (dotted capital)', async () => {
-    const doc = fakeDoc([[item('İ', 10, 700, 10, 12)]])
+    const doc = fakeDoc([[item('\u0130', 10, 700, 10, 12)]])
     const index = await buildSearchIndex(doc)
     expect(index[0]!.lower.length).toBe(index[0]!.text.length)
     const matches = searchInIndex(index, 'i')
     expect(matches).toHaveLength(0)
-    expect(searchInIndex(index, 'İ')).toHaveLength(1)
+    expect(searchInIndex(index, '\u0130')).toHaveLength(1)
   })
 
-  // issue #56 P1 #6: case-sensitive + whole-word find options
+  // issue #56 P1 #6: case-sensitive + whole-word find options (backward-compat alias)
   const page = (text: string): SearchIndex[number] =>
     entry(text, [{ start: 0, end: text.length, x: 0, y: 0, w: text.length * 10, h: 10 }])
 
   it('defaults keep the folded substring behavior with no options argument', () => {
     const index = [page('Contract contract CONTRACT')]
     expect(searchInIndex(index, 'contract')).toHaveLength(3)
-    expect(searchInIndex(index, 'CONTRACT')).toHaveLength(3) // the query folds too
-    expect(searchInIndex(index, 'contract', {})).toHaveLength(3) // empty options object
+    expect(searchInIndex(index, 'CONTRACT')).toHaveLength(3)
+    expect(searchInIndex(index, 'contract', {})).toHaveLength(3)
   })
 
   it('caseSensitive matches only the exact case and still emits rects', () => {
     const index = [page('Contract contract CONTRACT')]
     const hits = searchInIndex(index, 'Contract', { caseSensitive: true })
     expect(hits).toHaveLength(1)
-    // the surviving hit goes through the same shared item/rect math
     expect(hits[0]!.rects).toHaveLength(1)
     expect(searchInIndex(index, 'contract', { caseSensitive: true })).toHaveLength(1)
     expect(searchInIndex(index, 'CONTRACT', { caseSensitive: true })).toHaveLength(1)
@@ -199,23 +198,17 @@ describe('searchInIndex', () => {
   })
 
   it('wholeWord rejects hits with letter/digit neighbors and accepts real boundaries', () => {
-    // 'cat' as a whole word: at start of text, before '.', and at end of text;
-    // word-internal inside 'catalog', 'scat', 'concat'
     const index = [page('cat catalog scat cat. concat cat')]
     expect(searchInIndex(index, 'cat', { wholeWord: true })).toHaveLength(3)
     expect(searchInIndex(index, 'cat')).toHaveLength(6)
   })
 
   it('wholeWord rejects digit neighbors too, not just letters', () => {
-    // '9cat' (digit before) and 'cat7' (digit after) are not whole words
     const index = [page('cat 9cat cat7')]
     expect(searchInIndex(index, 'cat', { wholeWord: true })).toHaveLength(1)
   })
 
   it('wholeWord steps one char past a rejected hit so an overlapping valid hit still lands', () => {
-    // 'a.a' at offset 1 is rejected ('x' before it) and overlaps the
-    // boundary-valid occurrence at offset 3 ('.' before, end after) —
-    // advancing past the whole rejected occurrence would skip it
     const index = [page('xa.a.a')]
     expect(searchInIndex(index, 'a.a', { wholeWord: true })).toHaveLength(1)
     const versions = [page('v1.1.1')]
@@ -232,7 +225,100 @@ describe('searchInIndex', () => {
     const index = [page('Cat cat CAT catcat')]
     expect(searchInIndex(index, 'cat', { caseSensitive: true, wholeWord: true })).toHaveLength(1)
     expect(searchInIndex(index, 'Cat', { caseSensitive: true, wholeWord: true })).toHaveLength(1)
-    // folded query, whole-word only: Cat/cat/CAT stand alone, catcat does not
     expect(searchInIndex(index, 'cat', { wholeWord: true })).toHaveLength(3)
+  })
+})
+
+describe('searchInIndex \u2014 matchCase', () => {
+  const entry = (text: string): SearchIndex[number] => ({
+    text,
+    lower: foldCase(text),
+    items: [{ start: 0, end: text.length, x: 0, y: 0, w: text.length * 10, h: 10 }],
+  })
+
+  it('off by default: matches ignore case', () => {
+    const index = [entry('Hello World')]
+    expect(searchInIndex(index, 'hElLo WoRlD')).toHaveLength(1)
+  })
+
+  it('on: only exact-case hits are returned', () => {
+    const index = [entry('Hello hello HELLO')]
+    expect(searchInIndex(index, 'Hello', { matchCase: true })).toHaveLength(1)
+    expect(searchInIndex(index, 'hello', { matchCase: true })).toHaveLength(1)
+    expect(searchInIndex(index, 'HELLO', { matchCase: true })).toHaveLength(1)
+  })
+
+  it('on: the precomputed fold is bypassed (original text is searched)', () => {
+    const index = [entry('\u0130stanbul istanbul')]
+    // '\u0130'.toLowerCase() grows a dot; the fold keeps it length-stable, so the
+    // case-sensitive scan over the original text finds plain 'istanbul' only
+    expect(searchInIndex(index, 'istanbul', { matchCase: true })).toHaveLength(1)
+    expect(searchInIndex(index, '\u0130stanbul', { matchCase: true })).toHaveLength(1)
+  })
+
+  it('combines with wholeWord', () => {
+    const index = [entry('Word word Word')]
+    expect(searchInIndex(index, 'word', { matchCase: true, wholeWord: true })).toHaveLength(1)
+    expect(searchInIndex(index, 'Word', { matchCase: true, wholeWord: true })).toHaveLength(2)
+  })
+})
+
+describe('searchInIndex \u2014 wholeWord', () => {
+  const entry = (text: string): SearchIndex[number] => ({
+    text,
+    lower: foldCase(text),
+    items: [{ start: 0, end: text.length, x: 0, y: 0, w: text.length * 10, h: 10 }],
+  })
+
+  it('off by default: substrings inside longer words match', () => {
+    const index = [entry('word words wordy')]
+    expect(searchInIndex(index, 'word')).toHaveLength(3)
+  })
+
+  it('on: hits glued into a longer word are rejected', () => {
+    const index = [entry('word words wordy a word')]
+    expect(searchInIndex(index, 'word', { wholeWord: true })).toHaveLength(2)
+  })
+
+  it('on: punctuation and digits delimit words', () => {
+    const index = [entry('foo.bar foo-bar (foo) foo1')]
+    expect(searchInIndex(index, 'foo', { wholeWord: true })).toHaveLength(3)
+  })
+
+  it('on: an underscore still counts as a word character', () => {
+    const index = [entry('foo_bar foo')]
+    expect(searchInIndex(index, 'foo', { wholeWord: true })).toHaveLength(1)
+  })
+
+  it('degrades to plain matching for CJK sequences (CJK has no word boundaries)', () => {
+    const index = [entry('\u4e2d\u6587\u6d4b\u8bd5\u4e2d\u6587\u6d4b\u8bd5\u4e2d\u6587')]
+    expect(searchInIndex(index, '\u4e2d\u6587', { wholeWord: true })).toHaveLength(3)
+  })
+
+  it('treats a CJK neighbour as a delimiter on the Latin side', () => {
+    const index = [entry('\u4e2d\u6587word\u4e2d\u6587 word-word')]
+    // 'word' glued between CJK counts as whole, and both halves of the
+    // hyphen-delimited 'word-word' are whole words of their own
+    expect(searchInIndex(index, 'word', { wholeWord: true })).toHaveLength(3)
+  })
+
+  it('still rejects Latin runs glued into longer Latin words next to CJK', () => {
+    const index = [entry('\u4e2d\u6587wordy\u4e2d\u6587')]
+    expect(searchInIndex(index, 'word', { wholeWord: true })).toHaveLength(0)
+  })
+
+  it('works across item boundaries where the hit spans two items', () => {
+    const index = [
+      {
+        text: 'abc def',
+        lower: 'abc def',
+        items: [
+          { start: 0, end: 4, x: 0, y: 0, w: 40, h: 10 },
+          { start: 4, end: 7, x: 40, y: 0, w: 30, h: 10 },
+        ],
+      },
+    ]
+    expect(searchInIndex(index, 'def', { wholeWord: true })).toHaveLength(1)
+    expect(searchInIndex(index, 'c d', { wholeWord: true })).toHaveLength(0)
   })
 })

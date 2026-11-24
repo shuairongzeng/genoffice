@@ -1,5 +1,7 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { foldCase, isWordChar } from '@genoffice/ui'
+import { findPattern } from './redact-patterns'
+import type { RedactPattern } from './redact-patterns'
 
 /** One hit: original page + PDF user-space rects (multiple when spanning several text items) */
 export interface SearchMatch {
@@ -7,7 +9,7 @@ export interface SearchMatch {
   rects: [number, number, number, number][]
 }
 
-interface IndexedItem {
+export interface IndexedItem {
   start: number
   end: number
   x: number
@@ -30,6 +32,35 @@ export interface PageEntry {
 export type SearchIndex = PageEntry[]
 
 const MAX_MATCHES = 1000
+
+/** Match modifiers for `searchInIndex`; both default off (plain case-insensitive scan) */
+export interface SearchOptions {
+  /** Case-sensitive matching — compare characters without folding case */
+  matchCase?: boolean
+  /** Backward-compatible alias for `matchCase` */
+  caseSensitive?: boolean
+  /** Whole-word matching — the hit must not continue a longer word on either side */
+  wholeWord?: boolean
+}
+
+/** CJK scripts (kana, hangul, ideographs, and the punctuation/fullwidth blocks
+    that travel with them): text written with these has no inter-word spaces */
+const CJK_RE =
+  /[\u1100-\u11FF\u2E80-\u318F\u31A0-\u31BF\u3400-\u4DBF\u4E00-\u9FFF\uA960-\uA97F\uAC00-\uD7AF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFFEF\u{20000}-\u{2FA1F}]/u
+
+/** Whole-word boundary check for the hit at [start, start + len) of `text`.
+    CJK characters never count as word characters here: CJK scripts do not
+    separate words with spaces, so there is no word boundary to assert inside
+    CJK runs — a CJK neighbour acts like a delimiter and a CJK match edge
+    imposes no boundary at all. That degrades whole-word matching to a plain
+    search for CJK sequences (and for the CJK side of mixed text) while Latin
+    runs glued into a longer word are still rejected. */
+function wordBoundaryOk(text: string, start: number, len: number): boolean {
+  const wordChar = (ch: string | undefined): boolean => !!ch && !CJK_RE.test(ch) && isWordChar(ch)
+  const left = !wordChar(text[start - 1]) || !wordChar(text[start])
+  const right = !wordChar(text[start + len]) || !wordChar(text[start + len - 1])
+  return left && right
+}
 
 interface RawTextItem {
   str?: string
@@ -103,61 +134,132 @@ export function createSearchIndexCache(): SearchIndexCache {
   }
 }
 
-/** How the query matches text (issue #56 P1 #6): the default is the
- *  case-insensitive substring the viewer always had; the two options are the
- *  editor-grade refinements a contract PDF needs. */
-export interface SearchOptions {
-  /** match the query's exact case instead of folding */
-  caseSensitive?: boolean
-  /** the hit must sit at word boundaries — a letter or digit directly beside
-   *  it disqualifies (the boundary alphabet is script-agnostic: CJK text is
-   *  all letters, so whole-word rarely fires there, exactly as in Word) */
-  wholeWord?: boolean
+/** PDF-space boxes covering chars [s, e) of a page, interpolated within each item by char ratio */
+export function rangeRects(
+  items: readonly IndexedItem[],
+  s: number,
+  e: number,
+): [number, number, number, number][] {
+  const rects: [number, number, number, number][] = []
+  for (const it of items) {
+    if (it.end <= s || it.start >= e) continue
+    const len = it.end - it.start
+    const lo = (Math.max(s, it.start) - it.start) / len
+    const hi = (Math.min(e, it.end) - it.start) / len
+    const x1 = it.x + it.w * lo
+    const x2 = it.x + it.w * hi
+    if (x2 - x1 < 0.01) continue
+    rects.push([x1, it.y, x2, it.y + it.h])
+  }
+  return rects
 }
 
-/** Full-text search over the built index; rects linearly interpolated within items by char ratio (approximate; bounding box for rotated glyphs) */
+/** Full-text search with optional case/word modifiers; rects linearly interpolated within items by char ratio (approximate; bounding box for rotated glyphs) */
 export function searchInIndex(
   index: SearchIndex,
   query: string,
-  options: SearchOptions = {},
+  opts: SearchOptions = {},
 ): SearchMatch[] {
-  const q = options.caseSensitive ? query : foldCase(query)
+  const matchCase = opts.matchCase ?? opts.caseSensitive ?? false
+  const wholeWord = opts.wholeWord ?? false
+  const q = matchCase ? query : foldCase(query)
   if (!q) return []
   const matches: SearchMatch[] = []
   for (let pageIndex = 0; pageIndex < index.length; pageIndex++) {
-    const entry = index[pageIndex]!
-    const { items } = entry
-    // exact-case matching searches the original text; the folded default
-    // searches the folded twin. The item ranges are the same either way, so
-    // the rect math is shared.
-    const hay = options.caseSensitive ? entry.text : entry.lower
+    const { text, lower, items } = index[pageIndex]!
+    // The sensitive path reads the original text; the insensitive path reuses
+    // the precomputed fold so a search never re-folds the whole page. foldCase
+    // is length-preserving, so hit offsets are valid in `text` either way.
+    const hay = matchCase ? text : lower
     let from = 0
     while (matches.length < MAX_MATCHES) {
       const s = hay.indexOf(q, from)
       if (s < 0) break
-      const e = s + q.length
-      if (options.wholeWord && (isWordChar(hay[s - 1]) || isWordChar(hay[e]))) {
-        // a rejected candidate can overlap a valid one ('a.a' in 'xa.a.a'):
-        // step one char past its start, as the shared findInText does,
-        // instead of past the whole occurrence
+      if (wholeWord && !wordBoundaryOk(text, s, q.length)) {
         from = s + 1
         continue
       }
+      const e = s + q.length
       from = e
-      const rects: [number, number, number, number][] = []
-      for (const it of items) {
-        if (it.end <= s || it.start >= e) continue
-        const len = it.end - it.start
-        const lo = (Math.max(s, it.start) - it.start) / len
-        const hi = (Math.min(e, it.end) - it.start) / len
-        const x1 = it.x + it.w * lo
-        const x2 = it.x + it.w * hi
-        if (x2 - x1 < 0.01) continue
-        rects.push([x1, it.y, x2, it.y + it.h])
-      }
+      const rects = rangeRects(items, s, e)
       if (rects.length > 0) matches.push({ pageIndex, rects })
     }
     if (matches.length >= MAX_MATCHES) break
   }
   return matches
+}
+
+export interface PatternMatch extends SearchMatch {
+  pattern: RedactPattern
+  text: string
+  /** Part of the hit sits on a rotated run, whose interpolated box does not cover the glyphs */
+  rotated?: boolean
+}
+
+/** Every hit of the given sensitive-information patterns, page by page, capped like search */
+export function findPatternsInIndex(
+  index: SearchIndex,
+  patterns: readonly RedactPattern[],
+  skipPage: (pageIndex: number) => boolean = () => false,
+): PatternMatch[] {
+  const matches: PatternMatch[] = []
+  for (let pageIndex = 0; pageIndex < index.length; pageIndex++) {
+    if (skipPage(pageIndex)) continue
+    const { text, items } = index[pageIndex]!
+    for (const pattern of patterns) {
+      for (const [s, e] of findPattern(pattern, text)) {
+        const rects = rangeRects(items, s, e)
+        if (rects.length === 0) continue
+        const rotated = items.some((it) => it.rot && it.end > s && it.start < e)
+        matches.push({
+          pageIndex,
+          rects,
+          pattern,
+          text: text.slice(s, e),
+          ...(rotated ? { rotated: true } : {}),
+        })
+        if (matches.length >= MAX_MATCHES) return matches
+      }
+    }
+  }
+  return matches
+}
+
+/** Pad a text box so descenders and the interpolation slack at either end are covered */
+export function redactionRect([x1, y1, x2, y2]: [number, number, number, number]): [
+  number,
+  number,
+  number,
+  number,
+] {
+  const h = y2 - y1
+  return [x1 - h * 0.1, y1 - h * 0.25, x2 + h * 0.1, y2 + h * 0.05]
+}
+
+export interface PatternMarks {
+  marks: { pageIndex: number; rect: [number, number, number, number] }[]
+  /** Distinct hits that produced marks */
+  hits: number
+  /** Hits skipped because their text is rotated */
+  rotated: number
+  /** Hits dropped once `room` marks were used */
+  capped: boolean
+}
+
+/** Redaction marks for pattern hits, skipping rotated runs, at most `room` rects */
+export function patternMarks(matches: readonly PatternMatch[], room: number): PatternMarks {
+  const out: PatternMarks = { marks: [], hits: 0, rotated: 0, capped: false }
+  for (const m of matches) {
+    if (m.rotated) {
+      out.rotated++
+      continue
+    }
+    if (out.marks.length + m.rects.length > room) {
+      out.capped = true
+      break
+    }
+    for (const r of m.rects) out.marks.push({ pageIndex: m.pageIndex, rect: redactionRect(r) })
+    out.hits++
+  }
+  return out
 }
