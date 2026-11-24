@@ -109,6 +109,8 @@
 
 !macro GenOfficeRegisterOpenVerbs
   !insertmacro GenOfficeRegisterOpenVerb "docx"
+  !insertmacro GenOfficeRegisterOpenVerb "doc"
+  !insertmacro GenOfficeRegisterOpenVerb "dot"
   !insertmacro GenOfficeRegisterOpenVerb "xlsx"
   !insertmacro GenOfficeRegisterOpenVerb "xlsm"
   !insertmacro GenOfficeRegisterOpenVerb "pptx"
@@ -120,6 +122,8 @@
   !insertmacro GenOfficeRegisterOpenVerb "ots"
   !insertmacro GenOfficeRegisterOpenVerb "odt"
   !insertmacro GenOfficeRegisterOpenVerb "ott"
+  !insertmacro GenOfficeRegisterOpenVerb "hwpx"
+  !insertmacro GenOfficeRegisterOpenVerb "hwp"
   !insertmacro GenOfficeRegisterOpenVerb "odp"
   !insertmacro GenOfficeRegisterOpenVerb "otp"
   !insertmacro GenOfficeRegisterOpenVerb "pdf"
@@ -169,6 +173,8 @@
 
 !macro GenOfficeUnregisterOpenVerbs
   !insertmacro GenOfficeUnregisterOpenVerb "docx"
+  !insertmacro GenOfficeUnregisterOpenVerb "doc"
+  !insertmacro GenOfficeUnregisterOpenVerb "dot"
   !insertmacro GenOfficeUnregisterOpenVerb "xlsx"
   !insertmacro GenOfficeUnregisterOpenVerb "xlsm"
   !insertmacro GenOfficeUnregisterOpenVerb "pptx"
@@ -180,6 +186,8 @@
   !insertmacro GenOfficeUnregisterOpenVerb "ots"
   !insertmacro GenOfficeUnregisterOpenVerb "odt"
   !insertmacro GenOfficeUnregisterOpenVerb "ott"
+  !insertmacro GenOfficeUnregisterOpenVerb "hwpx"
+  !insertmacro GenOfficeUnregisterOpenVerb "hwp"
   !insertmacro GenOfficeUnregisterOpenVerb "odp"
   !insertmacro GenOfficeUnregisterOpenVerb "otp"
   !insertmacro GenOfficeUnregisterOpenVerb "pdf"
@@ -249,6 +257,8 @@
   !insertmacro GenOfficeRegisterCapability "ots" "OpenDocument Spreadsheet Template"
   !insertmacro GenOfficeRegisterCapability "odt" "OpenDocument Text"
   !insertmacro GenOfficeRegisterCapability "ott" "OpenDocument Text Template"
+  !insertmacro GenOfficeRegisterCapability "hwpx" "Hancom HWPX Document"
+  !insertmacro GenOfficeRegisterCapability "hwp" "Hancom HWP Document"
   !insertmacro GenOfficeRegisterCapability "odp" "OpenDocument Presentation"
   !insertmacro GenOfficeRegisterCapability "otp" "OpenDocument Presentation Template"
   !insertmacro GenOfficeRegisterCapability "pdf" "PDF Document"

@@ -63,15 +63,39 @@ describe('packaged file associations', () => {
     }
   })
 
-  it('resolves Windows to 55 unique associations without duplicating entries or leaking open-with-only types', () => {
+  it('gives .doc/.dot/.hwpx/.hwp their mimeTypes and the docx icon on non-Windows associations', () => {
+    const docsImports = [
+      { ext: 'doc', mimeType: 'application/msword' },
+      { ext: 'dot', mimeType: 'application/msword' },
+      { ext: 'hwpx', mimeType: 'application/hwp+zip' },
+      { ext: 'hwp', mimeType: 'application/x-hwp' },
+    ]
+    for (const platform of ['mac', 'linux'] as const) {
+      const list = effectiveAssociations(platform)
+      for (const { ext, mimeType } of docsImports) {
+        const association = list.find((entry) => entry.ext === ext)
+        expect(association, `no file association declared for .${ext} on ${platform}`).toBeTruthy()
+        expect(association?.mimeType, `.${platform} .${ext} mimeType`).toBe(mimeType)
+        expect(association?.icon).toBe('docx')
+      }
+    }
+  })
+
+  it('resolves Windows to 57 unique associations without duplicating entries or leaking open-with-only types', () => {
     const winList = effectiveAssociations('win')
     const winExts = winList.map((entry) => entry.ext)
-    const expectedWinExts = LAUNCHABLE_EXTS.filter((ext) => ext !== 'bat' && ext !== 'ppt')
+    const expectedWinExts = LAUNCHABLE_EXTS.filter(
+      (ext) => ext !== 'bat' && ext !== 'ppt' && ext !== 'doc' && ext !== 'dot',
+    )
 
     expect(config.win.fileAssociations).toBeUndefined()
     expect(new Set(winExts).size).toBe(winExts.length)
     expect(winExts).not.toContain('bat')
     expect(winExts).not.toContain('ppt')
+    expect(winExts).not.toContain('doc')
+    expect(winExts).not.toContain('dot')
+    expect(winExts).toContain('hwpx')
+    expect(winExts).toContain('hwp')
     expect(winExts).toHaveLength(expectedWinExts.length)
     for (const ext of expectedWinExts) {
       const entry = winList.find((item) => item.ext === ext)
@@ -83,7 +107,9 @@ describe('packaged file associations', () => {
   it('keeps installer.nsh capabilities and context verbs aligned with Windows associations', () => {
     const winList = effectiveAssociations('win')
     const capMatches = [
-      ...installerNsh.matchAll(/!insertmacro\s+GenOfficeRegisterCapability\s+"([^"]+)"\s+"([^"]+)"/g),
+      ...installerNsh.matchAll(
+        /!insertmacro\s+GenOfficeRegisterCapability\s+"([^"]+)"\s+"([^"]+)"/g,
+      ),
     ]
     const registeredCaps = new Map(capMatches.map((m) => [m[1], m[2]]))
     expect(capMatches).toHaveLength(winList.length)

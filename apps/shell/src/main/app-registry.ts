@@ -206,7 +206,7 @@ export const documentApps: readonly AppDescriptor[] = [
   {
     id: 'docs',
     family: 'docx',
-    extensions: ['docx', 'odt', 'ott'],
+    extensions: ['docx', 'odt', 'ott', 'doc', 'dot', 'hwpx', 'hwp'],
     untitledTitle: 'GenOffice Docs',
     untitledTitleKey: 'untitledDoc',
     createView: createDocsView,
