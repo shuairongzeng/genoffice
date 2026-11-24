@@ -5,12 +5,29 @@
  * as callbacks.
  */
 import {
+  BaselineOffset,
   BooleanNumber,
   BorderStyleTypes,
+  EDITOR_ACTIVATED,
+  FOCUSING_EDITOR_INPUT_FORMULA,
+  FOCUSING_EDITOR_STANDALONE,
+  IContextService,
+  IUndoRedoService,
   WrapStrategy,
   type ICellData,
   type IStyleData,
 } from '@univerjs/core'
+import {
+  SetInlineFormatBoldCommand,
+  SetInlineFormatFontFamilyCommand,
+  SetInlineFormatFontSizeCommand,
+  SetInlineFormatItalicCommand,
+  SetInlineFormatStrikethroughCommand,
+  SetInlineFormatSubscriptCommand,
+  SetInlineFormatSuperscriptCommand,
+  SetInlineFormatTextColorCommand,
+  SetInlineFormatUnderlineCommand,
+} from '@univerjs/docs-ui'
 import { IRenderManagerService, SHEET_VIEWPORT_KEY } from '@univerjs/engine-render'
 import { SheetSkeletonManagerService } from '@univerjs/preset-sheets-core'
 import { columnLabel, formatAddress } from '@genoffice/xlsx-gateway/domain/cell-address'
@@ -21,12 +38,15 @@ import { CELL_HIDDEN_KEY, CELL_LOCKED_KEY, effectiveSheetProtection } from './sh
 import { fullColumnSpans, fullRowSpans } from './autofit-selection'
 import { applyFormatPainterClick } from './format-painter'
 import { nextSheetName } from './op-executor'
+import { handleInsertNotePicture } from './note-picture-actions'
 import {
+  comboSeriesSetDefaults,
   transposeChartSeries,
   type ChartSeriesVisualState,
 } from '@genoffice/xlsx-gateway/domain/chart-visual'
 import {
   applyFlashFillTemplate,
+  flashFillFirstSource,
   inferFlashFillTemplate,
 } from '@genoffice/xlsx-gateway/domain/flash-fill'
 import type {
@@ -78,6 +98,7 @@ import { requestCellsAction } from './insert-delete-cells'
 import { applyRightToLeftView, sheetIsRightToLeft } from './sheet-rtl-view'
 import type { CellsMode } from './insert-delete-cells'
 import { mergeWorkbooksIntoCurrent } from './merge-workbooks'
+import { openActiveDataValidationDropdown } from './data-validation-dropdown'
 import {
   handleOpenSlicerPicker,
   handleOpenTimelinePicker,
@@ -142,6 +163,9 @@ export interface RibbonCommandContext {
     readonly canLabel: boolean
     readonly seriesCount: number
     readonly categoryCount: number
+    /// Current chart type echo ('combo' for a bar+line combo) — drives the
+    /// combo tagging of Switch Row/Column.
+    readonly currentType: string | null
     /// Current series (pending edits applied) for Switch Row/Column.
     readonly series: readonly ChartSeriesVisualState[]
   } | null
@@ -169,6 +193,21 @@ function selectionStyle(
   range: NonNullable<ReturnType<ActiveWorkbook['getActiveRange']>>,
 ): IStyleData {
   return range.getCellStyleData() ?? {}
+}
+
+/// The in-cell editor holds a text edit (not a formula, and not the formula
+/// bar's standalone editor): a font button then formats the selected
+/// characters — or arms the typing style at a caret — as Excel does, instead
+/// of restyling the whole cell behind the editor. EDITOR_ACTIVATED tracks the
+/// edit session itself; the FOCUSING_* bits follow DOM focus, which the
+/// clicked ribbon button holds at this point.
+function cellEditorHoldsText(runtime: UniverRuntime): boolean {
+  const context = runtime.univer.__getInjector().get(IContextService)
+  return (
+    context.getContextValue(EDITOR_ACTIVATED) &&
+    !context.getContextValue(FOCUSING_EDITOR_INPUT_FORMULA) &&
+    !context.getContextValue(FOCUSING_EDITOR_STANDALONE)
+  )
 }
 
 /// Commands whose wire format is `name:argument:extra` (three segments).
@@ -225,6 +264,15 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
   if (!runtime) return
   if (command === 'undo' || command === 'redo') {
     void runtime.univerAPI[command]()
+    return
+  }
+  if (command === 'redo-or-repeat') {
+    // Excel's Ctrl+Y semantics: Redo when there is something to redo,
+    // otherwise repeat the last action on the current selection (F4's
+    // command). Keeps "Ctrl+Y after typing" doing what Excel users expect.
+    const undoRedo = runtime.univer.__getInjector().get(IUndoRedoService)
+    if (undoRedo.pitchTopRedoElement()) void runtime.univerAPI.redo()
+    else void runtime.univerAPI.executeCommand('sheet.command.repeat-last-action')
     return
   }
   if (command.startsWith('error:')) {
@@ -327,8 +375,18 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
       const seriesSet = transposeChartSeries(ctx.selectedChart?.series ?? [], (n) =>
         t('appSeriesN', { n }),
       )
-      if (seriesSet) ctx.chartEditRef.current(editKey, { seriesSet })
-      else ctx.setMessage(t('appNoCategoriesToSwitch'))
+      if (!seriesSet) {
+        ctx.setMessage(t('appNoCategoriesToSwitch'))
+      } else {
+        // A transposed combo keeps Insert Chart's shape; an untagged set
+        // would collapse it into plain bars.
+        ctx.chartEditRef.current(editKey, {
+          seriesSet:
+            ctx.selectedChart?.currentType === 'combo'
+              ? comboSeriesSetDefaults(seriesSet)
+              : seriesSet,
+        })
+      }
     }
     return
   }
@@ -354,6 +412,14 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
     case 'find':
       void runtime.univerAPI.executeCommand('ui.operation.open-find-dialog')
       return
+    case 'dv-dropdown-open':
+      openActiveDataValidationDropdown(runtime)
+      return
+    case 'scroll-to-active': {
+      const active = runtime.univerAPI.getActiveWorkbook()?.getActiveCell()
+      if (worksheet && active) worksheet.scrollToCell(active.getRow(), active.getColumn())
+      return
+    }
     case 'copy':
     case 'cut':
     case 'paste':
@@ -609,9 +675,24 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
       // SetNumfmt mutations journal like any format edit either way.
       stepSelectionDecimals(runtime, command === 'decimal-inc' ? 1 : -1)
       return
-    case 'filter-toggle':
-      void runtime.univerAPI.executeCommand('sheet.command.smart-toggle-filter')
+    case 'filter-toggle': {
+      // While the sheet is still loading the App.tsx gate already explains the
+      // decline, so stay quiet rather than talk over it.
+      const lazy = ctx.lazyWorkbookRef.current
+      const stillLoading = lazy !== null && !lazy.flags.preloadComplete
+      void runtime.univerAPI.executeCommand('sheet.command.smart-toggle-filter').then((ok) => {
+        if (ok !== false || stillLoading) return
+        // A canceling protection guard also answers false and has already spoken.
+        const state = ctx.lazyWorkbookRef.current
+        const sheetId = worksheet?.getSheetId()
+        if (state && sheetId) {
+          const protection = effectiveSheetProtection(state, sheetId)
+          if (!protection || (protection.protected && !protection.allow.autoFilter)) return
+        }
+        ctx.setMessage(t('appFilterToggleFailed'))
+      })
       return
+    }
     case 'autofit-row-height':
     case 'autofit-col-width': {
       if (!worksheet) return
@@ -753,6 +834,10 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
     case 'notes-convert':
       handleThreadedCommentCommand(ctx, command, (fallback) => handleRibbonCommand(ctx, fallback))
       return
+    case 'note-insert-picture': {
+      handleInsertNotePicture(ctx, runtime)
+      return
+    }
     case 'note-open': {
       // A cell holds either a thread or a note (Excel); the save keeps the thread.
       const active = runtime.univerAPI.getActiveWorkbook()?.getActiveRange()
@@ -1300,7 +1385,9 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
     return
   }
   if (command === 'format-as-table') {
-    handleFormatAsTable(ctx.dataToolsContext(), 'TableStyleMedium2')
+    const existing = selectedTableEcho(ctx.tableDesignContext())
+    if (existing) ctx.setMessage(t('appTableAlreadyInTable', { name: existing.name }))
+    else handleFormatAsTable(ctx.dataToolsContext(), 'TableStyleMedium2')
     return
   }
   if (command.startsWith('page-layout:')) {
@@ -1454,7 +1541,14 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
     switch (name) {
       case 'bold':
         // An explicit :on/:off argument sets absolutely (Format Cells
-        // dialog); no argument keeps ribbon toggle behavior.
+        // dialog); no argument keeps ribbon toggle behavior. In the cell
+        // editor the toggle works on the selected characters only — the
+        // whole-cell write would overwrite that key on every rich-text run
+        // (the inline command derives the toggle from the selection itself).
+        if (!argument && cellEditorHoldsText(runtime)) {
+          void runtime.univerAPI.executeCommand(SetInlineFormatBoldCommand.id)
+          break
+        }
         range.setFontWeight(
           argument
             ? argument === 'on'
@@ -1466,6 +1560,10 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
         )
         break
       case 'italic':
+        if (!argument && cellEditorHoldsText(runtime)) {
+          void runtime.univerAPI.executeCommand(SetInlineFormatItalicCommand.id)
+          break
+        }
         range.setFontStyle(
           argument
             ? argument === 'on'
@@ -1477,6 +1575,10 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
         )
         break
       case 'underline': {
+        if (!argument && cellEditorHoldsText(runtime)) {
+          void runtime.univerAPI.executeCommand(SetInlineFormatUnderlineCommand.id)
+          break
+        }
         if (argument === 'double') {
           // Toggle: Excel's double-underline button removes an existing
           // double underline. setValue merges the style patch range-wide.
@@ -1500,15 +1602,31 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
       }
       case 'superscript':
       case 'subscript': {
+        // Inside the cell editor the buttons work on the selected characters
+        // ("1st" with a raised "st"); Univer's inline command toggles the run
+        // style and arms the typing style when the caret is collapsed.
+        if (cellEditorHoldsText(runtime)) {
+          void runtime.univerAPI.executeCommand(
+            name === 'superscript'
+              ? SetInlineFormatSuperscriptCommand.id
+              : SetInlineFormatSubscriptCommand.id,
+          )
+          break
+        }
         // Whole-cell font vertAlign; the two are mutually exclusive, and
         // pressing the active one returns the cell to the baseline.
-        const offset = name === 'superscript' ? 3 : 2
+        const offset =
+          name === 'superscript' ? BaselineOffset.SUPERSCRIPT : BaselineOffset.SUBSCRIPT
         range.setValue({
           s: { va: style.va === offset ? null : offset },
         } as unknown as ICellData)
         break
       }
       case 'strike':
+        if (!argument && cellEditorHoldsText(runtime)) {
+          void runtime.univerAPI.executeCommand(SetInlineFormatStrikethroughCommand.id)
+          break
+        }
         range.setFontLine(
           argument
             ? argument === 'on'
@@ -1675,6 +1793,12 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
         range.setNumberFormat(argument)
         break
       case 'font-family': {
+        if (cellEditorHoldsText(runtime)) {
+          void runtime.univerAPI.executeCommand(SetInlineFormatFontFamilyCommand.id, {
+            value: argument,
+          })
+          break
+        }
         const undoTopBefore = topUndoElement(runtime)
         range.setFontFamily(argument)
         if (argument.length > 0 && argument.length <= 128) {
@@ -1688,6 +1812,14 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
           name === 'font-size-step'
             ? stepFontSize(range.getFontSize() ?? 11, argument === '-1' ? -1 : 1)
             : Number(argument)
+        if (cellEditorHoldsText(runtime)) {
+          if (Number.isFinite(sizePt) && sizePt > 0 && sizePt <= 409) {
+            void runtime.univerAPI.executeCommand(SetInlineFormatFontSizeCommand.id, {
+              value: sizePt,
+            })
+          }
+          break
+        }
         const undoTopBefore = topUndoElement(runtime)
         range.setFontSize(sizePt)
         if (Number.isFinite(sizePt) && sizePt > 0 && sizePt <= 409) {
@@ -1721,6 +1853,16 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
         break
       }
       case 'font-color':
+        // In the cell editor the swatch colors the selected characters only
+        // (or arms the typing color at a collapsed caret), as Excel does —
+        // the whole-cell write below would force this color onto every run
+        // of a rich-text cell, erasing the other runs' own colors.
+        if (cellEditorHoldsText(runtime)) {
+          void runtime.univerAPI.executeCommand(SetInlineFormatTextColorCommand.id, {
+            value: argument === 'auto' ? null : argument,
+          })
+          break
+        }
         // 'auto' clears the explicit color back to the default (Excel's
         // Automatic); null is the documented reset, same as setBackground
         range.setFontColor((argument === 'auto' ? null : argument) as unknown as string)
@@ -1812,6 +1954,25 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
           const dayShift = ctx.lazyWorkbookRef.current?.file.date1904 === true ? 1462 : 0
           cell.setValue(Math.floor(serial) - dayShift)
           cell.setNumberFormat('yyyy/m/d')
+        }
+        return
+      }
+      case 'copy-above': {
+        // Excel's Ctrl+' / Ctrl+Shift+": the cell above's formula text verbatim
+        // (no reference shift) or its value only, into the ACTIVE cell.
+        if (!worksheet) return
+        const active = runtime.univerAPI.getActiveWorkbook()?.getActiveCell()
+        const row = active?.getRow() ?? range.getRow()
+        const column = active?.getColumn() ?? range.getColumn()
+        if (row <= 0) return
+        const above = worksheet.getRange(row - 1, column).getCellData()
+        const target = worksheet.getRange(row, column)
+        if (argument === 'formula') {
+          const formula = above?.f
+          if (typeof formula === 'string' && formula.length > 0) target.setValue({ f: formula })
+          else if (above?.v !== undefined && above.v !== null) target.setValue(above.v)
+        } else if (above?.v !== undefined && above.v !== null) {
+          target.setValue(above.v)
         }
         return
       }
@@ -1947,7 +2108,13 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
           ctx.setMessage(t('appFlashFillNeedsRows'))
           return
         }
-        const firstSource = Math.max(0, targetColumn - 6)
+        const firstSource = flashFillFirstSource(targetColumn, (column) =>
+          (
+            worksheet.getRange(startRow, column, rowCount, 1).getValues() as (
+              string | number | boolean | null | undefined
+            )[][]
+          ).some(([value]) => String(value ?? '').trim() !== ''),
+        )
         const grid = worksheet
           .getRange(startRow, firstSource, rowCount, targetColumn - firstSource + 1)
           .getValues() as (string | number | boolean | null | undefined)[][]

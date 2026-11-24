@@ -5,6 +5,7 @@ export const id = {
   aiEmptyBuildTitle: 'Biarkan AI membangun buku kerja ini untuk Anda',
   aiEmptyBuildBody: 'Jelaskan tabel, data, atau bagan yang Anda perlukan — AI langsung membuatnya.',
   aiGskLoginBtn: 'Masuk ke Genspark',
+  aiGskLoginOk: 'Berhasil masuk ke Genspark',
   aiUndelivered: 'Tidak terkirim',
   aiRetry: 'Coba lagi',
   aiOpenAssistant: 'Buka asisten AI',
@@ -17,15 +18,12 @@ export const id = {
   aiSettingsTitle: 'Pengaturan AI',
   aiSetUp: 'Siapkan AI',
   aiNewChat: 'Percakapan baru',
-  aiCopyReplyTitle: 'Salin balasan',
-  aiCopyCode: 'Salin kode',
   aiCollapsePanel: 'Ciutkan panel AI',
   aiHistorySep: '—— Percakapan sebelumnya ——',
   aiEmptyTitle: 'Tanyakan kepada AI tentang buku kerja ini',
   aiEmptyBodyLine1: 'Jelaskan perubahan yang diinginkan atau tanyakan tentang datanya.',
   aiThinkingAria: 'Berpikir',
   aiThinking: 'Berpikir…',
-  aiThinkingBlock: 'Proses berpikir',
   aiWorkedSteps: 'Selesai · {n} langkah',
   aiGroupWorking: 'Sedang bekerja…',
   aiWorking: 'Menjalankan…',
@@ -41,8 +39,6 @@ export const id = {
   aiCellEmpty: 'kosong',
   aiRemoveAttachment: 'Hapus lampiran',
   aiAttachTitle: 'Lampirkan file lokal (atau seret ke panel)',
-  aiSetupNeeded:
-    'Belum ada model AI yang dikonfigurasi — siapkan satu, atau masuk dengan Genspark.',
   aiComposerPlaceholder: 'Minta AI menganalisis atau mengubah buku kerja ini…',
   aiHintIdle: 'Enter untuk mengirim',
   aiHintBusy: 'Esc untuk berhenti',
@@ -113,5 +109,10 @@ export const id = {
   aiScopeRangeTip:
     'AI membaca "kolom ini / baris ini / bagian yang dipilih" sebagai rentang ini, dan dikunci selama proses berjalan setelah Anda mengirim',
   aiScopeClearTitle: 'Hapus cakupan rentang dan gunakan seluruh lembar',
+  aiCopyReplyTitle: 'Salin balasan',
+  aiCopyCode: 'Salin kode',
+  aiThinkingBlock: 'Proses berpikir',
+  aiSetupNeeded:
+    'Belum ada model AI yang dikonfigurasi — siapkan satu, atau masuk dengan Genspark.',
   aiAppName: 'Spreadsheet',
 } satisfies Record<keyof typeof zh, string>

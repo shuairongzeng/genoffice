@@ -5,6 +5,7 @@ export const ja = {
   aiEmptyBuildTitle: 'AI にシート作りを任せる',
   aiEmptyBuildBody: '欲しい表・データ・グラフを伝えると、AI がその場で作成します。',
   aiGskLoginBtn: 'Genspark にサインイン',
+  aiGskLoginOk: 'Genspark にサインインしました',
   aiUndelivered: '送信できませんでした',
   aiRetry: '再試行',
   aiOpenAssistant: 'AI アシスタントを開く',
@@ -17,15 +18,12 @@ export const ja = {
   aiSettingsTitle: 'AI 設定',
   aiSetUp: 'AI を設定',
   aiNewChat: '新しい会話',
-  aiCopyReplyTitle: '返信をコピー',
-  aiCopyCode: 'コードをコピー',
   aiCollapsePanel: 'AI パネルを折りたたむ',
   aiHistorySep: '—— ここまでが過去の会話 ——',
   aiEmptyTitle: 'このブックについて AI に質問',
   aiEmptyBodyLine1: '行いたい変更を説明するか、データについて質問してください。',
   aiThinkingAria: '思考中',
   aiThinking: '思考中…',
-  aiThinkingBlock: '思考プロセス',
   aiWorkedSteps: '完了 · {n} ステップ',
   aiGroupWorking: '処理中…',
   aiWorking: '実行中…',
@@ -41,8 +39,6 @@ export const ja = {
   aiCellEmpty: '空',
   aiRemoveAttachment: '添付ファイルを削除',
   aiAttachTitle: 'ローカル ファイルを添付（パネルへのドラッグ＆ドロップも可）',
-  aiSetupNeeded:
-    'AI モデルがまだ設定されていません — 設定するか、Genspark でサインインしてください。',
   aiComposerPlaceholder: 'AI にこのブックの分析や変更を依頼…',
   aiHintIdle: 'Enter で送信',
   aiHintBusy: 'Esc で停止',
@@ -113,5 +109,10 @@ export const ja = {
   aiScopeRangeTip:
     'AI は「この列 / これらの行 / 選択部分」をこの範囲として解釈します。送信すると今回の実行中は固定されます',
   aiScopeClearTitle: '範囲指定を解除してシート全体を対象にする',
+  aiCopyReplyTitle: '返信をコピー',
+  aiCopyCode: 'コードをコピー',
+  aiThinkingBlock: '思考プロセス',
+  aiSetupNeeded:
+    'AI モデルがまだ設定されていません — 設定するか、Genspark でサインインしてください。',
   aiAppName: 'スプレッドシート',
 } satisfies Record<keyof typeof zh, string>

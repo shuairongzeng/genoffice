@@ -5,6 +5,7 @@ export const pl = {
   aiEmptyBuildTitle: 'Pozwól AI zbudować ten skoroszyt',
   aiEmptyBuildBody: 'Opisz potrzebną tabelę, dane lub wykres — AI utworzy je od razu.',
   aiGskLoginBtn: 'Zaloguj się do Genspark',
+  aiGskLoginOk: 'Zalogowano do Genspark',
   aiUndelivered: 'Nie wysłano',
   aiRetry: 'Ponów',
   aiOpenAssistant: 'Otwórz asystenta AI',
@@ -17,15 +18,12 @@ export const pl = {
   aiSettingsTitle: 'Ustawienia AI',
   aiSetUp: 'Skonfiguruj AI',
   aiNewChat: 'Nowa rozmowa',
-  aiCopyReplyTitle: 'Kopiuj odpowiedź',
-  aiCopyCode: 'Kopiuj kod',
   aiCollapsePanel: 'Zwiń panel AI',
   aiHistorySep: '—— Wcześniejsza rozmowa ——',
   aiEmptyTitle: 'Zapytaj AI o ten skoroszyt',
   aiEmptyBodyLine1: 'Opisz zmianę lub zadaj pytanie o dane.',
   aiThinkingAria: 'Myślenie',
   aiThinking: 'Myślenie…',
-  aiThinkingBlock: 'Rozumowanie',
   aiWorkedSteps: 'Ukończono · {n} kroków',
   aiGroupWorking: 'W toku…',
   aiWorking: 'Wykonywanie…',
@@ -41,8 +39,6 @@ export const pl = {
   aiCellEmpty: 'pusta',
   aiRemoveAttachment: 'Usuń załącznik',
   aiAttachTitle: 'Załącz pliki lokalne (możesz też przeciągnąć je na panel)',
-  aiSetupNeeded:
-    'Nie skonfigurowano jeszcze żadnego modelu AI — skonfiguruj go lub zaloguj się przez Genspark.',
   aiComposerPlaceholder: 'Poproś AI o analizę lub zmianę tego skoroszytu…',
   aiHintIdle: 'Enter, aby wysłać',
   aiHintBusy: 'Esc, aby zatrzymać',
@@ -113,5 +109,10 @@ export const pl = {
   aiScopeRangeTip:
     'AI rozumie „tę kolumnę / te wiersze / zaznaczoną część” jako ten zakres; po wysłaniu pozostaje on stały przez cały przebieg',
   aiScopeClearTitle: 'Usuń zakres zaznaczenia i obejmij cały arkusz',
+  aiCopyReplyTitle: 'Kopiuj odpowiedź',
+  aiCopyCode: 'Kopiuj kod',
+  aiThinkingBlock: 'Rozumowanie',
+  aiSetupNeeded:
+    'Nie skonfigurowano jeszcze żadnego modelu AI — skonfiguruj go lub zaloguj się przez Genspark.',
   aiAppName: 'Arkusze',
 } satisfies Record<keyof typeof zh, string>

@@ -5,6 +5,7 @@ export const ms = {
   aiEmptyBuildTitle: 'Biarkan AI membina buku kerja ini untuk anda',
   aiEmptyBuildBody: 'Terangkan jadual, data atau carta yang anda perlukan — AI terus menciptanya.',
   aiGskLoginBtn: 'Log masuk ke Genspark',
+  aiGskLoginOk: 'Berjaya log masuk ke Genspark',
   aiUndelivered: 'Tidak dihantar',
   aiRetry: 'Cuba lagi',
   aiOpenAssistant: 'Buka pembantu AI',
@@ -18,15 +19,12 @@ export const ms = {
   aiSettingsTitle: 'Tetapan AI',
   aiSetUp: 'Sediakan AI',
   aiNewChat: 'Perbualan baharu',
-  aiCopyReplyTitle: 'Salin balasan',
-  aiCopyCode: 'Salin kod',
   aiCollapsePanel: 'Runtuhkan panel AI',
   aiHistorySep: '—— Perbualan terdahulu ——',
   aiEmptyTitle: 'Tanya AI tentang buku kerja ini',
   aiEmptyBodyLine1: 'Terangkan perubahan yang diingini atau tanya tentang data.',
   aiThinkingAria: 'Sedang berfikir',
   aiThinking: 'Sedang berfikir…',
-  aiThinkingBlock: 'Proses berfikir',
   aiWorkedSteps: 'Selesai · {n} langkah',
   aiGroupWorking: 'Sedang berjalan…',
   aiWorking: 'Sedang melaksanakan…',
@@ -42,8 +40,6 @@ export const ms = {
   aiCellEmpty: 'kosong',
   aiRemoveAttachment: 'Alih keluar lampiran',
   aiAttachTitle: 'Lampirkan fail setempat (atau seret ke panel)',
-  aiSetupNeeded:
-    'Belum ada model AI dikonfigurasikan — sediakan satu, atau log masuk dengan Genspark.',
   aiComposerPlaceholder: 'Minta AI menganalisis atau mengubah buku kerja ini…',
   aiHintIdle: 'Enter untuk hantar',
   aiHintBusy: 'Esc untuk henti',
@@ -114,5 +110,10 @@ export const ms = {
   aiScopeRangeTip:
     'AI membaca "lajur ini / baris ini / bahagian yang dipilih" sebagai julat ini, dan ia dikunci sepanjang larian selepas anda hantar',
   aiScopeClearTitle: 'Buang skop julat dan gunakan seluruh helaian',
+  aiCopyReplyTitle: 'Salin balasan',
+  aiCopyCode: 'Salin kod',
+  aiThinkingBlock: 'Proses berfikir',
+  aiSetupNeeded:
+    'Belum ada model AI dikonfigurasikan — sediakan satu, atau log masuk dengan Genspark.',
   aiAppName: 'Hamparan',
 } satisfies Record<keyof typeof zh, string>

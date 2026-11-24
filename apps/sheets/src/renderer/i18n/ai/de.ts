@@ -6,6 +6,7 @@ export const de = {
   aiEmptyBuildBody:
     'Beschreibe die gewünschte Tabelle, Daten oder Diagramme — die KI erstellt sie direkt.',
   aiGskLoginBtn: 'Bei Genspark anmelden',
+  aiGskLoginOk: 'Bei Genspark angemeldet',
   aiUndelivered: 'Nicht gesendet',
   aiRetry: 'Erneut versuchen',
   aiOpenAssistant: 'KI-Assistenten öffnen',
@@ -19,15 +20,12 @@ export const de = {
   aiSettingsTitle: 'KI-Einstellungen',
   aiSetUp: 'KI einrichten',
   aiNewChat: 'Neue Unterhaltung',
-  aiCopyReplyTitle: 'Antwort kopieren',
-  aiCopyCode: 'Code kopieren',
   aiCollapsePanel: 'KI-Bereich einklappen',
   aiHistorySep: '—— Frühere Unterhaltung ——',
   aiEmptyTitle: 'KI zu dieser Arbeitsmappe befragen',
   aiEmptyBodyLine1: 'Beschreiben Sie eine Änderung oder stellen Sie eine Frage zu den Daten.',
   aiThinkingAria: 'Denkt nach',
   aiThinking: 'Denkt nach…',
-  aiThinkingBlock: 'Denkprozess',
   aiWorkedSteps: 'Erledigt · {n} Schritte',
   aiGroupWorking: 'In Arbeit…',
   aiWorking: 'Wird ausgeführt…',
@@ -43,8 +41,6 @@ export const de = {
   aiCellEmpty: 'leer',
   aiRemoveAttachment: 'Anlage entfernen',
   aiAttachTitle: 'Lokale Dateien anfügen (oder in den Bereich ziehen)',
-  aiSetupNeeded:
-    'Noch kein KI-Modell konfiguriert — richten Sie eines ein oder melden Sie sich mit Genspark an.',
   aiComposerPlaceholder: 'Bitten Sie die KI, diese Arbeitsmappe zu analysieren oder zu ändern…',
   aiHintIdle: 'Eingabetaste zum Senden',
   aiHintBusy: 'Esc zum Stoppen',
@@ -115,5 +111,10 @@ export const de = {
   aiScopeRangeTip:
     'Die KI versteht „diese Spalte / diese Zeilen / die Auswahl“ als diesen Bereich; beim Senden wird er für den Lauf fixiert',
   aiScopeClearTitle: 'Bereichsvorgabe aufheben und das ganze Blatt verwenden',
+  aiCopyReplyTitle: 'Antwort kopieren',
+  aiCopyCode: 'Code kopieren',
+  aiThinkingBlock: 'Denkprozess',
+  aiSetupNeeded:
+    'Noch kein KI-Modell konfiguriert — richten Sie eines ein oder melden Sie sich mit Genspark an.',
   aiAppName: 'Tabellen',
 } satisfies Record<keyof typeof zh, string>

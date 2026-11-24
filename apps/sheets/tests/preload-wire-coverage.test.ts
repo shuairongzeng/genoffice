@@ -52,15 +52,30 @@ describe('preload whitelist names every sidecar wire field', () => {
   it('covers the visual objects of workbookFileSchema', () => {
     const keys = new Map<string, string>()
     objectKeys(workbookFileSchema, 'file', keys)
-    // mediaDataUrl is renderer-only (session previews); the sidecar never
-    // sends it, so the preload rightly does not name it.
+    // Renderer-only fields the sidecar never sends, so the preload rightly
+    // does not name them: mediaDataUrl (session previews) and
+    // chart.pivotTablePath (the PivotTable a session-added chart was built
+    // from; the save resolves it into c:pivotSource, which the file then keeps).
+    const rendererOnly = new Set(['mediaDataUrl', 'pivotTablePath'])
     const visualKeys = [...keys.entries()].filter(
-      ([key, where]) => where.startsWith('file.visuals[]') && key !== 'mediaDataUrl',
+      ([key, where]) => where.startsWith('file.visuals[]') && !rendererOnly.has(key),
     )
     expect(visualKeys.length).toBeGreaterThan(20)
     // OLE embeds ride the same visual record; the preload must name them.
     expect(visualKeys.map(([key]) => key)).toContain('progId')
     const missing = visualKeys
+      .filter(([key]) => !preloadSource.includes(key))
+      .map(([, where]) => where)
+    expect(missing).toEqual([])
+  })
+  it('covers the comments of workbookFileSchema', () => {
+    const keys = new Map<string, string>()
+    objectKeys(workbookFileSchema, 'file', keys)
+    const commentKeys = [...keys.entries()].filter(([, where]) =>
+      where.startsWith('file.sheets[].comments[]'),
+    )
+    expect(commentKeys.map(([key]) => key)).toEqual(expect.arrayContaining(['thread', 'replies']))
+    const missing = commentKeys
       .filter(([key]) => !preloadSource.includes(key))
       .map(([, where]) => where)
     expect(missing).toEqual([])

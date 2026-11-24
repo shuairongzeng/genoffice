@@ -6,6 +6,7 @@ export const es = {
   aiEmptyBuildBody:
     'Describe la tabla, los datos o el gráfico que necesitas: la IA los crea directamente.',
   aiGskLoginBtn: 'Iniciar sesión en Genspark',
+  aiGskLoginOk: 'Sesión iniciada en Genspark',
   aiUndelivered: 'No enviado',
   aiRetry: 'Reintentar',
   aiOpenAssistant: 'Abrir el asistente de IA',
@@ -19,15 +20,12 @@ export const es = {
   aiSettingsTitle: 'Configuración de IA',
   aiSetUp: 'Configurar IA',
   aiNewChat: 'Nueva conversación',
-  aiCopyReplyTitle: 'Copiar respuesta',
-  aiCopyCode: 'Copiar código',
   aiCollapsePanel: 'Contraer el panel de IA',
   aiHistorySep: '—— Conversación anterior ——',
   aiEmptyTitle: 'Pregunta a la IA sobre este libro',
   aiEmptyBodyLine1: 'Describe un cambio o pregunta sobre los datos.',
   aiThinkingAria: 'Pensando',
   aiThinking: 'Pensando…',
-  aiThinkingBlock: 'Razonamiento',
   aiWorkedSteps: 'Completado · {n} pasos',
   aiGroupWorking: 'En curso…',
   aiWorking: 'Ejecutando…',
@@ -43,8 +41,6 @@ export const es = {
   aiCellEmpty: 'vacío',
   aiRemoveAttachment: 'Quitar datos adjuntos',
   aiAttachTitle: 'Adjuntar archivos locales (o arrástralos al panel)',
-  aiSetupNeeded:
-    'Aún no hay ningún modelo de IA configurado: configúralo o inicia sesión con Genspark.',
   aiComposerPlaceholder: 'Pide a la IA que analice o modifique este libro…',
   aiHintIdle: 'Entrar para enviar',
   aiHintBusy: 'Esc para detener',
@@ -116,5 +112,10 @@ export const es = {
   aiScopeRangeTip:
     'La IA interpreta «esta columna / estas filas / la parte seleccionada» como este rango, y al enviar queda fijo durante toda la ejecución',
   aiScopeClearTitle: 'Quitar el ámbito del rango y usar toda la hoja',
+  aiCopyReplyTitle: 'Copiar respuesta',
+  aiCopyCode: 'Copiar código',
+  aiThinkingBlock: 'Razonamiento',
+  aiSetupNeeded:
+    'Aún no hay ningún modelo de IA configurado: configúralo o inicia sesión con Genspark.',
   aiAppName: 'Hojas de cálculo',
 } satisfies Record<keyof typeof zh, string>

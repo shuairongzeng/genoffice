@@ -36,10 +36,13 @@ import { sheetContextMenuAction } from './sheet-context-menu'
 
 import { ColorDropdown } from './ColorDropdown'
 import { FormatCellsDialog } from './FormatCellsDialog'
+import type { SheetPasswordHash } from '@genoffice/xlsx-gateway/gateway/xlsx-protection-hash'
+
 import { AllowEditRangesDialog } from './AllowEditRangesDialog'
 import { ProtectSheetDialog } from './ProtectSheetDialog'
 import type { SheetProtectionAllow } from '@genoffice/xlsx-gateway/gateway/xlsx-protection'
 import { GoToDialog } from './GoToDialog'
+import { QueriesDialog } from './QueriesDialog'
 import { SheetTabContextMenu } from './SheetTabContextMenu'
 import type { SheetTabActions } from './sheet-tab-actions'
 import { PasteSpecialDialog } from './PasteSpecialDialog'
@@ -63,6 +66,7 @@ import {
   isFormulaBarKeyTarget,
   isGridKeyTarget,
   shouldInterceptClearSelection,
+  shouldInterceptRedoRepeat,
 } from './clear-selection-keyboard'
 import {
   accountingStyle,
@@ -72,10 +76,16 @@ import {
 } from './excel-format-shortcuts'
 import { isModalOpen, resolveGlobalShortcut } from './global-shortcuts'
 import { stepFontSize } from './font-size-ladder'
+import { installRibbonFit } from './ribbon-fit'
+import { scrollRibbonOnWheel } from './ribbon-wheel'
 
 import type { ChartSeriesVisualState } from '@genoffice/xlsx-gateway/domain/chart-visual'
 import type { ChangePlan } from '@genoffice/xlsx-gateway/domain/workbook.types'
-import type { AttachmentMeta } from '../shared/desktop-api'
+import type {
+  AttachmentMeta,
+  WorkbookConnection as QueryConnection,
+  WorkbookQueriesResult,
+} from '../shared/desktop-api'
 import { AiChatPanel, type AiChatMessage } from './ai/AiChatPanel'
 import { useHostedAiSlot } from './hosted-ai-slot'
 import { AiSelectionAsk } from './ai/AiSelectionAsk'
@@ -96,6 +106,8 @@ import {
 } from './pivot-field-model'
 import type { GoalSeekResult } from './goal-seek'
 import { GoalSeekDialog } from './GoalSeekDialog'
+import type { DataTableInput, DataTableOutcome } from './data-table'
+import { DataTableDialog } from './DataTableDialog'
 import type { FillSeriesOptions, FillSeriesType } from './fill-series'
 import type { FillSeriesContext } from './fill-series-apply'
 import { FillSeriesDialog } from './FillSeriesDialog'
@@ -307,6 +319,8 @@ interface ExcelShellProps {
   /// file-backed session (the in-memory demo workbook has nowhere to copy).
   readonly canSaveAs: boolean
   readonly onSaveAs: () => void
+  /** Ask the model for a name, then open Save As with it prefilled */
+  readonly onNameWithAi: () => void
   /// QAT redo (workbook history, same path as the app menu's ⇧⌘Z); undo
   /// shares the AI panel's onUndo above.
   readonly onRedo: () => void
@@ -343,17 +357,26 @@ interface ExcelShellProps {
   readonly sheetTabActions: SheetTabActions | null
   /// Effective workbook structure lock (null = no file open).
   readonly onGetWorkbookProtection: () => boolean | null
+  /// True when the current OOXML file is encrypted with a workbook-open password.
+  readonly passwordProtected: boolean
+  /// Spelling preference echo (Review ▸ Proofing toggle; gates F7 / Spelling).
+  readonly spellcheckOn: boolean
   readonly formulaBarVisible: boolean
   /// Cross-highlight ("reading mode") of the active row/column, echoed by the View checkbox.
   readonly crossHighlightVisible: boolean
   /// Allow-edit ranges of the active sheet, read when the dialog opens.
   readonly onGetProtectedRanges: () => {
-    ranges: readonly { name: string; sqref: string; hasPassword: boolean }[]
+    ranges: readonly {
+      name: string
+      sqref: string
+      hasPassword: boolean
+      password?: SheetPasswordHash
+    }[]
     error: string | null
   }
   readonly onApplyProtectedRanges: (
-    ranges: readonly { name: string; sqref: string }[],
-  ) => string | null
+    ranges: readonly { name: string; sqref: string; password?: string }[],
+  ) => Promise<string | null> | string | null
   /// Name Manager data + actions (actions return an error message or null).
   readonly onGetDefinedNames: () => {
     names: DefinedNameRow[]
@@ -384,6 +407,8 @@ interface ExcelShellProps {
   /// Name Box / Go To jump; returns an error message, or null on success.
   readonly onGoToReference: (ref: string) => string | null
   readonly onListDefinedNames: () => readonly { name: string; ref: string }[]
+  /// Data › Queries & Connections: the open workbook's connections (read-only).
+  readonly onReadWorkbookQueries: () => Promise<WorkbookQueriesResult>
   readonly onReadPasteSpecialSource: () => Promise<PasteSpecialSource>
   /// Resolves to an error message, or null on success.
   readonly onPasteSpecial: (
@@ -407,8 +432,17 @@ interface ExcelShellProps {
   readonly pageLayout: PageLayoutEcho
   /// Manual-recalc mode echo for the Calculation Options menu.
   readonly calcManual: boolean
+  /// The workbook's refreshable web queries.
+  readonly queryConnections: readonly QueryConnection[]
+  /// Formula view (sheetView/@showFormulas) of the active sheet: the sheet
+  /// renders formulas instead of their values.
+  readonly showFormulas: boolean
   /// Goal Seek solve; rejects with a user-facing Error message.
   readonly onGoalSeek: (setCell: string, toValue: number, byCell: string) => Promise<GoalSeekResult>
+  /// Data Table (What-If) run; rejects with a user-facing Error message.
+  readonly onDataTable: (input: DataTableInput) => Promise<DataTableOutcome>
+  /// Prefill for the Data Table range field (the multi-cell selection).
+  readonly onGetDataTableRange: () => string
   /// Fill > Series… OK; returns an error message, or null on success.
   readonly onFillSeries: (options: FillSeriesOptions) => string | null
   /// Series dialog defaults (selection shape, workbook date system).
@@ -483,6 +517,8 @@ export function ExcelShell({
   onUnprotectSheet,
   sheetTabActions,
   onGetWorkbookProtection,
+  passwordProtected,
+  spellcheckOn,
   formulaBarVisible,
   crossHighlightVisible,
   onGetProtectedRanges,
@@ -503,6 +539,7 @@ export function ExcelShell({
   activeCellA1,
   onGoToReference,
   onListDefinedNames,
+  onReadWorkbookQueries,
   onReadPasteSpecialSource,
   onPasteSpecial,
   functionArguments,
@@ -539,6 +576,7 @@ export function ExcelShell({
   onSave,
   canSaveAs,
   onSaveAs,
+  onNameWithAi,
   onRedo,
   canUndo,
   canRedo,
@@ -553,7 +591,11 @@ export function ExcelShell({
   onGetCreateTableRange,
   pageLayout,
   calcManual,
+  queryConnections,
+  showFormulas,
   onGoalSeek,
+  onDataTable,
+  onGetDataTableRange,
   onFillSeries,
   onGetFillSeriesContext,
 }: ExcelShellProps): React.JSX.Element {
@@ -578,13 +620,14 @@ export function ExcelShell({
   const [aiHostedInShell, setAiHostedInShell] = useState(false)
   useEffect(() => {
     let alive = true
-    typeof window.sheetsHost?.isHostedInShell === 'function' &&
-      window.sheetsHost
+    if (typeof window.sheetsHost?.isHostedInShell === 'function') {
+      void window.sheetsHost
         .isHostedInShell()
         .then((hosted) => {
           if (alive) setAiHostedInShell(hosted)
         })
         .catch(() => undefined)
+    }
     return () => {
       alive = false
     }
@@ -605,6 +648,18 @@ export function ExcelShell({
   /** hosted and the drawer open: the slot reserves the drawer's width; collapsed
    *  (pet-only), the slot collapses to zero and the grid takes the whole row */
   const hostedDockOpen = aiHostedInShell && hostedSlot.dock !== null && !hostedSlot.dock.collapsed
+  // Native listener, delegated because each ribbon tab mounts its own `.ribbon`,
+  // and because React registers wheel as passive, which forbids preventDefault.
+  useEffect(() => {
+    window.addEventListener('wheel', scrollRibbonOnWheel, { passive: false })
+    return () => window.removeEventListener('wheel', scrollRibbonOnWheel)
+  }, [])
+  // Tight metrics, then icon-only groups from the right, only when the band would scroll
+  const ribbonRoot = collapse.rootRef
+  useEffect(() => {
+    const header = ribbonRoot.current
+    return header ? installRibbonFit(header) : undefined
+  }, [ribbonRoot])
   useEffect(() => {
     rememberAiPanelOpen('ai-sheets-show-ai', isCopilotOpen)
   }, [isCopilotOpen])
@@ -674,9 +729,11 @@ export function ExcelShell({
   }
   const [showSubtotalDialog, setShowSubtotalDialog] = useState(false)
   const [showGoalSeek, setShowGoalSeek] = useState(false)
+  const [showDataTable, setShowDataTable] = useState(false)
   const [showFillSeries, setShowFillSeries] = useState(false)
   const [showConsolidateDialog, setShowConsolidateDialog] = useState(false)
   const [showGoTo, setShowGoTo] = useState(false)
+  const [showQueries, setShowQueries] = useState(false)
   const [pasteSpecialSource, setPasteSpecialSource] = useState<PasteSpecialSource | null>(null)
   const [showZoomDialog, setShowZoomDialog] = useState(false)
   const [statsMenuAt, setStatsMenuAt] = useState<{ x: number; y: number } | null>(null)
@@ -726,10 +783,12 @@ export function ExcelShell({
     else if (command.startsWith('insert-function-open:'))
       openInsertFunction(command.slice('insert-function-open:'.length))
     else if (command === 'goal-seek-open') setShowGoalSeek(true)
+    else if (command === 'data-table-open') setShowDataTable(true)
     else if (command === 'fill-series-open') setShowFillSeries(true)
     else if (command === 'subtotal-open') setShowSubtotalDialog(true)
     else if (command === 'consolidate-open') setShowConsolidateDialog(true)
     else if (command === 'goto-open') setShowGoTo(true)
+    else if (command === 'queries-open') setShowQueries(true)
     else if (command === PASTE_SPECIAL_OPEN_SHELL_COMMAND) {
       void onReadPasteSpecialSource().then((source) => setPasteSpecialSource(source))
     } else if (command === 'header-footer-open') setShowHeaderFooter(true)
@@ -798,6 +857,12 @@ export function ExcelShell({
   useEffect(() => {
     const onKeyDownCapture = (event: KeyboardEvent): void => {
       if (openingWorkbookRef.current) return
+      if (shouldInterceptRedoRepeat(event, onIsCellEditingRef.current(), isModalOpen())) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        dispatchCommandRef.current('redo-or-repeat')
+        return
+      }
       if (!shouldInterceptClearSelection(event, onIsCellEditingRef.current())) return
       event.preventDefault()
       event.stopImmediatePropagation()
@@ -916,6 +981,16 @@ export function ExcelShell({
           </button>
           <button
             type="button"
+            className="qa-btn qa-name-with-ai"
+            data-tip={t('aiNameFile')}
+            aria-label={t('aiNameFile')}
+            disabled={!canSaveAs}
+            onClick={onNameWithAi}
+          >
+            <GensparkMark />
+          </button>
+          <button
+            type="button"
             className="qa-btn"
             data-tip={t('appUndo')}
             aria-label={t('appUndo')}
@@ -973,6 +1048,8 @@ export function ExcelShell({
           sheetHasContent={sheetHasContent}
           sheetProtected={onGetSheetProtection()?.protected ?? null}
           workbookProtected={onGetWorkbookProtection()}
+          passwordProtected={passwordProtected}
+          spellcheckOn={spellcheckOn}
           formulaBarVisible={formulaBarVisible}
           crossHighlightVisible={crossHighlightVisible}
           pageLayout={pageLayout}
@@ -991,6 +1068,8 @@ export function ExcelShell({
               .map((entry) => entry.name)
           }}
           calcManual={calcManual}
+          queryConnections={queryConnections}
+          showFormulas={showFormulas}
           onRefreshPivot={onRefreshPivot}
           onIsSelectionInPivot={onIsSelectionInPivot}
           onCommand={dispatchCommand}
@@ -1118,6 +1197,15 @@ export function ExcelShell({
           {/* Status bar spans the sheet column only — the AI dock keeps the full window height (unified with docs/slides). */}
           <footer className="status-bar" onContextMenu={openStatsMenu}>
             <div className="status-left">
+              {/* Formula view is per sheet and survives a save, so a sheet can
+                  open showing formulas instead of values. Say so in the status
+                  bar: the one-off toast that announced the switch is gone by
+                  the time anyone notices, and the sheet looks broken. */}
+              {showFormulas && (
+                <span className="status-flag" role="status" title={t('appShowingFormulas')}>
+                  {t('appShowingFormulasActive')}
+                </span>
+              )}
               <span className="status-msg">{statusMessage}</span>
             </div>
             <div className="status-right">
@@ -1334,6 +1422,13 @@ export function ExcelShell({
           onClose={() => setShowGoalSeek(false)}
         />
       )}
+      {showDataTable && (
+        <DataTableDialog
+          initialRange={onGetDataTableRange()}
+          onApply={onDataTable}
+          onClose={() => setShowDataTable(false)}
+        />
+      )}
       {insertFunction !== null && (
         <InsertFunctionFlow
           functions={liveFunctions}
@@ -1372,6 +1467,13 @@ export function ExcelShell({
           onClose={() => setPasteSpecialSource(null)}
         />
       )}
+      {showQueries && (
+        <QueriesDialog
+          load={onReadWorkbookQueries}
+          onGo={onGoToReference}
+          onClose={() => setShowQueries(false)}
+        />
+      )}
       {showGoTo && (
         <GoToDialog
           names={onListDefinedNames()}
@@ -1392,9 +1494,21 @@ export function ExcelShell({
           const snapshot = onGetProtectedRanges()
           return (
             <AllowEditRangesDialog
-              ranges={snapshot.error === null ? snapshot.ranges : []}
+              ranges={
+                snapshot.error === null
+                  ? snapshot.ranges.map((range) => ({
+                      name: range.name,
+                      sqref: range.sqref,
+                      hasPassword: range.hasPassword,
+                      locked: range.hasPassword && range.password === undefined,
+                    }))
+                  : []
+              }
               defaultRef={activeCellA1}
-              onApply={(ranges) => snapshot.error ?? onApplyProtectedRanges(ranges)}
+              onApply={(ranges) => {
+                const failed = snapshot.error ?? onApplyProtectedRanges(ranges)
+                return failed instanceof Promise ? failed : Promise.resolve(failed)
+              }}
               onClose={() => setShowAllowEditRanges(false)}
             />
           )
@@ -1964,6 +2078,8 @@ function Ribbon({
   sheetHasContent,
   sheetProtected,
   workbookProtected,
+  passwordProtected,
+  spellcheckOn,
   formulaBarVisible,
   crossHighlightVisible,
   pageLayout,
@@ -1977,6 +2093,8 @@ function Ribbon({
   onAiToggle,
   onListNames,
   calcManual,
+  queryConnections,
+  showFormulas,
   onRefreshPivot,
   onIsSelectionInPivot,
 }: {
@@ -1986,6 +2104,9 @@ function Ribbon({
   readonly sheetHasContent: boolean
   readonly sheetProtected: boolean | null
   readonly workbookProtected: boolean | null
+  readonly passwordProtected: boolean
+  /// Spelling preference echo for the Review ▸ Proofing toggle.
+  readonly spellcheckOn: boolean
   /// View > Show echo for the formula bar toggle (app-level, not per sheet).
   readonly formulaBarVisible: boolean
   readonly crossHighlightVisible: boolean
@@ -1995,10 +2116,14 @@ function Ribbon({
   readonly selectedTable: SelectedTableRibbon | null
   readonly outlineSummary: { below: boolean; right: boolean }
   readonly onCommand: (command: string) => void
+  /// Formula view of the active sheet; the button reads as pressed.
+  readonly showFormulas: boolean
   /** Defined names for the Use in Formula menu. */
   readonly onListNames: () => readonly string[]
   /** Manual-recalc mode echo for the Calculation Options menu. */
   readonly calcManual: boolean
+  /** The workbook's refreshable web queries, listed under Data ▸ Get data. */
+  readonly queryConnections: readonly QueryConnection[]
   /** Open the AI panel and immediately send the given prompt */
   readonly onAiRun: (prompt: string) => void
   /** AI side panel visibility (docs/slides parity: the entry button toggles it) */
@@ -2995,6 +3120,7 @@ function Ribbon({
           </div>
           <RibbonButton
             large
+            active={showFormulas}
             label={t('appShowFormulas')}
             detail={t('appShowFormulasDetail')}
             symbol="ƒ"
@@ -3013,6 +3139,13 @@ function Ribbon({
             detail={t('appWatchWindowDetail')}
             symbol="👓"
             onClick={() => onCommand('watch-window')}
+          />
+          <RibbonButton
+            large
+            label={t('appLinksPanel')}
+            detail={t('appLinksPanelDetail')}
+            symbol="🔗"
+            onClick={() => onCommand('external-links-panel')}
           />
         </RibbonGroup>
         <RibbonGroup label={t('appGroupCalculation')}>
@@ -3090,6 +3223,30 @@ function Ribbon({
             >
               <ToolSymbol symbol="⟳" />
               {t('appRefreshAll')}
+            </button>
+            {queryConnections.length > 0 ? (
+              <span className="styles-row" data-tip={t('appQueryConnectionsTitle')}>
+                <ToolSymbol symbol="⟳" />
+                {t('appRefreshQuery')}
+                <CaretIcon />
+                <MenuSelect
+                  cover
+                  label={t('appRefreshQuery')}
+                  options={queryConnections.map((c) => ({
+                    value: `query-refresh:${c.id}`,
+                    label: `${c.name} — ${queryConnectionHost(c.source)}`,
+                  }))}
+                  onPick={onCommand}
+                />
+              </span>
+            ) : null}
+            <button
+              className="styles-row as-button"
+              data-tip={t('appQueriesConnectionsTitle')}
+              onClick={() => onCommand('queries-open')}
+            >
+              <ToolSymbol symbol="⇄" />
+              {t('appQueriesConnections')}
             </button>
           </div>
         </RibbonGroup>
@@ -3173,6 +3330,7 @@ function Ribbon({
         <RibbonGroup label={t('appGroupForecast')}>
           {largeMenu(t('appWhatIfAnalysis'), '❔', t('appWhatIfTitle'), [
             { value: 'goal-seek-open', label: t('appGoalSeek') },
+            { value: 'data-table-open', label: t('appDataTable') },
           ])}
         </RibbonGroup>
         <RibbonGroup label={t('appGroupOutline')}>
@@ -3320,11 +3478,29 @@ function Ribbon({
         <RibbonGroup label={t('appGroupProofing')}>
           <RibbonButton
             large
+            label={t('appSpellTitle')}
+            detail={t('appSpellBtnDetail')}
+            symbol="✓"
+            onClick={() => onCommand('spell-check')}
+          />
+          <RibbonButton
+            large
             label={t('appWorkbookStatsLabel')}
             detail={t('appSheetsCellsFormulas')}
             symbol="🧮"
             onClick={() => onCommand('workbook-statistics')}
           />
+          <div className="row-stack">
+            <button
+              className="styles-row as-button"
+              aria-pressed={spellcheckOn}
+              data-tip={t('appSpellToggleTip')}
+              onClick={() => onCommand('spellcheck-toggle')}
+            >
+              <ToolSymbol symbol={spellcheckOn ? '✓' : '○'} />
+              {t('appSpellToggle')}
+            </button>
+          </div>
         </RibbonGroup>
         <RibbonGroup label={t('appGroupLanguage')}>
           <div className="ribbon-tool large" data-tip={t('appTranslateTitle')}>
@@ -3391,6 +3567,7 @@ function Ribbon({
         <RibbonGroup label={t('appGroupNotes')}>
           {largeMenu(t('appGroupNotes'), '🗒', t('appNotesDetail'), [
             { value: 'note-open', label: t('appNewNote') },
+            { value: 'note-insert-picture', label: t('appNoteInsertPicture') },
             { value: 'note-show-toggle', label: t('appShowHideNote') },
             { value: 'note-show-all', label: t('appShowAllNotes') },
             { value: 'notes-convert', label: t('appConvertToNotes') },
@@ -3412,6 +3589,15 @@ function Ribbon({
             symbol={workbookProtected ? '🔓' : '🔐'}
             onClick={() => onCommand('workbook-protect')}
           />
+          {passwordProtected && (
+            <RibbonButton
+              large
+              label={t('appChangePassword')}
+              detail={t('appChangePassword')}
+              symbol="🔑"
+              onClick={() => onCommand('workbook-change-password')}
+            />
+          )}
           <RibbonButton
             large
             label={t('appAllowEditRanges')}
@@ -4532,4 +4718,14 @@ function RibbonButton({
 
 function fillSeriesDefaultType(numberFormat: string | undefined): FillSeriesType {
   return numberFormat && numberFormatLabel(numberFormat) === 'Date' ? 'date' : 'linear'
+}
+
+/// The host a query reads from, shown next to its name so the reader can see
+/// where a refresh would go before they ask for one.
+function queryConnectionHost(source: string): string {
+  try {
+    return new URL(source).host
+  } catch {
+    return source
+  }
 }

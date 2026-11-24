@@ -91,6 +91,21 @@ const winSidecarCandidates = [
 const WIN_SIDECAR =
   winSidecarCandidates.find((rel) => existsSync(join(__dirname, rel))) ?? winSidecarCandidates[0]
 
+// Same layout rule as the sidecar: cross-build triple from the release
+// pipeline, or the host-native MSVC build on a matching Windows contributor
+// machine. Windows-only by purpose — the EMF clipboard helper has no role off
+// Windows, so its absence from other platforms' bundles is the normal state
+// and the sheets resolver degrades to a silent no-op when it is missing.
+const winClipboardCandidates = [
+  `../sheets/native/win-clipboard-helper/target/${winSidecarTarget}/release/win-clipboard-helper.exe`,
+  ...(process.platform === 'win32' && (process.arch === 'arm64') === winArm64
+    ? ['../sheets/native/win-clipboard-helper/target/release/win-clipboard-helper.exe']
+    : []),
+]
+const WIN_CLIPBOARD_HELPER =
+  winClipboardCandidates.find((rel) => existsSync(join(__dirname, rel))) ??
+  winClipboardCandidates[0]
+
 function assertExtraResourceSources() {
   for (const rel of [
     '../../node_modules/@genspark/cli',
@@ -851,6 +866,10 @@ const config = {
         from: WIN_SIDECAR,
         to: 'native/xlsx-sidecar.exe',
       },
+      {
+        from: WIN_CLIPBOARD_HELPER,
+        to: 'native/win-clipboard-helper.exe',
+      },
       // Windows Explorer "New" menu blank documents, registered by
       // build/installer.nsh (ShellNew → $INSTDIR\resources\shell-new) —
       // genuinely win-only, unlike the wallpapers/templates entries in the
@@ -991,9 +1010,9 @@ const config = {
 // scripts/win-sign.cjs, whose env-var contract applies here too), every
 // binary electron-builder signs for win (GenOffice.exe, the NSIS
 // uninstaller, and the installer) goes through that script. The static
-// extraResources binaries (xlsx-sidecar.exe, win-ocr.exe) are signed by the
-// workflow before packaging since electron-builder does not sign
-// extraResources. Unset (local / fork builds) keeps the old behavior:
+// extraResources binaries (xlsx-sidecar.exe, win-clipboard-helper.exe,
+// win-ocr.exe) are signed by the workflow before packaging since
+// electron-builder does not sign extraResources. Unset (local / fork builds) keeps the old behavior:
 // electron-builder has no signing config and packages everything unsigned.
 const winSignMode = process.env.GENOFFICE_WIN_SIGN_MODE
 if (winSignMode) {
