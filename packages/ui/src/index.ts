@@ -68,6 +68,7 @@ export { installScreenTips } from './screentip'
 export {
   installPopoverDismiss,
   useDismissablePopover,
+  useEscapeToClose,
   type PopoverDismissOptions,
 } from './popover-dismiss'
 export { Dropdown, type DropdownOption } from './dropdown'
@@ -183,3 +184,7 @@ export { ProviderLogo } from './provider-logos'
 export { useHostedAiSlot, type HostedAiDockState, type HostedAiSlotBridge } from './hosted-ai-slot'
 export { useRedactLabelField } from './use-redact-label'
 export type { RedactLabelField } from './use-redact-label'
+export { suggestFileName, type SuggestFileNameOptions } from './ai-naming-client'
+export { shortFileError } from './file-error'
+export { useScrollWindow } from './scroll-window'
+export { createImeEnterGuard, useImeEnterGuard, type ImeEnterGuard } from './ime-enter'

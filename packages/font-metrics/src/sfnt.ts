@@ -15,6 +15,30 @@ export const norm = (s: string) =>
     .toLowerCase()
     .replace(/[\s\-_]/g, '')
 
+/**
+ * Font asset catalogs under AssetsV2 (downloaded and OS-preinstalled), newest catalog
+ * version first. The version suffix moves with macOS releases (macOS 26 downloads into
+ * com_apple_MobileAsset_Font8 and leaves Font7 empty), so catalogs are discovered rather
+ * than hardcoded.
+ */
+export function appleFontAssetRoots(assetsV2 = '/System/Library/AssetsV2'): string[] {
+  const roots: Array<{ path: string; ver: number }> = []
+  for (const base of [assetsV2, join(assetsV2, 'PreinstalledAssetsV2/InstallWithOs')]) {
+    let names: string[]
+    try {
+      names = readdirSync(base)
+    } catch {
+      continue
+    }
+    for (const d of names) {
+      const m = /^com_apple_MobileAsset_Font(\d+)$/.exec(d)
+      if (m) roots.push({ path: join(base, d), ver: Number(m[1]) })
+    }
+  }
+  // Newer catalogs first; at equal version the downloaded catalog beats the preinstalled one
+  return roots.sort((a, b) => b.ver - a.ver).map((r) => r.path)
+}
+
 function fontDirs(): string[] {
   switch (process.platform) {
     case 'darwin':
