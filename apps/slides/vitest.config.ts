@@ -58,5 +58,7 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     environment: 'jsdom',
     testTimeout: 20000,
+    // stops worker oversubscription flakes on high-core-count hosts (matches apps/docs)
+    maxWorkers: 6,
   },
 })

@@ -19,6 +19,11 @@ import type { CustGeomPathCmd, SlideComment, SectionInfo } from '@genoffice/pptx
 import type { FontSizeStep } from '@genoffice/pptx-ops/font-size'
 // the font catalog's shape is the store's to declare, not a copy kept in step by hand
 import type { CatalogEntry as FontCatalogEntry } from '@genoffice/electron-utils/font-store'
+import type { PrintDuplex, PrintJobOptions, PrinterInfo } from '@genoffice/electron-utils/print-job'
+import type { PrinterOption } from '@genoffice/electron-utils/printer-options'
+
+export type { PrintDuplex, PrintJobOptions, PrinterInfo }
+export type { PrinterOption }
 import type { LayoutSkeleton } from '../renderer/ai/layout-skeleton'
 import type {
   AiSettings,
@@ -345,6 +350,24 @@ export interface MasterEditStrokeOp {
 
 export interface MasterDeleteElementOp {
   sourceId: string
+}
+
+/** Insert onto the current master/layout part; pixel coordinates like AddElementOp, the part is the session's edit target */
+export interface MasterAddElementOp {
+  kind: InsertKind
+  xPx: number
+  yPx: number
+  wPx: number
+  hPx: number
+  fitWidthPx: number
+  /** Rich-text paragraphs (a text box starts empty; shape defaults apply otherwise) */
+  paragraphs?: EditParagraph[]
+  /** Shape solid fill #RRGGBB */
+  fillColor?: string
+  /** Shape stroke (solid color + point width) */
+  stroke?: { color: string; widthPt: number }
+  /** Text body wrap / autofit (click-to-type text boxes); absent = wrap="square", no autofit */
+  bodyPr?: { wrap?: 'square' | 'none'; autoFit?: 'shrink' | 'resize' }
 }
 
 /** Find/replace: matches within runs across pages; firstOnly+elementId used by "Replace" for the current hit. */
@@ -753,8 +776,20 @@ export interface RepasteSlideOp {
   fitWidthPx: number
 }
 
-export interface PasteSlideResult {
+/** Partial render update; order includes every part path, slides only changed pages. */
+export interface SlideUpdate {
+  order: string[]
   slides: RenderSlide[]
+}
+
+export interface DeckChange {
+  slides: RenderSlide[]
+  size: { cx: number; cy: number }
+  /** Present for a partial update; omitted for a full resync. */
+  order?: string[]
+}
+
+export interface PasteSlideResult extends SlideUpdate {
   /** First pasted slide ('picture': the anchor slide the bitmaps landed on) */
   index: number
   /** Slides inserted ('picture': 0) */
@@ -1191,13 +1226,15 @@ export interface EditChartOp {
 
 // ── Export (PDF / images) ─────────────────────────────────────────────
 
-/** Export as images: the renderer has already rendered hi-res PNGs; the main process only writes them to disk. */
+/** Export as images: the renderer has already rendered hi-res pages; the main process only writes them to disk. */
 export interface ExportImagesOp {
   /** Target directory (absolute path chosen via pickExportDir) */
   dir: string
-  /** File base name (without extension), written as <baseName>-01.png / -02.png … */
+  /** File base name (without extension), written as <baseName>-01.png / -02.png … (or .jpg) */
   baseName: string
-  /** base64 per page PNG (without the data: prefix), in page order */
+  /** Image format of the rendered pages; anything but 'jpg' is written as .png */
+  format?: 'png' | 'jpg'
+  /** base64 per page image (without the data: prefix), in page order */
   pngsBase64: string[]
 }
 
@@ -1206,6 +1243,17 @@ export interface ExportImagesResult {
   /** Absolute paths of the written files (in page order) */
   paths?: string[]
   error?: string
+}
+
+/**
+ * Export as video: the renderer encodes the MP4 itself (WebCodecs + muxer) and streams the
+ * bytes to a file the main process holds open; the muxer rewrites earlier positions when it
+ * finalizes, so writes carry an absolute offset.
+ */
+export interface VideoFileWrite {
+  id: number
+  data: Uint8Array
+  position: number
 }
 
 /** Save as Picture: one PNG of the selected elements, written where the save dialog points */
@@ -1267,13 +1315,18 @@ export interface PrintSlidesOp {
   widthPx: number
   heightPx: number
   /** Layout: full slides / handouts (N per page) / notes pages (slide + notes text) */
-  layout?: 'full' | 'handout2' | 'handout3' | 'handout6' | 'notes'
+  layout?: 'full' | 'handout2' | 'handout3' | 'handout4' | 'handout6' | 'handout9' | 'notes'
   /** Per-page notes text for the notes layout (same order as pngsBase64) */
   notes?: string[]
   /** Paper orientation for handout/notes pages (full pages always follow the slide ratio) */
   orientation?: 'portrait' | 'landscape'
+  /** Thumbnail order across the handout grid (row-first vs column-first) */
+  order?: 'horizontal' | 'vertical'
   /** Border around full-page slides */
   frame?: boolean
+  /** A printer the dialog picked: present = print silently with these job
+   *  options (macOS routes through lp); absent = the system print dialog. */
+  job?: PrintJobOptions
 }
 
 /** Show sync state from presenter view -> audience window (absolute state mirror; audience seek is idempotent) */
@@ -1308,8 +1361,11 @@ export type MenuCommand =
   | 'open'
   | 'save'
   | 'save-as'
+  | 'name-with-ai'
   | 'export-pdf'
   | 'export-images'
+  | 'export-images-jpg'
+  | 'export-video'
   | 'print'
   | 'zoom-in'
   | 'zoom-out'
@@ -1378,7 +1434,8 @@ export interface SlidesApi {
   /** Headless export mode: report the export outcome so the main process can quit */
   headlessExportDone: (result: { ok: boolean; error?: string }) => void
   /** New blank presentation (single blank 16:9 page, untitled) */
-  newBlank: (fitWidthPx: number) => Promise<OpenResult>
+  /** `size` (EMU): the "Use for New Presentations" slide size; omitted keeps the 16:9 template */
+  newBlank: (fitWidthPx: number, size?: { cx: number; cy: number }) => Promise<OpenResult>
   /** Land generated pages: each pageMarkers entry is a marker (genpptx:<path>) redeemable for a one-slide pptx.
    *  mode="append" merges the new pages onto the existing deck (appendedFrom = existing page count);
    *  mode="replace_at" redoes page atIndex in place from a single marker (other pages untouched, undoable, replacedIndex = that page's index);
@@ -1410,10 +1467,8 @@ export interface SlidesApi {
   setElementFont: (op: SetElementFontOp) => Promise<RenderSlide | null>
   /** Change paragraph format on selected elements (bullet/line spacing/paragraph spacing/align; elements without text ignored) */
   setElementParagraphFormat: (op: SetElementParagraphFormatOp) => Promise<RenderSlide | null>
-  /** Replace (when count=0, slides is null and no history step is created) */
-  findReplace: (
-    op: FindReplaceOp,
-  ) => Promise<{ count: number; slides: RenderSlide[] | null } | null>
+  /** Replace (when count=0, update is null and no history step is created) */
+  findReplace: (op: FindReplaceOp) => Promise<{ count: number; update: SlideUpdate | null } | null>
   /** Switch/reset the layout of an existing page */
   setSlideLayout: (op: SetSlideLayoutOp) => Promise<RenderSlide | null>
   /** Slide size (returns the fully rebuilt RenderSlide set + current size marker) */
@@ -1499,9 +1554,9 @@ export interface SlidesApi {
   deleteElement: (op: DeleteElementOp) => Promise<RenderSlide | null>
   /** Multi-selection delete in one undo step */
   deleteElements: (op: DeleteElementsOp) => Promise<RenderSlide | null>
-  addSlide: (op: AddSlideOp) => Promise<{ slides: RenderSlide[]; index: number } | null>
+  addSlide: (op: AddSlideOp) => Promise<(SlideUpdate & { index: number }) | null>
   /** New blank page (reuses slide sourceIndex's layout, content empty) */
-  addBlankSlide: (op: AddBlankSlideOp) => Promise<{ slides: RenderSlide[]; index: number } | null>
+  addBlankSlide: (op: AddBlankSlideOp) => Promise<(SlideUpdate & { index: number }) | null>
   /** Copy slides onto the app-wide slide clipboard, so another open deck can paste them */
   copySlides: (op: CopySlidesOp) => Promise<boolean>
   /** Paste the clipboard slides after afterIndex (mode: destination theme / source formatting / picture); index = first pasted slide, count = slides inserted */
@@ -1512,14 +1567,12 @@ export interface SlidesApi {
   hasSlideClipboard: () => Promise<boolean>
   /** Is there anything a paste would act on (internal elements/slide, or external image/text)? Drives the Paste menu item */
   clipboardProbe: () => Promise<boolean>
-  /** Delete a slide (refused when only one page remains); returns the full RenderSlide array */
-  deleteSlide: (slideIndex: number) => Promise<RenderSlide[] | null>
-  /** Delete a thumbnail selection in one undo step; returns the full RenderSlide array */
-  deleteSlides: (op: DeleteSlidesOp) => Promise<RenderSlide[] | null>
+  /** Delete a slide (refused when only one page remains); returns a partial update */
+  deleteSlide: (slideIndex: number) => Promise<SlideUpdate | null>
+  /** Delete a thumbnail selection in one undo step; returns a partial update */
+  deleteSlides: (op: DeleteSlidesOp) => Promise<SlideUpdate | null>
   /** Duplicate a thumbnail selection in one undo step; index = first copy */
-  duplicateSlides: (
-    op: DuplicateSlidesOp,
-  ) => Promise<{ slides: RenderSlide[]; index: number } | null>
+  duplicateSlides: (op: DuplicateSlidesOp) => Promise<(SlideUpdate & { index: number }) | null>
   /** Bring element to front/back or move one layer forward/backward */
   reorderElement: (op: ReorderElementOp) => Promise<RenderSlide | null>
   /** Table cell text edit */
@@ -1538,8 +1591,8 @@ export interface SlidesApi {
   editStroke: (op: EditStrokeOp) => Promise<RenderSlide | null>
   /** Mirror selected elements horizontally/vertically */
   flipElements: (op: FlipElementOp) => Promise<RenderSlide | null>
-  /** Returns the full affected RenderSlide array (when applied to all pages) */
-  editBackground: (op: EditBackgroundOp) => Promise<RenderSlide[] | null>
+  /** Returns the affected slides and their order */
+  editBackground: (op: EditBackgroundOp) => Promise<SlideUpdate | null>
   /** Show the system image picker and return the file's bytes (for Replace Picture); cancel returns null */
   pickPictureFile: () => Promise<{ base64: string; ext: string } | null>
   /** Show the system image picker and insert into the current page; returns the updated page + new element id, cancel returns null, undecodable format returns the error */
@@ -1636,8 +1689,8 @@ export interface SlidesApi {
   setAnimations: (op: SetAnimationsOp) => Promise<boolean>
   /** Hide/unhide a slide; returns the updated page's RenderSlide (hidden flag), null on failure */
   setSlideHidden: (op: SetSlideHiddenOp) => Promise<RenderSlide | null>
-  /** Hide/unhide a thumbnail selection in one undo step; returns the full RenderSlide array */
-  setSlidesHidden: (op: SetSlidesHiddenOp) => Promise<RenderSlide[] | null>
+  /** Hide/unhide a thumbnail selection in one undo step; returns a partial update */
+  setSlidesHidden: (op: SetSlidesHiddenOp) => Promise<SlideUpdate | null>
   /** The current document's section list ([] when there are no sections) */
   getSections: () => Promise<SectionInfo[]>
   /** Overwrite-write the section structure; returns the updated section list */
@@ -1650,17 +1703,13 @@ export interface SlidesApi {
   /** Delete the section header and every slide in it (one undo step); null when it would empty the deck */
   removeSectionSlides: (
     op: RemoveSectionSlidesOp,
-  ) => Promise<{ slides: RenderSlide[]; sections: SectionInfo[] } | null>
-  /** Move a whole section up/down; slide order changes, returns the full RenderSlide set + section list */
-  moveSection: (
-    op: MoveSectionOp,
-  ) => Promise<{ slides: RenderSlide[]; sections: SectionInfo[] } | null>
-  /** Drag to reorder slides; returns the full RenderSlide set + section list, null on failure */
-  moveSlide: (op: MoveSlideOp) => Promise<{ slides: RenderSlide[]; sections: SectionInfo[] } | null>
+  ) => Promise<(SlideUpdate & { sections: SectionInfo[] }) | null>
+  /** Move a whole section up/down; slide order changes, returns a partial update and section list */
+  moveSection: (op: MoveSectionOp) => Promise<(SlideUpdate & { sections: SectionInfo[] }) | null>
+  /** Drag to reorder slides; returns a partial update and section list, null on failure */
+  moveSlide: (op: MoveSlideOp) => Promise<(SlideUpdate & { sections: SectionInfo[] }) | null>
   /** Drag-reorder a thumbnail selection as one undo step */
-  moveSlides: (
-    op: MoveSlidesOp,
-  ) => Promise<{ slides: RenderSlide[]; sections: SectionInfo[] } | null>
+  moveSlides: (op: MoveSlidesOp) => Promise<(SlideUpdate & { sections: SectionInfo[] }) | null>
   /** Plain text of the current page's speaker notes ('' when there are none) */
   getNotes: (slideIndex: number) => Promise<string>
   /** Overwrite-write notes (into the pptx's notesSlide part); returns success */
@@ -1723,12 +1772,23 @@ export interface SlidesApi {
   exportImages: (op: ExportImagesOp) => Promise<ExportImagesResult>
   /** Export as PDF: shows the save dialog for the target path, cancel returns null */
   pickExportPdfPath: (defaultName: string) => Promise<string | null>
+  /** Export as video: shows the save dialog for the .mp4 path, cancel returns null */
+  pickExportVideoPath: (defaultName: string) => Promise<string | null>
+  /** Open the video file for streamed writes; returns a handle id */
+  videoFileOpen: (path: string) => Promise<number>
+  videoFileWrite: (op: VideoFileWrite) => Promise<void>
+  /** Close the handle; discard=true also deletes the (cancelled/failed) file */
+  videoFileClose: (id: number, discard: boolean) => Promise<void>
   /** Save as Picture: save dialog + write of the selection PNG */
   savePicture: (op: SavePictureOp) => Promise<SavePictureResult>
   /** Main process printToPDF via a hidden window, written to disk */
   exportPdf: (op: ExportPdfOp) => Promise<ExportPdfResult>
-  /** Print (system dialog; cancel counts as ok=false without an error) */
+  /** Print: with job = silent (macOS named printers spool through lp); without = system dialog */
   printSlides: (op: PrintSlidesOp) => Promise<{ ok: boolean; error?: string }>
+  /** installed printers for the in-app print dialog */
+  listPrinters: () => Promise<PrinterInfo[]>
+  /** the driver option groups a queue advertises (quality, color, media type); empty when none */
+  printerOptions: (queue: string) => Promise<PrinterOption[]>
   save: () => Promise<{ ok: boolean; path?: string; error?: string; slides?: RenderSlide[] }>
   saveAs: (
     defaultName: string,
@@ -1738,9 +1798,7 @@ export interface SlidesApi {
   /** Undo/redo stack occupancy pushed by the main process (drives the QAT button gray states) */
   onHistoryChanged: (handler: (state: { canUndo: boolean; canRedo: boolean }) => void) => () => void
   /** Another window attached to the same file changed the deck (shared session): fresh render state to apply */
-  onDeckChanged: (
-    handler: (state: { slides: RenderSlide[]; size: { cx: number; cy: number } }) => void,
-  ) => () => void
+  onDeckChanged: (handler: (state: DeckChange) => void) => () => void
   reportCloseSaveResult: (ok: boolean) => void
   /** Mirror the autosave toggle state to the main process: files with it on save silently on close, no dialog */
   setAutoSavePref: (on: boolean) => void
@@ -1774,6 +1832,8 @@ export interface SlidesApi {
   aiGskStatus: (withEmail?: boolean) => Promise<GenSparkAccountStatus>
   /** Open the browser to log into Genspark (fire-and-forget; aiGskStatus turns logged-in once done) */
   aiGskLogin: () => Promise<void>
+  /** A browser-approved Genspark login landed (whichever surface started it) */
+  onGskLoginLanded: (handler: () => void) => () => void
   /** Record a run that ended without a usable reply, for post-mortem (fire-and-forget, never throws) */
   aiLogRunFailure: (entry: AiRunFailure) => Promise<void>
   webSearch: (
@@ -1871,7 +1931,7 @@ export interface SlidesApi {
   /** New blank page (with a specific layout): inserted after slide sourceIndex, rels pointing at the chosen layout */
   addSlideWithLayout: (
     op: AddSlideWithLayoutOp,
-  ) => Promise<{ slides: RenderSlide[]; index: number } | null>
+  ) => Promise<(SlideUpdate & { index: number }) | null>
   /** Query the current pptx's slideLayout list (for the new-slide dropdown panel) */
   getLayouts: () => Promise<GetLayoutsResult | null>
   // ── Master edit view ──────────────────────────────────────────────
@@ -1886,6 +1946,10 @@ export interface SlidesApi {
   masterEditFill: (op: MasterEditFillOp) => Promise<RenderSlide | null>
   masterEditStroke: (op: MasterEditStrokeOp) => Promise<RenderSlide | null>
   masterDeleteElement: (op: MasterDeleteElementOp) => Promise<RenderSlide | null>
+  /** Insert a text box / preset shape / line onto the current master/layout part */
+  masterAddElement: (
+    op: MasterAddElementOp,
+  ) => Promise<{ slide: RenderSlide; sourceId: string } | null>
   // ── Presenter-view multi-screen show ────────────────────────────────
   /** Enter presenter view: detects multiple displays and opens a fullscreen audience show window on the external screen (sharing this session's document) */
   presenterStart: () => Promise<{ audience: boolean }>

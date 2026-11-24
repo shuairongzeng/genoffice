@@ -6,6 +6,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../i18n/locale'
+import type { SlideUpdate } from '../../shared/ipc'
 import type { FindSpan } from '../konva-adapter'
 import type {
   GroupRenderNode,
@@ -224,7 +225,7 @@ export function FindReplaceDialog({
 }: {
   slides: RenderSlide[]
   onNavigate: (slideIndex: number, sourceId: string, spans: FindSpan[]) => void
-  onReplaced: (slides: RenderSlide[]) => void
+  onReplaced: (update: SlideUpdate) => void
   onClose: () => void
   /** injected for tests: counts scans (the debounce contract) without spying on module internals */
   scanFn?: typeof buildMatches
@@ -309,11 +310,11 @@ export function FindReplaceDialog({
       matchCase,
       ...(all ? {} : { firstOnly: true, slideIndex: cur!.slideIndex, elementId: cur!.sourceId }),
     })
-    if (!r || !r.count || !r.slides) {
+    if (!r || !r.count || !r.update) {
       setStatus(t('paneFrNotFound'))
       return
     }
-    onReplaced(r.slides)
+    onReplaced(r.update)
     setStatus(t('paneFrReplaced', { n: String(r.count) }))
     // no cursor advance: the replaced slides re-render the panel, and the
     // recomposition effect above has already dropped the stale index — the
