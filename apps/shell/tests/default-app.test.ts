@@ -180,6 +180,23 @@ describe('createDefaultAppService', () => {
     expect(openExternal).toHaveBeenCalledWith('ms-settings:defaultapps')
   })
 
+  it('windows: falls back to the ProgId when a name still has replacement characters', async () => {
+    const run = vi.fn<RunCommand>(async (_cmd, args) => {
+      const key = args[1]
+      if (key.includes('UserChoice')) return '    ProgId    REG_SZ    Excel.Sheet.12\r\n'
+      if (key === 'HKCR\\Excel.Sheet.12')
+        return '    (Default)    REG_SZ    Microsoft Excel \uFFFD\uFFFD\uFFFD\r\n'
+      throw new Error('missing')
+    })
+    const svc = createDefaultAppService({
+      ...base,
+      platform: 'win32',
+      run,
+      openExternal: vi.fn(async () => {}),
+    })
+    expect((await svc.status()).others).toEqual(['Excel.Sheet.12'])
+  })
+
   it('reports unknown instead of throwing when the probe fails', async () => {
     const run = vi.fn<RunCommand>(async () => {
       throw new Error('osascript missing')

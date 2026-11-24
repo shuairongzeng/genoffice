@@ -1,6 +1,4 @@
 import {
-  constants,
-  copyFileSync,
   existsSync,
   linkSync,
   readFileSync,
@@ -32,6 +30,7 @@ import { createI18n, getUiLang } from '@genoffice/i18n'
 import { generateImageTool, documentMediaRoots } from '@genoffice/ai-search'
 import { PDF_CHANNELS } from '../shared/ipc'
 import { printJobOptions } from '@genoffice/electron-utils/print-job'
+import { copyFileExclusiveSync } from '@genoffice/electron-utils/copy-file'
 import { buildExportImagePaths, hasValidExportPageNumbers } from './export-images'
 import type {
   ExportImagesRequest,
@@ -929,7 +928,7 @@ export interface NoClobberFileOps {
 
 const defaultNoClobberFileOps: NoClobberFileOps = {
   link: linkSync,
-  copyExclusive: (source, target) => copyFileSync(source, target, constants.COPYFILE_EXCL),
+  copyExclusive: copyFileExclusiveSync,
   unlink: unlinkSync,
   identity: (path) => {
     const stats = statSync(path, { bigint: true })

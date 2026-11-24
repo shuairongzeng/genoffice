@@ -118,8 +118,22 @@ export {
   type RendererHost,
 } from './renderer-scheme'
 export { installRendererProtocol, registerRendererScheme } from './renderer-protocol'
-export { atomicWriteFile, restrictFileToOwner, writeJsonAtomic } from './atomic-write'
+export {
+  atomicCopyFile,
+  atomicWriteFile,
+  atomicWriteVia,
+  restrictFileToOwner,
+  writeJsonAtomic,
+} from './atomic-write'
 export { primeJsonCache, readJsonCached, type CachedJson } from './cached-json'
+export {
+  decodeChunks,
+  decodeChunksUtf8,
+  decodeCommandOutput,
+  decodeUtf8,
+  windowsOemCodePage,
+  type DecodeCommandOptions,
+} from './console-output'
 export {
   PRINT_READY_SCRIPT,
   printHtmlDocument,
