@@ -11,6 +11,7 @@ import {
 import type { AiSettings } from '@genoffice/ai-provider'
 import { endpointSupportsVision } from '@genoffice/ai-provider/browser'
 import type { ProjectStore } from '@genoffice/project-store'
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { ImageContent } from '@earendil-works/pi-ai'
 import type {
   AgentSession,
@@ -60,7 +61,7 @@ import {
 } from './genoffice-workbench-extension'
 import { resolvePiRuntimePaths, type PiRuntimePaths } from './pi-agent-paths'
 import { readMagicContextStats } from './pi-memory-store'
-import { syncPiProviderAndMagicContextConfig } from './pi-provider-sync'
+import { syncPiProviderAndMagicContextConfig, type SyncedPiModelSpec } from './pi-provider-sync'
 import {
   applyPiRuntimeEnv,
   ensurePiSubagentShim,
@@ -394,8 +395,44 @@ interface CachedSessionRecord {
   readonly session: AgentSession
   readonly coord: ReturnType<typeof createWorkbenchExtensionCoord>
   readonly lastModelRef: string
+  readonly lastThinkingLevel: ThinkingLevel | undefined
   readonly prefsKey: string
   busy: boolean
+}
+
+/**
+ * Synchronize a cached session's model and opt-in thinking level when either
+ * GenOffice's active model or its resolved thinking effort changed. Leaves
+ * unconfigured sessions untouched so the user's Pi defaults remain intact.
+ */
+export async function syncCachedSessionModelAndThinking(
+  cached: {
+    readonly lastModelRef: string
+    readonly lastThinkingLevel: ThinkingLevel | undefined
+    readonly session: Pick<AgentSession, 'model' | 'setModel' | 'setThinkingLevel'>
+  },
+  modelSpec: Pick<SyncedPiModelSpec, 'modelRef' | 'piModel' | 'thinkingLevel'>,
+): Promise<boolean> {
+  const modelChanged = cached.lastModelRef !== modelSpec.modelRef
+  const thinkingChanged = cached.lastThinkingLevel !== modelSpec.thinkingLevel
+  if (!modelChanged && !thinkingChanged) {
+    return false
+  }
+  const needsModelRefresh =
+    modelChanged ||
+    cached.session.model?.reasoning !== modelSpec.piModel.reasoning ||
+    Boolean(modelSpec.piModel.thinkingLevelMap) !==
+      Boolean(cached.session.model?.thinkingLevelMap) ||
+    (modelSpec.thinkingLevel !== undefined &&
+      modelSpec.piModel.thinkingLevelMap?.[modelSpec.thinkingLevel] !==
+        cached.session.model?.thinkingLevelMap?.[modelSpec.thinkingLevel])
+  if (needsModelRefresh) {
+    await cached.session.setModel(modelSpec.piModel)
+  }
+  if (modelSpec.thinkingLevel !== undefined) {
+    cached.session.setThinkingLevel(modelSpec.thinkingLevel)
+  }
+  return true
 }
 
 interface ActivePromptRun {
@@ -772,9 +809,12 @@ export class PiAgentRuntimeManager {
     if (cached) {
       if (cached.prefsKey === currentPrefsKey) {
         this.touchCache(req.sessionKey, cached)
-        if (cached.lastModelRef !== modelSpec.modelRef) {
-          await cached.session.setModel(modelSpec.piModel)
-          this.cache.set(req.sessionKey, { ...cached, lastModelRef: modelSpec.modelRef })
+        if (await syncCachedSessionModelAndThinking(cached, modelSpec)) {
+          this.cache.set(req.sessionKey, {
+            ...cached,
+            lastModelRef: modelSpec.modelRef,
+            lastThinkingLevel: modelSpec.thinkingLevel,
+          })
         }
         return this.cache.get(req.sessionKey)!
       }
@@ -876,6 +916,7 @@ export class PiAgentRuntimeManager {
       agentDir: paths.agentDir,
       modelRuntime,
       model: modelSpec.piModel,
+      ...(modelSpec.thinkingLevel !== undefined ? { thinkingLevel: modelSpec.thinkingLevel } : {}),
       ...(excludeTools.length > 0 ? { excludeTools } : {}),
       resourceLoader: loader,
       sessionManager,
@@ -908,6 +949,7 @@ export class PiAgentRuntimeManager {
       session,
       coord,
       lastModelRef: modelSpec.modelRef,
+      lastThinkingLevel: modelSpec.thinkingLevel,
       prefsKey: currentPrefsKey,
       busy: false,
     }

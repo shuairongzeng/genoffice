@@ -8,14 +8,17 @@ import {
   type Model,
   type Api,
   type ProviderStreams,
-  type OpenAICompletionsCompat,
 } from '@earendil-works/pi-ai'
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy'
 import { googleGenerativeAIApi } from '@earendil-works/pi-ai/api/google-generative-ai.lazy'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
+import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
 import type {
   AssistantMessageEventStream,
   Context,
+  SimpleStreamOptions,
+  ThinkingLevel,
+  ThinkingLevelMap,
   Tool as PiTool,
   ToolCall,
   Message as PiMessage,
@@ -25,7 +28,12 @@ import type {
   ToolResultMessage,
 } from '@earendil-works/pi-ai'
 import type { AgentMessage, AgentToolDef } from '@genoffice/agent-core'
-import type { AiSettings, ResolvedEndpoint, StreamCallbacks } from '@genoffice/ai-provider'
+import type {
+  AiProviderConfig,
+  AiSettings,
+  ResolvedEndpoint,
+  StreamCallbacks,
+} from '@genoffice/ai-provider'
 import {
   AI_CHAT_RESPONSE_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_TOKENS,
@@ -34,6 +42,8 @@ import {
   clampMaxOutputTokens,
   AiCreditsError,
   createStreamWatchdog,
+  resolveThinkingEffort,
+  thinkingShapeFor,
 } from '@genoffice/ai-provider'
 import { endpointSupportsVision } from '@genoffice/ai-provider/browser'
 
@@ -57,10 +67,50 @@ function apiStreamsFor(api: Api): ProviderStreams {
         ? anthropicMessagesApi()
         : api === 'google-generative-ai'
           ? googleGenerativeAIApi()
-          : openAICompletionsApi()
+          : api === 'openai-responses'
+            ? openAIResponsesApi()
+            : openAICompletionsApi()
     cachedStreams.set(api, streams)
   }
   return streams
+}
+
+function mapProtocolToPiApi(protocol: ResolvedEndpoint['protocol']): Api {
+  switch (protocol) {
+    case 'anthropic':
+      return 'anthropic-messages'
+    case 'gemini':
+      return 'google-generative-ai'
+    case 'openai-responses':
+      return 'openai-responses'
+    default:
+      return 'openai-completions'
+  }
+}
+
+/**
+ * Resolve opt-in positive thinking effort for pi-ai. Unset, unsupported, or
+ * `'none'` returns `undefined` so `model.reasoning` stays `false` and
+ * `options.reasoning` is omitted (preventing `system->developer` rewrites or
+ * `thinking:disabled` errors on gateways that reject them).
+ */
+function resolvePiThinkingLevel(
+  config: AiProviderConfig,
+  endpoint: ResolvedEndpoint,
+): ThinkingLevel | undefined {
+  let effort = resolveThinkingEffort(config, endpoint.protocol)
+  if (!effort && endpoint.model && endpoint.model !== config.model) {
+    const rawPick = config.thinking?.[config.model] ?? config.thinking?.[endpoint.model]
+    effort = resolveThinkingEffort(
+      {
+        model: endpoint.model,
+        ...(rawPick ? { thinking: { [endpoint.model]: rawPick } } : {}),
+      },
+      endpoint.protocol,
+    )
+  }
+  if (!effort || effort === 'none') return undefined
+  return effort
 }
 
 function hasAuthHeader(headers?: Record<string, string>): boolean {
@@ -75,6 +125,7 @@ function hasAuthHeader(headers?: Record<string, string>): boolean {
 function resolvePiModelAndEndpoint(settings: AiSettings): {
   model: Model<Api>
   endpoint: ResolvedEndpoint
+  thinkingLevel?: ThinkingLevel
 } {
   const providerId = activeProvider(settings)
   // Protocol gap frozen by the migration charter (principle 4): GenOffice's
@@ -92,36 +143,41 @@ function resolvePiModelAndEndpoint(settings: AiSettings): {
   const endpoint = adapter.resolveEndpoint(config)
 
   // GenOffice custom endpoints and most providers talk OpenAI-compatible.
-  // Anthropic/Gemini have dedicated pi protocols.
-  let api: Api
-  switch (endpoint.protocol) {
-    case 'anthropic':
-      api = 'anthropic-messages'
-      break
-    case 'gemini':
-      api = 'google-generative-ai'
-      break
-    default:
-      api = 'openai-completions'
-  }
+  // OpenAI GPT-5.4+/GPT-6 speak Responses; Anthropic/Gemini have dedicated pi protocols.
+  const api = mapProtocolToPiApi(endpoint.protocol)
 
   const modelId = endpoint.model ?? config.model ?? ''
-  const compat: OpenAICompletionsCompat | undefined =
-    api === 'openai-completions' &&
-    (endpoint.useMaxCompletionTokens || endpoint.echoReasoning !== undefined)
-      ? {
-          ...(endpoint.useMaxCompletionTokens
-            ? { maxTokensField: 'max_completion_tokens' as const }
-            : {}),
-          ...(endpoint.echoReasoning !== undefined
-            ? { requiresReasoningContentOnAssistantMessages: endpoint.echoReasoning }
-            : {}),
-        }
+  const thinkingLevel = resolvePiThinkingLevel(config, endpoint)
+  const reasoning = thinkingLevel !== undefined
+
+  const compatEntries: Record<string, unknown> = {}
+  if (api === 'openai-completions') {
+    if (endpoint.useMaxCompletionTokens) {
+      compatEntries.maxTokensField = 'max_completion_tokens'
+    }
+    if (endpoint.echoReasoning !== undefined) {
+      compatEntries.requiresReasoningContentOnAssistantMessages = endpoint.echoReasoning
+    }
+  } else if (
+    api === 'anthropic-messages' &&
+    reasoning &&
+    thinkingShapeFor(modelId, endpoint.protocol).kind === 'anthropic-adaptive'
+  ) {
+    // Claude 4.6/5.x adaptive thinking requires `forceAdaptiveThinking` in pi-ai;
+    // otherwise streamSimple falls back to legacy budget_tokens thinking.
+    compatEntries.forceAdaptiveThinking = true
+  }
+  const compat =
+    Object.keys(compatEntries).length > 0
+      ? (compatEntries as NonNullable<Model<Api>['compat']>)
       : undefined
 
-  // Keep reasoning: false because streamViaPi calls streamSimple without
-  // options.reasoning; setting model.reasoning = true switches system->developer
-  // on custom OpenAI endpoints and sends thinking:disabled on DeepSeek/Z.ai/OpenRouter.
+  // pi-ai clamps `xhigh` and `max` down to `high` unless declared in thinkingLevelMap.
+  const thinkingLevelMap: ThinkingLevelMap | undefined =
+    thinkingLevel === 'xhigh' || thinkingLevel === 'max'
+      ? { [thinkingLevel]: thinkingLevel }
+      : undefined
+
   const model: Model<Api> = {
     id: modelId,
     name: modelId,
@@ -129,7 +185,8 @@ function resolvePiModelAndEndpoint(settings: AiSettings): {
     provider: providerId,
     baseUrl: endpoint.baseUrl,
     input: endpointSupportsVision(settings) ? ['text', 'image'] : ['text'],
-    reasoning: false,
+    reasoning,
+    ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
     contextWindow: 0,
     maxTokens: endpoint.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -138,7 +195,7 @@ function resolvePiModelAndEndpoint(settings: AiSettings): {
     model.headers = endpoint.headers
   }
   if (compat) {
-    model.compat = compat as NonNullable<Model<Api>['compat']>
+    model.compat = compat
   }
 
   // Always update the registered provider so dynamic changes to custom
@@ -166,7 +223,11 @@ function resolvePiModelAndEndpoint(settings: AiSettings): {
   }
   models.setProvider(createProvider(providerConfig))
 
-  return { model, endpoint }
+  return {
+    model,
+    endpoint,
+    ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+  }
 }
 
 /** Map GenOffice provider config onto a pi Model for one request. */
@@ -316,7 +377,7 @@ export async function chatViaPi(
   user: string,
 ): Promise<{ ok: boolean; content?: string; error?: string }> {
   try {
-    const { model, endpoint } = resolvePiModelAndEndpoint(settings)
+    const { model, endpoint, thinkingLevel } = resolvePiModelAndEndpoint(settings)
     // Same budget chatForProvider gives a one-shot chat: a gateway may answer a
     // streaming request with one buffered body (then the whole generation
     // elapses before the first event), so the connect phase gets the long
@@ -324,13 +385,17 @@ export async function chatViaPi(
     const wd = createStreamWatchdog(undefined, AI_CHAT_RESPONSE_TIMEOUT_MS, endpoint.idleTimeoutMs)
     let text = ''
     await wd.guard(async () => {
+      const options: SimpleStreamOptions = {
+        signal: wd.signal,
+        ...(thinkingLevel !== undefined ? { reasoning: thinkingLevel } : {}),
+      }
       const stream = modelsInstance().streamSimple(
         model,
         {
           systemPrompt: system,
           messages: [{ role: 'user', content: [{ type: 'text', text: user }] } as PiMessage],
         },
-        { signal: wd.signal },
+        options,
       )
       for await (const ev of stream) {
         wd.touch()
@@ -356,7 +421,7 @@ export async function streamViaPi(
   maxTokens: number,
   cb: StreamCallbacks,
 ): Promise<void> {
-  const { model, endpoint } = resolvePiModelAndEndpoint(settings)
+  const { model, endpoint, thinkingLevel } = resolvePiModelAndEndpoint(settings)
   const messageOpts: { model: Model<Api>; echoReasoning?: boolean } = { model }
   if (endpoint.echoReasoning !== undefined) {
     messageOpts.echoReasoning = endpoint.echoReasoning
@@ -385,10 +450,16 @@ export async function streamViaPi(
 
   try {
     await wd.guard(async () => {
-      const stream: AssistantMessageEventStream = modelsInstance().streamSimple(model, context, {
+      const streamOptions: SimpleStreamOptions = {
         maxTokens: effectiveMaxTokens,
         signal: wd.signal,
-      })
+        ...(thinkingLevel !== undefined ? { reasoning: thinkingLevel } : {}),
+      }
+      const stream: AssistantMessageEventStream = modelsInstance().streamSimple(
+        model,
+        context,
+        streamOptions,
+      )
 
       for await (const ev of stream) {
         // every event is parsed provider output — bytes were on the wire

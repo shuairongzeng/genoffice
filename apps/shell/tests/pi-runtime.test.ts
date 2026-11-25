@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { defaultAiSettings, type AiSettings } from '@genoffice/ai-provider'
+import { resolvePiRuntimePaths } from '../src/main/pi-agent/pi-agent-paths'
+import {
+  buildSyncedPiModelSpec,
+  syncPiProviderAndMagicContextConfig,
+} from '../src/main/pi-agent/pi-provider-sync'
 import {
   GENOFFICE_PI_SYSTEM_PROMPT,
   SessionMapStore,
@@ -15,6 +21,7 @@ import {
   prefsReloadKey,
   resolveGenofficeSystemPrompt,
   stripOrdinalPrefix,
+  syncCachedSessionModelAndThinking,
 } from '../src/main/pi-agent/pi-runtime'
 import { appendButlerPersona } from '../src/main/butler/butler-persona'
 import {
@@ -380,5 +387,292 @@ describe('pi-runtime helpers', () => {
     expect(withDefault.endsWith(persona)).toBe(true)
     expect(withConfigured).toBe(`${resolvedConfigured}\n\n${persona}`)
     expect(withConfigured.endsWith(persona)).toBe(true)
+  })
+
+  it('syncs cached session model and opt-in thinkingLevel only when changed without touching unconfigured defaults', async () => {
+    const defaults = defaultAiSettings()
+    const unsetSpec = buildSyncedPiModelSpec({
+      ...defaults,
+      provider: 'openai',
+      providers: {
+        ...defaults.providers,
+        openai: { ...defaults.providers.openai, apiKey: 'sk', model: 'gpt-6.1-terra' },
+      },
+    })
+    const lowSpec = buildSyncedPiModelSpec({
+      ...defaults,
+      provider: 'openai',
+      providers: {
+        ...defaults.providers,
+        openai: {
+          ...defaults.providers.openai,
+          apiKey: 'sk',
+          model: 'gpt-6.1-terra',
+          thinking: { 'gpt-6.1-terra': 'low' },
+        },
+      },
+    })
+    const mediumSpec = buildSyncedPiModelSpec({
+      ...defaults,
+      provider: 'openai',
+      providers: {
+        ...defaults.providers,
+        openai: {
+          ...defaults.providers.openai,
+          apiKey: 'sk',
+          model: 'gpt-6.1-terra',
+          thinking: { 'gpt-6.1-terra': 'medium' },
+        },
+      },
+    })
+    const xhighSpec = buildSyncedPiModelSpec({
+      ...defaults,
+      provider: 'openai',
+      providers: {
+        ...defaults.providers,
+        openai: {
+          ...defaults.providers.openai,
+          apiKey: 'sk',
+          model: 'gpt-6.1-terra',
+          thinking: { 'gpt-6.1-terra': 'xhigh' },
+        },
+      },
+    })
+
+    let liveModel = unsetSpec.piModel
+    const setModel = vi.fn(async (next: typeof liveModel) => {
+      liveModel = next
+    })
+    const setThinkingLevel = vi.fn()
+    const fakeSession = {
+      get model() {
+        return liveModel
+      },
+      setModel,
+      setThinkingLevel,
+    }
+
+    // 1. Unchanged unconfigured session: no calls emitted.
+    await expect(
+      syncCachedSessionModelAndThinking(
+        {
+          lastModelRef: unsetSpec.modelRef,
+          lastThinkingLevel: undefined,
+          session: fakeSession,
+        },
+        unsetSpec,
+      ),
+    ).resolves.toBe(false)
+    expect(setModel).not.toHaveBeenCalled()
+    expect(setThinkingLevel).not.toHaveBeenCalled()
+
+    // 2. Unset -> low: refreshes model (reasoning: true) then sets thinkingLevel.
+    await expect(
+      syncCachedSessionModelAndThinking(
+        {
+          lastModelRef: unsetSpec.modelRef,
+          lastThinkingLevel: undefined,
+          session: fakeSession,
+        },
+        lowSpec,
+      ),
+    ).resolves.toBe(true)
+    expect(setModel).toHaveBeenCalledTimes(1)
+    expect(setModel).toHaveBeenCalledWith(lowSpec.piModel)
+    expect(setThinkingLevel).toHaveBeenCalledWith('low')
+
+    // 3. low -> medium on the same model: updates thinkingLevel without redundant setModel.
+    setModel.mockClear()
+    setThinkingLevel.mockClear()
+    await expect(
+      syncCachedSessionModelAndThinking(
+        {
+          lastModelRef: lowSpec.modelRef,
+          lastThinkingLevel: 'low',
+          session: fakeSession,
+        },
+        mediumSpec,
+      ),
+    ).resolves.toBe(true)
+    expect(setModel).not.toHaveBeenCalled()
+    expect(setThinkingLevel).toHaveBeenCalledWith('medium')
+
+    // 4. medium -> xhigh: refreshes model so thinkingLevelMap includes xhigh before setThinkingLevel.
+    setModel.mockClear()
+    setThinkingLevel.mockClear()
+    await expect(
+      syncCachedSessionModelAndThinking(
+        {
+          lastModelRef: mediumSpec.modelRef,
+          lastThinkingLevel: 'medium',
+          session: fakeSession,
+        },
+        xhighSpec,
+      ),
+    ).resolves.toBe(true)
+    expect(setModel).toHaveBeenCalledTimes(1)
+    expect(setThinkingLevel).toHaveBeenCalledWith('xhigh')
+
+    // 5. xhigh -> unset/none: refreshes model back to reasoning: false without forcing setThinkingLevel.
+    setModel.mockClear()
+    setThinkingLevel.mockClear()
+    await expect(
+      syncCachedSessionModelAndThinking(
+        {
+          lastModelRef: xhighSpec.modelRef,
+          lastThinkingLevel: 'xhigh',
+          session: fakeSession,
+        },
+        unsetSpec,
+      ),
+    ).resolves.toBe(true)
+    expect(setModel).toHaveBeenCalledTimes(1)
+    expect(setModel).toHaveBeenCalledWith(unsetSpec.piModel)
+    expect(setThinkingLevel).not.toHaveBeenCalled()
+  })
+
+  it('applies opt-in thinkingLevel in createAgentSession and preserves defaults when unset', async () => {
+    const sdk = await import('@earendil-works/pi-coding-agent')
+    const userData = makeTempDir('genoffice-pi-sdk-thinking-')
+    const cwd = join(userData, 'workspace')
+    mkdirSync(cwd, { recursive: true })
+    const paths = resolvePiRuntimePaths({ userDataDir: userData, storageMode: 'isolated' })
+
+    const defaults = defaultAiSettings()
+    const xhighSettings: AiSettings = {
+      ...defaults,
+      provider: 'openai',
+      providers: {
+        ...defaults.providers,
+        openai: {
+          ...defaults.providers.openai,
+          apiKey: 'sk-test-openai',
+          model: 'gpt-6.1-terra',
+          thinking: { 'gpt-6.1-terra': 'xhigh' },
+        },
+      },
+    }
+    const unsetSettings: AiSettings = {
+      ...defaults,
+      provider: 'openai',
+      providers: {
+        ...defaults.providers,
+        openai: {
+          ...defaults.providers.openai,
+          apiKey: 'sk-test-openai',
+          model: 'gpt-6.1-terra',
+        },
+      },
+    }
+
+    const xhighSpec = syncPiProviderAndMagicContextConfig(
+      paths,
+      xhighSettings,
+      DEFAULT_PI_AGENT_PREFS,
+    )!
+    expect(xhighSpec.thinkingLevel).toBe('xhigh')
+
+    const settingsManager = sdk.SettingsManager.create(cwd, paths.agentDir, {
+      projectTrusted: true,
+    })
+    settingsManager.setDefaultThinkingLevel('medium')
+    const modelRuntime = await sdk.ModelRuntime.create({
+      authPath: paths.authJsonPath,
+      modelsPath: paths.modelsJsonPath,
+      refreshOnCreate: false,
+    })
+
+    const { session } = await sdk.createAgentSession({
+      cwd,
+      agentDir: paths.agentDir,
+      modelRuntime,
+      model: xhighSpec.piModel,
+      ...(xhighSpec.thinkingLevel !== undefined ? { thinkingLevel: xhighSpec.thinkingLevel } : {}),
+      sessionManager: sdk.SessionManager.inMemory(cwd),
+      settingsManager,
+    })
+    try {
+      expect(session.model?.api).toBe('openai-responses')
+      expect(session.model?.reasoning).toBe(true)
+      expect(session.thinkingLevel).toBe('xhigh')
+      // Applying per-session thinkingLevel must not overwrite the user's global default.
+      expect(settingsManager.getDefaultThinkingLevel()).toBe('medium')
+
+      // Switching across models (openai -> anthropic) updates model, compat, and thinkingLevel.
+      const claudeSettings: AiSettings = {
+        ...defaults,
+        provider: 'anthropic',
+        providers: {
+          ...defaults.providers,
+          anthropic: {
+            ...defaults.providers.anthropic,
+            apiKey: 'sk-ant-test',
+            model: 'claude-opus-5-5',
+            thinking: { 'claude-opus-5-5': 'max' },
+          },
+        },
+      }
+      const claudeSpec = syncPiProviderAndMagicContextConfig(
+        paths,
+        claudeSettings,
+        DEFAULT_PI_AGENT_PREFS,
+      )!
+      const switchedToClaude = await syncCachedSessionModelAndThinking(
+        {
+          lastModelRef: xhighSpec.modelRef,
+          lastThinkingLevel: xhighSpec.thinkingLevel,
+          session,
+        },
+        claudeSpec,
+      )
+      expect(switchedToClaude).toBe(true)
+      expect(session.model?.api).toBe('anthropic-messages')
+      expect(session.model?.reasoning).toBe(true)
+      expect(session.thinkingLevel).toBe('max')
+
+      // Switching via syncCachedSessionModelAndThinking to unset resets reasoning: false and clamps to off.
+      const unsetSpec = syncPiProviderAndMagicContextConfig(
+        paths,
+        unsetSettings,
+        DEFAULT_PI_AGENT_PREFS,
+      )!
+      const changed = await syncCachedSessionModelAndThinking(
+        {
+          lastModelRef: claudeSpec.modelRef,
+          lastThinkingLevel: claudeSpec.thinkingLevel,
+          session,
+        },
+        unsetSpec,
+      )
+      expect(changed).toBe(true)
+      expect(session.model?.reasoning).toBe(false)
+      expect(session.thinkingLevel).toBe('off')
+      expect(settingsManager.getDefaultThinkingLevel()).toBe('medium')
+    } finally {
+      session.dispose()
+    }
+
+    // Creating a session without an explicit GenOffice thinking pick preserves existing defaults.
+    const unsetSpec = syncPiProviderAndMagicContextConfig(
+      paths,
+      unsetSettings,
+      DEFAULT_PI_AGENT_PREFS,
+    )!
+    const { session: defaultSession } = await sdk.createAgentSession({
+      cwd,
+      agentDir: paths.agentDir,
+      modelRuntime,
+      model: unsetSpec.piModel,
+      ...(unsetSpec.thinkingLevel !== undefined ? { thinkingLevel: unsetSpec.thinkingLevel } : {}),
+      sessionManager: sdk.SessionManager.inMemory(cwd),
+      settingsManager,
+    })
+    try {
+      expect(defaultSession.model?.reasoning).toBe(false)
+      expect(defaultSession.thinkingLevel).toBe('off')
+      expect(settingsManager.getDefaultThinkingLevel()).toBe('medium')
+    } finally {
+      defaultSession.dispose()
+    }
   })
 })

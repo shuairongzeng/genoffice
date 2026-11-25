@@ -218,7 +218,7 @@ async function httpJson(
   for (const [i, impl] of channels.entries()) {
     try {
       const attempt =
-        process.env.GENOFFICE_NATIVE_WAF === '1' ? await nativeWaf.prepare(url, init, impl) : init
+        process.env.GENOFFICE_NATIVE_WAF !== '0' ? await nativeWaf.prepare(url, init, impl) : init
       // per-attempt timeout: a blackholed direct connection would otherwise
       // hang for the OS TCP timeout before the fallback ever runs
       resp = await impl(url, {
@@ -296,7 +296,7 @@ async function revokeKey(cookie: string, keyId: string, signal: AbortSignal): Pr
   const fetcher = resolveFetch()
   await fetcher(
     url,
-    process.env.GENOFFICE_NATIVE_WAF === '1' ? await nativeWaf.prepare(url, init, fetcher) : init,
+    process.env.GENOFFICE_NATIVE_WAF !== '0' ? await nativeWaf.prepare(url, init, fetcher) : init,
   )
 }
 
@@ -413,6 +413,9 @@ async function runDeviceLogin(
   // a completed login re-arms the one automatic re-login for the next rejected key
   autoLoginLaunched = false
   emit({ phase: 'success' })
+  // browser-approved logins only: the silent re-mint never went through the
+  // browser, so it must not pull the app window forward or toast
+  loginSuccessListener?.()
   // re-login replaces the key: revoke the superseded one so it can't pile up
   // server-side (best-effort — the new login must not fail on this)
   if (previousKeyId && previousKeyId !== minted.keyId) {
@@ -493,6 +496,16 @@ export type GskRecoveryOutcome =
  */
 export function setGenofficeLoginOpener(openUrl: ((url: string) => void) | null): void {
   loginOpener = openUrl
+}
+
+/** Fires after every browser-approved login lands (manual or automatic),
+ *  once the new key is saved. Registered by the main process to surface the
+ *  success in the app (this module is Electron-free); the silent re-mint
+ *  path never fires it. */
+let loginSuccessListener: (() => void) | null = null
+
+export function setGenofficeLoginSuccessListener(listener: (() => void) | null): void {
+  loginSuccessListener = listener
 }
 
 /**

@@ -14,7 +14,7 @@ import {
   type AiSettings,
   type StreamCallbacks,
 } from '@genoffice/ai-provider'
-import { mapPiErrorEvent, streamViaPi, chatViaPi } from '../src/index'
+import { mapPiErrorEvent, piModelFor, streamViaPi, chatViaPi } from '../src/index'
 
 type MockProviderInput = {
   id: string
@@ -35,10 +35,12 @@ const pi = vi.hoisted(() => ({
   events: [] as Array<Record<string, unknown>>,
   lastModel: undefined as Record<string, unknown> | undefined,
   lastContext: undefined as { messages?: Array<Record<string, unknown>> } | undefined,
-  lastOptions: undefined as { signal?: AbortSignal; maxTokens?: number } | undefined,
+  lastOptions: undefined as
+    { signal?: AbortSignal; maxTokens?: number; reasoning?: string } | undefined,
   providers: new Map<string, MockProviderInput>(),
   setProviderCalls: [] as MockProviderInput[],
   createProviderCalls: [] as MockProviderInput[],
+  apiFactoryCalls: [] as string[],
 }))
 
 vi.mock('@earendil-works/pi-ai', () => ({
@@ -51,7 +53,7 @@ vi.mock('@earendil-works/pi-ai', () => ({
     streamSimple: (model: unknown, context: unknown, options: unknown) => {
       pi.lastModel = model as Record<string, unknown>
       pi.lastContext = context as { messages?: Array<Record<string, unknown>> }
-      pi.lastOptions = options as { signal?: AbortSignal; maxTokens?: number }
+      pi.lastOptions = options as { signal?: AbortSignal; maxTokens?: number; reasoning?: string }
       return fakePiStream(pi.lastOptions?.signal)
     },
   }),
@@ -61,13 +63,28 @@ vi.mock('@earendil-works/pi-ai', () => ({
   },
 }))
 vi.mock('@earendil-works/pi-ai/api/anthropic-messages.lazy', () => ({
-  anthropicMessagesApi: () => ({}),
+  anthropicMessagesApi: () => {
+    pi.apiFactoryCalls.push('anthropic-messages')
+    return {}
+  },
 }))
 vi.mock('@earendil-works/pi-ai/api/google-generative-ai.lazy', () => ({
-  googleGenerativeAIApi: () => ({}),
+  googleGenerativeAIApi: () => {
+    pi.apiFactoryCalls.push('google-generative-ai')
+    return {}
+  },
 }))
 vi.mock('@earendil-works/pi-ai/api/openai-completions.lazy', () => ({
-  openAICompletionsApi: () => ({}),
+  openAICompletionsApi: () => {
+    pi.apiFactoryCalls.push('openai-completions')
+    return {}
+  },
+}))
+vi.mock('@earendil-works/pi-ai/api/openai-responses.lazy', () => ({
+  openAIResponsesApi: () => {
+    pi.apiFactoryCalls.push('openai-responses')
+    return {}
+  },
 }))
 
 function fakePiStream(signal?: AbortSignal) {
@@ -129,6 +146,7 @@ beforeEach(() => {
   pi.providers.clear()
   pi.setProviderCalls = []
   pi.createProviderCalls = []
+  pi.apiFactoryCalls = []
 })
 
 describe('onActivity mapping', () => {
@@ -318,6 +336,10 @@ describe('frozen codex protocol gap', () => {
     await expect(
       streamViaPi(codexSettings, 'sys', userTurn, [], 1024, makeCallbacks()),
     ).rejects.toThrow(/codex.*GENOFFICE_AI_BACKEND=legacy/)
+    await expect(chatViaPi(codexSettings, 'sys', 'hello')).resolves.toEqual({
+      ok: false,
+      error: expect.stringMatching(/codex.*GENOFFICE_AI_BACKEND=legacy/),
+    })
   })
 })
 
@@ -514,5 +536,188 @@ describe('dynamic custom endpoint updates and compatibility', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('openai-responses routing and opt-in thinking effort passthrough', () => {
+  it('routes GPT-5.4+/GPT-6 models on openai to openai-responses while keeping reasoning off by default', async () => {
+    const openaiSettings = {
+      provider: 'openai',
+      providers: {
+        openai: { apiKey: 'sk-test', model: 'gpt-6.1-terra' },
+      },
+    } as unknown as AiSettings
+
+    pi.events = [{ type: 'done', reason: 'stop', message: {} }]
+    await streamViaPi(openaiSettings, 'sys', userTurn, [], 1024, makeCallbacks())
+
+    expect(pi.apiFactoryCalls).toContain('openai-responses')
+    expect(pi.lastModel?.api).toBe('openai-responses')
+    expect(pi.lastModel?.baseUrl).toBe('https://api.openai.com/v1')
+    expect(pi.lastModel?.reasoning).toBe(false)
+    expect(Object.hasOwn(pi.lastOptions ?? {}, 'reasoning')).toBe(false)
+  })
+
+  it('keeps reasoning: false and omits options.reasoning when thinking is unset, unsupported, or none', async () => {
+    const cases: Array<{ label: string; cfg: AiSettings }> = [
+      {
+        label: 'custom endpoint without thinking',
+        cfg: settings,
+      },
+      {
+        label: 'deepseek without thinking',
+        cfg: {
+          provider: 'deepseek',
+          providers: { deepseek: { apiKey: 'ds-key', model: 'deepseek-flash' } },
+        } as unknown as AiSettings,
+      },
+      {
+        label: 'deepseek with explicit none',
+        cfg: {
+          provider: 'deepseek',
+          providers: {
+            deepseek: {
+              apiKey: 'ds-key',
+              model: 'deepseek-flash',
+              thinking: { 'deepseek-flash': 'none' },
+            },
+          },
+        } as unknown as AiSettings,
+      },
+      {
+        label: 'openai responses with explicit none',
+        cfg: {
+          provider: 'openai',
+          providers: {
+            openai: {
+              apiKey: 'sk-test',
+              model: 'gpt-6.1-terra',
+              thinking: { 'gpt-6.1-terra': 'none' },
+            },
+          },
+        } as unknown as AiSettings,
+      },
+      {
+        label: 'openrouter chat-completions rejecting Responses-only xhigh',
+        cfg: {
+          provider: 'openrouter',
+          providers: {
+            openrouter: {
+              apiKey: 'or-key',
+              model: 'openai/gpt-6.1-terra',
+              thinking: { 'openai/gpt-6.1-terra': 'xhigh' },
+            },
+          },
+        } as unknown as AiSettings,
+      },
+      {
+        label: 'anthropic 4.5 rejecting adaptive effort',
+        cfg: {
+          provider: 'anthropic',
+          providers: {
+            anthropic: {
+              apiKey: 'sk-ant',
+              model: 'claude-sonnet-4-5',
+              thinking: { 'claude-sonnet-4-5': 'high' },
+            },
+          },
+        } as unknown as AiSettings,
+      },
+    ]
+
+    for (const { label, cfg } of cases) {
+      pi.events = [{ type: 'done', reason: 'stop', message: {} }]
+      await streamViaPi(cfg, 'sys', userTurn, [], 1024, makeCallbacks())
+      expect(pi.lastModel?.reasoning, label).toBe(false)
+      expect(Object.hasOwn(pi.lastOptions ?? {}, 'reasoning'), label).toBe(false)
+
+      pi.events = [{ type: 'done', reason: 'stop', message: {} }]
+      await chatViaPi(cfg, 'sys', 'hello')
+      expect(pi.lastModel?.reasoning, `${label} (chat)`).toBe(false)
+      expect(Object.hasOwn(pi.lastOptions ?? {}, 'reasoning'), `${label} (chat)`).toBe(false)
+    }
+  })
+
+  it('passes valid positive thinking effort on openai-responses including xhigh and max', async () => {
+    for (const level of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
+      const cfg = {
+        provider: 'openai',
+        providers: {
+          openai: {
+            apiKey: 'sk-test',
+            model: 'gpt-6.1-terra',
+            thinking: { 'gpt-6.1-terra': level },
+          },
+        },
+      } as unknown as AiSettings
+
+      pi.events = [{ type: 'done', reason: 'stop', message: {} }]
+      await streamViaPi(cfg, 'sys', userTurn, [], 2048, makeCallbacks())
+
+      expect(pi.lastModel?.api).toBe('openai-responses')
+      expect(pi.lastModel?.reasoning).toBe(true)
+      expect(pi.lastOptions?.reasoning).toBe(level)
+      if (level === 'xhigh' || level === 'max') {
+        expect(pi.lastModel?.thinkingLevelMap).toEqual({ [level]: level })
+      } else {
+        expect(pi.lastModel?.thinkingLevelMap).toBeUndefined()
+      }
+    }
+
+    const chatCfg = {
+      provider: 'openai',
+      providers: {
+        openai: {
+          apiKey: 'sk-test',
+          model: 'gpt-6.1-terra',
+          thinking: { 'gpt-6.1-terra': 'high' },
+        },
+      },
+    } as unknown as AiSettings
+    pi.events = [
+      { type: 'text_delta', contentIndex: 0, delta: 'ok', partial: {} },
+      { type: 'done', reason: 'stop', message: {} },
+    ]
+    await expect(chatViaPi(chatCfg, 'sys', 'hello')).resolves.toEqual({ ok: true, content: 'ok' })
+    expect(pi.lastModel?.reasoning).toBe(true)
+    expect(pi.lastOptions?.reasoning).toBe('high')
+  })
+
+  it('wires adaptive thinking compat on Claude 5.x and level passthrough on Gemini 3/4', async () => {
+    const claudeCfg = {
+      provider: 'anthropic',
+      providers: {
+        anthropic: {
+          apiKey: 'sk-ant',
+          model: 'claude-opus-5-5',
+          thinking: { 'claude-opus-5-5': 'max' },
+        },
+      },
+    } as unknown as AiSettings
+    pi.events = [{ type: 'done', reason: 'stop', message: {} }]
+    await streamViaPi(claudeCfg, 'sys', userTurn, [], 2048, makeCallbacks())
+    expect(pi.lastModel?.api).toBe('anthropic-messages')
+    expect(pi.lastModel?.reasoning).toBe(true)
+    expect(pi.lastModel?.compat).toEqual({ forceAdaptiveThinking: true })
+    expect(pi.lastModel?.thinkingLevelMap).toEqual({ max: 'max' })
+    expect(pi.lastOptions?.reasoning).toBe('max')
+
+    const geminiCfg = {
+      provider: 'gemini',
+      providers: {
+        gemini: {
+          apiKey: 'gm-key',
+          model: 'gemini-4-argon',
+          thinking: { 'gemini-4-argon': 'medium' },
+        },
+      },
+    } as unknown as AiSettings
+    const geminiModel = piModelFor(geminiCfg)
+    expect(geminiModel.api).toBe('google-generative-ai')
+    expect(geminiModel.reasoning).toBe(true)
+
+    pi.events = [{ type: 'done', reason: 'stop', message: {} }]
+    await streamViaPi(geminiCfg, 'sys', userTurn, [], 2048, makeCallbacks())
+    expect(pi.lastOptions?.reasoning).toBe('medium')
   })
 })
