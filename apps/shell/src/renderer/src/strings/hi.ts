@@ -333,6 +333,11 @@ export const hi: Dict = {
   documentTheme: 'दस्तावेज़ पृष्ठ थीम',
   docThemeFollowApp: 'ऐप थीम के अनुसार',
   saveLocation: 'सहेजने का स्थान',
+  setExcludedFolders: 'बहिष्कृत फ़ोल्डर',
+  setExcludedFoldersDesc:
+    'इन फ़ोल्डर की फ़ाइलें हाल की सूची, खोज और सत्र पुनर्स्थापना में नहीं आतीं।',
+  setExcludedFoldersAdd: 'फ़ोल्डर जोड़ें…',
+  setExcludedFoldersEmpty: 'अभी कोई फ़ोल्डर बहिष्कृत नहीं है',
   setTabSleep: 'निष्क्रिय टैब को सुलाएँ',
   setTabSleepDesc:
     'कई टैब खुले होने पर, जिन्हें आपने कुछ समय से नहीं देखा वे मेमोरी छोड़ देते हैं और लौटने पर फ़ाइल फिर खोलते हैं। बिना सहेजे बदलाव वाले या पिन किए गए टैब कभी नहीं सोते।',
@@ -377,6 +382,7 @@ export const hi: Dict = {
   setSearchRerankCustomModel: 'मॉडल ID',
   setSearchRerankAccount: 'खाता ID',
   setAiPanelSide: 'AI साइडबार की स्थिति',
+  csvImportLimit: 'CSV आयात सीमा',
   aiPanelSideLeft: 'बाईं ओर',
   aiPanelSideRight: 'दाईं ओर',
   setAiFontSize: 'AI पैनल का टेक्स्ट आकार',
@@ -467,6 +473,12 @@ export const hi: Dict = {
   intgSkillVersion: 'skill {v}',
   intgStateMissing: 'skill इंस्टॉल नहीं है',
   intgStateInstalled: 'skill {v} इंस्टॉल हो गया · अगली चैट में तैयार',
+  intgLegacyTitle: 'पुरानी skill प्रतियाँ',
+  intgLegacyDesc:
+    'GenOffice पहले हर टूल के अपने फ़ोल्डर में एक प्रति लिखता था। अभी भी {n} वहाँ हैं: टूल उन्हें पढ़ता रहता है, इसलिए उन्हें कभी मौजूदा skill नहीं मिलती।',
+  intgLegacyClean: 'पुरानी प्रतियाँ हटाएँ',
+  intgLegacyCleaned: '{n} पुरानी प्रतियाँ हटा दी गईं, {k} हाथ से बदली गई प्रतियाँ बनी रखी गईं।',
+  intgLegacyFailed: 'पुरानी प्रतियाँ नहीं हटाई जा सकीं: {msg}',
   intgOtherToggle: 'मेरा असिस्टेंट सूची में नहीं है',
   intgOtherDesc:
     'इन तीन तरीकों में से कोई एक ही चुनें। सभी एक ही skill इंस्टॉल करते हैं, इसलिए एक से ज़्यादा की ज़रूरत नहीं।',
@@ -686,6 +698,7 @@ export const hi: Dict = {
   intgSkillsRead: 'विवरण',
   intgSkillsMine: 'मेरे कौशल',
   intgSkillsRecommended: 'अनुशंसित',
+  intgSkillsCatAll: 'सभी',
   intgSkillsCatOffice: 'ऑफ़िस',
   intgSkillsCatBusiness: 'व्यवसाय',
   intgSkillsCatData: 'डेटा',

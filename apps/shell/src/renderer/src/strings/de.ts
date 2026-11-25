@@ -349,6 +349,11 @@ export const de: Dict = {
   documentTheme: 'Dokumentseitenthema',
   docThemeFollowApp: 'App-Thema übernehmen',
   saveLocation: 'Speicherort',
+  setExcludedFolders: 'Ausgeschlossene Ordner',
+  setExcludedFoldersDesc:
+    'Dateien in diesen Ordnern bleiben außerhalb von „Zuletzt verwendet“, der Suche und der Sitzungswiederherstellung.',
+  setExcludedFoldersAdd: 'Ordner hinzufügen…',
+  setExcludedFoldersEmpty: 'Keine Ordner ausgeschlossen',
   setTabSleep: 'Inaktive Tabs schlafen legen',
   setTabSleepDesc:
     'Sind viele Tabs offen, geben länger nicht angesehene ihren Speicher frei und öffnen ihre Datei bei der Rückkehr neu. Tabs mit ungespeicherten Änderungen oder angeheftete Tabs schlafen nie.',
@@ -394,6 +399,7 @@ export const de: Dict = {
   setSearchRerankCustomModel: 'Modell-ID',
   setSearchRerankAccount: 'Konto-ID',
   setAiPanelSide: 'Position der KI-Seitenleiste',
+  csvImportLimit: 'CSV-Importlimit',
   aiPanelSideLeft: 'Links',
   aiPanelSideRight: 'Rechts',
   setAiFontSize: 'Textgröße im KI-Bereich',
@@ -485,6 +491,12 @@ export const de: Dict = {
   intgSkillVersion: 'Skill {v}',
   intgStateMissing: 'Skill nicht installiert',
   intgStateInstalled: 'Skill {v} installiert · ab dem nächsten Chat bereit',
+  intgLegacyTitle: 'Alte Skill-Kopien',
+  intgLegacyDesc:
+    'GenOffice schrieb früher eine Kopie in den Ordner jedes Werkzeugs. {n} davon liegen noch dort: Das Werkzeug liest sie weiter, sie bekommen also nie den aktuellen Skill.',
+  intgLegacyClean: 'Alte Kopien entfernen',
+  intgLegacyCleaned: '{n} alte Kopien entfernt, {k} von Hand bearbeitete stehen gelassen.',
+  intgLegacyFailed: 'Alte Kopien konnten nicht entfernt werden: {msg}',
   intgOtherToggle: 'Mein Assistent ist nicht aufgeführt',
   intgOtherDesc:
     'Wählen Sie genau einen dieser drei Wege. Alle installieren denselben Skill, mehr als einer ist nicht nötig.',
@@ -708,6 +720,7 @@ export const de: Dict = {
   intgSkillsRead: 'Details',
   intgSkillsMine: 'Meine Skills',
   intgSkillsRecommended: 'Empfohlen',
+  intgSkillsCatAll: 'Alle',
   intgSkillsCatOffice: 'Büro',
   intgSkillsCatBusiness: 'Business',
   intgSkillsCatData: 'Daten',

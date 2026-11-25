@@ -202,9 +202,11 @@ body.vib .home {
 
 /* macOS traffic lights (titleBarStyle: hiddenInset) sit over the tab strip's
    left end now that the retired sidebar no longer owns that corner — keep
-   the first tab clear of them, the way the logo band below them used to */
+   the first tab clear of them, the way the logo band below them used to.
+   Divided back below 100% so the 84px screen reserve stays clear of the
+   unzoomed traffic lights. */
 body.mac .work-tabs {
-  padding-left: 84px;
+  padding-left: calc(84px / min(var(--ui-scale, 1), 1));
 }
 
 /* Windows/Linux caption buttons (titleBarOverlay) sit over the strip's top-right

@@ -7,6 +7,9 @@
 /** Default AI panel width, and the floor the panel never shrinks below */
 export const AI_PANEL_WIDTH_DEFAULT = 360
 
+/** Minimum width supported by the shared persisted-width helpers */
+export const AI_PANEL_WIDTH_MIN = 280
+
 /** Absolute ceiling for the panel width, however wide the window gets */
 export const AI_PANEL_WIDTH_MAX = 720
 
@@ -33,4 +36,33 @@ export function aiPanelClampWidth(width: number, windowWidth: number): number {
 /** NaN, negative or infinite window widths count as a zero-size window, so every rule falls back to the default width */
 function saneWindowWidth(windowWidth: number): number {
   return Number.isFinite(windowWidth) && windowWidth > 0 ? windowWidth : 0
+}
+
+export function maxAiPanelWidth(): number {
+  // The viewport can be transiently tiny (a WebContentsView is 0x0 until the
+  // shell lays it out), so never let the ceiling drop below the minimum
+  return Math.max(
+    AI_PANEL_WIDTH_MIN,
+    Math.min(AI_PANEL_WIDTH_MAX, Math.round(window.innerWidth * 0.6)),
+  )
+}
+
+export function clampAiPanelWidth(w: number): number {
+  return Math.min(Math.max(w, AI_PANEL_WIDTH_MIN), maxAiPanelWidth())
+}
+
+/**
+ * Restores the persisted preference, or null when none is stored. Static
+ * bounds only — clamping against the window here would bake a transiently
+ * small viewport into the restored preference.
+ */
+export function loadAiPanelWidth(key: string): number | null {
+  const saved = Number(localStorage.getItem(key))
+  return Number.isFinite(saved) && saved > 0
+    ? Math.min(Math.max(saved, AI_PANEL_WIDTH_MIN), AI_PANEL_WIDTH_MAX)
+    : null
+}
+
+export function saveAiPanelWidth(key: string, width: number): void {
+  localStorage.setItem(key, String(Math.round(width)))
 }

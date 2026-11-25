@@ -347,6 +347,11 @@ export const es: Dict = {
   documentTheme: 'Tema de la página del documento',
   docThemeFollowApp: 'Seguir el tema de la aplicación',
   saveLocation: 'Ubicación de guardado',
+  setExcludedFolders: 'Carpetas excluidas',
+  setExcludedFoldersDesc:
+    'Los archivos de estas carpetas quedan fuera de recientes, búsqueda y restauración de sesión.',
+  setExcludedFoldersAdd: 'Añadir carpeta…',
+  setExcludedFoldersEmpty: 'Ninguna carpeta excluida',
   setTabSleep: 'Suspender pestañas inactivas',
   setTabSleepDesc:
     'Con muchas pestañas abiertas, las que no has mirado durante un tiempo liberan su memoria y vuelven a abrir el archivo al regresar. Las pestañas con cambios sin guardar o fijadas nunca se suspenden.',
@@ -391,6 +396,7 @@ export const es: Dict = {
   setSearchRerankCustomModel: 'ID del modelo',
   setSearchRerankAccount: 'ID de la cuenta',
   setAiPanelSide: 'Posición de la barra lateral de IA',
+  csvImportLimit: 'Límite de importación de CSV',
   aiPanelSideLeft: 'Izquierda',
   aiPanelSideRight: 'Derecha',
   setAiFontSize: 'Tamaño del texto del panel de IA',
@@ -482,6 +488,12 @@ export const es: Dict = {
   intgSkillVersion: 'skill {v}',
   intgStateMissing: 'Skill no instalado',
   intgStateInstalled: 'Skill {v} instalado · listo en tu próximo chat',
+  intgLegacyTitle: 'Copias antiguas de la skill',
+  intgLegacyDesc:
+    'GenOffice escribía antes una copia en la carpeta de cada herramienta. Quedan {n}: la herramienta sigue leyéndolas, así que nunca reciben la skill actual.',
+  intgLegacyClean: 'Quitar las copias antiguas',
+  intgLegacyCleaned: 'Se quitaron {n} copias antiguas; {k} editadas a mano se dejaron en su sitio.',
+  intgLegacyFailed: 'No se pudieron quitar las copias antiguas: {msg}',
   intgOtherToggle: 'Mi asistente no aparece',
   intgOtherDesc:
     'Elige solo una de estas tres formas. Todas instalan el mismo skill, así que no hace falta hacer más de una.',
@@ -704,6 +716,7 @@ export const es: Dict = {
   intgSkillsRead: 'Detalles',
   intgSkillsMine: 'Mis habilidades',
   intgSkillsRecommended: 'Recomendadas',
+  intgSkillsCatAll: 'Todos',
   intgSkillsCatOffice: 'Oficina',
   intgSkillsCatBusiness: 'Negocios',
   intgSkillsCatData: 'Datos',

@@ -334,6 +334,11 @@ export const th: Dict = {
   documentTheme: 'ธีมหน้าเอกสาร',
   docThemeFollowApp: 'ตามธีมของแอป',
   saveLocation: 'ตำแหน่งบันทึก',
+  setExcludedFolders: 'โฟลเดอร์ที่ยกเว้น',
+  setExcludedFoldersDesc:
+    'ไฟล์ในโฟลเดอร์เหล่านี้จะไม่อยู่ในรายการล่าสุด การค้นหา และการกู้คืนเซสชัน',
+  setExcludedFoldersAdd: 'เพิ่มโฟลเดอร์…',
+  setExcludedFoldersEmpty: 'ยังไม่มีโฟลเดอร์ที่ยกเว้น',
   setTabSleep: 'พักแท็บที่ไม่ได้ใช้งาน',
   setTabSleepDesc:
     'เมื่อเปิดแท็บจำนวนมาก แท็บที่ไม่ได้ดูสักพักจะคืนหน่วยความจำและเปิดไฟล์ใหม่เมื่อคุณกลับมา แท็บที่มีการเปลี่ยนแปลงที่ยังไม่บันทึกหรือปักหมุดไว้จะไม่พัก',
@@ -377,6 +382,7 @@ export const th: Dict = {
   setSearchRerankCustomModel: 'รหัสโมเดล',
   setSearchRerankAccount: 'รหัสบัญชี',
   setAiPanelSide: 'ตำแหน่งแถบด้านข้าง AI',
+  csvImportLimit: 'ขีดจำกัดการนำเข้า CSV',
   aiPanelSideLeft: 'ซ้าย',
   aiPanelSideRight: 'ขวา',
   setAiFontSize: 'ขนาดตัวอักษรในแผง AI',
@@ -463,6 +469,12 @@ export const th: Dict = {
   intgSkillVersion: 'สกิล {v}',
   intgStateMissing: 'ยังไม่ติดตั้งสกิล',
   intgStateInstalled: 'ติดตั้งสกิล {v} แล้ว · พร้อมใช้ในแชตถัดไป',
+  intgLegacyTitle: 'สำเนา skill เก่า',
+  intgLegacyDesc:
+    'เมื่อก่อน GenOffice เขียนสำเนาไว้ในโฟลเดอร์ของแต่ละเครื่องมือ ตอนนี้ยังเหลือ {n} ชุด: เครื่องมือยังอ่านไฟล์เหล่านั้น จึงไม่เคยได้ skill ปัจจุบัน',
+  intgLegacyClean: 'ลบสำเนาเก่า',
+  intgLegacyCleaned: 'ลบสำเนาเก่าแล้ว {n} ชุด เก็บไว้ {k} ชุดที่แก้ไขด้วยมือ',
+  intgLegacyFailed: 'ลบสำเนาเก่าไม่สำเร็จ: {msg}',
   intgOtherToggle: 'ไม่พบผู้ช่วยของฉันในรายการ',
   intgOtherDesc:
     'เลือกเพียงวิธีใดวิธีหนึ่งจากสามวิธีนี้ ทุกวิธีติดตั้งสกิลเดียวกัน จึงไม่ต้องทำมากกว่าหนึ่งวิธี',
@@ -676,6 +688,7 @@ export const th: Dict = {
   intgSkillsRead: 'รายละเอียด',
   intgSkillsMine: 'สกิลของฉัน',
   intgSkillsRecommended: 'แนะนำ',
+  intgSkillsCatAll: 'ทั้งหมด',
   intgSkillsCatOffice: 'สำนักงาน',
   intgSkillsCatBusiness: 'ธุรกิจ',
   intgSkillsCatData: 'ข้อมูล',

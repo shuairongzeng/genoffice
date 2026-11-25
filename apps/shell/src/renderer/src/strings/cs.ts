@@ -391,6 +391,12 @@ export const cs: Dict = {
   intgSkillVersion: 'skill {v}',
   intgStateMissing: 'Skill není nainstalován',
   intgStateInstalled: 'Skill {v} nainstalován · připraven v příštím chatu',
+  intgLegacyTitle: 'Staré kopie skillu',
+  intgLegacyDesc:
+    'GenOffice dříve zapisoval kopii do složky každého nástroje. Pořád jich tam je {n}: nástroj je stále čte, takže se k nim nikdy nedostane aktuální skill.',
+  intgLegacyClean: 'Odebrat staré kopie',
+  intgLegacyCleaned: 'Odebráno {n} starých kopií, {k} ručně upravených ponecháno.',
+  intgLegacyFailed: 'Staré kopie se nepodařilo odebrat: {msg}',
   intgOtherToggle: 'Můj asistent v seznamu není',
   intgOtherDesc:
     'Zvolte pouze jeden z těchto tří způsobů. Všechny instalují stejný skill, takže není třeba dělat více než jeden.',
@@ -582,6 +588,11 @@ export const cs: Dict = {
     'Přihlaste se ke Genspark nebo si nastavte vlastní API klíč — dokud tak neučiníte, AI panel v dokumentech nemůže odpovídat.',
   homeAiSetupAction: 'Nastavit hned',
   onbBack: 'Zpět',
+  setExcludedFolders: 'Vyloučené složky',
+  setExcludedFoldersDesc:
+    'Soubory v těchto složkách se nezobrazují v nedávných, hledání ani v obnově relace.',
+  setExcludedFoldersAdd: 'Přidat složku…',
+  setExcludedFoldersEmpty: 'Žádné vyloučené složky',
   setTabSleep: 'Uspávat neaktivní karty',
   setTabSleepDesc:
     'Když je otevřeno mnoho karet, ty dlouho nezobrazené uvolní paměť a při návratu znovu otevřou soubor. Karty s neuloženými změnami nebo připnuté se nikdy neuspí.',
@@ -623,6 +634,7 @@ export const cs: Dict = {
   setSearchRerankCustomModel: 'ID modelu',
   setSearchRerankAccount: 'ID účtu',
   setAiPanelSide: 'Pozice postranního panelu AI',
+  csvImportLimit: 'Limit importu CSV',
   aiPanelSideLeft: 'Vlevo',
   aiPanelSideRight: 'Vpravo',
   setAiFontSize: 'Velikost textu panelu AI',
@@ -681,6 +693,7 @@ export const cs: Dict = {
   intgSkillsRead: 'Podrobnosti',
   intgSkillsMine: 'Moje dovednosti',
   intgSkillsRecommended: 'Doporučené',
+  intgSkillsCatAll: 'Všechny',
   intgSkillsCatOffice: 'Kancelář',
   intgSkillsCatBusiness: 'Byznys',
   intgSkillsCatData: 'Data',

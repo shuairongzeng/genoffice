@@ -257,6 +257,49 @@ it('moves a row with Alt+arrow keys for keyboards that cannot drag', () => {
   expect(onMove).toHaveBeenCalledTimes(2)
 })
 
+it('does not commit an inline edit on the Enter confirming an IME candidate', async () => {
+  const onUpdate = vi.fn()
+  act(() =>
+    root.render(
+      createElement(AiQueueStrip, {
+        items: [{ id: 'q1', text: 'initial' }],
+        labels,
+        onUpdate,
+        onRemove: () => {},
+        onClear: () => {},
+      }),
+    ),
+  )
+  act(() => host.querySelector<HTMLButtonElement>('.ai-queue-toggle')!.click())
+  const row = host.querySelector<HTMLLIElement>('.ai-queue-item')!
+  act(() => row.querySelectorAll('button')[0]!.click())
+  const input = row.querySelector<HTMLInputElement>('.ai-queue-edit')!
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    'value',
+  )!.set!
+  act(() => {
+    input.dispatchEvent(new window.CompositionEvent('compositionstart', { bubbles: true }))
+    valueSetter.call(input, 'updated')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(
+      new window.CompositionEvent('compositionend', { bubbles: true, data: 'updated' }),
+    )
+    input.dispatchEvent(
+      new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    )
+  })
+  expect(onUpdate).not.toHaveBeenCalled()
+
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  act(() => {
+    input.dispatchEvent(
+      new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    )
+  })
+  expect(onUpdate).toHaveBeenCalledWith('q1', 'updated')
+})
+
 it('localizes the strip labels', () => {
   act(() =>
     root.render(

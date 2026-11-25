@@ -331,6 +331,11 @@ export const en: Dict = {
   documentTheme: 'Document page theme',
   docThemeFollowApp: 'Follow app theme',
   saveLocation: 'Save Location',
+  setExcludedFolders: 'Excluded folders',
+  setExcludedFoldersDesc:
+    'Files under these folders stay out of recents, search and session restore.',
+  setExcludedFoldersAdd: 'Add folder…',
+  setExcludedFoldersEmpty: 'Nothing excluded yet',
   setTabSleep: 'Sleep inactive tabs',
   setTabSleepDesc:
     'Once many tabs are open, ones you have not looked at for a while release their memory and reopen their file when you return. Tabs with unsaved changes or pinned tabs never sleep.',
@@ -374,6 +379,7 @@ export const en: Dict = {
   setSearchRerankCustomModel: 'Model ID',
   setSearchRerankAccount: 'Account ID',
   setAiPanelSide: 'AI sidebar position',
+  csvImportLimit: 'CSV import limit',
   aiPanelSideLeft: 'Left',
   aiPanelSideRight: 'Right',
   setAiFontSize: 'AI panel text size',
@@ -463,6 +469,12 @@ export const en: Dict = {
   intgSkillVersion: 'skill {v}',
   intgStateMissing: 'Skill not installed',
   intgStateInstalled: 'Skill {v} installed · ready in your next chat',
+  intgLegacyTitle: 'Older skill copies',
+  intgLegacyDesc:
+    'GenOffice used to write a copy into the folder of each tool. {n} of them are still there: the tool keeps reading them, so they never get the current skill.',
+  intgLegacyClean: 'Remove old copies',
+  intgLegacyCleaned: 'Removed {n} old copies, {k} edited by hand left in place.',
+  intgLegacyFailed: 'Could not remove the old copies: {msg}',
   intgOtherToggle: 'My assistant is not listed',
   intgOtherDesc:
     'Pick any one of these three ways. They all install the same skill, so there is no need to do more than one.',
@@ -678,6 +690,7 @@ export const en: Dict = {
   intgSkillsRead: 'Details',
   intgSkillsMine: 'My skills',
   intgSkillsRecommended: 'Recommended',
+  intgSkillsCatAll: 'All',
   intgSkillsCatOffice: 'Office',
   intgSkillsCatBusiness: 'Business',
   intgSkillsCatData: 'Data',

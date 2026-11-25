@@ -1,9 +1,9 @@
 import { existsSync, renameSync, rmSync, statSync } from 'node:fs'
 import { readFile as readFileText, realpath } from 'node:fs/promises'
-import { spawn } from 'node:child_process'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { isSafeRevealPath } from './reveal-path-guard'
+import { openTrash } from './trash'
 import {
   DEFAULT_SAVE_DIR_KEY,
   GITHUB_REPO_URL,
@@ -26,7 +26,7 @@ import {
   matchesExtFamily,
   normalizeRecentQuery,
   pageRecentPaths,
-  statPathEntries,
+  statPathEntriesAsync,
 } from './recent-files'
 import { isUserVisibleFile, isMoveSource, type FileTargetSources } from './file-targets'
 import { MEDIA_EXTS } from './media-main'
@@ -283,8 +283,8 @@ export function stringPaths(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((p): p is string => typeof p === 'string') : []
 }
 
-function statEntries(paths: string[]): RecentEntry[] {
-  return statPathEntries(paths, new Set(readStarredFiles()))
+function statEntries(paths: string[]): Promise<RecentEntry[]> {
+  return statPathEntriesAsync(paths, new Set(readStarredFiles()))
 }
 
 export interface KbWorkbenchHandlers {
@@ -568,7 +568,7 @@ export function createKbWorkbenchHandlers(host: HomeFileIpcHost): KbWorkbenchHan
 export function registerHomeFileIpc(host: HomeFileIpcHost): void {
   const kbHandlers = createKbWorkbenchHandlers(host)
   registeredKbWorkbenchHandlers = kbHandlers
-  ipcMain.handle(HOME_CHANNELS.recents, (_event, query: unknown): RecentPage =>
+  ipcMain.handle(HOME_CHANNELS.recents, (_event, query: unknown): Promise<RecentPage> =>
     pageRecentPaths(readRecentFiles(), query, new Set(readStarredFiles())),
   )
 
@@ -872,7 +872,7 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
   )
 
   // Starred files sort by mtime, which requires stat-ing them all first; they are hand-picked and few, so this is fine
-  ipcMain.handle(HOME_CHANNELS.starred, (_event, query: unknown): RecentPage => {
+  ipcMain.handle(HOME_CHANNELS.starred, async (_event, query: unknown): Promise<RecentPage> => {
     const { offset, limit, ext } = normalizeRecentQuery(query)
     // the Starred view's group pills scope the whole query (totals included)
     const raw = (query && typeof query === 'object' ? query : {}) as { group?: unknown }
@@ -880,7 +880,7 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     const groupOf = readStarredGroupMap()
     const paths = readStarredFiles()
     const scoped = group ? paths.filter((p) => groupOf.get(p) === group) : paths
-    const all = statEntries(scoped)
+    const all = (await statEntries(scoped))
       .sort((a, b) => b.mtimeMs - a.mtimeMs)
       .map((entry) => {
         const g = groupOf.get(entry.path)
@@ -900,7 +900,7 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     setStarredGroup(stringPaths(paths), typeof group === 'string' && group ? group : null)
   })
 
-  ipcMain.handle(HOME_CHANNELS.statPaths, (_event, paths: unknown): RecentEntry[] =>
+  ipcMain.handle(HOME_CHANNELS.statPaths, (_event, paths: unknown): Promise<RecentEntry[]> =>
     statEntries(capStatPaths(stringPaths(paths))),
   )
 
@@ -1076,14 +1076,8 @@ export function registerHomeFileIpc(host: HomeFileIpcHost): void {
     },
   )
 
-  ipcMain.handle(HOME_CHANNELS.openTrash, () => {
-    if (process.platform === 'darwin') {
-      void shell.openPath(join(app.getPath('home'), '.Trash'))
-    } else if (process.platform === 'win32') {
-      spawn('explorer.exe', ['shell:RecycleBin'], { detached: true }).unref()
-    } else {
-      void shell.openPath(join(app.getPath('home'), '.local', 'share', 'Trash', 'files'))
-    }
+  ipcMain.handle(HOME_CHANNELS.openTrash, async () => {
+    await openTrash()
   })
 
   ipcMain.handle(HOME_CHANNELS.openHelp, (_event, topic: unknown) => {

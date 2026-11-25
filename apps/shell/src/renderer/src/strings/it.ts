@@ -338,6 +338,11 @@ export const it: Dict = {
   documentTheme: 'Tema della pagina del documento',
   docThemeFollowApp: 'Segui il tema dell’applicazione',
   saveLocation: 'Posizione di salvataggio',
+  setExcludedFolders: 'Cartelle escluse',
+  setExcludedFoldersDesc:
+    'I file in queste cartelle restano fuori da recenti, ricerca e ripristino della sessione.',
+  setExcludedFoldersAdd: 'Aggiungi cartella…',
+  setExcludedFoldersEmpty: 'Nessuna cartella esclusa',
   setTabSleep: 'Sospendi le schede inattive',
   setTabSleepDesc:
     'Con molte schede aperte, quelle che non guardi da un po’ liberano la memoria e riaprono il file al tuo ritorno. Le schede con modifiche non salvate o fissate non vengono mai sospese.',
@@ -382,6 +387,7 @@ export const it: Dict = {
   setSearchRerankCustomModel: 'ID modello',
   setSearchRerankAccount: 'ID account',
   setAiPanelSide: 'Posizione della barra laterale IA',
+  csvImportLimit: 'Limite di importazione CSV',
   aiPanelSideLeft: 'Sinistra',
   aiPanelSideRight: 'Destra',
   setAiFontSize: 'Dimensione del testo del pannello IA',
@@ -474,6 +480,12 @@ export const it: Dict = {
   intgSkillVersion: 'skill {v}',
   intgStateMissing: 'Skill non installato',
   intgStateInstalled: 'Skill {v} installato · pronto nella prossima chat',
+  intgLegacyTitle: 'Copie obsolete dello skill',
+  intgLegacyDesc:
+    'Prima GenOffice scriveva una copia nella cartella di ogni strumento. Ne restano {n}: lo strumento continua a leggerle, quindi non ricevono mai lo skill attuale.',
+  intgLegacyClean: 'Rimuovi le copie obsolete',
+  intgLegacyCleaned: '{n} copie obsolete rimosse, {k} modificate a mano lasciate al loro posto.',
+  intgLegacyFailed: 'Impossibile rimuovere le copie obsolete: {msg}',
   intgOtherToggle: 'Il mio assistente non è in elenco',
   intgOtherDesc:
     'Scegli una sola di queste tre strade. Installano tutte lo stesso skill, quindi non serve farne più di una.',
@@ -695,6 +707,7 @@ export const it: Dict = {
   intgSkillsRead: 'Dettagli',
   intgSkillsMine: 'Le mie competenze',
   intgSkillsRecommended: 'Consigliate',
+  intgSkillsCatAll: 'Tutti',
   intgSkillsCatOffice: 'Ufficio',
   intgSkillsCatBusiness: 'Business',
   intgSkillsCatData: 'Dati',

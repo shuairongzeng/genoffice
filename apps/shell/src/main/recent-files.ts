@@ -177,19 +177,19 @@ export function matchesExtFamily(entryExt: string, filterExt: string): boolean {
 }
 
 /** Page over the recents paths, preserving the source's newest-first order (unavailable paths stay, flagged missing). */
-export function pageRecentPaths(
+export async function pageRecentPaths(
   paths: readonly string[],
   raw: unknown,
   starredPaths: ReadonlySet<string>,
-): RecentPage {
+): Promise<RecentPage> {
   const { offset, limit, ext } = normalizeRecentQuery(raw)
-  // stat only the returned page: statting the whole list blocked main on long recents
+  // Probe only the returned page, without blocking main on unavailable mounts.
   const filtered = ext
     ? paths.filter((p) => matchesExtFamily(extname(p).slice(1).toLowerCase(), ext))
     : paths
   const page = limit === 0 ? [] : filtered.slice(offset, offset + limit)
   return {
-    entries: statPathEntries(page, starredPaths),
+    entries: await statPathEntriesAsync(page, starredPaths),
     total: filtered.length,
     totalAll: paths.length,
   }

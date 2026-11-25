@@ -334,6 +334,11 @@ export const pl: Dict = {
   documentTheme: 'Motyw strony dokumentu',
   docThemeFollowApp: 'Zgodnie z motywem aplikacji',
   saveLocation: 'Lokalizacja zapisu',
+  setExcludedFolders: 'Wykluczone foldery',
+  setExcludedFoldersDesc:
+    'Pliki w tych folderach nie trafiają do ostatnich, wyszukiwania i przywracania sesji.',
+  setExcludedFoldersAdd: 'Dodaj folder…',
+  setExcludedFoldersEmpty: 'Brak wykluczonych folderów',
   setTabSleep: 'Usypiaj nieaktywne karty',
   setTabSleepDesc:
     'Gdy otwartych jest wiele kart, te dawno nieoglądane zwalniają pamięć i ponownie otwierają plik po powrocie. Karty z niezapisanymi zmianami lub przypięte nigdy nie są usypiane.',
@@ -378,6 +383,7 @@ export const pl: Dict = {
   setSearchRerankCustomModel: 'ID modelu',
   setSearchRerankAccount: 'ID konta',
   setAiPanelSide: 'Położenie panelu bocznego AI',
+  csvImportLimit: 'Limit importu CSV',
   aiPanelSideLeft: 'Lewa',
   aiPanelSideRight: 'Prawa',
   setAiFontSize: 'Rozmiar tekstu panelu AI',
@@ -469,6 +475,12 @@ export const pl: Dict = {
   intgSkillVersion: 'skill {v}',
   intgStateMissing: 'Skill niezainstalowany',
   intgStateInstalled: 'Skill {v} zainstalowany · gotowy w następnym czacie',
+  intgLegacyTitle: 'Stare kopie wtyczki',
+  intgLegacyDesc:
+    'GenOffice wcześniej zapisywał kopię w folderze każdego narzędzia. Wciąż jest tam {n}: narzędzie czyta je dalej, więc nigdy nie dostają aktualnej wtyczki.',
+  intgLegacyClean: 'Usuń stare kopie',
+  intgLegacyCleaned: 'Usunięto {n} starych kopii, {k} edytowanych ręcznie zostawiono.',
+  intgLegacyFailed: 'Nie udało się usunąć starych kopii: {msg}',
   intgOtherToggle: 'Mojego asystenta nie ma na liście',
   intgOtherDesc:
     'Wybierz tylko jeden z tych trzech sposobów. Wszystkie instalują ten sam skill, więc nie trzeba robić więcej niż jednego.',
@@ -688,6 +700,7 @@ export const pl: Dict = {
   intgSkillsRead: 'Szczegóły',
   intgSkillsMine: 'Moje umiejętności',
   intgSkillsRecommended: 'Polecane',
+  intgSkillsCatAll: 'Wszystkie',
   intgSkillsCatOffice: 'Biuro',
   intgSkillsCatBusiness: 'Biznes',
   intgSkillsCatData: 'Dane',
