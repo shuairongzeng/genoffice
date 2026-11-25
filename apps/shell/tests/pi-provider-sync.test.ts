@@ -30,8 +30,17 @@ afterEach(() => {
 describe('pi-provider-sync', () => {
   it('infers known model context windows and falls back safely', () => {
     expect(inferContextWindow('claude-sonnet-4-5')).toBe(200_000)
+    expect(inferContextWindow('claude-sonnet-4-6')).toBe(1_000_000)
+    expect(inferContextWindow('claude-opus-5-5')).toBe(1_000_000)
+    expect(inferContextWindow('claude-sonnet-5')).toBe(1_000_000)
+    expect(inferContextWindow('claude-haiku-5-5')).toBe(1_000_000)
+    expect(inferContextWindow('claude-fable-5-2')).toBe(1_000_000)
     expect(inferContextWindow('gemini-2.5-pro')).toBe(1_000_000)
+    expect(inferContextWindow('gemini-3.8-flash')).toBe(1_000_000)
+    expect(inferContextWindow('gemini-4-argon')).toBe(1_000_000)
     expect(inferContextWindow('gpt-5-codex')).toBe(400_000)
+    expect(inferContextWindow('gpt-6.1-terra')).toBe(272_000)
+    expect(inferContextWindow('gpt-6-astra')).toBe(272_000)
     expect(inferContextWindow('custom-model', 65_536)).toBe(65_536)
     expect(inferContextWindow('unknown-local-model')).toBe(128_000)
   })
@@ -140,5 +149,129 @@ describe('pi-provider-sync', () => {
       magicContextStorageMode: 'shared',
     })
     expect(readFileSync(sharedPaths.magicContextConfigPath, 'utf8')).toBe(customSharedText)
+  })
+
+  it('maps openai-responses and resolves opt-in thinking effort into PiModelSpec and models.json', async () => {
+    const defaults = defaultAiSettings()
+    const baseOpenAi: AiSettings = {
+      ...defaults,
+      provider: 'openai',
+      providers: {
+        ...defaults.providers,
+        openai: {
+          ...defaults.providers.openai,
+          apiKey: 'sk-test-openai',
+          model: 'gpt-6.1-terra',
+        },
+      },
+    }
+
+    // Unset or 'none' keeps reasoning: false and leaves thinkingLevel undefined.
+    const unsetSpec = buildSyncedPiModelSpec(baseOpenAi)
+    expect(unsetSpec.piModel.api).toBe('openai-responses')
+    expect(unsetSpec.piModel.reasoning).toBe(false)
+    expect(unsetSpec.piModel.contextWindow).toBe(272_000)
+    expect(unsetSpec.thinkingLevel).toBeUndefined()
+
+    const noneSpec = buildSyncedPiModelSpec({
+      ...baseOpenAi,
+      providers: {
+        ...baseOpenAi.providers,
+        openai: {
+          ...baseOpenAi.providers.openai,
+          thinking: { 'gpt-6.1-terra': 'none' },
+        },
+      },
+    })
+    expect(noneSpec.piModel.reasoning).toBe(false)
+    expect(noneSpec.thinkingLevel).toBeUndefined()
+
+    // Responses-only xhigh is dropped when routed through an OpenAI-compatible gateway.
+    const gatedSpec = buildSyncedPiModelSpec({
+      ...defaults,
+      provider: 'openrouter',
+      providers: {
+        ...defaults.providers,
+        openrouter: {
+          ...defaults.providers.openrouter,
+          apiKey: 'or-key',
+          model: 'openai/gpt-6.1-terra',
+          thinking: { 'openai/gpt-6.1-terra': 'xhigh' },
+        },
+      },
+    })
+    expect(gatedSpec.piModel.api).toBe('openai-completions')
+    expect(gatedSpec.piModel.reasoning).toBe(false)
+    expect(gatedSpec.thinkingLevel).toBeUndefined()
+
+    // Explicit positive effort on openai-responses sets reasoning: true and syncs models.json.
+    const xhighSettings: AiSettings = {
+      ...baseOpenAi,
+      providers: {
+        ...baseOpenAi.providers,
+        openai: {
+          ...baseOpenAi.providers.openai,
+          thinking: { 'gpt-6.1-terra': 'xhigh' },
+        },
+      },
+    }
+    const xhighSpec = buildSyncedPiModelSpec(xhighSettings)
+    expect(xhighSpec.piModel.api).toBe('openai-responses')
+    expect(xhighSpec.piModel.reasoning).toBe(true)
+    expect(xhighSpec.thinkingLevel).toBe('xhigh')
+    expect(xhighSpec.piModel.thinkingLevelMap).toEqual({ xhigh: 'xhigh' })
+
+    const userData = makeTempDir('genoffice-pi-sync-thinking-')
+    const paths = resolvePiRuntimePaths({ userDataDir: userData, storageMode: 'isolated' })
+    syncPiProviderAndMagicContextConfig(paths, xhighSettings, DEFAULT_PI_AGENT_PREFS)
+
+    const modelsDoc = JSON.parse(readFileSync(paths.modelsJsonPath, 'utf8'))
+    expect(modelsDoc.providers.openai.api).toBe('openai-responses')
+    expect(modelsDoc.providers.openai.models[0]).toMatchObject({
+      id: 'gpt-6.1-terra',
+      api: 'openai-responses',
+      reasoning: true,
+      thinkingLevelMap: { xhigh: 'xhigh' },
+      contextWindow: 272_000,
+    })
+
+    // Confirm ModelRuntime loads the generated models.json without schema validation errors.
+    const sdk = await import('@earendil-works/pi-coding-agent')
+    const runtime = await sdk.ModelRuntime.create({
+      authPath: paths.authJsonPath,
+      modelsPath: paths.modelsJsonPath,
+      refreshOnCreate: false,
+    })
+    expect(runtime.getError()).toBeUndefined()
+    const loadedModel = runtime.getModel('openai', 'gpt-6.1-terra')
+    expect(loadedModel?.api).toBe('openai-responses')
+    expect(loadedModel?.reasoning).toBe(true)
+    expect(loadedModel?.thinkingLevelMap).toEqual({ xhigh: 'xhigh' })
+
+    // Re-syncing after clearing thinking resets reasoning back to false in models.json.
+    syncPiProviderAndMagicContextConfig(paths, baseOpenAi, DEFAULT_PI_AGENT_PREFS)
+    const resetDoc = JSON.parse(readFileSync(paths.modelsJsonPath, 'utf8'))
+    expect(resetDoc.providers.openai.models[0].reasoning).toBe(false)
+    expect(resetDoc.providers.openai.models[0].thinkingLevelMap).toBeUndefined()
+
+    // Claude 5.x adaptive effort sets forceAdaptiveThinking compat.
+    const claudeSpec = buildSyncedPiModelSpec({
+      ...defaults,
+      provider: 'anthropic',
+      providers: {
+        ...defaults.providers,
+        anthropic: {
+          ...defaults.providers.anthropic,
+          apiKey: 'sk-ant',
+          model: 'claude-opus-5-5',
+          thinking: { 'claude-opus-5-5': 'max' },
+        },
+      },
+    })
+    expect(claudeSpec.piModel.api).toBe('anthropic-messages')
+    expect(claudeSpec.piModel.reasoning).toBe(true)
+    expect(claudeSpec.thinkingLevel).toBe('max')
+    expect(claudeSpec.piModel.thinkingLevelMap).toEqual({ max: 'max' })
+    expect(claudeSpec.piModel.compat).toEqual({ forceAdaptiveThinking: true })
   })
 })

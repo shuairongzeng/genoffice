@@ -6,18 +6,27 @@ import {
   activeProvider,
   getProviderAdapter,
   resolveProfileCredential,
+  resolveThinkingEffort,
+  thinkingShapeFor,
+  type AiProviderConfig,
   type AiSettings,
+  type ResolvedEndpoint,
 } from '@genoffice/ai-provider'
 import { endpointSupportsVision } from '@genoffice/ai-provider/browser'
-import type { Api, Model } from '@earendil-works/pi-ai'
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
+import type { Api, Model, ThinkingLevelMap } from '@earendil-works/pi-ai'
 import type { PiAgentPrefs } from '../../shared/pi-agent-prefs'
 import type { PiRuntimePaths } from './pi-agent-paths'
 
 /** Known context window sizes for common model families (fallback: 128_000). */
 const KNOWN_CONTEXT_WINDOWS: ReadonlyArray<[RegExp, number]> = [
+  [/claude-(?:opus|sonnet|haiku|fable)-5/i, 1_000_000],
+  [/claude-(?:opus|sonnet)-4-[6-9]/i, 1_000_000],
   [/claude-(?:opus|sonnet|haiku)-4/i, 200_000],
   [/claude-3/i, 200_000],
+  [/gemini-[34]/i, 1_000_000],
   [/gemini-2\.[05]|gemini-1\.5/i, 1_000_000],
+  [/gpt-6/i, 272_000],
   [/gpt-5/i, 400_000],
   [/gpt-4\.1/i, 1_000_000],
   [/gpt-4o|o1|o3|o4/i, 128_000],
@@ -46,9 +55,34 @@ function mapProtocolToPiApi(protocol: string): Api {
       return 'anthropic-messages'
     case 'gemini':
       return 'google-generative-ai'
+    case 'openai-responses':
+      return 'openai-responses'
     default:
       return 'openai-completions'
   }
+}
+
+/**
+ * Resolve opt-in positive thinking effort for Pi runtime. Unset, unsupported, or
+ * `'none'` resolves to `undefined` so `piModel.reasoning` remains `false`.
+ */
+function resolvePiThinkingLevel(
+  config: AiProviderConfig,
+  endpoint: ResolvedEndpoint,
+): ThinkingLevel | undefined {
+  let effort = resolveThinkingEffort(config, endpoint.protocol)
+  if (!effort && endpoint.model && endpoint.model !== config.model) {
+    const rawPick = config.thinking?.[config.model] ?? config.thinking?.[endpoint.model]
+    effort = resolveThinkingEffort(
+      {
+        model: endpoint.model,
+        ...(rawPick ? { thinking: { [endpoint.model]: rawPick } } : {}),
+      },
+      endpoint.protocol,
+    )
+  }
+  if (!effort || effort === 'none') return undefined
+  return effort
 }
 
 export interface SyncedPiModelSpec {
@@ -57,6 +91,7 @@ export interface SyncedPiModelSpec {
   readonly modelRef: string
   readonly piModel: Model<Api>
   readonly apiKey: string | undefined
+  readonly thinkingLevel?: ThinkingLevel
 }
 
 /**
@@ -101,18 +136,32 @@ export function buildSyncedPiModelSpec(
   )
   const maxTokens = endpoint.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS
   const supportsVision = endpointSupportsVision(effectiveSettings)
+  const thinkingLevel = resolvePiThinkingLevel(resolvedConfig, endpoint)
+  const reasoning = thinkingLevel !== undefined
 
+  const compatEntries: Record<string, unknown> = {}
+  if (api === 'openai-completions') {
+    if (endpoint.useMaxCompletionTokens) {
+      compatEntries.maxTokensField = 'max_completion_tokens'
+    }
+    if (endpoint.echoReasoning !== undefined) {
+      compatEntries.requiresReasoningContentOnAssistantMessages = endpoint.echoReasoning
+    }
+  } else if (
+    api === 'anthropic-messages' &&
+    reasoning &&
+    thinkingShapeFor(modelId, endpoint.protocol).kind === 'anthropic-adaptive'
+  ) {
+    compatEntries.forceAdaptiveThinking = true
+  }
   const compat =
-    api === 'openai-completions' &&
-    (endpoint.useMaxCompletionTokens || endpoint.echoReasoning !== undefined)
-      ? {
-          ...(endpoint.useMaxCompletionTokens
-            ? { maxTokensField: 'max_completion_tokens' as const }
-            : {}),
-          ...(endpoint.echoReasoning !== undefined
-            ? { requiresReasoningContentOnAssistantMessages: endpoint.echoReasoning }
-            : {}),
-        }
+    Object.keys(compatEntries).length > 0
+      ? (compatEntries as NonNullable<Model<Api>['compat']>)
+      : undefined
+
+  const thinkingLevelMap: ThinkingLevelMap | undefined =
+    thinkingLevel === 'xhigh' || thinkingLevel === 'max'
+      ? { [thinkingLevel]: thinkingLevel }
       : undefined
 
   const piModel: Model<Api> = {
@@ -122,12 +171,13 @@ export function buildSyncedPiModelSpec(
     provider: providerId,
     baseUrl: endpoint.baseUrl,
     input: supportsVision ? ['text', 'image'] : ['text'],
-    reasoning: false,
+    reasoning,
+    ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
     contextWindow,
     maxTokens,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     ...(endpoint.headers ? { headers: endpoint.headers } : {}),
-    ...(compat ? { compat: compat as NonNullable<Model<Api>['compat']> } : {}),
+    ...(compat ? { compat } : {}),
   }
 
   return {
@@ -136,6 +186,7 @@ export function buildSyncedPiModelSpec(
     modelRef: `${providerId}/${modelId}`,
     piModel,
     apiKey: resolvedConfig.apiKey || undefined,
+    ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
   }
 }
 
@@ -224,7 +275,7 @@ export function syncPiProviderAndMagicContextConfig(
   mkdirSync(paths.agentDir, { recursive: true })
   mkdirSync(paths.sessionsDir, { recursive: true })
 
-  let spec: SyncedPiModelSpec | null = null
+  let spec: SyncedPiModelSpec | null
   try {
     spec = buildSyncedPiModelSpec(settings, gskApiKey)
   } catch {
@@ -249,6 +300,9 @@ export function syncPiProviderAndMagicContextConfig(
           name: spec.piModel.name,
           api: spec.piModel.api,
           reasoning: spec.piModel.reasoning,
+          ...(spec.piModel.thinkingLevelMap
+            ? { thinkingLevelMap: spec.piModel.thinkingLevelMap }
+            : {}),
           input: spec.piModel.input,
           contextWindow: spec.piModel.contextWindow,
           maxTokens: spec.piModel.maxTokens,
@@ -301,9 +355,7 @@ export function syncPiProviderAndMagicContextConfig(
   const historianModelRef = prefs.historianModel || spec?.modelRef || ''
   const dreamerModelRef = prefs.dreamerModel || historianModelRef
   const existingMc =
-    prefs.magicContextStorageMode === 'shared'
-      ? readJsoncSafe(paths.magicContextConfigPath)
-      : {}
+    prefs.magicContextStorageMode === 'shared' ? readJsoncSafe(paths.magicContextConfigPath) : {}
 
   const historianBlock =
     existingMc.historian && typeof existingMc.historian === 'object'
@@ -317,7 +369,9 @@ export function syncPiProviderAndMagicContextConfig(
     historianBlock.pi = {
       ...existingPi,
       model:
-        prefs.magicContextStorageMode === 'shared' && typeof existingPi.model === 'string' && existingPi.model
+        prefs.magicContextStorageMode === 'shared' &&
+        typeof existingPi.model === 'string' &&
+        existingPi.model
           ? existingPi.model
           : historianModelRef,
     }
@@ -380,10 +434,7 @@ export function syncPiProviderAndMagicContextConfig(
     },
   }
 
-  if (
-    prefs.magicContextStorageMode === 'isolated' ||
-    !existsSync(paths.magicContextConfigPath)
-  ) {
+  if (prefs.magicContextStorageMode === 'isolated' || !existsSync(paths.magicContextConfigPath)) {
     writeJsonEnsuringDir(paths.magicContextConfigPath, nextMcConfig)
   }
 
