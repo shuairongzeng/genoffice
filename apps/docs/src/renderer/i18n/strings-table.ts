@@ -52,6 +52,7 @@ const ru: Record<keyof typeof en, string> = {
   ribbonCellMargins: 'Поля ячеек по умолчанию',
 }
 
+
 /**
  * New table controls deliberately fall back to English until each locale has
  * reviewed terminology. Keeping one complete key set prevents partially

@@ -1,6 +1,8 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import { VIEW_IMAGE_CHANNEL, type MarkdownImage, type PdfInternalLink } from '../shared/ipc'
+import { toCommandMenuState, type CommandMenuState } from '../shared/commands'
+import type { KeyOverrides } from '../shared/keybindings'
 import type { AiPanelPrefs } from '@genoffice/ui'
 import type {
   AiChatRequest,
@@ -11,11 +13,13 @@ import type {
   MenuCommand,
   AutoSaveDefault,
   PrintJobOptions,
+  PrintPaper,
   ContextMenuRequest,
   DocTheme,
   UiTheme,
   ZoteroRendererRequest,
   MergeOutputRequest,
+  TemplatePreviewRect,
 } from '../shared/ipc'
 import type { ProjectApi } from '@genoffice/project-store'
 import { installDropOpenBridge } from '@genoffice/electron-utils/drop-open'
@@ -72,6 +76,7 @@ const api: DesktopApi = {
     ipcRenderer.on('app:chrome-pressed', listener)
     return () => ipcRenderer.removeListener('app:chrome-pressed', listener)
   },
+  zoteroAvailable: () => ipcRenderer.invoke('zotero:available'),
   zoteroCommand: (command) => ipcRenderer.invoke('zotero:command', command),
   onZoteroRequest: (handler) => {
     const listener = (_event: IpcRendererEvent, request: ZoteroRendererRequest) => handler(request)
@@ -136,9 +141,16 @@ const api: DesktopApi = {
   },
   spellAddWord: (word: string) => ipcRenderer.invoke('docs:spell-add-word', word),
   spellIgnoreWord: (word: string) => ipcRenderer.invoke('docs:spell-ignore-word', word),
+  spellResetIgnored: () => ipcRenderer.invoke('docs:spell-reset-ignored'),
   spellReplace: (word: string) => ipcRenderer.invoke('docs:spell-replace', word),
+  spellIsMisspelled: (word: string) => webFrame.isWordMisspelled(word),
+  spellSuggestions: (word: string) => webFrame.getWordSuggestions(word),
   spellLanguages: () => ipcRenderer.invoke('docs:spell-languages'),
   spellSetLanguages: (langs: string[]) => ipcRenderer.invoke('docs:spell-set-languages', langs),
+  saveTemplate: (defaultName: string, data: ArrayBuffer, preview?: TemplatePreviewRect) =>
+    ipcRenderer.invoke('docs:save-template', defaultName, data, preview),
+  openTemplate: (fromGallery?: string) => ipcRenderer.invoke('docs:open-template', fromGallery),
+  listTemplates: () => ipcRenderer.invoke('docs:list-templates'),
   saveDocxAs: (defaultName: string, data: ArrayBuffer, sourcePath?: string | null) =>
     ipcRenderer.invoke('docs:save-as', defaultName, data, sourcePath ?? null),
   saveDocxNew: (defaultName: string, data: ArrayBuffer) =>
@@ -265,11 +277,21 @@ const api: DesktopApi = {
   },
   getRecentFiles: () => ipcRenderer.invoke('docs:recent'),
   pickImage: () => ipcRenderer.invoke('docs:pick-image'),
+  pickDocx: () => ipcRenderer.invoke('docs:pick-docx'),
+  organizerOpen: () => ipcRenderer.invoke('docs:organizer-open'),
+  organizerSave: (path: string, data: ArrayBuffer) =>
+    ipcRenderer.invoke('docs:organizer-save', path, data),
+  openResultTab: (data: Uint8Array) => ipcRenderer.invoke('docs:open-result-tab', data),
+  renameDoc: (name: string) => ipcRenderer.invoke('docs:rename-doc', name),
+  moveDoc: () => ipcRenderer.invoke('docs:move-doc'),
+  fileInfo: () => ipcRenderer.invoke('docs:file-info'),
   pickMergeDataSource: () => ipcRenderer.invoke('docs:merge-data-source'),
   writeMergeOutput: (request: MergeOutputRequest) =>
     ipcRenderer.invoke('docs:merge-output', request),
   fontMetrics: (family: string) => ipcRenderer.invoke('docs:font-metrics', family),
-  print: (scale?: number, job?: PrintJobOptions) => ipcRenderer.invoke('docs:print', scale, job),
+  fontAliases: (names: readonly string[]) => ipcRenderer.invoke('docs:font-aliases', names),
+  print: (scale?: number, job?: PrintJobOptions, paper?: PrintPaper) =>
+    ipcRenderer.invoke('docs:print', scale, job, paper),
   listPrinters: () => ipcRenderer.invoke('docs:printers'),
   exportPdf: (
     defaultName: string,
@@ -331,6 +353,11 @@ const api: DesktopApi = {
   aiStreamCancel: (requestId: string) => ipcRenderer.invoke('ai:stream-cancel', requestId),
   aiGskStatus: (withEmail?: boolean) => ipcRenderer.invoke('ai:gsk-status', withEmail),
   aiGskLogin: () => ipcRenderer.invoke('ai:gsk-login'),
+  onGskLoginLanded: (handler) => {
+    const listener = () => handler()
+    ipcRenderer.on('ai:gsk-login-landed', listener)
+    return () => ipcRenderer.removeListener('ai:gsk-login-landed', listener)
+  },
   webSearch: (query: string, maxResults?: number) =>
     ipcRenderer.invoke('ai:web-search', query, maxResults),
   imageSearch: (query: string, maxResults?: number) =>
@@ -358,6 +385,14 @@ const api: DesktopApi = {
   // text = the search deep link's target; the main side reveals the match after the open
   openSourcePath: (path: string, text?: string) => ipcRenderer.invoke('home:open-path', path, text),
   listDocsTabs: () => ipcRenderer.invoke('win:list'),
+  arrangeAllWindows: () => ipcRenderer.invoke('win:arrange-all'),
+  gatherWindows: () => ipcRenderer.invoke('win:gather'),
+  detachedWindowCount: () => ipcRenderer.invoke('win:detached-count'),
+  onDetachedWindowsChanged: (handler: (count: number) => void) => {
+    const listener = (_event: IpcRendererEvent, count: number) => handler(count)
+    ipcRenderer.on('win:detached-changed', listener)
+    return () => ipcRenderer.removeListener('win:detached-changed', listener)
+  },
   focusDocsTab: (id: string) => ipcRenderer.invoke('win:focus', id),
   onAiStream: (handler: (chunk: AiStreamChunk) => void) => {
     const listener = (_event: IpcRendererEvent, chunk: AiStreamChunk) => handler(chunk)
@@ -375,11 +410,16 @@ const api: DesktopApi = {
     ipcRenderer.on('docs:close-check', listener)
     return () => ipcRenderer.removeListener('docs:close-check', listener)
   },
-  reportViewMenuState: (state: { aiSidebar: boolean; darkCanvas: boolean }) =>
-    ipcRenderer.send('docs:view-menu-state', {
-      aiSidebar: state?.aiSidebar === true,
-      darkCanvas: state?.darkCanvas === true,
-    }),
+  reportCommandState: (state: CommandMenuState) =>
+    ipcRenderer.send('docs:command-state', toCommandMenuState(state)),
+  keyCatalog: () => ipcRenderer.invoke('docs:key-catalog'),
+  getKeyOverrides: () => ipcRenderer.invoke('docs:key-overrides'),
+  setKeyOverrides: (overrides) => ipcRenderer.invoke('docs:set-key-overrides', overrides),
+  onKeyOverridesChanged: (handler) => {
+    const listener = (_event: IpcRendererEvent, overrides: KeyOverrides) => handler(overrides)
+    ipcRenderer.on('docs:key-overrides-changed', listener)
+    return () => ipcRenderer.removeListener('docs:key-overrides-changed', listener)
+  },
   reportCloseCheck: (state: { dirty: boolean; autoSave: boolean; filePath?: string | null }) =>
     ipcRenderer.send('docs:close-check-result', {
       dirty: state?.dirty === true,
@@ -404,7 +444,28 @@ const projectApi: ProjectApi = {
   deleteChat: (args) => ipcRenderer.invoke('project:deleteChat', args),
 }
 
+/**
+ * Model file naming: the transport half of `suggestFileName`.
+ *
+ * Inlined rather than imported — a preload entry must stay a single-file bundle,
+ * or the sandbox drops every global it exposed. The `ai:` channel is registered
+ * app-wide by the shell rather than by this app, the same arrangement the
+ * `project:*` bridge below already depends on.
+ *
+ * `content` crosses this bridge verbatim and the main process cannot see what
+ * this editor withheld, so what the caller hands over is exactly what the model
+ * sees. A caller that passed raw document text would undo its own redactions.
+ *
+ * The global is `aiNamingApi`, not `aiOffice`: `aiOffice` is the shell's home
+ * API, and a partial one in an editor window would shadow it there.
+ */
+const aiNamingApi = {
+  suggestFileName: (input: { content: string }) =>
+    ipcRenderer.invoke('ai:suggest-file-name', input),
+}
+
 contextBridge.exposeInMainWorld('desktop', api)
+contextBridge.exposeInMainWorld('aiNamingApi', aiNamingApi)
 contextBridge.exposeInMainWorld('projectApi', projectApi)
 
 // open documents dragged from the OS onto this tab as a new shell tab

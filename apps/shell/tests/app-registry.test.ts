@@ -220,8 +220,8 @@ describe('the descriptor table itself', () => {
         seen.set(ext, app.id)
       }
     }
-    // 27 document/text extensions + 9 code extensions + 21 media extensions = 57
-    expect(seen.size).toBe(57)
+    // 31 document/text extensions + 9 code extensions + 21 media extensions = 61
+    expect(seen.size).toBe(61)
   })
 
   it('every descriptor carries the faces the shell dispatches through', () => {
@@ -255,13 +255,16 @@ describe('appForPath (file → app routing)', () => {
 
   it('falls back to undefined for an extension no app owns or a pathless file', () => {
     expect(appForPath('/x/file.xyz')).toBeUndefined()
-    expect(appForPath('/x/file.doc')).toBeUndefined()
     expect(appForPath('/x/noextension')).toBeUndefined()
     expect(appForPath('')).toBeUndefined()
   })
 
   it('is case-insensitive, because the filesystem is', () => {
     expect(appForPath('/x/NOTES.MD')).toBe('markdown')
+    expect(appForPath('/x/LEGACY.DOC')).toBe('docs')
+    expect(appForPath('/x/TEMPLATE.DOT')).toBe('docs')
+    expect(appForPath('/x/REPORT.HWPX')).toBe('docs')
+    expect(appForPath('/x/LEGACY.HWP')).toBe('docs')
     expect(appForPath('/x/DECK.PPTX')).toBe('slides')
     expect(appForPath('/x/LEGACY.PPT')).toBe('slides')
   })

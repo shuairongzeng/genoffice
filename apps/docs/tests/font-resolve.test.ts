@@ -7,10 +7,12 @@ import {
   setResolverFontTable,
 } from '../src/renderer/font-resolve'
 import {
+  cjkDeclaredLineFactor,
+  cssFontFamily,
   lineHeightFactor,
   setDocFontTable,
   tableLineHeightFactor,
-} from '../src/renderer/line-metrics'
+} from '../src/renderer/text-layout/font-rules'
 
 beforeEach(() => {
   setDocFontTable(null)
@@ -49,17 +51,17 @@ describe('Latin cutover', () => {
 
   it('lays out a face Word ships that the table never probed for real', () => {
     setDocFontTable([{ name: 'Mangal', panose: '00000400000000000000' }])
-    expect(tableLineHeightFactor('Mangal')).toBe(1.22)
+    expect(tableLineHeightFactor('Mangal')).toBe(1.2207)
     expect(lineHeightFactor('Mangal')).toBe(1.6797)
     expect(lineHeightFactor('Garamond')).toBe(1.125)
   })
 
-  it('keeps a probed table value the resolver disagrees with and records the diff', () => {
-    expect(lineHeightFactor('Georgia')).toBe(1.1375)
+  it('keeps a pinned table value the resolver disagrees with and records the diff', () => {
+    // probe 2026-11-09: Georgia follows the resolver, Helvetica stays pinned at 1.2 (macOS hhea 1.0)
+    expect(lineHeightFactor('Georgia')).toBe(1.1362)
     expect(lineHeightFactor('Helvetica')).toBe(1.2)
     expect(globalThis.__fontResolveDiff).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: 'Georgia', legacy: 1.1375, resolver: 1.1362 }),
         expect.objectContaining({ name: 'Helvetica', legacy: 1.2, resolver: 1 }),
       ]),
     )
@@ -70,8 +72,21 @@ describe('Latin cutover', () => {
     expect(lineHeightFactor('SimSun')).toBe(1.3)
     expect(lineHeightFactor('Arial Unicode MS')).toBe(1.7417)
     setDocFontTable([{ name: 'Mont', panose: '00000700' }])
-    expect(lineHeightFactor('Mont')).toBe(1.22)
+    expect(lineHeightFactor('Mont')).toBe(1.2207)
     expect(resolveDeclaredFace('Mont')?.substituted).toBe(true)
+  })
+
+  it('paces a kana-named face routed by its fontTable altName as the alias (corpus 2026-11-03)', () => {
+    const hiragino = '\u30d2\u30e9\u30ae\u30ce\u89d2\u30b4 Pro W3'
+    expect(lineHeightFactor(hiragino)).toBe(1.4327)
+    setDocFontTable([{ name: hiragino, altName: 'Cambria', charset: '00', family: 'roman' }])
+    expect(lineHeightFactor(hiragino)).toBe(1.1724)
+    expect(resolveDeclaredFace(hiragino)?.family).toBe('Cambria')
+  })
+
+  it('leads David with the advance-matched stand-in', () => {
+    expect(cssFontFamily('David')).toMatch(/^'David','David GO',/)
+    expect(lineHeightFactor('David')).toBe(0.9839)
   })
 
   it('reads the fontTable through setDocFontTable', () => {
@@ -92,10 +107,14 @@ describe('installed index failures', () => {
     setFontMetricsProvider(ipc)
     expect(lineHeightFactor('Helvetica Neue')).toBe(1.193) // snapshot stands in while in flight
     await flush()
-    const legacy = tableLineHeightFactor('Helvetica Neue')
-    expect(legacy).not.toBe(1.193)
-    for (let i = 0; i < 3; i++) expect(lineHeightFactor('Helvetica Neue')).toBe(legacy)
-    expect(resolveDeclaredFace('Helvetica Neue')?.substituted).toBe(true)
+    // once the index says "not installed" the name is missing: Word's Helvetica* -> Arial
+    // prefix row (probe 2026-11-08) answers, not the snapshot and not the Calibri table
+    expect(tableLineHeightFactor('Helvetica Neue')).not.toBe(1.193)
+    for (let i = 0; i < 3; i++) expect(lineHeightFactor('Helvetica Neue')).toBe(1.1499)
+    expect(resolveDeclaredFace('Helvetica Neue')).toMatchObject({
+      family: 'Arial',
+      substituted: true,
+    })
     await prefetchFaces(['Helvetica Neue'])
     expect(ipc.mock.calls.filter(([f]) => f === 'helvetica neue')).toHaveLength(1)
   })
@@ -110,5 +129,31 @@ describe('installed index failures', () => {
     await flush()
     expect(resolveDeclaredFace('Verdana')).toBe(verdana)
     expect(resolveDeclaredFace('Helvetica Neue')?.source).not.toBe('system')
+  })
+})
+
+describe('installed Noto Han regional face', () => {
+  // Noto Sans JP installed: hhea 1160/-288, EA code pages
+  const notoJp = {
+    unitsPerEm: 1000,
+    hheaAscender: 1160,
+    hheaDescender: -288,
+    hheaLineGap: 0,
+    typoAscender: 880,
+    typoDescender: -120,
+    typoLineGap: 0,
+    winAscent: 1160,
+    winDescent: 288,
+    useTypoMetrics: false,
+    xAvgCharWidth: 500,
+    codePageRange1: 0x60060107,
+  }
+
+  it('lays out at its own hhea x 1.3 instead of the missing-face SimSun/Cambria pins', async () => {
+    setFontMetricsProvider((f) => Promise.resolve(f === 'noto sans jp' ? notoJp : null))
+    await prefetchFaces(['Noto Sans JP', 'Noto Sans SC'])
+    expect(lineHeightFactor('Noto Sans JP')).toBe(1.8824)
+    expect(cjkDeclaredLineFactor('Noto Sans JP')).toBe(1.8824)
+    expect(cjkDeclaredLineFactor('Noto Sans SC')).toBe(1.3)
   })
 })

@@ -283,6 +283,10 @@ describe('MCP surface over Streamable HTTP (/mcp)', () => {
         'docx',
         'odt',
         'ott',
+        'doc',
+        'dot',
+        'hwpx',
+        'hwp',
       ])
       expect(infoJson.families.find((f) => f.family === 'pptx')!.editor.open).toEqual([
         'pptx',

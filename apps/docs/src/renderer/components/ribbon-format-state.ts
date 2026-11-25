@@ -1,11 +1,16 @@
+import { hasLabelSheet } from '../mail-merge/label-sheet'
 import type { Editor } from '@tiptap/core'
 import type { Node as PmNode } from '@tiptap/pm/model'
 import { NodeSelection } from '@tiptap/pm/state'
 import { isInTable, mergeCells, selectedRect, splitCell } from '@tiptap/pm/tables'
-import type { DocDefaults, Run, StyleInfo, TextboxDisplay } from '@genoffice/docx-engine'
+import type { Block, DocDefaults, Run, StyleInfo, TextboxDisplay } from '@genoffice/docx-engine'
+import { fieldTablesOf } from '../commands/reference-commands'
+import { canCommentAt } from '../editor/comments'
 import { getActiveSubEditor } from '../editor/active-editor'
 import { shapeWrapOf } from '../editor/floating-z-order'
-import { tableCellsSelection } from '../editor/table-ops'
+import { graphicSelected } from '../editor/graphics-fill'
+import { selectedBoxIndex } from '../editor/selected-box'
+import { splitTableAtSelection, tableCellsSelection } from '../editor/table-ops'
 import { effectiveBidi, selectionHasBidi } from '../editor/direction'
 import {
   effectiveSizeHalfPoints,
@@ -30,12 +35,29 @@ export interface RibbonFormatState {
   editable: boolean
   inTable: boolean
   canMergeCells: boolean
+  /** the body holds a mail-merge label table (Update Labels has something to update) */
+  labelSheet: boolean
   canSplitCell: boolean
-  /** Split Table needs a row above the caret's */
   canSplitTable: boolean
+  /** something is selected where the caret is: text, cells or an object */
+  hasSelection: boolean
+  /** the document has a footnote or an endnote */
+  hasNotes: boolean
+  hasChart: boolean
+  /** New Comment has a selection, a word or an empty paragraph to hold on to */
+  canComment: boolean
+  /** the caret's paragraph has nothing in it */
+  inEmptyParagraph: boolean
+  hasTableOfFigures: boolean
+  hasIndex: boolean
+  hasTableOfAuthorities: boolean
   imageSelected: boolean
   /** the selected picture is an inline run picture (table / header cell): Size only */
   inlinePicture: boolean
+  /** the selected picture is drawn from an SVG (an icon): Graphics Fill applies */
+  graphicSelected: boolean
+  /** the selected picture is a photo box of a multi-drawing paragraph: Arrange only */
+  pictureBox: boolean
   imageDataUrl: string | null
   imageWrap: string | null
   imageAlign: string | null
@@ -49,7 +71,11 @@ export interface RibbonFormatState {
   textboxSelected: boolean
   shapeFill: string | null
   shapeBorderColor: string | null
+  /** outline width of the selected shape in CSS px (a:ln w; null = Word's own default) */
+  shapeBorderWidthPx: number | null
   shapePrst: string | null
+  /** wps:bodyPr vert of the selected box; null = horizontal */
+  shapeVert: string | null
   /**
    * What the selected shape's own text agrees on, for the Shape Format Text
    * group. Selecting a shape as an object leaves no text selection for a mark to
@@ -75,6 +101,10 @@ export interface RibbonFormatState {
   strike: boolean
   vertAlign: string | null
   highlight: string | null
+  /** the text carries character shading (w:shd on the run) */
+  charShading: boolean
+  /** the text has a character border (w:bdr), its own or a style's */
+  charBorder: boolean
   textColor: string | null
   charStyleId: string | null
   /** w:pStyle of the paragraph at the caret (null = the default paragraph style) */
@@ -109,10 +139,21 @@ export const EMPTY_FORMAT_STATE: RibbonFormatState = {
   editable: false,
   inTable: false,
   canMergeCells: false,
+  labelSheet: false,
   canSplitCell: false,
   canSplitTable: false,
+  hasSelection: false,
+  hasNotes: false,
+  hasChart: false,
+  canComment: false,
+  inEmptyParagraph: false,
+  hasTableOfFigures: false,
+  hasIndex: false,
+  hasTableOfAuthorities: false,
   imageSelected: false,
   inlinePicture: false,
+  graphicSelected: false,
+  pictureBox: false,
   imageDataUrl: null,
   imageWrap: null,
   imageAlign: null,
@@ -125,7 +166,9 @@ export const EMPTY_FORMAT_STATE: RibbonFormatState = {
   textboxSelected: false,
   shapeFill: null,
   shapeBorderColor: null,
+  shapeBorderWidthPx: null,
   shapePrst: null,
+  shapeVert: null,
   shapeHasText: false,
   shapeTextBold: false,
   shapeTextItalic: false,
@@ -143,6 +186,8 @@ export const EMPTY_FORMAT_STATE: RibbonFormatState = {
   strike: false,
   vertAlign: null,
   highlight: null,
+  charShading: false,
+  charBorder: false,
   textColor: null,
   charStyleId: null,
   paraStyleId: null,
@@ -166,6 +211,10 @@ export const EMPTY_FORMAT_STATE: RibbonFormatState = {
   spaceAfter: 0,
 }
 
+const NO_BLOCKS: Block[] = []
+
+const labelSheetOf = cachedByDoc(hasLabelSheet)
+
 // stops at the first character instead of building the whole document's text
 const docEmptyOf = cachedByDoc((doc: PmNode) => {
   let empty = true
@@ -178,6 +227,18 @@ const docEmptyOf = cachedByDoc((doc: PmNode) => {
   return empty
 })
 
+const holds = (has: (node: PmNode) => boolean) =>
+  cachedByDoc((doc: PmNode) => {
+    let found = false
+    doc.descendants((node) => {
+      if (has(node)) found = true
+      return !found
+    })
+    return found
+  })
+const hasNotesOf = holds((node) => node.type.name === 'docNoteRef')
+const hasChartOf = holds((node) => node.type.name === 'docProtected' && !!node.attrs.chartDisplay)
+
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null)
 const num = (v: unknown): number | null => {
   const n = Number(v)
@@ -185,10 +246,32 @@ const num = (v: unknown): number | null => {
 }
 
 /** attrs of the paragraph-like node at the cursor (mirrors activeParaAttrs in ribbon-tabs) */
-function paraAttrsOf(editor: Editor): Record<string, unknown> {
+export function paraAttrsOf(editor: Editor): Record<string, unknown> {
   if (editor.isActive('docHeading')) return editor.getAttributes('docHeading')
   if (editor.isActive('docListItem')) return editor.getAttributes('docListItem')
   return editor.getAttributes('docParagraph')
+}
+
+/** what Borders and Shading opens on: the paragraph at the caret and the selected text */
+export function bordersShadingTarget(editor: Editor | null): {
+  paragraph: { borders: unknown; borderLines: unknown; fill: unknown; pattern: unknown }
+  text: { bdr: unknown; shading: unknown } | null
+  styled: boolean
+} {
+  const sub = getActiveSubEditor()
+  const ed = sub ?? editor
+  const para = !ed ? {} : sub ? sub.getAttributes('docParagraph') : paraAttrsOf(ed)
+  const mark = ed && !ed.state.selection.empty ? ed.getAttributes('docTextStyle') : null
+  return {
+    paragraph: {
+      borders: para.borders,
+      borderLines: para.borderLines,
+      fill: para.shadingFill,
+      pattern: para.shadingPattern,
+    },
+    text: mark ? { bdr: mark.bdr, shading: mark.shading } : null,
+    styled: !sub,
+  }
 }
 
 /**
@@ -239,6 +322,8 @@ export function computeFormatState(
   editor: Editor | null,
   styles?: Map<string, StyleInfo>,
   docDefaults?: DocDefaults,
+  /** the parsed document, for what only its XML says (the tables the Update buttons rebuild) */
+  blocks: Block[] = NO_BLOCKS,
 ): RibbonFormatState {
   if (!editor || editor.isDestroyed) return EMPTY_FORMAT_STATE
   const sub = getActiveSubEditor()
@@ -266,7 +351,7 @@ export function computeFormatState(
       cellWidthPx = colwidth?.[0] || null
       cellVAlign = (cellNode?.attrs.vAlign as string | null) ?? null
       cellTextDirection = (cellNode?.attrs.textDirection as string | null) ?? null
-      canSplitTable = rect.top > 0
+      canSplitTable = splitTableAtSelection()(tableState)
     } catch {
       /* degenerate selection: leave cell fields empty like the old activeCellInfo */
     }
@@ -274,7 +359,13 @@ export function computeFormatState(
 
   const protAttrs = editor.getAttributes('docProtected')
   const inlinePic = inlinePictureOf(ed)
-  const imageSelected = !!inlinePic || (protAttrs.blockType === 'image' && !!protAttrs.imageDataUrl)
+  const boxes = Array.isArray(protAttrs.textboxes)
+    ? (protAttrs.textboxes as TextboxDisplay[])
+    : null
+  const box = boxes && boxes.length > 0 ? boxes[selectedBoxIndex(editor.state)] : undefined
+  const pictureBox = !!box?.picture
+  const imageSelected =
+    !!inlinePic || pictureBox || (protAttrs.blockType === 'image' && !!protAttrs.imageDataUrl)
 
   const textAttrs = ed.getAttributes('docTextStyle')
   const fonts = selectedFonts(ed, styles, docDefaults)
@@ -297,6 +388,8 @@ export function computeFormatState(
   }
   const paraAttrs = sub ? ed.getAttributes('docParagraph') : paraAttrsOf(editor)
   const mainPara = paraAttrsOf(editor)
+  const tables = fieldTablesOf(editor.state.doc, blocks)
+  const caret = ed.state.selection
 
   return {
     doc: editor.state.doc,
@@ -305,41 +398,48 @@ export function computeFormatState(
     editable: editor.isEditable,
     inTable,
     canMergeCells: inTable && !!mergeCells(tableState),
+    labelSheet: labelSheetOf(editor.state.doc),
     canSplitCell: inTable && !!splitCell(tableState),
     canSplitTable,
+    hasSelection: !ed.state.selection.empty,
+    hasNotes: hasNotesOf(editor.state.doc),
+    hasChart: hasChartOf(editor.state.doc),
+    canComment: canCommentAt(editor),
+    inEmptyParagraph:
+      caret.empty && caret.$from.parent.isTextblock && caret.$from.parent.content.size === 0,
+    hasTableOfFigures: tables.figures,
+    hasIndex: tables.index,
+    hasTableOfAuthorities: tables.authorities,
     imageSelected,
     inlinePicture: !!inlinePic,
+    graphicSelected: imageSelected && graphicSelected(editor),
+    pictureBox,
     imageDataUrl: inlinePic
       ? str(inlinePic.dataUrl)
-      : imageSelected
-        ? str(protAttrs.imageDataUrl)
-        : null,
-    imageWrap:
-      Array.isArray(protAttrs.textboxes) && protAttrs.textboxes.length > 0
-        ? shapeWrapOf(protAttrs.textboxes[0] as TextboxDisplay)
-        : str(protAttrs.imageWrap),
+      : pictureBox
+        ? str(box?.fillImageDataUrl)
+        : imageSelected
+          ? str(protAttrs.imageDataUrl)
+          : null,
+    imageWrap: inlinePic ? str(inlinePic.wrap) : box ? shapeWrapOf(box) : str(protAttrs.imageWrap),
     imageAlign: str(protAttrs.imageAlign),
-    imageWidthPx: num(inlinePic ? inlinePic.widthPx : protAttrs.imageWidthPx),
-    imageHeightPx: num(inlinePic ? inlinePic.heightPx : protAttrs.imageHeightPx),
+    imageWidthPx: num(
+      inlinePic ? inlinePic.widthPx : pictureBox ? box?.widthPx : protAttrs.imageWidthPx,
+    ),
+    imageHeightPx: num(
+      inlinePic ? inlinePic.heightPx : pictureBox ? box?.heightPx : protAttrs.imageHeightPx,
+    ),
     imageFlipH: !!protAttrs.imageFlipH,
     imageFlipV: !!protAttrs.imageFlipV,
     imageHasDocxIndex: protAttrs.docxIndex != null,
     imageKey: imageSelected ? ed.state.selection.from : null,
-    textboxSelected: Array.isArray(protAttrs.textboxes) && protAttrs.textboxes.length > 0,
-    shapeFill: Array.isArray(protAttrs.textboxes)
-      ? str((protAttrs.textboxes[0] as { fill?: string } | undefined)?.fill)
-      : null,
-    shapeBorderColor: Array.isArray(protAttrs.textboxes)
-      ? str((protAttrs.textboxes[0] as { borderColor?: string } | undefined)?.borderColor)
-      : null,
-    shapePrst: Array.isArray(protAttrs.textboxes)
-      ? str((protAttrs.textboxes[0] as { prst?: string } | undefined)?.prst)
-      : null,
-    ...shapeTextStateOf(
-      Array.isArray(protAttrs.textboxes)
-        ? (protAttrs.textboxes[0] as TextboxDisplay | undefined)
-        : undefined,
-    ),
+    textboxSelected: !!box && !pictureBox,
+    shapeFill: str(box?.fill),
+    shapeBorderColor: str(box?.borderColor),
+    shapeBorderWidthPx: num(box?.borderWidthPx),
+    shapePrst: str(box?.prst),
+    shapeVert: str(box?.vert),
+    ...shapeTextStateOf(box),
     cellKey,
     cellHeightTwips,
     cellWidthPx,
@@ -351,6 +451,8 @@ export function computeFormatState(
     strike: ed.isActive('strike'),
     vertAlign: str(textAttrs.vertAlign),
     highlight: str(textAttrs.highlight),
+    charShading: !!(textAttrs.shadingDisplay ?? textAttrs.shading),
+    charBorder: !!textAttrs.bdr,
     textColor: textAttrs.color === 'auto' ? null : str(textAttrs.color),
     charStyleId: str(textAttrs.styleId),
     paraStyleId: str(paraAttrs.styleId),
@@ -361,8 +463,14 @@ export function computeFormatState(
     headingLevel: editor.isActive('docHeading')
       ? Number(editor.getAttributes('docHeading').level ?? 1)
       : null,
-    listBullet: editor.isActive('docListItem', { kind: 'bullet' }),
-    listOrdered: editor.isActive('docListItem', { kind: 'ordered' }),
+    // a textbox paragraph carries its list on the listMarker attr instead of a
+    // docListItem node, so the buttons reflect the marker's kind while inside
+    listBullet: sub
+      ? paraAttrs.listMarker?.kind === 'bullet'
+      : editor.isActive('docListItem', { kind: 'bullet' }),
+    listOrdered: sub
+      ? paraAttrs.listMarker?.kind === 'ordered'
+      : editor.isActive('docListItem', { kind: 'ordered' }),
     align: str(paraAttrs.align),
     bidi: paraAttrs.bidi === true || paraAttrs.bidiInferred === true,
     selectionBidi: effectiveBidi(paraAttrs) || (!sub && selectionHasBidi(editor)),
@@ -376,10 +484,10 @@ export function computeFormatState(
   }
 }
 
-/** attrs of the inline run picture under a node selection (rules and floating pictures excluded) */
+/** attrs of the run picture (in line or floating) under a node selection (rules excluded) */
 function inlinePictureOf(ed: Editor): Record<string, unknown> | null {
   const sel = ed.state.selection
   if (!(sel instanceof NodeSelection) || sel.node.type.name !== 'docInlineImage') return null
   const attrs = sel.node.attrs
-  return attrs.rule || attrs.wrap || !attrs.dataUrl ? null : attrs
+  return attrs.rule || !attrs.dataUrl ? null : attrs
 }

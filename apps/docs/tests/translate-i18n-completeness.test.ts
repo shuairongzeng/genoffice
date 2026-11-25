@@ -59,15 +59,15 @@ function expectComplete(dir: string, family: 'appLang' | 'ribbonLang', label: st
 }
 
 describe('translate target strings exist for every locale', () => {
-  it('docs: the right-click menu has a name for all 21 languages, in all 21 locales', () => {
+  it('docs: the right-click menu has a name for all 22 languages, in all 21 locales', () => {
     expectComplete(DOCS_APP, 'appLang', 'docs app i18n')
   })
 
-  it('docs: the ribbon dropdown has a name for all 21 languages, in all 21 locales', () => {
+  it('docs: the ribbon dropdown has a name for all 22 languages, in all 21 locales', () => {
     expectComplete(DOCS_RIBBON, 'ribbonLang', 'docs ribbon i18n')
   })
 
-  it('slides: the ribbon dropdown has a name for all 21 languages, in all 21 locales', () => {
+  it('slides: the ribbon dropdown has a name for all 22 languages, in all 21 locales', () => {
     expectComplete(SLIDES_RIBBON, 'ribbonLang', 'slides ribbon i18n')
   })
 })

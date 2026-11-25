@@ -99,6 +99,28 @@ describe('auto ink on dark shading', () => {
     )
   })
 
+  it('reads a w:fill the parser hands over padded, with or without the hash', async () => {
+    const body =
+      '<w:tbl><w:tblPr><w:tblW w:w="9000" w:type="dxa"/></w:tblPr>' +
+      '<w:tblGrid><w:gridCol w:w="3000"/><w:gridCol w:w="3000"/></w:tblGrid><w:tr>' +
+      cell(' 000000 ', run('auto on padded black')) +
+      cell('#F2F2F2 ', run('auto on padded light')) +
+      '</w:tr></w:tbl>'
+    const parsed = await parseDocx(await buildDocx({ bodyXml: body }))
+    const editor = new Editor({
+      element: document.createElement('div'),
+      extensions: editorExtensions,
+      content: blocksToPmDoc(parsed.blocks) as never,
+    })
+    const tds = [...editor.view.dom.querySelectorAll('td')]
+    expect(tds.map((td) => td.getAttribute('data-ink'))).toEqual(['light', 'dark'])
+    editor.destroy()
+    // the trim runs before the hash check, so either padding is accepted
+    expect(fillInk(' 000000')).toBe('light')
+    expect(fillInk('#000000 ')).toBe('light')
+    expect(fillInk('  F2F2F2  ')).toBe('dark')
+  })
+
   it('styles.css flips the ink on data-ink="light" and re-darkens it on the dark page', () => {
     const light = /\[data-ink='light'\]\s*\{([^}]*)\}/.exec(STYLES_CSS)!
     expect(light[1]).toContain('--docs-paper-ink: #fff')
@@ -136,14 +158,14 @@ describe('auto ink on dark shading', () => {
       `.doc-page table[data-tbl-style="DarkTable"] td:not([data-ink]), .doc-page table[data-tbl-style="DarkTable"] th:not([data-ink]) { --docs-paper-ink:#fff;color:var(--docs-paper-ink) }`,
     )
     expect(css).toContain(
-      `.doc-page table[data-tbl-style="DarkTable"] tr:nth-child(even) td:not([data-ink]) { --docs-paper-ink:#000;color:var(--docs-paper-ink) }`,
+      `.doc-page table[data-tbl-style="DarkTable"]:not([data-tbl-nohband]):not([data-tbl-nofirstrow]) tr:nth-child(even) td:not([data-ink]), .doc-page table[data-tbl-style="DarkTable"]:not([data-tbl-nohband])[data-tbl-nofirstrow] tr:nth-child(odd) td:not([data-ink]) { --docs-paper-ink:#000;color:var(--docs-paper-ink) }`,
     )
     const light = '--docs-paper-ink:#fff;color:var(--docs-paper-ink)'
     const reset = '--docs-paper-ink:#000;color:var(--docs-paper-ink)'
-    const head = 'table[data-tbl-style="DarkHead"] tr:first-child'
+    const headed = 'table[data-tbl-style="DarkHead"]:not([data-tbl-nofirstrow])'
+    const head = `${headed} tr:first-child`
     // header-row formatting also reaches the leading w:tblHeader rows
-    const lead =
-      'table[data-tbl-style="DarkHead"] tr[data-repeat-header="1"]:not(tr:not([data-repeat-header="1"]) ~ tr)'
+    const lead = `${headed} tr[data-repeat-header="1"]:not(tr:not([data-repeat-header="1"]) ~ tr)`
     const headCells = (cell: string): string =>
       `${head} ${cell}, .doc-page ${head} ${cell.replace('td', 'th')}, .doc-page ${lead} ${cell}, .doc-page ${lead} ${cell.replace('td', 'th')}`
     expect(css).toContain(`${headCells('td')} { background:#1f1f1f;font-weight:600 }`)
@@ -157,7 +179,7 @@ describe('auto ink on dark shading', () => {
       `.doc-page table[data-tbl-style="DarkHead"] tr:nth-child(even) td:not([data-ink]) {`,
     )
     expect(css).toContain(
-      `.doc-page :is([data-ink='light'] table, table[data-ink='light'])[data-tbl-style="DarkHead"] tr:nth-child(even) td:not([data-ink]) { ${reset} }`,
+      `.doc-page :is([data-ink='light'] table, table[data-ink='light'])[data-tbl-style="DarkHead"]:not([data-tbl-nohband]):not([data-tbl-nofirstrow]) tr:nth-child(even) td:not([data-ink]), `,
     )
     // light data-ink fills inside the style's dark cells (only those) take the paper ink back
     expect(css).toContain(`${headCells("td:not([data-ink]) [data-ink='dark']")} { ${reset} }`)

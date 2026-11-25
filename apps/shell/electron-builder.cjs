@@ -330,9 +330,9 @@ function ensureThirdPartyNotices() {
 // NSIS registers every declared Windows association with a ProgId and `.ext`
 // default association. Keep `.bat` open-with-only so double-clicking a batch
 // script continues to execute it in Windows instead of opening an editor, and
-// keep legacy `.ppt` open-with-only so Windows does not hijack PowerPoint's
-// default opener (mac/Linux still declare it for Open With).
-const WIN_OPEN_WITH_ONLY_EXTS = new Set(['bat', 'ppt'])
+// keep legacy `.doc`/`.dot`/`.ppt` open-with-only so Windows does not hijack
+// Office's default openers (mac/Linux still declare them for Open With).
+const WIN_OPEN_WITH_ONLY_EXTS = new Set(['bat', 'ppt', 'doc', 'dot'])
 const FILE_ASSOCIATIONS = [
   {
     ext: 'docx',
@@ -341,6 +341,22 @@ const FILE_ASSOCIATIONS = [
     role: 'Editor',
     icon: 'docx',
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  },
+  {
+    // import-only: opens as a converted .docx copy, GenOffice never writes .doc
+    ext: 'doc',
+    name: 'Word 97-2003 Document',
+    role: 'Editor',
+    icon: 'docx',
+    mimeType: 'application/msword',
+  },
+  {
+    // import-only: the template opens as a converted .docx copy
+    ext: 'dot',
+    name: 'Word 97-2003 Template',
+    role: 'Editor',
+    icon: 'docx',
+    mimeType: 'application/msword',
   },
   {
     ext: 'xlsx',
@@ -424,6 +440,22 @@ const FILE_ASSOCIATIONS = [
     role: 'Editor',
     icon: 'docx',
     mimeType: 'application/vnd.oasis.opendocument.text-template',
+  },
+  {
+    // import-only: opens as a converted .docx copy, GenOffice never writes HWPX
+    ext: 'hwpx',
+    name: 'Hancom HWPX Document',
+    role: 'Editor',
+    icon: 'docx',
+    mimeType: 'application/hwp+zip',
+  },
+  {
+    // import-only, like .hwpx: HWP binaries are read through rhwp into HWPX first
+    ext: 'hwp',
+    name: 'Hancom HWP Document',
+    role: 'Editor',
+    icon: 'docx',
+    mimeType: 'application/x-hwp',
   },
   {
     // import-only: opens as a converted .pptx copy, GenOffice never writes ODF
@@ -809,10 +841,10 @@ const config = {
   // pairs are generated from the shell renderer's file-type tiles by
   // tools/gen-file-association-icons.mjs.
   // app-builder-lib concatenates top-level `fileAssociations` with each platform
-  // target's own `fileAssociations` instead of overriding. Keep the 55 safe
+  // target's own `fileAssociations` instead of overriding. Keep the 57 safe
   // shared associations at top level and append Windows-excluded types (`.bat`,
-  // `.ppt`) only on mac/linux so Windows neither duplicates NSIS macros nor
-  // hijacks those openers.
+  // `.ppt`, `.doc`, `.dot`) only on mac/linux so Windows neither duplicates NSIS
+  // macros nor hijacks those openers.
   fileAssociations: SHARED_FILE_ASSOCIATIONS,
   // The genoffice:// deep link (src/main/system-presence.ts: genoffice://ask?q=… →
   // Home's Ask AI). electron-builder writes CFBundleURLTypes into the macOS
@@ -859,8 +891,8 @@ const config = {
         arch: [winArch],
       },
     ],
-    // Intentionally omit `fileAssociations`: Windows receives the 55 top-level
-    // SHARED_FILE_ASSOCIATIONS entries once (zero duplicate ProgIDs, no `.bat` or `.ppt`).
+    // Intentionally omit `fileAssociations`: Windows receives the 57 top-level
+    // SHARED_FILE_ASSOCIATIONS entries once (zero duplicate ProgIDs, no `.bat`, `.ppt`, `.doc`, or `.dot`).
     extraResources: [
       {
         from: WIN_SIDECAR,

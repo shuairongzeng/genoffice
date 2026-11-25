@@ -1,6 +1,8 @@
+import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { htmlDir, htmlLang, type Lang } from '@genoffice/i18n'
 import { App } from './App'
+import { installKeyLayer } from './key-layer'
 import { setAuthorName } from './author-name'
 import { LocaleProvider, setModuleLang } from './i18n/locale'
 import { loadStrings } from './i18n/strings'
@@ -26,6 +28,7 @@ import { applyAiPanelPrefs, installScreenTips } from '@genoffice/ui'
 import { setAltChunkHtmlConverter } from '@genoffice/docx-engine'
 
 installScreenTips()
+installKeyLayer()
 if (window.desktop?.convertAltChunkHtml) {
   setAltChunkHtmlConverter((html) => window.desktop.convertAltChunkHtml(html))
 }
@@ -76,10 +79,13 @@ async function bootstrap(): Promise<void> {
     .then(setAuthorName)
     .catch(() => {})
   window.desktop?.onAuthorNameChanged?.(setAuthorName)
-  createRoot(document.getElementById('root')!).render(
-    <LocaleProvider initial={lang}>
-      <App />
-    </LocaleProvider>,
+  const root = createRoot(document.getElementById('root')!)
+  flushSync(() =>
+    root.render(
+      <LocaleProvider initial={lang}>
+        <App />
+      </LocaleProvider>,
+    ),
   )
 }
 

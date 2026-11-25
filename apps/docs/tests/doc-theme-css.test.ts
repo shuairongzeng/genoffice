@@ -118,8 +118,8 @@ describe('docLineFactor — CJK factor source', () => {
     ;(globalThis as { CSS?: unknown }).CSS ??= { escape: (s: string) => s }
     const parsed = parsedWith({ font: 'Aptos', eastAsiaFont: 'Aptos' }, 'SimSun')
     ;(parsed.docDefaults as { asciiFont?: string }).asciiFont = 'Times New Roman'
-    expect(docLineFactor(parsed, false)).toBe(1.15)
-    expect(docStyleCss(parsed)).toContain('--doc-line-factor-latin:1.15')
+    expect(docLineFactor(parsed, false)).toBe(1.1499)
+    expect(docStyleCss(parsed)).toContain('--doc-line-factor-latin:1.1499')
   })
 
   it('a same-slot Korean Normal (Malgun in both slots) still wins for the kr factor', () => {
@@ -214,7 +214,7 @@ describe('docStyleCss — style indent vs list geometry', () => {
   it('style w:ind skips list items and becomes the --li-left fallback', () => {
     const css = docStyleCss(parsedWithStyle({ indentLeftTwips: 720 }))
     expect(css).toContain(
-      '.doc-page [data-style="ListParagraph"]:not(.doc-li, .doc-li-stray) { margin-inline-start:36.0pt }',
+      '.doc-page [data-style="ListParagraph"]:not(.doc-li, .doc-li-stray) { margin-inline-start:36.0pt;--pind-s:36.0pt }',
     )
     expect(css).toContain(
       '.doc-page :is(.doc-li, .doc-li-stray)[data-style="ListParagraph"] { --style-li-left:36.0pt }',

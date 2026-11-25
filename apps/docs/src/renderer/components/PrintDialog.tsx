@@ -11,8 +11,10 @@
  * preview source, so what the dialog shows is exactly what prints.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { PrintDuplex, PrinterInfo } from '../../shared/ipc'
+import type { Editor } from '@tiptap/core'
+import type { PrintDuplex, PrintPaper, PrinterInfo } from '../../shared/ipc'
 import { useI18n } from '../i18n/locale'
+import { blockIdAtSelection, initialPrintPageIndex, pageBlockIds } from '../print-page-of-selection'
 import { parsePrintRange } from '../print-range'
 import { clearPrintZoom, setPrintZoom } from '../print-zoom'
 
@@ -30,16 +32,34 @@ const pvPages = (): HTMLElement[] => [
   ...document.querySelectorAll<HTMLElement>('.pagination-preview .pv-page'),
 ]
 
+/** The document's own paper in twips, read off the first preview sheet: the
+ * pagination slices pages at the section geometry (96 px per inch), so the
+ * sheet's layout box maps back 1:1. `offsetWidth`/`offsetHeight` ignore the
+ * preview's visual zoom. Null when no sheet exists yet — the CUPS route then
+ * keeps Chromium's default paper rather than printing a wrong size. */
+function paperOfPreview(): PrintPaper | undefined {
+  const page = pvPages()[0]
+  if (!page) return undefined
+  const w = page.offsetWidth
+  const h = page.offsetHeight
+  if (!(w > 0) || !(h > 0)) return undefined
+  return { widthTwips: Math.round(w * 15), heightTwips: Math.round(h * 15) }
+}
+
 export function PrintDialog({
   onClose,
   setStatus,
+  editor,
 }: {
   onClose: () => void
   setStatus: (s: string) => void
+  editor: Editor | null
 }) {
   const { t } = useI18n()
   const [pageCount, setPageCount] = useState(0)
   const [page, setPage] = useState(0)
+  /** The initial preview page is resolved once the sheets exist; later navigation wins. */
+  const initialPageRef = useRef(false)
   const [rangeMode, setRangeMode] = useState<RangeMode>('all')
   const [customRange, setCustomRange] = useState('')
   const [printing, setPrinting] = useState(false)
@@ -54,15 +74,28 @@ export function PrintDialog({
 
   // The pagination preview measures and slices asynchronously; poll until the
   // .pv-page count is stable (and keep tracking it, e.g. re-slices on resize).
+  // Once the sheets exist, open the preview on the page holding the caret.
   useEffect(() => {
     let last = -1
     const timer = window.setInterval(() => {
-      const n = pvPages().length
-      if (n > 0 && n === last) setPageCount(n)
+      const sheets = pvPages()
+      const n = sheets.length
+      if (n > 0 && n === last) {
+        setPageCount(n)
+        if (!initialPageRef.current) {
+          initialPageRef.current = true
+          // Functional update: navigation the reader already did wins.
+          setPage((shown) =>
+            shown === 0
+              ? initialPrintPageIndex(pageBlockIds(sheets), blockIdAtSelection(editor))
+              : shown,
+          )
+        }
+      }
       last = n
     }, 250)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [editor])
 
   useEffect(() => {
     let alive = true
@@ -152,6 +185,7 @@ export function PrintDialog({
       const r = await window.desktop.print(
         scale,
         systemDialog ? { deviceName: null } : { deviceName, copies, collate, duplex },
+        paperOfPreview(),
       )
       if (r.ok) {
         onClose()

@@ -74,13 +74,9 @@ function menuProps(editor: Editor, overrides: Record<string, unknown> = {}) {
     editor,
     menu: { x: 10, y: 10 },
     onClose: noop,
-    onFontDialog: noop,
-    onParagraphDialog: noop,
-    onLink: noop,
-    onNewComment: noop,
+    onCommand: noop,
     onViewImage: noop,
     onSaveImageAs: noop,
-    onAiPreset: noop,
     onRedact: noop,
     onUnredact: noop,
     ...overrides,
@@ -257,11 +253,10 @@ describe('EditorContextMenu — the withholding item', () => {
     editor.destroy()
   })
 
-  it('is disabled for a picture, which cannot carry a mark through a save', () => {
+  it('is absent for a picture, which cannot carry a mark through a save', () => {
     // A picture alone is a block node that takes no marks, and an inline one
-    // loses the mark on save; offering the item would hide it for a session
-    // and then drop the decision silently. Covered end to end in
-    // redact-image-mark.test.ts.
+    // loses the mark on save; the picture menu lists only picture items.
+    // Covered end to end in redact-image-mark.test.ts.
     const editor = createEditor()
     const { container, unmount } = render(
       createElement(
@@ -269,7 +264,7 @@ describe('EditorContextMenu — the withholding item', () => {
         menuProps(editor, { menu: { x: 10, y: 10, imageSrc: 'data:image/png;base64,AAAA' } }),
       ),
     )
-    expect(item(container, LABEL)!.disabled).toBe(true)
+    expect(item(container, LABEL)).toBeUndefined()
     unmount()
     editor.destroy()
   })
@@ -415,13 +410,9 @@ describe('the item and the dialog together', () => {
         editor,
         menu: { x: 10, y: 10 },
         onClose: noop,
-        onFontDialog: noop,
-        onParagraphDialog: noop,
-        onLink: noop,
-        onNewComment: noop,
+        onCommand: noop,
         onViewImage: noop,
         onSaveImageAs: noop,
-        onAiPreset: noop,
         onRedact: () => {
           const { from, to } = editor.state.selection
           if (from === to) return

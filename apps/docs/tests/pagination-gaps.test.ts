@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   GAP_BAND,
+  gapLedgerOf,
   alignGapHfStrips,
   canvasZoomOf,
   alignTableGapFills,
-  leadDropsSpaceBefore,
   makeGapEl,
   pageFramesFromGaps,
   syncCutOverlays,
@@ -19,9 +19,20 @@ import {
   pageBorderArtStripStyle,
   pageBorderStyleOf,
   rowFillAttrs,
+  rowGapPx,
   syncPageBorders,
+  syncFloatShifts,
 } from '../src/renderer/editor/pagination-gaps'
+import { leadDropsSpaceBefore } from '../src/renderer/pagination-cuts'
+import { measureBlocks } from '../src/renderer/pagination-measure'
 import { createLineRectsCache, singleCutCell } from '../src/renderer/pagination'
+import { Editor } from '@tiptap/core'
+import { NodeSelection } from '@tiptap/pm/state'
+import { buildShapeParagraphXml, parseDocx } from '@genoffice/docx-engine'
+import { buildDocx } from '../../../packages/docx-engine/tests/helpers/build-docx'
+import { blocksToPmDoc } from '../src/renderer/editor/convert'
+import { editorExtensions } from '../src/renderer/editor/extensions'
+import { setFloatingWrap } from '../src/renderer/editor/floating-z-order'
 
 const rowOf = (cells: number): HTMLTableRowElement => {
   const tr = document.createElement('tr')
@@ -31,11 +42,84 @@ const rowOf = (cells: number): HTMLTableRowElement => {
 
 const m = { marginTop: 96, marginBottom: 96, marginLeft: 90, marginRight: 90 }
 
-describe('page gap header push', () => {
-  it('writes the push even when zero so a later page clears an earlier one', () => {
-    expect(makeGapEl({ ...m, sectionMarginTop: 70 }, 'cell').dataset.topPush).toBe('26.0')
-    expect(makeGapEl({ ...m, sectionMarginTop: 96 }, 'cell').dataset.topPush).toBe('0.0')
-    expect(makeGapEl(m, 'cell').dataset.topPush).toBeUndefined()
+describe('gap ledger', () => {
+  it('records the header push even when zero so a later page clears an earlier one', () => {
+    const [a, b, c] = gapLedgerOf(
+      [
+        { pos: 1, kind: 'cell', page: 1, metrics: { ...m, sectionMarginTop: 70 } },
+        { pos: 2, kind: 'cell', page: 2, metrics: { ...m, sectionMarginTop: 96 } },
+        { pos: 3, kind: 'cell', page: 3, metrics: m },
+      ],
+      [],
+    )
+    expect([a.topPushPx, b.topPushPx, c.topPushPx]).toEqual([26, 0, undefined])
+    expect(a.heightPx).toBe(96 + GAP_BAND + 96)
+  })
+
+  it('cut markers and overlay anchors are zero-height boundaries; carry spacers have no page', () => {
+    const el = document.createElement('p')
+    const entries = gapLedgerOf(
+      [
+        { pos: 1, kind: 'cut', page: 1, metrics: m },
+        {
+          el,
+          carryPx: 120,
+          metrics: { marginTop: 0, marginBottom: 0, marginLeft: 0, marginRight: 0 },
+        },
+        {
+          pos: 9,
+          kind: 'table',
+          page: 3,
+          metrics: m,
+          floatGap: true,
+          repeatHeaderPx: 18,
+          pullUp: 40,
+        },
+      ],
+      [2],
+    )
+    expect(entries.map((e) => [e.page, e.kind, e.heightPx])).toEqual([
+      [1, 'cut', 0],
+      [3, 'table', 96 + GAP_BAND + 96],
+      [2, 'cut', 0],
+    ])
+    expect(entries[1]).toMatchObject({ floatGap: true, repeatHeaderPx: 18, pullUpPx: 0 })
+  })
+})
+
+describe('gap paper box (every gap kind)', () => {
+  const m = {
+    marginTop: 96,
+    marginBottom: 130,
+    bodyMarginBottom: 96,
+    marginLeft: 90,
+    marginRight: 90,
+  }
+  const kinds = ['block', 'inline', 'cell', 'table'] as const
+  it('every page-turning gap kind owns a .page-gap-paper box carrying the body margin', () => {
+    for (const kind of kinds) {
+      const el = makeGapEl(m, kind, 3)
+      const paper = el.classList.contains('page-gap-paper')
+        ? el
+        : el.querySelector('.page-gap-paper')
+      expect(paper, kind).not.toBeNull()
+      expect(el.style.getPropertyValue('--gap-body-mb'), kind).toBe('96px')
+      expect(el.style.getPropertyValue('--gap-mb'), kind).toBe('130px')
+    }
+  })
+  it('a cut marker has no paper box (zero-height, hosts nothing)', () => {
+    const el = makeGapEl(m, 'cut')
+    expect(el.classList.contains('page-gap-paper')).toBe(false)
+    expect(el.querySelector('.page-gap-paper')).toBeNull()
+  })
+  it('the crop-mark rule targets the paper box only, not individual gap kinds', () => {
+    const css = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '../src/renderer/styles.css'),
+      'utf8',
+    )
+    const marks = css.match(/^[^{}]*page-gap[^{}]*::after[^{]*\{[^}]*--cm-len[^}]*\}/gm) ?? []
+    expect(marks.length).toBeGreaterThan(0)
+    for (const rule of marks) expect(rule).not.toMatch(/page-gap-(block|inline|cell|table|cut)/)
   })
 })
 
@@ -89,7 +173,13 @@ describe('in-row table cut decorations', () => {
   }
 
   it('multi-cell row hosts a real band when sibling content ends above the cut', () => {
-    const { tr, anchor } = cellAnchorRow(4) // 1px-spacer-gif sliver cell
+    const { tr, anchor } = cellAnchorRow(4) // 1px-spacer-gif sliver cell, no text
+    expect(singleCutCell(tr, anchor)).toBe(tr.children[0])
+  })
+
+  it('multi-cell row still hosts a band when the sliver sibling is middle-aligned (no text to misplace)', () => {
+    const { tr, anchor } = cellAnchorRow(4)
+    ;(tr.children[1] as HTMLElement).style.verticalAlign = 'middle'
     expect(singleCutCell(tr, anchor)).toBe(tr.children[0])
   })
 
@@ -107,6 +197,52 @@ describe('in-row table cut decorations', () => {
     sp.appendChild(strut)
     expect(singleCutCell(tr, anchor)).toBe(tr.children[0])
   })
+
+  it('a middle-aligned sliver sibling with a spacer strut still hosts a band', () => {
+    const { tr, anchor } = cellAnchorRow(900)
+    ;(tr.children[1] as HTMLElement).style.verticalAlign = 'middle'
+    const sp = tr.children[1].firstElementChild as HTMLElement
+    const strut = document.createElement('img')
+    strut.getBoundingClientRect = () => ({ top: 0, bottom: 900, height: 900, width: 1 }) as DOMRect
+    sp.appendChild(strut)
+    expect(singleCutCell(tr, anchor)).toBe(tr.children[0])
+  })
+
+  // genoffice#2114's "long chin" without a rowspan: Word's most common table
+  // shape is a narrow, vertically centred LABEL column (with text) next to a
+  // long text cell. The band grows the host, and the centred label (positioned
+  // against the whole row height) lands in the new blank. A sliver sibiling has
+  // no text, so it is not affected — only a text-bearing middle/bottom sibling
+  // triggers the guard.
+  it.each(['middle', 'bottom'] as const)(
+    'a %s-aligned TEXT sibling keeps the zero-height cut marker instead of a band',
+    (align) => {
+      const { tr, anchor } = cellAnchorRow(4)
+      const sibling = tr.children[1] as HTMLElement
+      sibling.style.verticalAlign = align
+      sibling.appendChild(document.createTextNode('Label'))
+      expect(singleCutCell(tr, anchor)).toBeNull()
+    },
+  )
+
+  it('a middle-aligned host cell still hosts a band (only a height-coupled sibling is the problem)', () => {
+    const { tr, anchor } = cellAnchorRow(4)
+    ;(tr.children[0] as HTMLElement).style.verticalAlign = 'middle'
+    expect(singleCutCell(tr, anchor)).toBe(tr.children[0])
+  })
+
+  it('top-aligned cells still host a real band when the sibling ends above the cut', () => {
+    const { tr, anchor } = cellAnchorRow(4)
+    ;(tr.children[0] as HTMLElement).style.verticalAlign = 'top'
+    ;(tr.children[1] as HTMLElement).style.verticalAlign = 'top'
+    expect(singleCutCell(tr, anchor)).toBe(tr.children[0])
+  })
+
+  it('a single-cell row still hosts a band even when it is middle-aligned', () => {
+    const tr = rowOf(1)
+    ;(tr.firstElementChild as HTMLElement).style.verticalAlign = 'middle'
+    expect(singleCutCell(tr)).toBe(tr.firstElementChild)
+  })
 })
 
 describe('phantom-row rowspan bridging', () => {
@@ -117,6 +253,9 @@ describe('phantom-row rowspan bridging', () => {
   }
   const cell = (root: HTMLElement, id: string) =>
     root.querySelector(`#${id}`) as HTMLTableCellElement
+  const over = (root: HTMLElement, id: string) => cell(root, id).hidden
+  const copies = (root: HTMLElement) =>
+    Array.from(root.querySelectorAll<HTMLElement>('.page-rh-over'), (c) => c.dataset.rhCols)
 
   it('grows a rowspan crossing the insertion point and records the base', () => {
     const root = rootOf(`
@@ -167,6 +306,78 @@ describe('phantom-row rowspan bridging', () => {
     syncPhantomRowspans(root)
     expect(cell(root, 'a').rowSpan).toBe(2)
     expect(cell(root, 'a').hasAttribute('data-base-rowspan')).toBe(false)
+  })
+
+  it('keeps a phantom row inside a crossing span to the free columns', () => {
+    const root = rootOf(`
+      <tr><td></td><td></td><td></td></tr>
+      <tr><td id="a" rowspan="3"></td><td></td><td id="c" rowspan="3"></td></tr>
+      <tr><td></td></tr>
+      <tr class="page-gap"><td id="g" colspan="3"></td></tr>
+      <tr class="page-repeat-header"><td id="h0"></td><td id="h1"></td><td id="h2"></td></tr>
+      <tr><td></td></tr>
+      <tr><td></td><td></td><td></td></tr>`)
+    syncPhantomRowspans(root)
+    expect(cell(root, 'a').rowSpan).toBe(5)
+    // columns 0 and 2 are taken by the crossing cells: one free column in between
+    expect(cell(root, 'g').colSpan).toBe(1)
+    // the header cells of the taken columns leave the grid and paint over the crossing cells
+    expect(['h0', 'h1', 'h2'].map((id) => over(root, id))).toEqual([true, false, true])
+    expect(copies(root)).toEqual(['0-1', '2-3'])
+    expect(cell(root, 'h1').classList.contains('page-rh-host')).toBe(true)
+    expect(root.querySelectorAll('#h0').length).toBe(1)
+    // no row reaches past the table's three columns
+    for (const tr of root.querySelectorAll('tr')) {
+      const own = Array.from(tr.cells)
+        .filter((td) => !td.hidden)
+        .reduce((n, td) => n + td.colSpan, 0)
+      expect(own).toBeLessThanOrEqual(3)
+    }
+    syncPhantomRowspans(root)
+    expect(cell(root, 'g').colSpan).toBe(1)
+    expect(copies(root)).toEqual(['0-1', '2-3'])
+    // the span no longer crosses: the phantom row takes the whole grid again
+    cell(root, 'a').setAttribute('data-base-rowspan', '1')
+    cell(root, 'c').setAttribute('data-base-rowspan', '1')
+    syncPhantomRowspans(root)
+    expect(cell(root, 'g').colSpan).toBe(3)
+    expect(cell(root, 'g').hasAttribute('data-base-colspan')).toBe(false)
+    expect([over(root, 'h0'), over(root, 'h2')]).toEqual([false, false])
+    expect(copies(root)).toEqual([])
+    expect(cell(root, 'h1').classList.contains('page-rh-host')).toBe(false)
+  })
+
+  it('places a later header clone row past the merges of the clone itself', () => {
+    const root = rootOf(`
+      <tr><td></td><td></td><td id="c" rowspan="3"></td></tr>
+      <tr><td></td><td></td></tr>
+      <tr class="page-gap"><td id="g" colspan="3"></td></tr>
+      <tr class="page-repeat-header"><td id="p" rowspan="2"></td><td id="q"></td><td id="r"></td></tr>
+      <tr class="page-repeat-header"><td id="s"></td><td id="t"></td></tr>
+      <tr><td></td><td></td></tr>`)
+    syncPhantomRowspans(root)
+    expect(cell(root, 'g').colSpan).toBe(2)
+    // column 2 is the crossing cell's; the second clone row starts at column 1
+    expect(['p', 'q', 'r', 's', 't'].map((id) => over(root, id))).toEqual([
+      false,
+      false,
+      true,
+      false,
+      true,
+    ])
+  })
+
+  it('leaves a phantom row outside every span untouched', () => {
+    const root = rootOf(`
+      <tr><td id="a" rowspan="2"></td><td></td></tr>
+      <tr><td></td></tr>
+      <tr class="page-gap"><td id="g" colspan="2"></td></tr>
+      <tr class="page-repeat-header"><td id="h0"></td><td id="h1"></td></tr>
+      <tr><td></td><td></td></tr>`)
+    syncPhantomRowspans(root)
+    expect(cell(root, 'g').colSpan).toBe(2)
+    expect(cell(root, 'g').hasAttribute('data-base-colspan')).toBe(false)
+    expect([over(root, 'h0'), over(root, 'h1')]).toEqual([false, false])
   })
 })
 
@@ -954,9 +1165,18 @@ describe('pageBorderStyleOf', () => {
 
 describe('rowFillAttrs', () => {
   it('measures the stored split extra against the rounded CSS height', () => {
-    expect(rowFillAttrs(310.4, 10.4)).toEqual({ style: 'height:310px', 'data-split-extra': '10.0' })
-    expect(rowFillAttrs(309.6, 9.6)).toEqual({ style: 'height:310px', 'data-split-extra': '10.0' })
-    expect(rowFillAttrs(310.4)).toEqual({ style: 'height:310px' })
+    const fill = { 'data-row-fill': '1' }
+    expect(rowFillAttrs(310.4, 10.4)).toEqual({
+      style: 'height:310px',
+      ...fill,
+      'data-split-extra': '10.0',
+    })
+    expect(rowFillAttrs(309.6, 9.6)).toEqual({
+      style: 'height:310px',
+      ...fill,
+      'data-split-extra': '10.0',
+    })
+    expect(rowFillAttrs(310.4)).toEqual({ style: 'height:310px', ...fill })
   })
 
   // border-spacing 2px: the measured pitch is tr height + 2, so the tr gets the
@@ -964,9 +1184,64 @@ describe('rowFillAttrs', () => {
   it('takes the border-spacing gap out of a separate-borders row height', () => {
     expect(rowFillAttrs(310.4, 10.4, 2)).toEqual({
       style: 'height:308px',
+      'data-row-fill': '1',
       'data-split-extra': '10.0',
     })
-    expect(rowFillAttrs(310.4, 0, 2)).toEqual({ style: 'height:308px' })
+    expect(rowFillAttrs(310.4, 0, 2)).toEqual({ style: 'height:308px', 'data-row-fill': '1' })
+  })
+})
+
+describe('split-row fill alignment', () => {
+  it('top-aligns a filled row so the fill lands below the content', () => {
+    // Word aligns per fragment; a centered tr would push every fragment down
+    const css = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '../src/renderer/styles.css'),
+      'utf8',
+    )
+    const at = css.indexOf('.doc-table tr[data-row-fill] > td,')
+    expect(at).toBeGreaterThan(-1)
+    expect(css.slice(at, css.indexOf('}', at))).toMatch(/vertical-align: top !important;/)
+  })
+})
+
+describe('rowGapPx', () => {
+  const rect = (top: number, bottom: number) => () => ({ top, bottom }) as DOMRect
+  const table = (collapse: string) => {
+    const t = document.createElement('table')
+    t.style.borderCollapse = collapse
+    t.innerHTML =
+      '<tbody><tr><td></td></tr><tr class="page-gap"><td></td></tr><tr><td></td></tr><tr><td></td></tr></tbody>'
+    document.body.appendChild(t)
+    t.getBoundingClientRect = rect(100, 401)
+    const rows = Array.from(t.querySelectorAll('tr'))
+    rows[0].getBoundingClientRect = rect(100.5, 150.5)
+    rows[2].getBoundingClientRect = rect(150.5, 200.5)
+    rows[3].getBoundingClientRect = rect(200.5, 400.5)
+    return rows
+  }
+
+  it('gives an edge row of a collapsed table the outer half border', () => {
+    const rows = table('collapse')
+    expect(rowGapPx(rows[0])).toBe(0.5)
+    expect(rowGapPx(rows[2])).toBe(0)
+    expect(rowGapPx(rows[3])).toBe(0.5)
+    expect(rowGapPx(rows[3], 2)).toBe(0.25)
+  })
+
+  it('keeps a last-row fill at the same height on every pass', () => {
+    const natural = 97.73
+    const want = 31.77
+    let measured = natural
+    let extra = 0
+    const seen: string[] = []
+    for (let pass = 0; pass < 4; pass++) {
+      const target = measured - extra + want
+      const attrs = rowFillAttrs(target, want, 0.5)
+      seen.push(attrs.style)
+      measured = parseFloat(attrs.style.slice('height:'.length)) + 0.5
+      extra = parseFloat(attrs['data-split-extra']!)
+    }
+    expect(new Set(seen)).toEqual(new Set(['height:129px']))
   })
 })
 
@@ -1008,5 +1283,68 @@ describe('canvasZoomOf', () => {
   })
   it('without a host the fallback stands', () => {
     expect(canvasZoomOf(null, 0.84)).toBe(0.84)
+  })
+})
+
+describe('a single shape rides the chrome rotator layer', () => {
+  const rect = (top: number, height: number): DOMRect =>
+    ({ top, height, bottom: top + height, left: 0, right: 100, width: 100 }) as DOMRect
+
+  it('syncFloatShifts parks the canvas display shift on the rotator', () => {
+    const pm = document.createElement('div')
+    const wrapper = document.createElement('div')
+    wrapper.className = 'doc-protected-floating'
+    const rotator = document.createElement('div')
+    rotator.className = 'box-rotator'
+    const box = document.createElement('div')
+    box.className = 'doc-textbox'
+    rotator.append(box)
+    wrapper.append(rotator)
+    pm.append(wrapper)
+    box.getBoundingClientRect = () => rect(50, 113)
+
+    // virtual top 100 under origin 0: the box paints 50 px too high
+    syncFloatShifts(pm, [{ el: box, top: 100 }], 0, 1)
+    expect(rotator.style.getPropertyValue('--page-float-dy')).toBe('50.0px')
+    // the box itself must stay unshifted inside the turning layer
+    expect(box.style.getPropertyValue('--page-float-dy')).toBe('')
+    expect(box.dataset.pageFloatDy).toBe('50')
+
+    // idempotent: with the shift applied the rect already includes it
+    box.getBoundingClientRect = () => rect(100, 113)
+    syncFloatShifts(pm, [{ el: box, top: 100 }], 0, 1)
+    expect(rotator.style.getPropertyValue('--page-float-dy')).toBe('50.0px')
+  })
+
+  it('measureBlocks finds the floating box nested under the rotator', async () => {
+    const shapeXml = buildShapeParagraphXml({ prst: 'rect', withTextbox: true, id: 42 }).replace(
+      '<wp:positionH relativeFrom="column"><wp:align>center</wp:align></wp:positionH>',
+      '<wp:positionH relativeFrom="column"><wp:posOffset>500000</wp:posOffset></wp:positionH>',
+    )
+    const parsed = await parseDocx(await buildDocx({ bodyXml: shapeXml }))
+    const editor = new Editor({
+      element: document.createElement('div'),
+      extensions: editorExtensions,
+      content: blocksToPmDoc(parsed.blocks) as never,
+    })
+    let pos = -1
+    editor.state.doc.descendants((node, at) => {
+      if (pos === -1 && node.type.name === 'docProtected' && node.attrs.textboxes) pos = at
+      return true
+    })
+    editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)))
+    setFloatingWrap(editor, 'front')
+    const wrapper = editor.view.nodeDOM(pos) as HTMLElement
+    const boxEl = wrapper.querySelector('.doc-textbox') as HTMLElement
+    expect(wrapper.classList.contains('doc-protected-floating')).toBe(true)
+    wrapper.getBoundingClientRect = () => rect(0, 0)
+    boxEl.getBoundingClientRect = () => rect(120, 113)
+
+    const measured = measureBlocks(editor.view.dom as HTMLElement, 0, 1)
+    const found = measured.floats.filter((f) => f.el === boxEl)
+    expect(found).toHaveLength(1)
+    expect(found[0].top).toBe(120)
+    expect(found[0].height).toBe(113)
+    editor.destroy()
   })
 })

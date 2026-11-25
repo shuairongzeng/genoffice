@@ -1,3 +1,4 @@
+import { eqLayoutText } from '../editor/eq-layout'
 import type { Editor } from '@tiptap/core'
 import { REDACT_MARK } from './redact'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
@@ -10,10 +11,17 @@ import {
   type TableModel,
 } from '@genoffice/docx-engine'
 import { pmTableToModel, tableModelToPmNode, type PmMark, type PmNode } from '../editor/convert'
+import { wordTableCell, wordTableModel } from '../editor/new-table'
 import { equationBlockJson, inlineEquationNodeJson } from '../editor/equation'
 import { inheritFrom, inheritTableFormatting, sameBlockRole } from './inherit-formatting'
-import { TRACK_IGNORE, type RevisionRange } from '../editor/revisions'
-import { countWords, documentTextForWordCount, leafTextForWordCount } from '../word-count'
+import { TRACK_AUTHOR, TRACK_IGNORE, type RevisionRange } from '../editor/revisions'
+import { aiRevisionAuthor } from './revision-author'
+import {
+  countWords,
+  documentTextForWordCount,
+  leafTextForWordCount,
+  listLabelText,
+} from '../word-count'
 import { blockRangePositions, isTrackedDeleted, liveText } from './doc-utils'
 import {
   modelTextOf,
@@ -25,6 +33,7 @@ import {
 import { opSignatures } from './ops'
 import { pageSetupContextLines, type AiSectionState } from './page-setup'
 import { listRevisionEntries } from './revision-ops'
+import type { StoryRevision } from '../editor/story-revisions'
 
 export { blockRangePositions, isTrackedDeleted, liveText }
 
@@ -152,7 +161,7 @@ export const AGENT_SYSTEM_PROMPT = [
   "- Dates follow the user's locale; never change text outside the placeholders.",
   '',
   '# Fields, footnotes & endnotes',
-  '- insertField writes real Word fields (SEQ caption numbers, DATE/TIME, REF/PAGEREF to a bookmark, MERGEFIELD, PAGE/NUMPAGES, AUTHOR…). Results the editor cannot compute (page numbers, document properties) are placeholders marked for Word to recompute when the file opens; mention that when you report. TOC → insertToc, never insertField.',
+  '- insertField writes real Word fields (SEQ caption numbers, DATE/TIME, REF/PAGEREF to a bookmark, MERGEFIELD, PAGE/NUMPAGES, AUTHOR…). Caption numbers get their real value when the document is saved. Results the editor cannot compute (page numbers, document properties, a REF with a position switch) are placeholders marked for Word to recompute when the file opens; mention that when you report. TOC → insertToc, never insertField.',
   '- insert_footnote / insert_endnote put a superscript reference mark into a block (after afterText, else at its end) and store the note text; read_notes lists notes with ids and anchored blocks; edit_note changes the text of one in place (findReplace inside the note, id kept); delete_note removes one with its mark. Notes are not document blocks — never reach them via block indexes or rewrite a block just to change its note.',
   '',
   '# Headers & footers',
@@ -180,7 +189,7 @@ export const AGENT_SYSTEM_PROMPT = [
   '- The root is the document title (or the focus topic when the user named one — also pass it as `focus`); its children are the main sections/headings, then key concepts, 2-5 per node, 2-4 levels deep;',
   "- Labels are short phrases (2-8 words) in the document's own language and wording, taken from its headings and key sentences — never invent topics the document does not cover;",
   "- Cite each node's source with `block` (a block index from the current block list); omit it for nodes that span several blocks. Only cite indexes that exist;",
-  '- generate_mindmap does not modify the document. After it returns, reply with one short sentence (e.g. that the map is ready and branches can be expanded).',
+  "- generate_mindmap does not modify the document. After it returns, reply with one short sentence (e.g. that the map is ready and branches can be expanded). If the user wants the map inside the document, point at the card's insert button — it places the map in the document as a picture.",
   '',
   '# HTML fragment rules',
   HTML_RULES,
@@ -387,6 +396,7 @@ function inlineAtomToHtml(node: PmNode, image?: ImageSrcMapper, refs?: ImageRefs
     return source ? `<formula>${escapeHtml(source)}</formula>` : ''
   }
   if (node.type === 'docRuby') return escapeHtml(String(node.attrs?.base ?? ''))
+  if (node.type === 'docEqLayout') return escapeHtml(eqLayoutText(node.attrs ?? {}))
   return ''
 }
 
@@ -562,13 +572,38 @@ export function serializeRangeToHtml(
   const json = redactNode(editor.getJSON() as RedactableNode) as PmNode
   const children = (json.content ?? []).slice(startIndex, endIndex + 1)
   const parts: string[] = []
-  let listBuffer: { kind: string; items: string[] } | null = null
-
+  // Open lists, outermost first; a deeper Word level (ilvl) nests a list inside the open item,
+  // which is how parseList reads it back.
+  let listHtml = ''
+  let listBase = 0
+  const openLists: string[] = []
+  const listTag = (kind: string) => (kind === 'ordered' ? 'ol' : 'ul')
+  const closeList = () => {
+    listHtml += `</li></${listTag(openLists.pop()!)}>`
+  }
   const flushList = () => {
-    if (!listBuffer) return
-    const tag = listBuffer.kind === 'ordered' ? 'ol' : 'ul'
-    parts.push(`<${tag}>${listBuffer.items.join('')}</${tag}>`)
-    listBuffer = null
+    if (!openLists.length) return
+    while (openLists.length) closeList()
+    parts.push(listHtml)
+    listHtml = ''
+  }
+  const addListItem = (kind: string, ilvl: number, html: string) => {
+    // a range that starts mid-list: the shallowest level seen so far is the top
+    if (!openLists.length || ilvl < listBase) listBase = ilvl
+    const depth = Math.min(Math.max(ilvl - listBase, 0) + 1, openLists.length + 1)
+    while (openLists.length > depth) closeList()
+    if (openLists.length === depth && openLists[depth - 1] !== kind) {
+      if (depth === 1) {
+        flushList()
+        listBase = ilvl
+      } else closeList()
+    }
+    if (openLists.length < depth) {
+      listHtml += `<${listTag(kind)}><li>${html}`
+      openLists.push(kind)
+    } else {
+      listHtml += `</li><li>${html}`
+    }
   }
   const inlineSel = (i: number): InlineSelection | undefined => {
     if (!sel) return undefined
@@ -593,11 +628,11 @@ export function serializeRangeToHtml(
       parts.push(`<h${level}>${inlineToHtml(node.content, inlineSel(i), image, refs)}</h${level}>`)
     } else if (node.type === 'docListItem') {
       const kind = (node.attrs?.kind as string) ?? 'bullet'
-      if (!listBuffer || listBuffer.kind !== kind) {
-        flushList()
-        listBuffer = { kind, items: [] }
-      }
-      listBuffer.items.push(`<li>${inlineToHtml(node.content, inlineSel(i), image, refs)}</li>`)
+      addListItem(
+        kind,
+        Number(node.attrs?.ilvl) || 0,
+        inlineToHtml(node.content, inlineSel(i), image, refs),
+      )
     } else if (node.type === 'docParagraph') {
       flushList()
       if (isCodeParagraph(node)) {
@@ -806,7 +841,9 @@ export function buildDocumentContext(
     : `No selection; cursor is in block ${scope.startIndex}`
 
   // authoritative stats for answer mode (previews above may be clipped)
-  const statsLine = `Full-text stats: words ${countWords(fullText)}, characters (no spaces) ${
+  // words as the status bar counts them: list numbers included (listLabelText)
+  const labelWords = countWords(listLabelText(editor.state.doc, editor.storage.listNumbering?.defs))
+  const statsLine = `Full-text stats: words ${countWords(fullText) + labelWords}, characters (no spaces) ${
     fullText.replace(/\s/g, '').length
   }, characters (with spaces) ${fullText.length}`
 
@@ -835,12 +872,10 @@ const REVISIONS_CONTEXT_MAX = 200
 const REVISION_KIND_LABEL: Record<RevisionRange['kind'], string> = {
   ins: 'inserted',
   del: 'deleted',
-  // ins+del marks on the same text: added while tracking, then deleted —
-  // never part of the base document; both accept and reject remove it
-  both: 'inserted then deleted (not in the base document)',
   pPrChange: 'paragraph formatting changed',
   paraMarkDel: 'paragraph mark deleted (joins the next paragraph)',
   paraMarkIns: 'paragraph mark inserted',
+  paraMarkRPrChange: 'paragraph mark formatting changed',
   rPrChange: 'text formatting changed',
   moveFrom: 'moved away',
   moveTo: 'moved here',
@@ -850,18 +885,27 @@ const REVISION_KIND_LABEL: Record<RevisionRange['kind'], string> = {
   cellDel: 'table cell deleted',
   blockIns: 'block inserted',
   blockDel: 'block deleted',
+  tblPrChange: 'table formatting changed',
+  tblGridChange: 'table grid changed',
+  trPrChange: 'table row formatting changed',
+  tblPrExChange: 'table row exceptions changed',
+  tcPrChange: 'table cell formatting changed',
+  cellMerge: 'table cells merged',
+  numberingChange: 'numbering changed',
+  sectPrChange: 'section formatting changed',
 }
 
 /** flat listing of every pending tracked change; backs the read_revisions tool */
-export function buildRevisionsContext(editor: Editor): string {
-  const revisions = listRevisionEntries(editor.state.doc)
+export function buildRevisionsContext(editor: Editor, stories?: StoryRevision[]): string {
+  const revisions = listRevisionEntries(editor.state.doc, stories)
   if (revisions.length === 0) return '(the document has no tracked revisions)'
   const shown = revisions.slice(0, REVISIONS_CONTEXT_MAX)
   const lines = shown.map((rev) => {
     const date = rev.date ? ` on ${rev.date.slice(0, 10)}` : ''
     const excerpt = rev.text ? `: "${clip(rev.text, 200)}"` : ''
     const change = rev.change ? ` (${rev.change})` : ''
-    return `- ${rev.id} | block ${rev.blockIndex} | ${REVISION_KIND_LABEL[rev.kind]} by ${rev.author || 'unknown'}${date}${change}${excerpt}`
+    const where = rev.location ? `in ${rev.location}` : `block ${rev.blockIndex}`
+    return `- ${rev.id} | ${where} | ${REVISION_KIND_LABEL[rev.kind]} by ${rev.author || 'unknown'}${date}${change}${excerpt}`
   })
   const header = `Tracked revisions (${revisions.length} pending; deleted text shows what will disappear on accept; ids are positional and renumber after every edit):`
   const overflow =
@@ -1209,21 +1253,12 @@ function parseTable(el: Element): PmNode | null {
   if (cols === 0) return null
   const headerRow = rawRows[0].some((c) => c.tagName.toLowerCase() === 'th')
   const rows: TableCell[][] = rawRows.map((cells, r) => {
-    const isHeader = headerRow && r === 0
-    const row: TableCell[] = cells.map((cell) => ({
-      paras: cellParas(cell),
-      ...(isHeader ? { bold: true, fill: TABLE_HEADER_FILL } : {}),
-    }))
-    while (row.length < cols)
-      row.push({ paras: [''], ...(isHeader ? { bold: true, fill: TABLE_HEADER_FILL } : {}) })
+    const style = headerRow && r === 0 ? { bold: true, fill: TABLE_HEADER_FILL } : undefined
+    const row = cells.map((cell) => wordTableCell(cellParas(cell), style))
+    while (row.length < cols) row.push(wordTableCell([''], style))
     return row
   })
-  // equal column grid, like the ribbon insert and the save-path backfill
-  // (pmTableToModel): without colWidthsPct the table renders with no <colgroup>,
-  // leaving the fixed-layout column grid to the browser — fragile against
-  // spanning pagination widgets and different from what a save/reload shows
-  const table: TableModel = { rows, colWidthsPct: Array.from({ length: cols }, () => 100 / cols) }
-  return tableModelToPmNode(table)
+  return tableModelToPmNode(wordTableModel(rows, cols))
 }
 
 /** <pre> -> mono/shaded paragraph; newlines preserved as hard breaks */
@@ -1579,7 +1614,9 @@ export function replaceBlockRange(
     editor.view.dispatch(tr)
     return true
   }
-  editor.view.dispatch(editor.state.tr.replaceWith(from, to, pmNodes))
+  editor.view.dispatch(
+    editor.state.tr.replaceWith(from, to, pmNodes).setMeta(TRACK_AUTHOR, aiRevisionAuthor()),
+  )
   return true
 }
 
@@ -1612,6 +1649,7 @@ export function replaceInlineRange(
     tr.setSelection(TextSelection.create(tr.doc, from, from + inserted))
     const block = tr.doc.nodeAt(blockPos)
     if (block) tr.setNodeMarkup(blockPos, undefined, { ...block.attrs, aiChanged: true })
+    tr.setMeta(TRACK_AUTHOR, aiRevisionAuthor())
   }
   editor.view.dispatch(tr)
 }
@@ -1648,7 +1686,7 @@ export function insertBlocksAfter(
       offset += node.nodeSize
     }
     tr.setMeta(TRACK_IGNORE, true)
-  }
+  } else tr.setMeta(TRACK_AUTHOR, aiRevisionAuthor())
   editor.view.dispatch(tr)
   return true
 }

@@ -22,6 +22,7 @@ import type { AiPageSetupAccess } from './page-setup'
 import type { AiNotesAccess } from './note-ops'
 import { AI_REVISION_AUTHOR } from './AiPanel'
 import { TABLE_TRAILING_SKIP } from '../editor/extensions'
+import { PERM_REGIONS_LOAD } from '../editor/perm-regions'
 import type { AiDocWriter, DocWriteResult, DocWriteSpec } from './doc-writer'
 import { buildDocWriterRequest, DOC_MAX_CHARS, extractFragment } from './doc-writer'
 import {
@@ -407,6 +408,7 @@ export function installHeadlessAgentBridge(deps: HeadlessAgentDeps): () => void 
       editor
         .chain()
         .setMeta(TABLE_TRAILING_SKIP, true)
+        .setMeta(PERM_REGIONS_LOAD, true)
         .setContent(snapshot as never)
         .run()
       checkpoints.delete(message.checkpointId)

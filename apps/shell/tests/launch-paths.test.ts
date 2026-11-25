@@ -19,6 +19,25 @@ describe('collectLaunchPaths', () => {
     ).toEqual(['/data/variants.tsv'])
   })
 
+  it('accepts legacy Word .doc/.dot and Hancom .hwpx/.hwp documents in either case', () => {
+    expect(
+      collectLaunchPaths(
+        [
+          'GenOffice.app',
+          '/tmp/legacy.doc',
+          '/tmp/TEMPLATE.DOT',
+          '/tmp/report.hwpx',
+          '/tmp/LEGACY.HWP',
+        ],
+        undefined,
+        () => true,
+      ),
+    ).toEqual(['/tmp/legacy.doc', '/tmp/TEMPLATE.DOT', '/tmp/report.hwpx', '/tmp/LEGACY.HWP'])
+    expect(
+      collectLaunchPaths(['GenOffice.exe'], { launchPaths: ['/tmp/letter.Doc'] }, () => true),
+    ).toEqual(['/tmp/letter.Doc'])
+  })
+
   /**
    * A `.txt` or `.json` is now a document the text app opens, so dropping one
    * from argv (or from a second-instance payload, or from a Finder open-file)
@@ -100,6 +119,22 @@ describe('collectLaunchPaths', () => {
         (path) => path === 'legacy.rtf',
       ),
     ).toEqual(['legacy.rtf'])
+    // .doc/.hwpx/.hwp are no longer unsupported: existing ones are collected
+    // through the docs route instead of the fallback
+    expect(
+      collectLaunchPaths(
+        ['GenOffice.exe', 'legacy.doc', 'unsupported.rtf'],
+        undefined,
+        (path) => path === 'legacy.doc' || path === 'unsupported.rtf',
+      ),
+    ).toEqual(['legacy.doc'])
+    expect(
+      collectLaunchPaths(
+        ['GenOffice.exe', 'hangul.hwp', 'unsupported.rtf'],
+        undefined,
+        (path) => path === 'hangul.hwp' || path === 'unsupported.rtf',
+      ),
+    ).toEqual(['hangul.hwp'])
     // .ppt converts through the slides route since the legacy importer landed
     expect(
       collectLaunchPaths(
