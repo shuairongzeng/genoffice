@@ -23,7 +23,13 @@ export { AiSkillsMenu, AiSkillChips, type AiSkillsMenuEntry } from './AiSkillsMe
 export { detectSlashQuery, filterSlashSkills, type AiSlashToken } from './ai-slash'
 export { useAiSlash, type AiSlash, type UseAiSlashOptions } from './useAiSlash'
 export { AI_SLASH_LABELS, type AiSlashLabels } from './strings-ai-slash'
-export { AiUsageChip, addTokenUsage, formatTokenCount, type AiTokenUsageView } from './AiUsageChip'
+export {
+  AiUsageChip,
+  addTokenUsage,
+  cacheHitPercent,
+  formatTokenCount,
+  type AiTokenUsageView,
+} from './AiUsageChip'
 export { AI_USAGE_LABELS, type AiUsageLabels } from './strings-ai-usage'
 export { AiScopeQuote, type AiScopeQuoteData } from './AiScopeQuote'
 export {
@@ -50,11 +56,27 @@ export {
 } from './ai-panel-prefs-store'
 export {
   AI_PANEL_WIDTH_DEFAULT,
+  AI_PANEL_WIDTH_MIN,
   AI_PANEL_WIDTH_MAX,
   aiPanelAutoWidth,
   aiPanelClampWidth,
   aiPanelWidthCap,
+  maxAiPanelWidth,
+  clampAiPanelWidth,
+  loadAiPanelWidth,
+  saveAiPanelWidth,
 } from './ai-panel-width'
+export {
+  SentAttachments,
+  truncateCardName,
+  formatAttachmentSize,
+  AttachmentCardIcon,
+  ATTACHMENT_IMAGE_EXTS,
+  fileImageIcon,
+  fileGeneralIcon,
+  fileDocumentIcon,
+  type AiAttachmentLike,
+} from './ai-attachments'
 export {
   ColorPicker,
   THEME_COLORS,
