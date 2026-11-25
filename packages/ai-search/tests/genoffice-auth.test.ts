@@ -8,6 +8,7 @@ import {
   invalidateGenofficeKey,
   recoverFromRejectedGskKey,
   setGenofficeLoginOpener,
+  setGenofficeLoginSuccessListener,
   genofficeApiKey,
   genofficeAuthPath,
   genofficeLoginInFlight,
@@ -29,7 +30,8 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'genoffice-auth-'))
   process.env.GENOFFICE_AUTH_DIR = dir
   delete process.env.GSK_API_KEY
-  delete process.env.GENOFFICE_NATIVE_WAF
+  // Legacy-shape cases opt out explicitly; admission is the shipped default.
+  process.env.GENOFFICE_NATIVE_WAF = '0'
   resetGenofficeAuthCache()
 })
 
@@ -120,8 +122,28 @@ async function loginAndCollect(): Promise<GskLoginProgress[]> {
 }
 
 describe('startGenofficeLogin', () => {
-  it('opt-in signs the cookie mint only and preserves Bearer session exchange', async () => {
-    process.env.GENOFFICE_NATIVE_WAF = '1'
+  it('fires the login-success listener after a browser-approved login, not on failure', async () => {
+    const landed = vi.fn()
+    setGenofficeLoginSuccessListener(landed)
+    try {
+      stubFlow({ pendingPolls: 1 })
+      const events = await loginAndCollect()
+      expect(events.at(-1)?.phase).toBe('success')
+      expect(landed).toHaveBeenCalledTimes(1)
+
+      // a failing mint emits 'error' and must not fire the listener again
+      resetGenofficeAuthCache()
+      stubFlow({ createResponse: { status: 1, message: 'nope' } })
+      const failed = await loginAndCollect()
+      expect(failed.at(-1)?.phase).toBe('error')
+      expect(landed).toHaveBeenCalledTimes(1)
+    } finally {
+      setGenofficeLoginSuccessListener(null)
+    }
+  })
+
+  it('by default signs the cookie mint only and preserves Bearer session exchange', async () => {
+    delete process.env.GENOFFICE_NATIVE_WAF
     const token = `${Math.floor(Date.now() / 1000)}-${'a'.repeat(43)}`
     const fetchMock = stubFlow({ nativePass: token, pendingPolls: 0 })
     const events = await loginAndCollect()
