@@ -2,17 +2,22 @@ import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from '
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import {
+  agentDisplayLabel,
   agentIds,
   agentTarget,
   bundledSkillFrom,
+  currentSkillInstalled,
   detectAgents,
+  findLegacySkillCopies,
   installSkill,
   LEDGER_KEY,
   ledgerFromSettings,
   readInstallState,
+  sweepLegacySkillCopies,
   type AgentId,
   type AgentTarget,
   type BundledSkill,
+  type LegacySkillCopy,
   type SkillInstallState,
   type SkillLedger,
 } from '../agent-skills'
@@ -85,6 +90,26 @@ interface AgentRow {
   up_to_date: boolean
 }
 
+/** a stale per-tool copy the shared `.agents` row replaced */
+interface LegacyRow {
+  agent: AgentId
+  label: string
+  skills_dir: string
+  path: string
+  /** the copy still holds the bytes this app wrote, so it can be removed */
+  ours: boolean
+}
+
+function legacyRow(copy: LegacySkillCopy): LegacyRow {
+  return {
+    agent: copy.agent,
+    label: copy.label,
+    skills_dir: copy.skillsDir,
+    path: copy.path,
+    ours: copy.ours,
+  }
+}
+
 function list(ctx: CommandContext) {
   const skill = bundled()
   const ledger = readLedger(ctx.env)
@@ -95,13 +120,19 @@ function list(ctx: CommandContext) {
   })
   const current = agents.filter((a) => a.detected && a.up_to_date).length
   const found = agents.filter((a) => a.detected)
+  const legacy = findLegacySkillCopies(ledger, ctx.env, home(ctx.env)).map(legacyRow)
   return {
-    summary: found.length
-      ? `${found.length} agent(s) detected, ${current} with skill ${skill.version}: ${found
-          .map((a) => `${a.agent} ${a.installed_version ?? '-'}`)
-          .join(', ')}`
-      : 'no coding agent detected on this machine',
-    detail: { bundled_version: skill.version, skill_path: skillFile(), agents },
+    summary: [
+      found.length
+        ? `${found.length} agent(s) detected, ${current} with skill ${skill.version}: ${found
+            .map((a) => `${a.agent} ${a.installed_version ?? '-'}`)
+            .join(', ')}`
+        : 'no coding agent detected on this machine',
+      legacy.length ? `${legacy.length} legacy per-tool skill copy/copies left over` : '',
+    ]
+      .filter(Boolean)
+      .join('; '),
+    detail: { bundled_version: skill.version, skill_path: skillFile(), agents, legacy },
   }
 }
 
@@ -159,7 +190,7 @@ function install(
     if (!detected.has(t.id) && !force) {
       throw new CliError(
         EXIT.usage,
-        `${t.label} is not installed on this machine (${t.skillsDir} would be created)`,
+        `${agentDisplayLabel(t)} is not installed on this machine (${t.skillsDir} would be created)`,
         { agent: t.id, skills_dir: t.skillsDir },
         { reason: 'unsupported', suggestion: 'repeat with --force to create the folder anyway' },
       )
@@ -203,7 +234,26 @@ function install(
       action,
     })
   }
-  if (dirty) writeLedger(ctx.env, ledger)
+  // the shared `.agents` copy is the one every legacy tool reads now; once it
+  // is in place the per-tool copies it replaced are stale duplicates, so they
+  // go. Without it they are all the user has, so they stay.
+  const sweep = currentSkillInstalled(ledger, ctx.env, home(ctx.env))
+    ? sweepLegacySkillCopies(ledger, ctx.env, home(ctx.env))
+    : { removed: [], kept: [] }
+  for (const c of sweep.removed) {
+    warnings.push({
+      code: 'legacy_copy_removed',
+      message: `${c.label}: removed the stale copy at ${c.path}`,
+    })
+  }
+  for (const c of sweep.kept) {
+    warnings.push({
+      code: 'legacy_copy_kept',
+      message: `${c.label}: the copy at ${c.path} was edited by hand; left in place`,
+      suggestion: 'delete it yourself if the tool still reads it',
+    })
+  }
+  if (dirty || sweep.removed.length) writeLedger(ctx.env, ledger)
   return {
     summary: written.length
       ? `installed skill ${skill.version} for ${written.join(', ')}`
@@ -212,7 +262,6 @@ function install(
     detail: { bundled_version: skill.version, agents: rows },
   }
 }
-
 function refusal(state: SkillInstallState, force: boolean): string | null {
   if (state.status === 'occupied') return 'the genoffice folder there holds something else'
   if (force) return null
@@ -230,7 +279,7 @@ function refusalHint(status: SkillInstallState['status']): string {
 function row(target: AgentTarget | null, detected: boolean, state: SkillInstallState): AgentRow {
   return {
     agent: target?.id ?? null,
-    label: target?.label ?? state.path,
+    label: target ? agentDisplayLabel(target) : state.path,
     detected,
     skills_dir: target?.skillsDir ?? state.path.replace(/[\\/]genoffice[\\/]SKILL\.md$/, ''),
     status: state.status,

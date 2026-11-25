@@ -168,7 +168,8 @@ describe('mcp server', () => {
     await server.connect(a)
     client = new Client({ name: 'test', version: '0' })
     await client.connect(b)
-  })
+    // Reserve budget for cold-loading loadTypedSchemas() across workspace packages on Windows
+  }, 30_000)
 
   afterAll(async () => {
     await client.close()

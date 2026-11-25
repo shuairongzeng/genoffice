@@ -131,14 +131,16 @@ const RENAME_RETRIES = 4
  * failing that, overwritten in place so a finished edit is never dropped.
  */
 export function writeOutput(abs: string, bytes: Uint8Array | string): void {
-  const tmp = join(dirname(abs), `.${basename(abs)}.${randomBytes(6).toString('hex')}.tmp`)
+  const tmp = join(dirname(abs), `${basename(abs)}.${randomBytes(6).toString('hex')}.tmp`)
   const mode = existsSync(abs) ? statSync(abs).mode & 0o7777 : undefined
   try {
     writeFileSync(tmp, bytes, mode === undefined ? {} : { mode })
-    try {
-      if (mode !== undefined) chmodSync(tmp, mode)
-    } catch {
-      /* a mount without permission support refuses chmod; keep the staging file's own mode */
+    if (mode !== undefined) {
+      try {
+        chmodSync(tmp, mode)
+      } catch {
+        // a mount without permissions (gvfs) refuses chmod; the temp was created with this mode, less the umask
+      }
     }
     for (let attempt = 0; ; attempt++) {
       try {
