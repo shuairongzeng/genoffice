@@ -1,11 +1,24 @@
 import type { AgentToolResult, ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
-import type {
-  ButlerDecisionItem,
-  ButlerDecisionOption,
-  ButlerDecisionResolution,
-  ButlerMissionReport,
-  ButlerSubTask,
-  ButlerWorkerRole,
+import {
+  BUTLER_DESKTOP_ACTION_TARGETS,
+  BUTLER_MEDIA_COMMANDS,
+  BUTLER_MISSION_LIST_FILTERS,
+  type ButlerActionResult,
+  type ButlerApproveMissionPlanRequest,
+  type ButlerDecisionItem,
+  type ButlerDecisionOption,
+  type ButlerDecisionResolution,
+  type ButlerDesktopActionRequest,
+  type ButlerDesktopActionResult,
+  type ButlerDesktopActionTarget,
+  type ButlerMediaCommand,
+  type ButlerMission,
+  type ButlerMissionListFilter,
+  type ButlerMissionPlan,
+  type ButlerMissionReport,
+  type ButlerRetryTaskRequest,
+  type ButlerSubTask,
+  type ButlerWorkerRole,
 } from '../../shared/butler-orchestrator-api'
 import type { ButlerPrefs } from '../../shared/butler-prefs'
 import {
@@ -15,13 +28,21 @@ import {
 } from './butler-persona'
 
 export const BUTLER_CHIEF_TOOL_NAMES = [
+  'butler_propose_plan',
+  'butler_approve_plan',
   'butler_dispatch_task',
+  'butler_list_missions',
   'butler_list_tasks',
   'butler_inspect_task',
+  'butler_update_mission',
   'butler_steer_task',
+  'butler_retry_task',
   'butler_cancel_task',
+  'butler_cancel_mission',
+  'butler_delete_mission',
   'butler_request_decision',
   'butler_publish_report',
+  'butler_desktop_action',
 ] as const
 
 export const BUTLER_WORKER_TOOL_NAMES = ['butler_worker_request_decision'] as const
@@ -40,7 +61,28 @@ const VALID_OPTION_STYLES: ReadonlySet<NonNullable<ButlerDecisionOption['style']
   'danger',
 ])
 
+export interface ButlerPlanStepInput {
+  readonly id?: string
+  readonly title: string
+  readonly brief: string
+  readonly role?: ButlerWorkerRole
+  readonly dependsOn?: readonly string[]
+  readonly scopePaths?: readonly string[]
+}
+
 export interface ButlerChiefToolBridge {
+  readonly proposePlan: (input: {
+    readonly missionId?: string
+    readonly title?: string
+    readonly summary: string
+    readonly steps: readonly ButlerPlanStepInput[]
+  }) => Promise<{
+    readonly ok: boolean
+    readonly plan?: ButlerMissionPlan
+    readonly mission?: ButlerMission
+    readonly error?: string
+  }>
+  readonly approveMissionPlan: (req: ButlerApproveMissionPlanRequest) => Promise<ButlerActionResult>
   readonly dispatchTask: (input: {
     readonly missionId?: string
     readonly title: string
@@ -49,7 +91,16 @@ export interface ButlerChiefToolBridge {
     readonly dependsOn?: string[]
     readonly scopePaths?: string[]
     readonly workdir?: string
-  }) => Promise<{ readonly ok: boolean; readonly task?: ButlerSubTask; readonly error?: string }>
+  }) => Promise<{
+    readonly ok: boolean
+    readonly task?: ButlerSubTask
+    readonly stagedForApproval?: boolean
+    readonly note?: string
+    readonly error?: string
+  }>
+  readonly listMissions: (
+    filter?: ButlerMissionListFilter,
+  ) => readonly ButlerMission[] | Promise<readonly ButlerMission[]>
   readonly listTasks: (
     missionId?: string,
   ) => readonly ButlerSubTask[] | Promise<readonly ButlerSubTask[]>
@@ -60,13 +111,25 @@ export interface ButlerChiefToolBridge {
         readonly task: ButlerSubTask
         readonly decisions: readonly ButlerDecisionItem[]
       } | null>
+  readonly updateMissionDetails: (input: {
+    readonly missionId: string
+    readonly title?: string
+    readonly goal?: string
+    readonly summary?: string
+    readonly steps?: readonly ButlerPlanStepInput[]
+  }) => Promise<{
+    readonly ok: boolean
+    readonly mission?: ButlerMission
+    readonly error?: string
+  }>
   readonly steerTask: (req: {
     readonly taskId: string
     readonly instruction: string
-  }) => Promise<{ readonly ok: boolean; readonly error?: string }>
-  readonly cancelTask: (
-    taskId: string,
-  ) => Promise<{ readonly ok: boolean; readonly error?: string }>
+  }) => Promise<ButlerActionResult>
+  readonly retryTask: (req: ButlerRetryTaskRequest) => Promise<ButlerActionResult>
+  readonly cancelTask: (taskId: string) => Promise<ButlerActionResult>
+  readonly cancelMission: (missionId: string) => Promise<ButlerActionResult>
+  readonly deleteMission: (missionId: string) => Promise<ButlerActionResult>
   readonly requestChiefDecision: (input: {
     readonly missionId?: string
     readonly taskId?: string
@@ -87,6 +150,9 @@ export interface ButlerChiefToolBridge {
     readonly report?: ButlerMissionReport
     readonly error?: string
   }>
+  readonly executeDesktopAction: (
+    req: ButlerDesktopActionRequest,
+  ) => Promise<ButlerDesktopActionResult>
 }
 
 export interface ButlerWorkerToolBridge {
@@ -291,6 +357,54 @@ function parseArtifactPaths(
   return { ok: true, value: parsed }
 }
 
+function parsePlanSteps(raw: unknown): ParseResult<ButlerPlanStepInput[]> {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { ok: false, error: '"steps" must be a non-empty array with at least 1 step' }
+  }
+  const steps: ButlerPlanStepInput[] = []
+  for (let i = 0; i < raw.length; i += 1) {
+    const item = raw[i]
+    if (!isPlainObject(item)) {
+      return { ok: false, error: `"steps[${i}]" must be an object` }
+    }
+    const idRes = readOptionalNonEmptyString(item, 'id')
+    if (!idRes.ok) return { ok: false, error: `steps[${i}]: ${idRes.error}` }
+    const titleRes = readRequiredString(item, 'title')
+    if (!titleRes.ok) return { ok: false, error: `steps[${i}]: ${titleRes.error}` }
+    const briefRes = readRequiredString(item, 'brief')
+    if (!briefRes.ok) return { ok: false, error: `steps[${i}]: ${briefRes.error}` }
+
+    let role: ButlerWorkerRole | undefined
+    if (item.role !== undefined) {
+      if (
+        typeof item.role !== 'string' ||
+        !VALID_WORKER_ROLES.includes(item.role as ButlerWorkerRole)
+      ) {
+        return {
+          ok: false,
+          error: `steps[${i}]: "role" must be one of: ${VALID_WORKER_ROLES.join(', ')}`,
+        }
+      }
+      role = item.role as ButlerWorkerRole
+    }
+
+    const dependsOnRes = readOptionalStringArray(item, 'dependsOn')
+    if (!dependsOnRes.ok) return { ok: false, error: `steps[${i}]: ${dependsOnRes.error}` }
+    const scopePathsRes = readOptionalStringArray(item, 'scopePaths')
+    if (!scopePathsRes.ok) return { ok: false, error: `steps[${i}]: ${scopePathsRes.error}` }
+
+    steps.push({
+      ...(idRes.value !== undefined ? { id: idRes.value } : {}),
+      title: titleRes.value,
+      brief: briefRes.value,
+      ...(role !== undefined ? { role } : {}),
+      ...(dependsOnRes.value !== undefined ? { dependsOn: dependsOnRes.value } : {}),
+      ...(scopePathsRes.value !== undefined ? { scopePaths: scopePathsRes.value } : {}),
+    })
+  }
+  return { ok: true, value: steps }
+}
+
 function attachRolePromptHook(
   pi: ExtensionAPI,
   sectionName: 'butler_chief' | 'butler_worker',
@@ -341,6 +455,37 @@ const DECISION_BASE_PROPERTIES = {
   options: DECISION_OPTIONS_SCHEMA,
 }
 
+const PLAN_STEPS_SCHEMA = {
+  type: 'array',
+  minItems: 1,
+  description: 'Ordered list of proposed specialist steps.',
+  items: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'Optional step identifier for dependencies.' },
+      title: { type: 'string', description: 'Short step title.' },
+      brief: { type: 'string', description: 'Detailed specialist brief.' },
+      role: {
+        type: 'string',
+        enum: [...VALID_WORKER_ROLES],
+        description: 'Specialist worker role (defaults to "general").',
+      },
+      dependsOn: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Upstream step IDs within this plan.',
+      },
+      scopePaths: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional workspace or file paths restricting the specialist.',
+      },
+    },
+    required: ['title', 'brief'],
+    additionalProperties: false,
+  },
+}
+
 function registerToolDef(
   pi: ExtensionAPI,
   def: {
@@ -369,17 +514,102 @@ function registerToolDef(
 }
 
 /**
- * Create the Chief-of-Staff Butler Pi extension registering the 7 orchestration
+ * Create the Chief-of-Staff Butler Pi extension registering all orchestration
  * tools (`BUTLER_CHIEF_TOOL_NAMES`) and attaching the Chief role guidance.
  */
 export function createButlerChiefExtension(
   bridge: ButlerChiefToolBridge,
-  opts?: { readonly prefs?: Pick<ButlerPrefs, 'name' | 'userName' | 'honorific'> },
+  opts?: {
+    readonly prefs?: Pick<ButlerPrefs, 'name' | 'userName' | 'honorific'> & {
+      readonly planConfirmBeforeDispatch?: boolean
+    }
+  },
 ): (pi: ExtensionAPI) => void {
   const chiefPrompt = buildButlerChiefRolePrompt(opts?.prefs)
 
   return (pi: ExtensionAPI) => {
     attachRolePromptHook(pi, 'butler_chief', chiefPrompt)
+
+    registerToolDef(pi, {
+      name: 'butler_propose_plan',
+      label: 'Propose Butler Mission Plan',
+      description:
+        'Propose or update a draft execution plan (creating a mission if none is open) for user review and confirmation before dispatching specialist workers.',
+      parameters: {
+        type: 'object',
+        properties: {
+          missionId: { type: 'string', description: 'Optional target mission ID.' },
+          title: {
+            type: 'string',
+            description: 'Optional concise mission title when creating or renaming a mission.',
+          },
+          summary: {
+            type: 'string',
+            description: 'Concise 1-2 sentence plan summary explaining the proposed approach.',
+          },
+          steps: PLAN_STEPS_SCHEMA,
+        },
+        required: ['summary', 'steps'],
+        additionalProperties: false,
+      },
+      readOnly: false,
+      execute: async (_toolCallId, params) => {
+        if (!isPlainObject(params)) return errorToolResult('Arguments must be an object')
+        const missionIdRes = readOptionalNonEmptyString(params, 'missionId')
+        if (!missionIdRes.ok) return errorToolResult(missionIdRes.error)
+        const titleRes = readOptionalNonEmptyString(params, 'title')
+        if (!titleRes.ok) return errorToolResult(titleRes.error)
+        const summaryRes = readRequiredString(params, 'summary')
+        if (!summaryRes.ok) return errorToolResult(summaryRes.error)
+        const stepsRes = parsePlanSteps(params.steps)
+        if (!stepsRes.ok) return errorToolResult(stepsRes.error)
+
+        const res = await bridge.proposePlan({
+          ...(missionIdRes.value !== undefined ? { missionId: missionIdRes.value } : {}),
+          ...(titleRes.value !== undefined ? { title: titleRes.value } : {}),
+          summary: summaryRes.value,
+          steps: stepsRes.value,
+        })
+        return jsonToolResult(res, !res.ok)
+      },
+    })
+
+    registerToolDef(pi, {
+      name: 'butler_approve_plan',
+      label: 'Approve Butler Mission Plan',
+      description:
+        'Approve a proposed execution plan and materialize/dispatch its specialist tasks (defaults to "latest" awaiting approval).',
+      parameters: {
+        type: 'object',
+        properties: {
+          missionId: {
+            type: 'string',
+            description: 'Target mission ID awaiting approval (defaults to "latest").',
+          },
+          comment: {
+            type: 'string',
+            description: 'Optional user approval note or minor execution guidance.',
+          },
+        },
+        additionalProperties: false,
+      },
+      readOnly: false,
+      execute: async (_toolCallId, params) => {
+        if (params !== undefined && !isPlainObject(params)) {
+          return errorToolResult('Arguments must be an object')
+        }
+        const obj = params ?? {}
+        const missionIdRes = readOptionalNonEmptyString(obj, 'missionId')
+        if (!missionIdRes.ok) return errorToolResult(missionIdRes.error)
+        const commentRes = readOptionalTextString(obj, 'comment')
+        if (!commentRes.ok) return errorToolResult(commentRes.error)
+        const res = await bridge.approveMissionPlan({
+          missionId: missionIdRes.value ?? 'latest',
+          ...(commentRes.value !== undefined ? { comment: commentRes.value } : {}),
+        })
+        return jsonToolResult(res, !res.ok)
+      },
+    })
 
     registerToolDef(pi, {
       name: 'butler_dispatch_task',
@@ -458,6 +688,44 @@ export function createButlerChiefExtension(
     })
 
     registerToolDef(pi, {
+      name: 'butler_list_missions',
+      label: 'List Butler Missions',
+      description: 'List user missions filtered by status (defaults to all missions).',
+      parameters: {
+        type: 'object',
+        properties: {
+          filter: {
+            type: 'string',
+            enum: [...BUTLER_MISSION_LIST_FILTERS],
+            description: 'Optional status filter: active, done, failed, cancelled, or all.',
+          },
+        },
+        additionalProperties: false,
+      },
+      readOnly: true,
+      execute: async (_toolCallId, params) => {
+        if (params !== undefined && !isPlainObject(params)) {
+          return errorToolResult('Arguments must be an object')
+        }
+        let filter: ButlerMissionListFilter | undefined
+        const rawFilter = params?.filter
+        if (rawFilter !== undefined) {
+          if (
+            typeof rawFilter !== 'string' ||
+            !BUTLER_MISSION_LIST_FILTERS.includes(rawFilter as ButlerMissionListFilter)
+          ) {
+            return errorToolResult(
+              `"filter" must be one of: ${BUTLER_MISSION_LIST_FILTERS.join(', ')}`,
+            )
+          }
+          filter = rawFilter as ButlerMissionListFilter
+        }
+        const missions = await bridge.listMissions(filter)
+        return jsonToolResult({ ok: true, count: missions.length, missions })
+      },
+    })
+
+    registerToolDef(pi, {
       name: 'butler_list_tasks',
       label: 'List Butler Tasks',
       description: 'List background tasks for the active mission or a specified mission ID.',
@@ -507,6 +775,67 @@ export function createButlerChiefExtension(
     })
 
     registerToolDef(pi, {
+      name: 'butler_update_mission',
+      label: 'Update Butler Mission',
+      description:
+        'Update metadata or proposed plan details (title, goal, summary, steps) for an existing mission.',
+      parameters: {
+        type: 'object',
+        properties: {
+          missionId: {
+            type: 'string',
+            description: 'Target mission ID to update (or "latest" for the most recent mission).',
+          },
+          title: { type: 'string', description: 'Updated concise mission title.' },
+          goal: { type: 'string', description: 'Updated mission goal statement.' },
+          summary: { type: 'string', description: 'Updated draft plan summary.' },
+          steps: PLAN_STEPS_SCHEMA,
+        },
+        required: ['missionId'],
+        additionalProperties: false,
+      },
+      readOnly: false,
+      execute: async (_toolCallId, params) => {
+        if (!isPlainObject(params)) return errorToolResult('Arguments must be an object')
+        const missionIdRes = readRequiredString(params, 'missionId')
+        if (!missionIdRes.ok) return errorToolResult(missionIdRes.error)
+        const titleRes = readOptionalNonEmptyString(params, 'title')
+        if (!titleRes.ok) return errorToolResult(titleRes.error)
+        const goalRes = readOptionalNonEmptyString(params, 'goal')
+        if (!goalRes.ok) return errorToolResult(goalRes.error)
+        const summaryRes = readOptionalNonEmptyString(params, 'summary')
+        if (!summaryRes.ok) return errorToolResult(summaryRes.error)
+
+        let steps: ButlerPlanStepInput[] | undefined
+        if (params.steps !== undefined) {
+          const stepsRes = parsePlanSteps(params.steps)
+          if (!stepsRes.ok) return errorToolResult(stepsRes.error)
+          steps = stepsRes.value
+        }
+
+        if (
+          titleRes.value === undefined &&
+          goalRes.value === undefined &&
+          summaryRes.value === undefined &&
+          steps === undefined
+        ) {
+          return errorToolResult(
+            'At least one of "title", "goal", "summary", or "steps" must be provided',
+          )
+        }
+
+        const res = await bridge.updateMissionDetails({
+          missionId: missionIdRes.value,
+          ...(titleRes.value !== undefined ? { title: titleRes.value } : {}),
+          ...(goalRes.value !== undefined ? { goal: goalRes.value } : {}),
+          ...(summaryRes.value !== undefined ? { summary: summaryRes.value } : {}),
+          ...(steps !== undefined ? { steps } : {}),
+        })
+        return jsonToolResult(res, !res.ok)
+      },
+    })
+
+    registerToolDef(pi, {
       name: 'butler_steer_task',
       label: 'Steer Butler Task',
       description:
@@ -536,6 +865,39 @@ export function createButlerChiefExtension(
     })
 
     registerToolDef(pi, {
+      name: 'butler_retry_task',
+      label: 'Retry Butler Task',
+      description:
+        'Retry a failed, cancelled, or interrupted background task with optional new guidance.',
+      parameters: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: 'Target task ID to retry.' },
+          instruction: {
+            type: 'string',
+            description: 'Optional refined instruction to guide the retry attempt.',
+          },
+        },
+        required: ['taskId'],
+        additionalProperties: false,
+      },
+      readOnly: false,
+      execute: async (_toolCallId, params) => {
+        if (!isPlainObject(params)) return errorToolResult('Arguments must be an object')
+        const taskIdRes = readRequiredString(params, 'taskId')
+        if (!taskIdRes.ok) return errorToolResult(taskIdRes.error)
+        const instructionRes = readOptionalTextString(params, 'instruction')
+        if (!instructionRes.ok) return errorToolResult(instructionRes.error)
+        const req: ButlerRetryTaskRequest = {
+          taskId: taskIdRes.value,
+          ...(instructionRes.value !== undefined ? { instruction: instructionRes.value } : {}),
+        }
+        const res = await bridge.retryTask(req)
+        return jsonToolResult(res, !res.ok)
+      },
+    })
+
+    registerToolDef(pi, {
       name: 'butler_cancel_task',
       label: 'Cancel Butler Task',
       description: 'Cancel a queued, running, or waiting background task.',
@@ -553,6 +915,56 @@ export function createButlerChiefExtension(
         const taskIdRes = readRequiredString(params, 'taskId')
         if (!taskIdRes.ok) return errorToolResult(taskIdRes.error)
         const res = await bridge.cancelTask(taskIdRes.value)
+        return jsonToolResult(res, !res.ok)
+      },
+    })
+
+    registerToolDef(pi, {
+      name: 'butler_cancel_mission',
+      label: 'Cancel Butler Mission',
+      description:
+        'Cancel a mission and stop all of its non-terminal tasks (defaults to "latest" active mission).',
+      parameters: {
+        type: 'object',
+        properties: {
+          missionId: {
+            type: 'string',
+            description: 'Target mission ID to cancel (defaults to "latest").',
+          },
+        },
+        additionalProperties: false,
+      },
+      readOnly: false,
+      execute: async (_toolCallId, params) => {
+        if (params !== undefined && !isPlainObject(params)) {
+          return errorToolResult('Arguments must be an object')
+        }
+        const missionIdRes = readOptionalNonEmptyString(params ?? {}, 'missionId')
+        if (!missionIdRes.ok) return errorToolResult(missionIdRes.error)
+        const res = await bridge.cancelMission(missionIdRes.value ?? 'latest')
+        return jsonToolResult(res, !res.ok)
+      },
+    })
+
+    registerToolDef(pi, {
+      name: 'butler_delete_mission',
+      label: 'Delete Butler Mission',
+      description:
+        'Permanently delete a mission and remove its associated tasks and decision history.',
+      parameters: {
+        type: 'object',
+        properties: {
+          missionId: { type: 'string', description: 'Target mission ID to delete.' },
+        },
+        required: ['missionId'],
+        additionalProperties: false,
+      },
+      readOnly: false,
+      execute: async (_toolCallId, params) => {
+        if (!isPlainObject(params)) return errorToolResult('Arguments must be an object')
+        const missionIdRes = readRequiredString(params, 'missionId')
+        if (!missionIdRes.ok) return errorToolResult(missionIdRes.error)
+        const res = await bridge.deleteMission(missionIdRes.value)
         return jsonToolResult(res, !res.ok)
       },
     })
@@ -651,6 +1063,82 @@ export function createButlerChiefExtension(
           ...(artifactsRes.value !== undefined ? { artifactPaths: artifactsRes.value } : {}),
           ...(risksRes.value !== undefined ? { risks: risksRes.value } : {}),
           ...(nextRes.value !== undefined ? { nextSuggestion: nextRes.value } : {}),
+        })
+        return jsonToolResult(res, !res.ok)
+      },
+    })
+
+    registerToolDef(pi, {
+      name: 'butler_desktop_action',
+      label: 'Execute Butler Desktop Action',
+      description:
+        'Open or control GenOffice desktop surfaces (Media Player music search/playback/list/pause/next/prev/close, Browser, Settings, Butler Desk, or a local file) immediately without starting a mission. Always call this tool before claiming an app or song was opened or controlled.',
+      parameters: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            enum: [...BUTLER_DESKTOP_ACTION_TARGETS],
+            description:
+              'Desktop target: media-player, browser, settings, butler-desk, or file.',
+          },
+          query: {
+            type: 'string',
+            description:
+              'Optional song title, artist, or keyword when target="media-player" (e.g. "起风了").',
+          },
+          mediaCommand: {
+            type: 'string',
+            enum: [...BUTLER_MEDIA_COMMANDS],
+            description:
+              'Optional Media Player action: list (list tracks), play, pause, toggle-play, next, prev, or close.',
+          },
+          pathOrUrl: {
+            type: 'string',
+            description:
+              'Required file path when target="file"; optional media file path when target="media-player"; optional URL when target="browser".',
+          },
+        },
+        required: ['target'],
+        additionalProperties: false,
+      },
+      readOnly: false,
+      execute: async (_toolCallId, params) => {
+        if (!isPlainObject(params)) return errorToolResult('Arguments must be an object')
+        if (
+          typeof params.target !== 'string' ||
+          !BUTLER_DESKTOP_ACTION_TARGETS.includes(params.target as ButlerDesktopActionTarget)
+        ) {
+          return errorToolResult(
+            `"target" must be one of: ${BUTLER_DESKTOP_ACTION_TARGETS.join(', ')}`,
+          )
+        }
+        const pathOrUrlRes = readOptionalNonEmptyString(params, 'pathOrUrl')
+        if (!pathOrUrlRes.ok) return errorToolResult(pathOrUrlRes.error)
+        const queryRes = readOptionalNonEmptyString(params, 'query')
+        if (!queryRes.ok) return errorToolResult(queryRes.error)
+
+        let mediaCommand: ButlerMediaCommand | undefined
+        if (params.mediaCommand !== undefined) {
+          if (
+            typeof params.mediaCommand !== 'string' ||
+            !BUTLER_MEDIA_COMMANDS.includes(params.mediaCommand as ButlerMediaCommand)
+          ) {
+            return errorToolResult(
+              `"mediaCommand" must be one of: ${BUTLER_MEDIA_COMMANDS.join(', ')}`,
+            )
+          }
+          mediaCommand = params.mediaCommand as ButlerMediaCommand
+        }
+
+        if (params.target === 'file' && pathOrUrlRes.value === undefined) {
+          return errorToolResult('"pathOrUrl" is required when "target" is "file"')
+        }
+        const res = await bridge.executeDesktopAction({
+          target: params.target as ButlerDesktopActionTarget,
+          ...(pathOrUrlRes.value !== undefined ? { pathOrUrl: pathOrUrlRes.value } : {}),
+          ...(queryRes.value !== undefined ? { query: queryRes.value } : {}),
+          ...(mediaCommand !== undefined ? { mediaCommand } : {}),
         })
         return jsonToolResult(res, !res.ok)
       },

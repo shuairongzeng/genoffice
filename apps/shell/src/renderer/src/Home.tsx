@@ -752,13 +752,23 @@ export function Home() {
   useEffect(() => {
     const api = window.aiOffice as Partial<HomeApi>
     return api.onDesktopMediaOpen?.((payload) => {
+      if (payload?.command === 'close') {
+        dispatchWm({ type: 'close', id: 'player' })
+        return
+      }
       dispatchView({ type: 'show-desktop' })
       openOrFocusPlayerWindow(payload?.mode === 'mini' ? 'mini' : undefined)
-      setPlayerLoadReq((prev) => ({
-        seq: (prev?.seq ?? 0) + 1,
-        ...(payload?.token ? { token: payload.token } : {}),
-        ...(payload?.filePath ? { filePath: payload.filePath } : {}),
-      }))
+      if (payload?.filePath || payload?.token || !payload?.command) {
+        setPlayerLoadReq((prev) => ({
+          seq: (prev?.seq ?? 0) + 1,
+          ...(payload?.token ? { token: payload.token } : {}),
+          ...(payload?.filePath ? { filePath: payload.filePath } : {}),
+        }))
+      }
+      if (payload?.command) {
+        const cmdType = payload.command
+        setPlayerCmd((prev) => ({ seq: (prev?.seq ?? 0) + 1, type: cmdType }))
+      }
     })
   }, [openOrFocusPlayerWindow])
 

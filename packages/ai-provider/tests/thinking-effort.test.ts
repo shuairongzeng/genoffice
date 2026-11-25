@@ -152,6 +152,18 @@ describe('thinkingShapeFor', () => {
       kind: 'qwen-budget',
       levels: ['none', 'low', 'medium', 'high'],
     })
+    expect(thinkingShapeFor('Huihui-Qwen3.8-27B-abliterated-UD-Q4_K_XL')).toEqual({
+      kind: 'qwen-budget',
+      levels: ['none', 'low', 'medium', 'high'],
+    })
+    expect(thinkingShapeFor('Qwen3.8-27B-DFlash2')).toEqual({
+      kind: 'qwen-budget',
+      levels: ['none', 'low', 'medium', 'high'],
+    })
+    expect(thinkingShapeFor('Qwen3.8-Flash-Next-4bit')).toEqual({
+      kind: 'qwen-budget',
+      levels: ['none', 'low', 'medium', 'high'],
+    })
     // grok documents low/medium/high, xhigh from 4.6 on, and no none
     expect(thinkingShapeFor('grok-4.7')).toEqual({
       kind: 'openai-effort',
@@ -325,6 +337,12 @@ describe('per-protocol translators', () => {
     ).toEqual({ enable_thinking: true, thinking_budget: 4096 })
     expect(
       toggleThinkingBodyFor({ model: 'qwen3.8-max', thinking: { 'qwen3.8-max': 'none' } }),
+    ).toEqual({ enable_thinking: false })
+    expect(
+      toggleThinkingBodyFor({
+        model: 'Huihui-Qwen3.8-27B-abliterated-UD-Q4_K_XL',
+        thinking: { 'Huihui-Qwen3.8-27B-abliterated-UD-Q4_K_XL': 'none' },
+      }),
     ).toEqual({ enable_thinking: false })
     expect(
       toggleThinkingBodyFor({ model: 'ling-3.0-flash', thinking: { 'ling-3.0-flash': 'none' } }),

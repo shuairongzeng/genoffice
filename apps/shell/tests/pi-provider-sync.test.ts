@@ -166,13 +166,14 @@ describe('pi-provider-sync', () => {
       },
     }
 
-    // Unset or 'none' keeps reasoning: false and leaves thinkingLevel undefined.
+    // Unset leaves reasoning: false and thinkingLevel undefined so Pi defaults stay untouched.
     const unsetSpec = buildSyncedPiModelSpec(baseOpenAi)
     expect(unsetSpec.piModel.api).toBe('openai-responses')
     expect(unsetSpec.piModel.reasoning).toBe(false)
     expect(unsetSpec.piModel.contextWindow).toBe(272_000)
     expect(unsetSpec.thinkingLevel).toBeUndefined()
 
+    // Explicit 'none' on openai-responses sets thinkingLevelMap.off = 'none' and thinkingLevel = 'off'.
     const noneSpec = buildSyncedPiModelSpec({
       ...baseOpenAi,
       providers: {
@@ -183,8 +184,9 @@ describe('pi-provider-sync', () => {
         },
       },
     })
-    expect(noneSpec.piModel.reasoning).toBe(false)
-    expect(noneSpec.thinkingLevel).toBeUndefined()
+    expect(noneSpec.piModel.reasoning).toBe(true)
+    expect(noneSpec.piModel.thinkingLevelMap).toEqual({ off: 'none' })
+    expect(noneSpec.thinkingLevel).toBe('off')
 
     // Responses-only xhigh is dropped when routed through an OpenAI-compatible gateway.
     const gatedSpec = buildSyncedPiModelSpec({

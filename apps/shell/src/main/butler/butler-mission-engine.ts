@@ -6,8 +6,10 @@ import {
   BUTLER_CHIEF_PROJECT_ID,
   BUTLER_CHIEF_SESSION_KEY,
   BUTLER_WORKER_CHAT_PREFIX,
+  classifyButlerPlanReplyIntent,
   isButlerWorkerSession,
   type ButlerActionResult,
+  type ButlerApproveMissionPlanRequest,
   type ButlerArtifactRef,
   type ButlerConversationEntry,
   type ButlerDecisionItem,
@@ -15,11 +17,18 @@ import {
   type ButlerDecisionResolution,
   type ButlerDelegateResult,
   type ButlerDeskSnapshot,
+  type ButlerDesktopActionRequest,
+  type ButlerDesktopActionResult,
+  type ButlerDesktopActionTarget,
   type ButlerMission,
+  type ButlerMissionListFilter,
+  type ButlerMissionPlan,
   type ButlerMissionReport,
   type ButlerMissionStatus,
+  type ButlerProposedTaskStep,
   type ButlerResolveDecisionRequest,
   type ButlerResolveDecisionResult,
+  type ButlerRetryTaskRequest,
   type ButlerSteerTaskRequest,
   type ButlerSubTask,
   type ButlerSubTaskStatus,
@@ -35,6 +44,7 @@ import {
 const DEFAULT_MAX_CONCURRENT = 3
 const MAX_TITLE_LEN = 60
 const MAX_OUTPUT_SUMMARY_LEN = 800
+const MAX_LIVE_STATE_CHARS = 780
 const STEER_ABORT_SETTLE_MS = 25
 
 const TERMINAL_MISSION_STATUSES = new Set<ButlerMissionStatus>([
@@ -79,9 +89,36 @@ export interface ButlerMissionEngineDeps {
   ) => Promise<boolean>
   readonly pathExists?: (filePath: string) => Promise<boolean>
   readonly onSnapshotUpdated?: (snapshot: ButlerDeskSnapshot) => void
+  readonly onMissionAccepted?: (mission: ButlerMission) => void
+  readonly onMissionPlanned?: (
+    mission: ButlerMission,
+    tasks: readonly ButlerSubTask[],
+    chiefReplyText?: string,
+  ) => void
+  readonly onPlanProposed?: (
+    mission: ButlerMission,
+    plan: ButlerMissionPlan,
+    chiefReplyText?: string,
+  ) => void
+  readonly onClarificationAsked?: (mission: ButlerMission, replyText: string) => void
   readonly onDecisionCreated?: (decision: ButlerDecisionItem, task: ButlerSubTask | null) => void
   readonly onMissionCompleted?: (mission: ButlerMission, report: ButlerMissionReport) => void
+  readonly onConversationalReply?: (replyText: string, mission?: ButlerMission) => void
+  readonly executeDesktopAction?: (
+    req: ButlerDesktopActionRequest,
+  ) => Promise<ButlerDesktopActionResult>
+  readonly requirePlanApproval?: () => boolean
+  readonly conversationalMode?: () => boolean
   readonly now?: () => number
+}
+
+export interface ButlerPlanStepInput {
+  readonly id?: string
+  readonly title: string
+  readonly brief: string
+  readonly role?: ButlerWorkerRole
+  readonly dependsOn?: readonly string[]
+  readonly scopePaths?: readonly string[]
 }
 
 export interface ButlerMissionEngine {
@@ -89,6 +126,18 @@ export interface ButlerMissionEngine {
   dispose(): Promise<void>
   getSnapshot(): ButlerDeskSnapshot
   delegate(goal: string, workdir?: string): Promise<ButlerDelegateResult>
+  proposePlan(input: {
+    readonly missionId?: string
+    readonly title?: string
+    readonly summary: string
+    readonly steps: readonly ButlerPlanStepInput[]
+  }): Promise<{
+    readonly ok: boolean
+    readonly plan?: ButlerMissionPlan
+    readonly mission?: ButlerMission
+    readonly error?: string
+  }>
+  approveMissionPlan(req: ButlerApproveMissionPlanRequest): Promise<ButlerActionResult>
   dispatchTask(input: {
     readonly id?: string
     readonly missionId?: string
@@ -98,14 +147,35 @@ export interface ButlerMissionEngine {
     readonly dependsOn?: readonly string[]
     readonly scopePaths?: readonly string[]
     readonly workdir?: string
-  }): Promise<{ readonly ok: boolean; readonly task?: ButlerSubTask; readonly error?: string }>
+  }): Promise<{
+    readonly ok: boolean
+    readonly task?: ButlerSubTask
+    readonly stagedForApproval?: boolean
+    readonly note?: string
+    readonly error?: string
+  }>
+  listMissions(filter?: ButlerMissionListFilter): readonly ButlerMission[]
   listTasks(missionId?: string): readonly ButlerSubTask[]
   inspectTask(
     taskId: string,
   ): { readonly task: ButlerSubTask; readonly decisions: readonly ButlerDecisionItem[] } | null
+  updateMissionDetails(input: {
+    readonly missionId: string
+    readonly title?: string
+    readonly goal?: string
+    readonly summary?: string
+    readonly steps?: readonly ButlerPlanStepInput[]
+  }): Promise<{
+    readonly ok: boolean
+    readonly mission?: ButlerMission
+    readonly error?: string
+  }>
   steerTask(req: ButlerSteerTaskRequest): Promise<ButlerActionResult>
+  retryTask(req: ButlerRetryTaskRequest): Promise<ButlerActionResult>
   cancelTask(taskId: string): Promise<ButlerActionResult>
   cancelMission(missionId: string): Promise<ButlerActionResult>
+  deleteMission(missionId: string): Promise<ButlerActionResult>
+  executeDesktopAction(req: ButlerDesktopActionRequest): Promise<ButlerDesktopActionResult>
   interceptWorkerConfirm(req: PiAgentConfirmRequest): Promise<PiAgentConfirmReply | null>
   requestWorkerChoice(
     sessionKey: string,
@@ -257,12 +327,39 @@ function cloneReport(report: ButlerMissionReport): ButlerMissionReport {
   }
 }
 
+function cloneProposedStep(step: ButlerProposedTaskStep): ButlerProposedTaskStep {
+  return {
+    ...step,
+    dependsOn: [...step.dependsOn],
+    ...(step.scopePaths ? { scopePaths: [...step.scopePaths] } : {}),
+  }
+}
+
+function clonePlan(plan: ButlerMissionPlan): ButlerMissionPlan {
+  return {
+    ...plan,
+    steps: plan.steps.map(cloneProposedStep),
+  }
+}
+
 function cloneMission(m: ButlerMission): ButlerMission {
   return {
     ...m,
     taskIds: [...m.taskIds],
+    ...(m.conversationNotes ? { conversationNotes: [...m.conversationNotes] } : {}),
+    ...(m.plan ? { plan: clonePlan(m.plan) } : {}),
     ...(m.report ? { report: cloneReport(m.report) } : {}),
   }
+}
+
+const CLARIFYING_CN_RE = /(?:请问|哪|什么|哪种|哪个|如何|是否需要|补充|确认一下|告诉我)/
+const CLARIFYING_EN_RE =
+  /\b(?:please clarify|could you clarify|which|what|where|how would you|let me know)\b/i
+
+function isClarifyingQuestion(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+  return /[?？]/.test(trimmed) || CLARIFYING_CN_RE.test(trimmed) || CLARIFYING_EN_RE.test(trimmed)
 }
 
 function cloneTask(t: ButlerSubTask): ButlerSubTask {
@@ -320,6 +417,12 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
 
   let chiefBusy = false
   let chiefPendingCount = 0
+  let chiefGeneration = 0
+  let inConversationalTurn = false
+  let pendingTurnPlannedMissionId: string | null = null
+  let pendingTurnPlannedTasks: ButlerSubTask[] = []
+  let lastConversationalUserText = ''
+  let lastConversationalWorkdir: string | undefined
   let currentChiefMissionId: string | null = null
   let chiefChain: Promise<void> = Promise.resolve()
   let persistChain: Promise<void> = Promise.resolve()
@@ -346,6 +449,216 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       if (!TERMINAL_MISSION_STATUSES.has(m.status)) return m
     }
     return undefined
+  }
+
+  const findActiveDraftMission = (): ButlerMission | undefined => {
+    for (let i = missions.length - 1; i >= 0; i -= 1) {
+      const m = missions[i]!
+      if (m.status === 'clarifying' || m.status === 'awaiting_plan_approval') return m
+    }
+    return undefined
+  }
+
+  const resolveTargetMission = (
+    rawMissionId: string,
+    mode: 'draft' | 'nonTerminal' | 'any' = 'any',
+  ): ButlerMission | undefined => {
+    const cleanId = rawMissionId.trim()
+    if (!cleanId) return undefined
+    if (cleanId === 'latest') {
+      if (mode === 'draft') {
+        for (let i = missions.length - 1; i >= 0; i -= 1) {
+          if (missions[i]!.status === 'awaiting_plan_approval') return missions[i]
+        }
+        return findActiveDraftMission() ?? findLatestNonTerminalMission()
+      }
+      if (mode === 'nonTerminal') {
+        return findLatestNonTerminalMission()
+      }
+      return findLatestNonTerminalMission() ?? missions[missions.length - 1]
+    }
+    return missions.find((m) => m.id === cleanId)
+  }
+
+  const validateAndNormalizePlanSteps = (
+    rawSteps: readonly ButlerPlanStepInput[] | undefined,
+  ):
+    | { readonly ok: true; readonly steps: ButlerProposedTaskStep[] }
+    | { readonly ok: false; readonly error: string } => {
+    if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
+      return { ok: false, error: 'Plan must contain at least 1 step' }
+    }
+
+    const assignedIds: string[] = []
+    const seenStepIds = new Set<string>()
+    let autoIndex = 1
+    for (const rawStep of rawSteps) {
+      const title = rawStep.title?.trim() ?? ''
+      const brief = rawStep.brief?.trim() ?? ''
+      if (!title || !brief) {
+        return { ok: false, error: 'Each plan step requires non-empty title and brief' }
+      }
+      let stepId = rawStep.id?.trim() ?? ''
+      if (stepId) {
+        if (seenStepIds.has(stepId)) {
+          return { ok: false, error: `Duplicate step id in plan: ${stepId}` }
+        }
+      } else {
+        do {
+          stepId = `step-${autoIndex}`
+          autoIndex += 1
+        } while (seenStepIds.has(stepId))
+      }
+      seenStepIds.add(stepId)
+      assignedIds.push(stepId)
+    }
+
+    const normalizedSteps: ButlerProposedTaskStep[] = []
+    const adjacency = new Map<string, readonly string[]>()
+    for (let i = 0; i < rawSteps.length; i += 1) {
+      const rawStep = rawSteps[i]!
+      const stepId = assignedIds[i]!
+      const dependsOn = Array.from(
+        new Set<string>(
+          (rawStep.dependsOn ?? []).map((id: string) => id.trim()).filter(Boolean),
+        ),
+      )
+      if (dependsOn.includes(stepId)) {
+        return { ok: false, error: 'Cyclic task dependency detected in plan' }
+      }
+      for (const depId of dependsOn) {
+        if (!seenStepIds.has(depId)) {
+          return { ok: false, error: `Unknown dependency step in plan: ${depId}` }
+        }
+      }
+      const scopePaths = rawStep.scopePaths?.map((p: string) => p.trim()).filter(Boolean)
+      normalizedSteps.push({
+        id: stepId,
+        title: rawStep.title.trim(),
+        brief: rawStep.brief.trim(),
+        role: rawStep.role ?? 'general',
+        dependsOn,
+        ...(scopePaths && scopePaths.length > 0 ? { scopePaths } : {}),
+      })
+      adjacency.set(stepId, dependsOn)
+    }
+
+    if (hasCycleInDependencyGraph(adjacency)) {
+      return { ok: false, error: 'Cyclic task dependency detected in plan' }
+    }
+
+    return { ok: true, steps: normalizedSteps }
+  }
+
+  const reactivateMissionForTask = (missionId: string, includeCancelled = false): void => {
+    const mission = missions.find((m) => m.id === missionId)
+    if (
+      mission &&
+      (mission.status === 'failed' ||
+        mission.status === 'interrupted' ||
+        mission.status === 'done' ||
+        (includeCancelled && mission.status === 'cancelled'))
+    ) {
+      updateMission(mission.id, (prev) => ({
+        ...prev,
+        status: 'running',
+        error: undefined,
+        finishedAt: undefined,
+        report: undefined,
+        updatedAt: nowFn(),
+      }))
+      return
+    }
+    syncMissionStatus(missionId)
+  }
+
+  const stopMissionExecution = async (
+    missionId: string,
+    opts: { readonly markTasksCancelled: boolean; readonly waiterNote: string },
+  ): Promise<void> => {
+    const ts = nowFn()
+    const sessionsToAbort: string[] = []
+
+    for (let i = 0; i < tasks.length; i += 1) {
+      const t = tasks[i]!
+      if (t.missionId !== missionId || TERMINAL_TASK_STATUSES.has(t.status)) continue
+
+      const activeRun = activeWorkers.get(t.id)
+      if (activeRun) {
+        activeRun.superseded = true
+        if (activeRun.opId) untrackBackgroundOp(activeRun.opId)
+        activeWorkers.delete(t.id)
+        activeRun.resolveSettled()
+      }
+
+      if (t.status === 'running' || t.status === 'waiting_human') {
+        sessionsToAbort.push(t.sessionKey)
+      }
+
+      if (opts.markTasksCancelled) {
+        tasks[i] = {
+          ...t,
+          status: 'cancelled',
+          step: null,
+          finishedAt: ts,
+        }
+      }
+    }
+
+    resolvePendingWaitersFor((d) => d.missionId === missionId, 'cancelled', opts.waiterNote)
+
+    if (currentChiefMissionId === missionId) {
+      sessionsToAbort.push(BUTLER_CHIEF_SESSION_KEY)
+    }
+
+    for (const sk of sessionsToAbort) {
+      await Promise.resolve(deps.abortSession(sk)).catch(() => {})
+    }
+  }
+
+  const buildButlerLiveStateBlock = (): string => {
+    const gateOn = deps.requirePlanApproval?.() === true
+    const activeMissions = missions.filter((m) => !TERMINAL_MISSION_STATUSES.has(m.status))
+    const pendingDecs = decisions.filter((d) => d.status === 'pending')
+    const lines: string[] = [
+      `approvalGate=${gateOn ? 'on' : 'off'}; activeMissions=${activeMissions.length}; pendingDecisions=${pendingDecs.length}`,
+    ]
+
+    const listedMissions =
+      activeMissions.length > 0 ? activeMissions.slice(-4) : missions.slice(-2)
+    for (const m of listedMissions) {
+      const planTag = m.plan
+        ? ` planRev=${m.plan.revision} steps=${m.plan.steps.length}${m.plan.approvedAt ? '(approved)' : '(pending)'}`
+        : ''
+      lines.push(
+        `M ${m.id} [${m.status}] "${m.title.slice(0, 32)}" tasks=${m.taskIds.length}${planTag}`,
+      )
+    }
+
+    const relevantTasks = tasks
+      .filter((t) => t.status !== 'done')
+      .slice(-5)
+    for (const t of relevantTasks) {
+      lines.push(`T ${t.id} [${t.status}] "${t.title.slice(0, 28)}" (m=${t.missionId})`)
+    }
+
+    for (const d of pendingDecs.slice(-3)) {
+      lines.push(`D ${d.id} "${d.title.slice(0, 28)}" (m=${d.missionId})`)
+    }
+
+    let body = lines.join('\n')
+    const maxBodyLen = MAX_LIVE_STATE_CHARS - '<butler_live_state>\n\n</butler_live_state>'.length
+    if (body.length > maxBodyLen) {
+      body = `${body.slice(0, Math.max(0, maxBodyLen - 20)).trimEnd()}\n...`
+    }
+    return `<butler_live_state>\n${body}\n</butler_live_state>`
+  }
+
+  const buildConversationalPrompt = (userText: string, workdir: string | undefined): string => {
+    const parts = [buildButlerLiveStateBlock()]
+    if (workdir) parts.push(`Working Directory: ${workdir}`)
+    parts.push(`User: ${userText}`)
+    return parts.join('\n')
   }
 
   const findTaskBySession = (sessionKey: string): ButlerSubTask | undefined => {
@@ -476,6 +789,12 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       nextStatus = 'planning'
     } else if (missionTasks.some((t) => t.status === 'running' || t.status === 'queued')) {
       nextStatus = 'running'
+    } else if (
+      missionTasks.length === 0 &&
+      mission.plan &&
+      mission.plan.approvedAt === undefined
+    ) {
+      nextStatus = 'awaiting_plan_approval'
     }
 
     if (nextStatus !== mission.status) {
@@ -568,6 +887,51 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       '- If human judgment is needed on ambiguity before proceeding, call `butler_request_decision`.',
       '- For simple direct answers or single-turn completions, answer concisely or call `butler_publish_report`.',
     ]
+    return lines.join('\n')
+  }
+
+  const buildTwoStageAlignmentPrompt = (
+    mission: ButlerMission,
+    workdir: string | undefined,
+  ): string => {
+    const notes =
+      mission.conversationNotes && mission.conversationNotes.length > 0
+        ? mission.conversationNotes
+        : [mission.goal]
+    const lines = [
+      `Mission ID: ${mission.id}`,
+      `Original Goal: ${mission.goal}`,
+      ...(workdir ? [`Working Directory: ${workdir}`] : []),
+      '',
+      'Conversation History:',
+      ...notes.map((entry, idx) => `${idx + 1}. User: ${entry}`),
+    ]
+
+    if (mission.plan) {
+      lines.push(
+        '',
+        `Current Draft Plan (revision ${mission.plan.revision}, awaiting user approval):`,
+        `Summary: ${mission.plan.summary}`,
+        'Steps:',
+        ...mission.plan.steps.map(
+          (step) =>
+            `- [${step.id}] (${step.role}) ${step.title} — ${step.brief}` +
+            (step.dependsOn.length > 0 ? ` [dependsOn: ${step.dependsOn.join(', ')}]` : '') +
+            (step.scopePaths && step.scopePaths.length > 0
+              ? ` [scopePaths: ${step.scopePaths.join(', ')}]`
+              : ''),
+        ),
+      )
+    }
+
+    lines.push(
+      '',
+      'Two-Stage Alignment Instructions for Chief Butler:',
+      '- Greetings or simple single-turn questions: reply directly in 1-2 natural declarative sentences without creating a background plan.',
+      '- Compound or multi-step goals with missing or ambiguous context: ask 1-2 brief clarifying questions instead of guessing or dispatching tasks prematurely.',
+      '- Once requirements are clear (or when revising an existing draft): call `butler_propose_plan` with `missionId`, `summary`, and ordered `steps`, then summarize the draft concisely and ask for confirmation.',
+      '- Do NOT call `butler_dispatch_task` before the user approves the plan.',
+    )
     return lines.join('\n')
   }
 
@@ -1079,7 +1443,467 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
     return decision
   }
 
-  return {
+  const approveMissionPlanInternal = async (
+    missionId: string,
+    opts?: { readonly comment?: string; readonly skipCommentFeed?: boolean },
+  ): Promise<ButlerActionResult> => {
+    if (disposed) {
+      return { ok: false, error: 'Engine disposed' }
+    }
+    const cleanId = missionId.trim()
+    if (!cleanId) {
+      return { ok: false, error: 'Mission ID is required' }
+    }
+
+    const mission = resolveTargetMission(cleanId, 'draft')
+    if (!mission) {
+      return {
+        ok: false,
+        error:
+          cleanId === 'latest'
+            ? 'No mission awaiting plan approval'
+            : `Mission not found: ${cleanId}`,
+      }
+    }
+    if (TERMINAL_MISSION_STATUSES.has(mission.status)) {
+      return { ok: false, error: `Mission is already ${mission.status}` }
+    }
+    if (!mission.plan || mission.plan.steps.length === 0) {
+      return { ok: false, error: 'Mission has no proposed plan to approve' }
+    }
+    if (mission.plan.approvedAt !== undefined) {
+      return { ok: true }
+    }
+
+    const ts = nowFn()
+    const stepIdToTaskId = new Map<string, string>()
+    for (const step of mission.plan.steps) {
+      stepIdToTaskId.set(step.id, newId('task'))
+    }
+
+    const createdTasks: ButlerSubTask[] = []
+    const createdTaskIds: string[] = []
+
+    for (const step of mission.plan.steps) {
+      const taskId = stepIdToTaskId.get(step.id)!
+      const remappedDeps = Array.from(
+        new Set(
+          step.dependsOn
+            .map((depStepId) => stepIdToTaskId.get(depStepId))
+            .filter((id): id is string => Boolean(id)),
+        ),
+      )
+      const sessionKey = `${BUTLER_CHIEF_PROJECT_ID}:${BUTLER_WORKER_CHAT_PREFIX}${taskId}`
+      const scopePaths = step.scopePaths?.map((p) => p.trim()).filter(Boolean)
+
+      const newTask: ButlerSubTask = {
+        id: taskId,
+        missionId: mission.id,
+        title: step.title,
+        brief: step.brief,
+        role: step.role,
+        dependsOn: remappedDeps,
+        ...(scopePaths && scopePaths.length > 0 ? { scopePaths } : {}),
+        sessionKey,
+        status: 'queued',
+        step: null,
+        artifacts: [],
+        createdAt: ts,
+      }
+
+      tasks.push(newTask)
+      createdTasks.push(newTask)
+      createdTaskIds.push(taskId)
+    }
+
+    const updated = updateMission(mission.id, (prev) => ({
+      ...prev,
+      plan: prev.plan ? { ...prev.plan, approvedAt: ts } : undefined,
+      taskIds: [...prev.taskIds, ...createdTaskIds],
+      status: 'running',
+      updatedAt: ts,
+    }))
+
+    const trimmedComment = opts?.comment?.trim()
+    if (trimmedComment && !opts?.skipCommentFeed) {
+      appendFeedEntry({
+        role: 'user',
+        text: trimmedComment,
+        missionId: mission.id,
+        createdAt: ts,
+      })
+    }
+
+    commitState()
+    if (updated) {
+      if (inConversationalTurn) {
+        pendingTurnPlannedMissionId = updated.id
+        pendingTurnPlannedTasks = createdTasks
+      } else {
+        deps.onMissionPlanned?.(cloneMission(updated), createdTasks.map(cloneTask))
+      }
+    }
+    scheduleReadyTasks()
+    return { ok: true }
+  }
+
+  const enqueueChiefPlanningTurn = (
+    missionId: string,
+    goalText: string,
+    resolvedWorkdir: string | undefined,
+    requireApproval: boolean,
+  ): void => {
+    enqueueChiefOp(missionId, async () => {
+      try {
+        const current = missions.find((m) => m.id === missionId)
+        if (!current || current.status === 'cancelled' || disposed) return
+
+        const prompt = requireApproval
+          ? buildTwoStageAlignmentPrompt(current, resolvedWorkdir)
+          : buildPlanningPrompt(missionId, goalText, resolvedWorkdir)
+        const res = await deps
+          .runPrompt(BUTLER_CHIEF_SESSION_KEY, prompt, {
+            workdir: resolvedWorkdir,
+            source: 'butler',
+          })
+          .catch((err: unknown) => ({
+            ok: false as const,
+            error: err instanceof Error ? err.message : String(err ?? 'Chief planning failed'),
+            finalText: undefined,
+            aborted: false,
+          }))
+
+        const latest = missions.find((m) => m.id === missionId)
+        if (!latest || latest.status === 'cancelled' || disposed) return
+
+        if (latest.report) {
+          return
+        }
+
+        if (latest.taskIds.length > 0) {
+          const hasWaiting = tasks.some(
+            (t) => t.missionId === missionId && t.status === 'waiting_human',
+          )
+          const hasPendingDecision = decisions.some(
+            (d) => d.missionId === missionId && d.status === 'pending',
+          )
+          updateMission(missionId, (prev) => ({
+            ...prev,
+            status:
+              hasWaiting || hasPendingDecision
+                ? 'waiting_human'
+                : prev.status === 'planning'
+                  ? 'running'
+                  : prev.status,
+            updatedAt: nowFn(),
+          }))
+
+          if (res.finalText?.trim()) {
+            appendFeedEntry({
+              role: 'butler',
+              text: res.finalText.trim(),
+              missionId,
+            })
+          }
+          commitState()
+          const plannedMission = missions.find((m) => m.id === missionId)
+          if (plannedMission) {
+            const plannedTasks = plannedMission.taskIds
+              .map((id) => tasks.find((t) => t.id === id))
+              .filter((t): t is ButlerSubTask => t !== undefined)
+              .map(cloneTask)
+            deps.onMissionPlanned?.(
+              cloneMission(plannedMission),
+              plannedTasks,
+              res.finalText?.trim() || undefined,
+            )
+          }
+          return
+        }
+
+        if (!res.ok) {
+          const errorMsg =
+            res.error?.trim() ||
+            (res.aborted ? 'Mission planning aborted' : 'Mission planning failed')
+          const endTs = nowFn()
+          updateMission(missionId, (prev) => ({
+            ...prev,
+            status: 'failed',
+            error: errorMsg,
+            finishedAt: endTs,
+            updatedAt: endTs,
+          }))
+          appendFeedEntry({
+            role: 'system',
+            text: `Mission failed: ${errorMsg}`,
+            missionId,
+            createdAt: endTs,
+          })
+          commitState()
+          return
+        }
+
+        const endTs = nowFn()
+        if (requireApproval) {
+          if (latest.plan && latest.plan.approvedAt === undefined) {
+            const replyText = res.finalText?.trim() || latest.plan.summary
+            const updatedPlanMission = updateMission(missionId, (prev) => ({
+              ...prev,
+              status: 'awaiting_plan_approval',
+              updatedAt: endTs,
+            }))
+            appendFeedEntry({
+              role: 'butler',
+              text: replyText,
+              missionId,
+              createdAt: endTs,
+            })
+            commitState()
+            if (updatedPlanMission && updatedPlanMission.plan) {
+              deps.onPlanProposed?.(
+                cloneMission(updatedPlanMission),
+                clonePlan(updatedPlanMission.plan),
+                res.finalText?.trim() || undefined,
+              )
+            }
+            return
+          }
+
+          const rawReply = res.finalText?.trim() || ''
+          if (isClarifyingQuestion(rawReply)) {
+            const clarifyingMission = updateMission(missionId, (prev) => ({
+              ...prev,
+              status: 'clarifying',
+              updatedAt: endTs,
+            }))
+            appendFeedEntry({
+              role: 'butler',
+              text: rawReply,
+              missionId,
+              createdAt: endTs,
+            })
+            commitState()
+            if (clarifyingMission) {
+              deps.onClarificationAsked?.(cloneMission(clarifyingMission), rawReply)
+            }
+            return
+          }
+        }
+
+        const replyText = res.finalText?.trim() || 'Completed.'
+        const report: ButlerMissionReport = {
+          headline: latest.title,
+          summary: replyText,
+          artifacts: [],
+          risks: [],
+          generatedAt: endTs,
+        }
+        const completed = updateMission(missionId, (prev) => ({
+          ...prev,
+          status: 'done',
+          report,
+          finishedAt: endTs,
+          updatedAt: endTs,
+        }))
+        appendFeedEntry({
+          role: 'butler',
+          text: replyText,
+          missionId,
+          report,
+          createdAt: endTs,
+        })
+        commitState()
+        if (completed) {
+          deps.onMissionCompleted?.(cloneMission(completed), cloneReport(report))
+        }
+      } finally {
+        planningMissions.delete(missionId)
+        if (!disposed) {
+          scheduleReadyTasks()
+        }
+      }
+    })
+  }
+
+  const enqueueConversationalTurn = (
+    userText: string,
+    resolvedWorkdir: string | undefined,
+    generation: number,
+  ): void => {
+    enqueueChiefOp('__conversational__', async () => {
+      if (disposed || generation !== chiefGeneration) return
+
+      const beforeTaskIds = new Set(tasks.map((t) => t.id))
+      const beforePlanRevs = new Map(missions.map((m) => [m.id, m.plan?.revision ?? 0]))
+      const beforeReportAt = new Map(missions.map((m) => [m.id, m.report?.generatedAt ?? 0]))
+
+      pendingTurnPlannedMissionId = null
+      pendingTurnPlannedTasks = []
+      inConversationalTurn = true
+
+      let res: {
+        readonly ok: boolean
+        readonly runId?: string
+        readonly finalText?: string
+        readonly error?: string
+        readonly aborted?: boolean
+      }
+      try {
+        const prompt = buildConversationalPrompt(userText, resolvedWorkdir)
+        res = await deps
+          .runPrompt(BUTLER_CHIEF_SESSION_KEY, prompt, {
+            workdir: resolvedWorkdir,
+            source: 'butler',
+          })
+          .catch((err: unknown) => ({
+            ok: false as const,
+            error: err instanceof Error ? err.message : String(err ?? 'Chief turn failed'),
+            finalText: undefined,
+            aborted: false,
+          }))
+      } finally {
+        inConversationalTurn = false
+      }
+
+      const deferredMissionId = pendingTurnPlannedMissionId
+      const deferredTasks = pendingTurnPlannedTasks
+      pendingTurnPlannedMissionId = null
+      pendingTurnPlannedTasks = []
+
+      const flushDeferredMissionPlanned = (reply?: string): void => {
+        if (!deferredMissionId) return
+        const approvedMission = missions.find((m) => m.id === deferredMissionId)
+        if (approvedMission) {
+          deps.onMissionPlanned?.(
+            cloneMission(approvedMission),
+            deferredTasks.map(cloneTask),
+            reply,
+          )
+        }
+      }
+
+      if (disposed || generation !== chiefGeneration || res.aborted) {
+        flushDeferredMissionPlanned()
+        return
+      }
+
+      if (!res.ok) {
+        flushDeferredMissionPlanned()
+        if (!deferredMissionId) {
+          const errorMsg = res.error?.trim() || 'Chief reply failed'
+          appendFeedEntry({
+            role: 'system',
+            text: `Butler reply failed: ${errorMsg}`,
+            createdAt: nowFn(),
+          })
+          commitState()
+        }
+        return
+      }
+
+      const endTs = nowFn()
+      const replyText = res.finalText?.trim() || ''
+
+      // 1. Check whether new tasks were approved or dispatched during this turn.
+      const createdTasks = tasks.filter((t) => !beforeTaskIds.has(t.id))
+      if (createdTasks.length > 0 || deferredMissionId) {
+        const targetMissionId =
+          deferredMissionId ?? createdTasks[createdTasks.length - 1]!.missionId
+        const targetMission = missions.find((m) => m.id === targetMissionId)
+        if (targetMission && !TERMINAL_MISSION_STATUSES.has(targetMission.status)) {
+          const hasWaiting = tasks.some(
+            (t) => t.missionId === targetMissionId && t.status === 'waiting_human',
+          )
+          const hasPendingDecision = decisions.some(
+            (d) => d.missionId === targetMissionId && d.status === 'pending',
+          )
+          updateMission(targetMissionId, (prev) => ({
+            ...prev,
+            status:
+              hasWaiting || hasPendingDecision
+                ? 'waiting_human'
+                : prev.status === 'planning'
+                  ? 'running'
+                  : prev.status,
+            updatedAt: endTs,
+          }))
+        }
+
+        if (replyText) {
+          appendFeedEntry({
+            role: 'butler',
+            text: replyText,
+            missionId: targetMissionId,
+            createdAt: endTs,
+          })
+        }
+        commitState()
+
+        if (deferredMissionId) {
+          flushDeferredMissionPlanned(replyText || undefined)
+        } else {
+          const refreshedMission = missions.find((m) => m.id === targetMissionId)
+          if (refreshedMission) {
+            deps.onMissionPlanned?.(
+              cloneMission(refreshedMission),
+              createdTasks.map(cloneTask),
+              replyText || undefined,
+            )
+          }
+        }
+        if (!disposed) scheduleReadyTasks()
+        return
+      }
+
+      // 2. Check whether a draft mission plan was proposed or updated during this turn.
+      const proposedMission = [...missions]
+        .reverse()
+        .find(
+          (m) =>
+            m.plan &&
+            m.plan.approvedAt === undefined &&
+            m.status === 'awaiting_plan_approval' &&
+            m.plan.revision > (beforePlanRevs.get(m.id) ?? 0),
+        )
+      if (proposedMission?.plan) {
+        const displayReply = replyText || proposedMission.plan.summary
+        appendFeedEntry({
+          role: 'butler',
+          text: displayReply,
+          missionId: proposedMission.id,
+          createdAt: endTs,
+        })
+        commitState()
+        deps.onPlanProposed?.(
+          cloneMission(proposedMission),
+          clonePlan(proposedMission.plan),
+          replyText || undefined,
+        )
+        return
+      }
+
+      // 3. Skip duplicate reply emission if publishReport already finalized a mission this turn.
+      const reportedMission = missions.find(
+        (m) => (m.report?.generatedAt ?? 0) > (beforeReportAt.get(m.id) ?? 0),
+      )
+      if (reportedMission) {
+        return
+      }
+
+      // 4. Pure chat, desktop actions, or CRUD queries: never create fake missions or reports.
+      if (replyText) {
+        appendFeedEntry({
+          role: 'butler',
+          text: replyText,
+          createdAt: endTs,
+        })
+        commitState()
+        deps.onConversationalReply?.(replyText)
+      }
+    })
+  }
+
+  const engine: ButlerMissionEngine = {
     async init(): Promise<ButlerDeskSnapshot> {
       const loaded = await readButlerMissionState(deps.statePath)
       missions = loaded.missions.map(cloneMission)
@@ -1133,6 +1957,97 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       }
 
       const ts = nowFn()
+      if (deps.conversationalMode?.() === true) {
+        const generation = (chiefGeneration += 1)
+        const resolvedWorkdir = workdir?.trim() || deps.defaultWorkdir?.()
+        lastConversationalUserText = trimmedGoal
+        lastConversationalWorkdir = resolvedWorkdir
+
+        // Preempt only the Chief conversational session; keep background workers running.
+        if (chiefBusy || chiefPendingCount > 0) {
+          void Promise.resolve(deps.abortSession(BUTLER_CHIEF_SESSION_KEY)).catch(() => {})
+        }
+
+        appendFeedEntry({
+          role: 'user',
+          text: trimmedGoal,
+          createdAt: ts,
+        })
+        commitState()
+        enqueueConversationalTurn(trimmedGoal, resolvedWorkdir, generation)
+        return { ok: true }
+      }
+
+      const requireApproval = deps.requirePlanApproval?.() === true
+      const activeDraft = requireApproval ? findActiveDraftMission() : undefined
+
+      if (activeDraft) {
+        const replyIntent = classifyButlerPlanReplyIntent(trimmedGoal)
+
+        if (activeDraft.status === 'awaiting_plan_approval' && replyIntent === 'approve') {
+          updateMission(activeDraft.id, (prev) => ({
+            ...prev,
+            conversationNotes: [...(prev.conversationNotes ?? [prev.goal]), trimmedGoal],
+            updatedAt: ts,
+          }))
+          appendFeedEntry({
+            role: 'user',
+            text: trimmedGoal,
+            missionId: activeDraft.id,
+            createdAt: ts,
+          })
+          const approvedRes = await approveMissionPlanInternal(activeDraft.id, {
+            skipCommentFeed: true,
+          })
+          if (!approvedRes.ok) {
+            return { ok: false, missionId: activeDraft.id, error: approvedRes.error }
+          }
+          return { ok: true, missionId: activeDraft.id }
+        }
+
+        if (replyIntent === 'cancel') {
+          appendFeedEntry({
+            role: 'user',
+            text: trimmedGoal,
+            missionId: activeDraft.id,
+            createdAt: ts,
+          })
+          const cancelRes = await engine.cancelMission(activeDraft.id)
+          if (!cancelRes.ok) {
+            return { ok: false, missionId: activeDraft.id, error: cancelRes.error }
+          }
+          return { ok: true, missionId: activeDraft.id }
+        }
+
+        const resolvedWorkdir = workdir?.trim() || resolveWorkdirForMission(activeDraft.id)
+        if (workdir?.trim()) {
+          missionWorkdirById.set(activeDraft.id, resolvedWorkdir)
+        }
+
+        const updatedDraft = updateMission(activeDraft.id, (prev) => ({
+          ...prev,
+          conversationNotes: [...(prev.conversationNotes ?? [prev.goal]), trimmedGoal],
+          status: 'planning',
+          updatedAt: ts,
+        }))
+        planningMissions.add(activeDraft.id)
+
+        appendFeedEntry({
+          role: 'user',
+          text: trimmedGoal,
+          missionId: activeDraft.id,
+          createdAt: ts,
+        })
+
+        commitState()
+        if (updatedDraft) {
+          deps.onMissionAccepted?.(cloneMission(updatedDraft))
+        }
+
+        enqueueChiefPlanningTurn(activeDraft.id, trimmedGoal, resolvedWorkdir, true)
+        return { ok: true, missionId: activeDraft.id }
+      }
+
       const missionId = newId('mission')
       const mission: ButlerMission = {
         id: missionId,
@@ -1142,6 +2057,7 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
         createdAt: ts,
         updatedAt: ts,
         taskIds: [],
+        ...(requireApproval ? { conversationNotes: [trimmedGoal] } : {}),
       }
 
       const resolvedWorkdir = workdir?.trim() || deps.defaultWorkdir?.()
@@ -1157,126 +2073,94 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       })
 
       commitState()
+      deps.onMissionAccepted?.(cloneMission(mission))
 
-      enqueueChiefOp(missionId, async () => {
-        try {
-          const current = missions.find((m) => m.id === missionId)
-          if (!current || current.status === 'cancelled' || disposed) return
-
-          const prompt = buildPlanningPrompt(missionId, trimmedGoal, resolvedWorkdir)
-          const res = await deps
-            .runPrompt(BUTLER_CHIEF_SESSION_KEY, prompt, {
-              workdir: resolvedWorkdir,
-              source: 'butler',
-            })
-            .catch((err: unknown) => ({
-              ok: false as const,
-              error: err instanceof Error ? err.message : String(err ?? 'Chief planning failed'),
-              finalText: undefined,
-              aborted: false,
-            }))
-
-          const latest = missions.find((m) => m.id === missionId)
-          if (!latest || latest.status === 'cancelled' || disposed) return
-
-          if (latest.report) {
-            return
-          }
-
-          if (latest.taskIds.length > 0) {
-            const hasWaiting = tasks.some(
-              (t) => t.missionId === missionId && t.status === 'waiting_human',
-            )
-            const hasPendingDecision = decisions.some(
-              (d) => d.missionId === missionId && d.status === 'pending',
-            )
-            updateMission(missionId, (prev) => ({
-              ...prev,
-              status:
-                hasWaiting || hasPendingDecision
-                  ? 'waiting_human'
-                  : prev.status === 'planning'
-                    ? 'running'
-                    : prev.status,
-              updatedAt: nowFn(),
-            }))
-
-            if (res.finalText?.trim()) {
-              appendFeedEntry({
-                role: 'butler',
-                text: res.finalText.trim(),
-                missionId,
-              })
-            }
-            commitState()
-            return
-          }
-
-          if (!res.ok) {
-            const errorMsg =
-              res.error?.trim() ||
-              (res.aborted ? 'Mission planning aborted' : 'Mission planning failed')
-            const endTs = nowFn()
-            updateMission(missionId, (prev) => ({
-              ...prev,
-              status: 'failed',
-              error: errorMsg,
-              finishedAt: endTs,
-              updatedAt: endTs,
-            }))
-            appendFeedEntry({
-              role: 'system',
-              text: `Mission failed: ${errorMsg}`,
-              missionId,
-              createdAt: endTs,
-            })
-            commitState()
-            return
-          }
-
-          const endTs = nowFn()
-          const replyText = res.finalText?.trim() || 'Completed.'
-          const report: ButlerMissionReport = {
-            headline: latest.title,
-            summary: replyText,
-            artifacts: [],
-            risks: [],
-            generatedAt: endTs,
-          }
-          const completed = updateMission(missionId, (prev) => ({
-            ...prev,
-            status: 'done',
-            report,
-            finishedAt: endTs,
-            updatedAt: endTs,
-          }))
-          appendFeedEntry({
-            role: 'butler',
-            text: replyText,
-            missionId,
-            report,
-            createdAt: endTs,
-          })
-          commitState()
-          if (completed) {
-            deps.onMissionCompleted?.(cloneMission(completed), cloneReport(report))
-          }
-        } finally {
-          planningMissions.delete(missionId)
-          if (!disposed) {
-            scheduleReadyTasks()
-          }
-        }
-      })
-
+      enqueueChiefPlanningTurn(missionId, trimmedGoal, resolvedWorkdir, requireApproval)
       return { ok: true, missionId }
     },
 
-    async dispatchTask(input): Promise<{
-      readonly ok: boolean
-      readonly task?: ButlerSubTask
-      readonly error?: string
-    }> {
+    async proposePlan(input: Parameters<ButlerMissionEngine['proposePlan']>[0]) {
+      if (disposed) {
+        return { ok: false, error: 'Engine disposed' }
+      }
+      const summary = input.summary?.trim() ?? ''
+      if (!summary) {
+        return { ok: false, error: 'Plan summary is required' }
+      }
+      const validated = validateAndNormalizePlanSteps(input.steps)
+      if (!validated.ok) {
+        return { ok: false, error: validated.error }
+      }
+
+      const rawTitle = input.title?.trim() ?? ''
+      const isConversational = deps.conversationalMode?.() === true
+      let mission: ButlerMission | undefined
+      let createdNewMission = false
+
+      if (input.missionId !== undefined && input.missionId.trim() !== 'latest') {
+        mission = missions.find((m) => m.id === input.missionId!.trim())
+        if (!mission) {
+          return { ok: false, error: `Mission not found: ${input.missionId}` }
+        }
+      } else {
+        mission = findActiveDraftMission() ?? (isConversational ? undefined : findLatestNonTerminalMission())
+        if (!mission && isConversational) {
+          const ts = nowFn()
+          const missionId = newId('mission')
+          mission = {
+            id: missionId,
+            title: deriveTitle(rawTitle || summary, missionId),
+            goal: lastConversationalUserText || summary,
+            status: 'awaiting_plan_approval',
+            createdAt: ts,
+            updatedAt: ts,
+            taskIds: [],
+          }
+          missionWorkdirById.set(missionId, lastConversationalWorkdir ?? deps.defaultWorkdir?.())
+          missions.push(mission)
+          createdNewMission = true
+        }
+      }
+
+      if (!mission) {
+        return { ok: false, error: 'No active mission found for plan' }
+      }
+      if (TERMINAL_MISSION_STATUSES.has(mission.status)) {
+        return { ok: false, error: `Mission is already in terminal state: ${mission.status}` }
+      }
+      if (mission.plan?.approvedAt !== undefined || mission.taskIds.length > 0) {
+        return { ok: false, error: 'Mission plan is already approved and dispatched' }
+      }
+
+      const ts = nowFn()
+      const plan: ButlerMissionPlan = {
+        summary,
+        steps: validated.steps,
+        revision: (mission.plan?.revision ?? 0) + 1,
+        updatedAt: ts,
+      }
+
+      const updated = updateMission(mission.id, (prev) => ({
+        ...prev,
+        ...(rawTitle && !createdNewMission ? { title: deriveTitle(rawTitle, prev.id) } : {}),
+        plan,
+        status: 'awaiting_plan_approval',
+        updatedAt: ts,
+      }))
+
+      commitState()
+      return {
+        ok: true,
+        plan: clonePlan(plan),
+        ...(updated ? { mission: cloneMission(updated) } : {}),
+      }
+    },
+
+    async approveMissionPlan(req: ButlerApproveMissionPlanRequest): Promise<ButlerActionResult> {
+      return approveMissionPlanInternal(req.missionId, { comment: req.comment })
+    },
+
+    async dispatchTask(input) {
       if (disposed) {
         return { ok: false, error: 'Engine disposed' }
       }
@@ -1287,6 +2171,8 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
         return { ok: false, error: 'Task title and brief are required' }
       }
 
+      const isConversational = deps.conversationalMode?.() === true
+      const requireApproval = deps.requirePlanApproval?.() === true
       let mission: ButlerMission | undefined
       if (input.missionId !== undefined) {
         mission = missions.find((m) => m.id === input.missionId)
@@ -1297,21 +2183,101 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
           return { ok: false, error: `Mission is already in terminal state: ${mission.status}` }
         }
       } else {
-        mission = findLatestNonTerminalMission()
+        mission =
+          isConversational && requireApproval
+            ? findActiveDraftMission()
+            : findLatestNonTerminalMission()
         if (!mission) {
           const ts = nowFn()
           const implicitId = newId('mission')
+          const implicitGoal =
+            isConversational && lastConversationalUserText ? lastConversationalUserText : brief
           mission = {
             id: implicitId,
             title: deriveTitle(title, implicitId),
-            goal: brief,
-            status: 'running',
+            goal: implicitGoal,
+            status: requireApproval ? 'awaiting_plan_approval' : 'running',
             createdAt: ts,
             updatedAt: ts,
             taskIds: [],
           }
-          missionWorkdirById.set(implicitId, input.workdir?.trim() || deps.defaultWorkdir?.())
+          missionWorkdirById.set(
+            implicitId,
+            input.workdir?.trim() ||
+              (isConversational ? lastConversationalWorkdir : undefined) ||
+              deps.defaultWorkdir?.(),
+          )
           missions.push(mission)
+        }
+      }
+
+      // Hard Critic Gate: stage unapproved dispatch calls into the draft plan instead of spawning workers.
+      if (requireApproval && mission.plan?.approvedAt === undefined) {
+        const existingSteps = mission.plan?.steps ?? []
+        const existingStepIds = new Set(existingSteps.map((s) => s.id))
+        let stepId = input.id?.trim() ?? ''
+        if (stepId) {
+          if (existingStepIds.has(stepId)) {
+            return { ok: false, error: `Task already staged in draft plan: ${stepId}` }
+          }
+        } else {
+          let nextIdx = existingSteps.length + 1
+          do {
+            stepId = `step-${nextIdx}`
+            nextIdx += 1
+          } while (existingStepIds.has(stepId))
+        }
+
+        const dependsOn = Array.from(
+          new Set((input.dependsOn ?? []).map((id) => id.trim()).filter(Boolean)),
+        )
+        if (dependsOn.includes(stepId)) {
+          return { ok: false, error: 'Cyclic task dependency detected' }
+        }
+        for (const depId of dependsOn) {
+          if (!existingStepIds.has(depId)) {
+            return { ok: false, error: `Unknown dependency task: ${depId}` }
+          }
+        }
+
+        const draftAdjacency = new Map<string, readonly string[]>()
+        for (const existingStep of existingSteps) {
+          draftAdjacency.set(existingStep.id, existingStep.dependsOn)
+        }
+        draftAdjacency.set(stepId, dependsOn)
+        if (hasCycleInDependencyGraph(draftAdjacency)) {
+          return { ok: false, error: 'Cyclic task dependency detected' }
+        }
+
+        const scopePaths = input.scopePaths?.map((p) => p.trim()).filter(Boolean)
+        const stagedStep: ButlerProposedTaskStep = {
+          id: stepId,
+          title,
+          brief,
+          role: input.role ?? 'general',
+          dependsOn,
+          ...(scopePaths && scopePaths.length > 0 ? { scopePaths } : {}),
+        }
+
+        const ts = nowFn()
+        const stagedPlan: ButlerMissionPlan = {
+          summary: mission.plan?.summary || mission.title,
+          steps: [...existingSteps, stagedStep],
+          revision: (mission.plan?.revision ?? 0) + 1,
+          updatedAt: ts,
+        }
+
+        updateMission(mission.id, (prev) => ({
+          ...prev,
+          plan: stagedPlan,
+          status: 'awaiting_plan_approval',
+          updatedAt: ts,
+        }))
+        commitState()
+        return {
+          ok: true,
+          stagedForApproval: true,
+          note: 'Plan approval is required before dispatch. Staged into draft plan awaiting user confirmation.',
         }
       }
 
@@ -1384,6 +2350,18 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       return { ok: true, task: cloneTask(persistedTask) }
     },
 
+    listMissions(filter?: ButlerMissionListFilter): readonly ButlerMission[] {
+      const filtered = missions.filter((m) => {
+        if (!filter || filter === 'all') return true
+        if (filter === 'active') return !TERMINAL_MISSION_STATUSES.has(m.status)
+        if (filter === 'done') return m.status === 'done'
+        if (filter === 'failed') return m.status === 'failed' || m.status === 'interrupted'
+        if (filter === 'cancelled') return m.status === 'cancelled'
+        return true
+      })
+      return [...filtered].reverse().sort((a, b) => b.updatedAt - a.updatedAt).map(cloneMission)
+    },
+
     listTasks(missionId?: string): readonly ButlerSubTask[] {
       if (missionId !== undefined) {
         return tasks.filter((t) => t.missionId === missionId).map(cloneTask)
@@ -1397,6 +2375,78 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       return {
         task: cloneTask(task),
         decisions: decisions.filter((d) => d.taskId === taskId).map(cloneDecision),
+      }
+    },
+
+    async updateMissionDetails(input: Parameters<ButlerMissionEngine['updateMissionDetails']>[0]) {
+      if (disposed) {
+        return { ok: false, error: 'Engine disposed' }
+      }
+      const mission = resolveTargetMission(input.missionId, 'any')
+      if (!mission) {
+        return {
+          ok: false,
+          error:
+            input.missionId.trim() === 'latest'
+              ? 'No missions found'
+              : `Mission not found: ${input.missionId}`,
+        }
+      }
+
+      const nextTitle = input.title?.trim()
+      const nextGoal = input.goal?.trim()
+      const nextSummary = input.summary?.trim()
+      const hasStepsUpdate = input.steps !== undefined
+      if (!nextTitle && !nextGoal && !nextSummary && !hasStepsUpdate) {
+        return { ok: false, error: 'At least one mission field must be provided to update' }
+      }
+
+      const ts = nowFn()
+      let updatedPlan: ButlerMissionPlan | undefined
+      if (nextSummary !== undefined || hasStepsUpdate) {
+        if (
+          TERMINAL_MISSION_STATUSES.has(mission.status) ||
+          mission.plan?.approvedAt !== undefined ||
+          mission.taskIds.length > 0
+        ) {
+          return { ok: false, error: 'Cannot modify plan after mission approval or completion' }
+        }
+        if (hasStepsUpdate) {
+          const validated = validateAndNormalizePlanSteps(input.steps)
+          if (!validated.ok) {
+            return { ok: false, error: validated.error }
+          }
+          updatedPlan = {
+            summary: nextSummary || mission.plan?.summary || nextGoal || mission.goal,
+            steps: validated.steps,
+            revision: (mission.plan?.revision ?? 0) + 1,
+            updatedAt: ts,
+          }
+        } else {
+          if (!mission.plan) {
+            return { ok: false, error: 'Plan steps are required when creating a new draft plan' }
+          }
+          updatedPlan = {
+            ...mission.plan,
+            summary: nextSummary!,
+            revision: mission.plan.revision + 1,
+            updatedAt: ts,
+          }
+        }
+      }
+
+      const updated = updateMission(mission.id, (prev) => ({
+        ...prev,
+        ...(nextTitle ? { title: deriveTitle(nextTitle, prev.id) } : {}),
+        ...(nextGoal ? { goal: nextGoal } : {}),
+        ...(updatedPlan ? { plan: updatedPlan } : {}),
+        updatedAt: ts,
+      }))
+
+      commitState()
+      return {
+        ok: true,
+        ...(updated ? { mission: cloneMission(updated) } : {}),
       }
     },
 
@@ -1477,24 +2527,7 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
           finishedAt: undefined,
         }))
 
-        if (
-          mission &&
-          (mission.status === 'failed' ||
-            mission.status === 'interrupted' ||
-            mission.status === 'done')
-        ) {
-          updateMission(mission.id, (prev) => ({
-            ...prev,
-            status: 'running',
-            error: undefined,
-            finishedAt: undefined,
-            report: undefined,
-            updatedAt: nowFn(),
-          }))
-        } else {
-          syncMissionStatus(task.missionId)
-        }
-
+        reactivateMissionForTask(task.missionId)
         commitState()
         scheduleReadyTasks()
         return { ok: true }
@@ -1503,6 +2536,76 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       // 'queued' or 'waiting_human': steer instruction is saved and broadcast;
       // waiting_human tasks resume with the updated context once the decision resolves.
       commitState()
+      return { ok: true }
+    },
+
+    async retryTask(req: ButlerRetryTaskRequest): Promise<ButlerActionResult> {
+      if (disposed) {
+        return { ok: false, error: 'Engine disposed' }
+      }
+      const taskId = req.taskId?.trim() ?? ''
+      if (!taskId) {
+        return { ok: false, error: 'Task ID is required' }
+      }
+
+      const task = tasks.find((t) => t.id === taskId)
+      if (!task) {
+        return { ok: false, error: `Task not found: ${taskId}` }
+      }
+      if (!FAILURE_TASK_STATUSES.has(task.status)) {
+        return {
+          ok: false,
+          error: `Only failed, cancelled, or interrupted tasks can be retried (current: ${task.status})`,
+        }
+      }
+
+      const mission = missions.find((m) => m.id === task.missionId)
+      if (!mission) {
+        return { ok: false, error: `Mission not found: ${task.missionId}` }
+      }
+
+      for (const depId of task.dependsOn) {
+        const dep = tasks.find((t) => t.id === depId)
+        if (!dep) {
+          return { ok: false, error: `Missing upstream task "${depId}"` }
+        }
+        if (FAILURE_TASK_STATUSES.has(dep.status)) {
+          return {
+            ok: false,
+            error: `Cannot retry task while upstream dependency "${dep.title}" is ${dep.status}`,
+          }
+        }
+      }
+
+      const instruction = req.instruction?.trim()
+      if (instruction) {
+        const existingNotes = steerNotesByTaskId.get(taskId) ?? []
+        existingNotes.push(instruction)
+        steerNotesByTaskId.set(taskId, existingNotes)
+      }
+
+      updateTask(taskId, (prev) => ({
+        ...prev,
+        status: 'queued',
+        step: null,
+        error: undefined,
+        outputSummary: undefined,
+        startedAt: undefined,
+        finishedAt: undefined,
+        ...(instruction ? { brief: `${prev.brief}\n\n[Retry] ${instruction}` } : {}),
+      }))
+
+      appendFeedEntry({
+        role: 'system',
+        text: instruction
+          ? `Retried task "${task.title}": ${instruction}`
+          : `Retried task "${task.title}".`,
+        missionId: task.missionId,
+      })
+
+      reactivateMissionForTask(task.missionId, true)
+      commitState()
+      scheduleReadyTasks()
       return { ok: true }
     },
 
@@ -1550,67 +2653,104 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
     },
 
     async cancelMission(missionId: string): Promise<ButlerActionResult> {
-      const mission = missions.find((m) => m.id === missionId)
+      const cleanId = missionId.trim()
+      const mission = resolveTargetMission(cleanId, 'nonTerminal')
       if (!mission) {
-        return { ok: false, error: `Mission not found: ${missionId}` }
+        return {
+          ok: false,
+          error:
+            cleanId === 'latest'
+              ? 'No active mission to cancel'
+              : `Mission not found: ${missionId}`,
+        }
       }
       if (mission.status === 'cancelled') {
         return { ok: true }
       }
 
       const ts = nowFn()
-      const sessionsToAbort: string[] = []
+      await stopMissionExecution(mission.id, {
+        markTasksCancelled: true,
+        waiterNote: 'Mission cancelled',
+      })
 
-      for (let i = 0; i < tasks.length; i += 1) {
-        const t = tasks[i]!
-        if (t.missionId !== missionId || TERMINAL_TASK_STATUSES.has(t.status)) continue
-
-        const activeRun = activeWorkers.get(t.id)
-        if (activeRun) {
-          activeRun.superseded = true
-          if (activeRun.opId) untrackBackgroundOp(activeRun.opId)
-          activeWorkers.delete(t.id)
-          activeRun.resolveSettled()
-        }
-
-        if (t.status === 'running' || t.status === 'waiting_human') {
-          sessionsToAbort.push(t.sessionKey)
-        }
-
-        tasks[i] = {
-          ...t,
-          status: 'cancelled',
-          step: null,
-          finishedAt: ts,
-        }
-      }
-
-      resolvePendingWaitersFor((d) => d.missionId === missionId, 'cancelled', 'Mission cancelled')
-
-      if (currentChiefMissionId === missionId) {
-        sessionsToAbort.push(BUTLER_CHIEF_SESSION_KEY)
-      }
-
-      updateMission(missionId, (prev) => ({
+      updateMission(mission.id, (prev) => ({
         ...prev,
         status: 'cancelled',
         finishedAt: ts,
         updatedAt: ts,
       }))
 
-      for (const sk of sessionsToAbort) {
-        await Promise.resolve(deps.abortSession(sk)).catch(() => {})
-      }
-
       appendFeedEntry({
         role: 'system',
         text: `Cancelled mission "${mission.title}".`,
-        missionId,
+        missionId: mission.id,
         createdAt: ts,
       })
 
       commitState()
       return { ok: true }
+    },
+
+    async deleteMission(missionId: string): Promise<ButlerActionResult> {
+      if (disposed) {
+        return { ok: false, error: 'Engine disposed' }
+      }
+      const cleanId = missionId.trim()
+      if (!cleanId) {
+        return { ok: false, error: 'Mission ID is required' }
+      }
+
+      const mission = missions.find((m) => m.id === cleanId)
+      if (!mission) {
+        return { ok: false, error: `Mission not found: ${cleanId}` }
+      }
+
+      await stopMissionExecution(mission.id, {
+        markTasksCancelled: false,
+        waiterNote: 'Mission deleted',
+      })
+
+      planningMissions.delete(mission.id)
+      synthesizingMissions.delete(mission.id)
+      missionWorkdirById.delete(mission.id)
+
+      for (const t of tasks) {
+        if (t.missionId === mission.id) {
+          taskWorkdirById.delete(t.id)
+          steerNotesByTaskId.delete(t.id)
+        }
+      }
+
+      missions = missions.filter((m) => m.id !== mission.id)
+      tasks = tasks.filter((t) => t.missionId !== mission.id)
+      decisions = decisions.filter((d) => d.missionId !== mission.id)
+      feed = feed.filter((f) => f.missionId !== mission.id)
+
+      commitState()
+      return { ok: true }
+    },
+
+    async executeDesktopAction(
+      req: ButlerDesktopActionRequest,
+    ): Promise<ButlerDesktopActionResult> {
+      if (disposed) {
+        return { ok: false, error: 'Engine disposed' }
+      }
+      if (req.target === 'file' && !req.pathOrUrl?.trim()) {
+        return { ok: false, error: 'pathOrUrl is required when target is "file"' }
+      }
+      if (!deps.executeDesktopAction) {
+        return { ok: false, error: 'Desktop actions are not configured' }
+      }
+      try {
+        return await deps.executeDesktopAction(req)
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err ?? 'Desktop action failed'),
+        }
+      }
     },
 
     async interceptWorkerConfirm(req: PiAgentConfirmRequest): Promise<PiAgentConfirmReply | null> {
@@ -1982,4 +3122,6 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       }
     },
   }
+
+  return engine
 }

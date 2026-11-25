@@ -6,6 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
+import { htmlLang } from '@genoffice/i18n'
 import type {
   ButlerArtifactRef,
   ButlerConversationEntry,
@@ -14,6 +15,7 @@ import type {
   ButlerDecisionOption,
   ButlerDeskSnapshot,
   ButlerMission,
+  ButlerMissionPlan,
   ButlerMissionReport,
   ButlerMissionStatus,
   ButlerOpenDeskPayload,
@@ -22,8 +24,32 @@ import type {
   ButlerWorkerRole,
 } from '../../shared/butler-orchestrator-api'
 import { BUTLER_CHIEF_SESSION_KEY } from '../../shared/butler-orchestrator-api'
+import {
+  DEFAULT_BUTLER_PREFS,
+  normalizeButlerPrefs,
+  type ButlerPrefs,
+} from '../../shared/butler-prefs'
+import {
+  DEFAULT_BUTLER_VOICE_CONFIG,
+  normalizeButlerVoiceConfig,
+  type ButlerMicArbitrationState,
+  type ButlerVoiceConfig,
+} from '../../shared/butler-voice-api'
 import type { HomeApi } from '../../shared/home-api'
+import { parseFollowUpTranscript, uint8ToBase64 } from './butler-audio-dsp'
 import { stepLabelKey } from './butler-hud-model'
+import {
+  getButlerSpeechState,
+  isButlerSpeakingOrEchoGuard,
+  isButlerSpeechQueueBusy,
+  playWakeEarcon,
+  speakButlerSmart,
+  startButlerMicCapture,
+  stopButlerSpeech,
+  subscribeButlerSpeechState,
+  type ButlerMicCaptureHandle,
+  type ButlerSpeechState,
+} from './butler-voice'
 import { FileBadge } from './file-badge'
 import { useI18n, type StringKey } from './locale'
 import './butler-desk.css'
@@ -35,6 +61,9 @@ export interface ButlerDeskViewProps {
 }
 
 const MAX_RECENT_RESOLVED = 5
+export const DESK_FOLLOW_UP_WINDOW_MS = 300_000
+const DESK_SPEECH_START_TIMEOUT_MS = 3500
+const DESK_RESUME_LISTEN_DELAY_MS = 140
 
 const EMPTY_SNAPSHOT: ButlerDeskSnapshot = {
   chiefSessionKey: BUTLER_CHIEF_SESSION_KEY,
@@ -47,6 +76,8 @@ const EMPTY_SNAPSHOT: ButlerDeskSnapshot = {
 }
 
 const ACTIVE_MISSION_STATUSES = new Set<ButlerMissionStatus>([
+  'clarifying',
+  'awaiting_plan_approval',
   'planning',
   'running',
   'waiting_human',
@@ -89,6 +120,8 @@ const SUBTASK_STATUS_LABEL_KEYS: Record<ButlerSubTaskStatus, StringKey> = {
 }
 
 const MISSION_STATUS_LABEL_KEYS: Record<ButlerMissionStatus, StringKey> = {
+  clarifying: 'butlerMissionStatusClarifying',
+  awaiting_plan_approval: 'butlerMissionStatusAwaitingPlan',
   planning: 'butlerDeskSending',
   running: 'butlerTaskStatusRunning',
   waiting_human: 'butlerTaskStatusWaitingHuman',
@@ -266,6 +299,61 @@ function isImeComposing(e: ReactKeyboardEvent<HTMLElement>, composingFlag: boole
   return composingFlag || e.nativeEvent.isComposing || e.keyCode === 229
 }
 
+function composeEntrySpeechText(entry: ButlerConversationEntry): string {
+  const parts: string[] = []
+  const text = entry.text.trim()
+  if (text) parts.push(text)
+  if (entry.report) {
+    const headline = entry.report.headline.trim()
+    const summary = entry.report.summary.trim()
+    const next = entry.report.nextSuggestion?.trim() ?? ''
+    if (headline && headline !== text) parts.push(headline)
+    if (summary && summary !== text) parts.push(summary)
+    if (next) parts.push(next)
+  }
+  return parts.join('. ')
+}
+
+function MicGlyph(): React.JSX.Element {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="5.75" y="1.75" width="4.5" height="8" rx="2.25" stroke="currentColor" strokeWidth="1.35" />
+      <path
+        d="M3.5 7.75a4.5 4.5 0 0 0 9 0M8 12.25v2M5.75 14.25h4.5"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function SpeakGlyph({ active }: { readonly active: boolean }): React.JSX.Element {
+  if (active) {
+    return (
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <rect x="3.5" y="3.5" width="9" height="9" rx="1.6" fill="currentColor" />
+      </svg>
+    )
+  }
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M2.75 6.25h2.4l3.35-2.75v9L5.15 9.75h-2.4v-3.5Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.8a6 6 0 0 1 0 8.4"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 function ReactorGlyph({ busy }: { readonly busy: boolean }): React.JSX.Element {
   return (
     <span className={`butler-desk-reactor${busy ? ' is-busy' : ''}`} aria-hidden="true">
@@ -373,10 +461,14 @@ function ArtifactRow({
 
 function ReportCard({
   report,
+  speaking,
+  onToggleSpeak,
   onPreviewFile,
   onOpenFile,
 }: {
   readonly report: ButlerMissionReport
+  readonly speaking?: boolean
+  readonly onToggleSpeak?: () => void
   readonly onPreviewFile?: (filePath: string) => void
   readonly onOpenFile?: (filePath: string) => void
 }): React.JSX.Element {
@@ -385,7 +477,22 @@ function ReportCard({
   return (
     <section className="butler-report-card" data-testid="butler-report-card">
       <div className="butler-report-head">
-        <span className="butler-report-kicker">{t('butlerReportTitle')}</span>
+        <div className="butler-report-head-top">
+          <span className="butler-report-kicker">{t('butlerReportTitle')}</span>
+          {onToggleSpeak && (
+            <button
+              type="button"
+              className={`butler-entry-speak-btn${speaking ? ' is-speaking' : ''}`}
+              data-testid="butler-entry-speak-btn"
+              aria-pressed={Boolean(speaking)}
+              title={speaking ? t('butlerVoiceStopSpeaking') : t('butlerVoiceSpeakItem')}
+              aria-label={speaking ? t('butlerVoiceStopSpeaking') : t('butlerVoiceSpeakItem')}
+              onClick={onToggleSpeak}
+            >
+              <SpeakGlyph active={Boolean(speaking)} />
+            </button>
+          )}
+        </div>
         <h3 className="butler-report-headline">{report.headline}</h3>
       </div>
 
@@ -424,6 +531,70 @@ function ReportCard({
           <span>{report.nextSuggestion}</span>
         </div>
       )}
+    </section>
+  )
+}
+
+function PlanApprovalCard({
+  mission,
+  plan,
+  approving,
+  error,
+  onApprove,
+}: {
+  readonly mission: ButlerMission
+  readonly plan: ButlerMissionPlan
+  readonly approving: boolean
+  readonly error?: string | null
+  readonly onApprove: (missionId: string) => void
+}): React.JSX.Element {
+  const { t } = useI18n()
+
+  return (
+    <section
+      className="butler-plan-card"
+      data-testid="butler-plan-card"
+      data-mission-id={mission.id}
+    >
+      <div className="butler-plan-head">
+        <div className="butler-plan-title-row">
+          <h3 className="butler-plan-title">{t('butlerPlanCardTitle')}</h3>
+          <span className="butler-plan-rev-badge">
+            {t('butlerPlanCardRevision', { rev: plan.revision })}
+          </span>
+        </div>
+        <p className="butler-plan-summary">{plan.summary}</p>
+      </div>
+
+      <ol className="butler-plan-steps">
+        {plan.steps.map((step, index) => (
+          <li key={step.id} className="butler-plan-step">
+            <span className="butler-plan-step-index">{index + 1}.</span>
+            <div className="butler-plan-step-body">
+              <div className="butler-plan-step-head">
+                <span className="butler-role-badge">{t(workerRoleLabelKey(step.role))}</span>
+                <span className="butler-plan-step-title">{step.title}</span>
+              </div>
+              {step.brief && <p className="butler-plan-step-brief">{step.brief}</p>}
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      {error && <p className="butler-subtask-error">{error}</p>}
+
+      <div className="butler-plan-footer">
+        <button
+          type="button"
+          className="butler-btn is-primary"
+          data-testid="butler-approve-plan-btn"
+          disabled={approving}
+          onClick={() => onApprove(mission.id)}
+        >
+          {t('butlerPlanApproveBtn')}
+        </button>
+        <span className="butler-plan-revise-hint">{t('butlerPlanReviseHint')}</span>
+      </div>
     </section>
   )
 }
@@ -514,6 +685,7 @@ function SubTaskRow({
   task,
   tasksById,
   cancelling,
+  retrying,
   steering,
   steerOpen,
   steerDraft,
@@ -522,10 +694,12 @@ function SubTaskRow({
   onSteerDraftChange,
   onSubmitSteer,
   onCancelTask,
+  onRetryTask,
 }: {
   readonly task: ButlerSubTask
   readonly tasksById: ReadonlyMap<string, ButlerSubTask>
   readonly cancelling: boolean
+  readonly retrying: boolean
   readonly steering: boolean
   readonly steerOpen: boolean
   readonly steerDraft: string
@@ -534,11 +708,14 @@ function SubTaskRow({
   readonly onSteerDraftChange: (taskId: string, value: string) => void
   readonly onSubmitSteer: (taskId: string) => void
   readonly onCancelTask: (taskId: string) => void
+  readonly onRetryTask: (taskId: string) => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const composingRef = useRef(false)
   const liveNote = formatSubTaskLiveNote(task, t)
   const depLabels = task.dependsOn.map((depId) => tasksById.get(depId)?.title ?? depId)
+  const canRetry =
+    task.status === 'failed' || task.status === 'cancelled' || task.status === 'interrupted'
 
   return (
     <div className="butler-subtask-row" data-task-id={task.id}>
@@ -577,6 +754,17 @@ function SubTaskRow({
               onClick={() => onToggleSteer(task.id)}
             >
               {t('butlerTaskSteer')}
+            </button>
+          )}
+          {canRetry && (
+            <button
+              type="button"
+              className="butler-btn is-compact"
+              data-testid="butler-retry-task-btn"
+              disabled={retrying}
+              onClick={() => onRetryTask(task.id)}
+            >
+              {t('butlerTaskRetry')}
             </button>
           )}
           {isSubTaskActive(task.status) && (
@@ -642,34 +830,42 @@ function MissionCard({
   expanded,
   focused,
   cancellingMission,
+  deletingMission,
   cancellingTasks,
+  retryingTasks,
   steeringTasks,
   openSteerTaskIds,
   steerDrafts,
   steerErrors,
   onToggleExpand,
   onCancelMission,
+  onDeleteMission,
   onToggleSteer,
   onSteerDraftChange,
   onSubmitSteer,
   onCancelTask,
+  onRetryTask,
 }: {
   readonly mission: ButlerMission
   readonly tasksById: ReadonlyMap<string, ButlerSubTask>
   readonly expanded: boolean
   readonly focused: boolean
   readonly cancellingMission: boolean
+  readonly deletingMission: boolean
   readonly cancellingTasks: ReadonlySet<string>
+  readonly retryingTasks: ReadonlySet<string>
   readonly steeringTasks: ReadonlySet<string>
   readonly openSteerTaskIds: ReadonlySet<string>
   readonly steerDrafts: Readonly<Record<string, string>>
   readonly steerErrors: Readonly<Record<string, string>>
   readonly onToggleExpand: (missionId: string, currentExpanded: boolean) => void
   readonly onCancelMission: (missionId: string) => void
+  readonly onDeleteMission: (missionId: string) => void
   readonly onToggleSteer: (taskId: string) => void
   readonly onSteerDraftChange: (taskId: string, value: string) => void
   readonly onSubmitSteer: (taskId: string) => void
   readonly onCancelTask: (taskId: string) => void
+  readonly onRetryTask: (taskId: string) => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const progress = missionTaskProgress(mission, tasksById)
@@ -709,6 +905,15 @@ function MissionCard({
             )}
             <button
               type="button"
+              className="butler-btn is-compact is-danger"
+              data-testid="butler-delete-mission-btn"
+              disabled={deletingMission}
+              onClick={() => onDeleteMission(mission.id)}
+            >
+              {t('butlerMissionDelete')}
+            </button>
+            <button
+              type="button"
               className="butler-btn is-compact"
               aria-expanded={expanded}
               onClick={() => onToggleExpand(mission.id, expanded)}
@@ -729,6 +934,7 @@ function MissionCard({
               task={task}
               tasksById={tasksById}
               cancelling={cancellingTasks.has(task.id)}
+              retrying={retryingTasks.has(task.id)}
               steering={steeringTasks.has(task.id)}
               steerOpen={openSteerTaskIds.has(task.id)}
               steerDraft={steerDrafts[task.id] ?? ''}
@@ -737,6 +943,7 @@ function MissionCard({
               onSteerDraftChange={onSteerDraftChange}
               onSubmitSteer={onSubmitSteer}
               onCancelTask={onCancelTask}
+              onRetryTask={onRetryTask}
             />
           ))}
         </div>
@@ -748,25 +955,54 @@ function MissionCard({
 function FeedEntryRow({
   entry,
   dateLocale,
+  speaking,
+  onToggleSpeak,
   onPreviewFile,
   onOpenFile,
 }: {
   readonly entry: ButlerConversationEntry
   readonly dateLocale: string
+  readonly speaking: boolean
+  readonly onToggleSpeak: (entry: ButlerConversationEntry) => void
   readonly onPreviewFile?: (filePath: string) => void
   readonly onOpenFile?: (filePath: string) => void
 }): React.JSX.Element {
+  const { t } = useI18n()
   const timeText = formatClock(entry.createdAt, dateLocale)
   const roleClass =
     entry.role === 'user' ? 'is-user' : entry.role === 'system' ? 'is-system' : 'is-butler'
+  const canSpeak = entry.role === 'butler' && Boolean(entry.text.trim() || entry.report)
 
   return (
     <div className={`butler-desk-entry ${roleClass}`} data-entry-role={entry.role}>
       {entry.text && <div className="butler-desk-bubble">{entry.text}</div>}
       {entry.report && (
-        <ReportCard report={entry.report} onPreviewFile={onPreviewFile} onOpenFile={onOpenFile} />
+        <ReportCard
+          report={entry.report}
+          speaking={speaking}
+          onToggleSpeak={canSpeak ? () => onToggleSpeak(entry) : undefined}
+          onPreviewFile={onPreviewFile}
+          onOpenFile={onOpenFile}
+        />
       )}
-      {timeText && <span className="butler-desk-entry-meta">{timeText}</span>}
+      {(timeText || (canSpeak && !entry.report)) && (
+        <span className="butler-desk-entry-meta">
+          {timeText && <span>{timeText}</span>}
+          {canSpeak && !entry.report && (
+            <button
+              type="button"
+              className={`butler-entry-speak-btn${speaking ? ' is-speaking' : ''}`}
+              data-testid="butler-entry-speak-btn"
+              aria-pressed={speaking}
+              title={speaking ? t('butlerVoiceStopSpeaking') : t('butlerVoiceSpeakItem')}
+              aria-label={speaking ? t('butlerVoiceStopSpeaking') : t('butlerVoiceSpeakItem')}
+              onClick={() => onToggleSpeak(entry)}
+            >
+              <SpeakGlyph active={speaking} />
+            </button>
+          )}
+        </span>
+      )}
     </div>
   )
 }
@@ -781,13 +1017,41 @@ export function ButlerDeskView({
   onPreviewFile,
   onOpenFile,
 }: ButlerDeskViewProps): React.JSX.Element {
-  const { t, dateLocale } = useI18n()
+  const { lang, t, dateLocale } = useI18n()
+  const langRef = useRef(lang)
+  langRef.current = lang
+  const tRef = useRef(t)
+  tRef.current = t
 
   const [snapshot, setSnapshot] = useState<ButlerDeskSnapshot>(EMPTY_SNAPSHOT)
+  const snapshotRef = useRef(snapshot)
+  snapshotRef.current = snapshot
+  const [prefs, setPrefs] = useState<ButlerPrefs>(DEFAULT_BUTLER_PREFS)
+  const prefsRef = useRef<ButlerPrefs>(DEFAULT_BUTLER_PREFS)
+  const [voiceConfig, setVoiceConfig] = useState<ButlerVoiceConfig>(DEFAULT_BUTLER_VOICE_CONFIG)
+  const voiceConfigRef = useRef<ButlerVoiceConfig>(DEFAULT_BUTLER_VOICE_CONFIG)
+  const [arbitration, setArbitration] = useState<ButlerMicArbitrationState>({
+    deskMicActive: false,
+    ttsSpeaking: false,
+    updatedAt: 0,
+  })
+  const arbitrationRef = useRef<ButlerMicArbitrationState>(arbitration)
+  arbitrationRef.current = arbitration
+  const [speechState, setSpeechState] = useState<ButlerSpeechState>(() => getButlerSpeechState())
+
   const [goalInput, setGoalInput] = useState('')
+  const goalInputRef = useRef(goalInput)
+  goalInputRef.current = goalInput
   const [delegating, setDelegating] = useState(false)
   const [delegateError, setDelegateError] = useState<string | null>(null)
   const [missionActionError, setMissionActionError] = useState<string | null>(null)
+  const [approvingPlanMissionId, setApprovingPlanMissionId] = useState<string | null>(null)
+  const [planApproveError, setPlanApproveError] = useState<string | null>(null)
+
+  const [micListening, setMicListening] = useState(false)
+  const [micTranscribing, setMicTranscribing] = useState(false)
+  const [micLevel, setMicLevel] = useState(0)
+  const [deskLiveConversation, setDeskLiveConversation] = useState(false)
 
   const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({})
   const [resolvingIds, setResolvingIds] = useState<Set<string>>(() => new Set())
@@ -795,24 +1059,276 @@ export function ButlerDeskView({
 
   const [expandedOverrides, setExpandedOverrides] = useState<Record<string, boolean>>({})
   const [cancellingMissionIds, setCancellingMissionIds] = useState<Set<string>>(() => new Set())
+  const [deletingMissionIds, setDeletingMissionIds] = useState<Set<string>>(() => new Set())
   const [cancellingTaskIds, setCancellingTaskIds] = useState<Set<string>>(() => new Set())
+  const [retryingTaskIds, setRetryingTaskIds] = useState<Set<string>>(() => new Set())
   const [openSteerTaskIds, setOpenSteerTaskIds] = useState<Set<string>>(() => new Set())
   const [steeringTaskIds, setSteeringTaskIds] = useState<Set<string>>(() => new Set())
   const [steerDrafts, setSteerDrafts] = useState<Record<string, string>>({})
   const [steerErrors, setSteerErrors] = useState<Record<string, string>>({})
 
+  const aliveRef = useRef(true)
   const rootRef = useRef<HTMLDivElement>(null)
   const feedRef = useRef<HTMLDivElement>(null)
   const composingGoalRef = useRef(false)
+  const micHandleRef = useRef<ButlerMicCaptureHandle | null>(null)
+  const micListeningRef = useRef(false)
+  const deskMicReportedRef = useRef(false)
+  const micTranscribingRef = useRef(false)
+  const deskConvoActiveRef = useRef(false)
+  const deskAwaitingReplyRef = useRef(false)
+  const manualEntrySpeakRef = useRef(false)
+  const deletingMissionInFlightRef = useRef<Set<string>>(new Set())
+  const retryingTaskInFlightRef = useRef<Set<string>>(new Set())
+  const deskFollowUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const deskResumeListenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const deskSpeechStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wasAnySpeakingRef = useRef(false)
+  const wasChiefBusyRef = useRef(false)
+  const hydratedFeedRef = useRef(false)
+  const seenFeedIdsRef = useRef<Set<string>>(new Set())
+  const startDeskMicSessionRef = useRef<(opts: { isFollowUp: boolean; hadExistingDraft: boolean }) => void>(
+    () => undefined,
+  )
+
+  const clearDeskFollowUpTimer = useCallback(() => {
+    if (deskFollowUpTimerRef.current !== null) {
+      clearTimeout(deskFollowUpTimerRef.current)
+      deskFollowUpTimerRef.current = null
+    }
+  }, [])
+
+  const clearDeskResumeTimer = useCallback(() => {
+    if (deskResumeListenTimerRef.current !== null) {
+      clearTimeout(deskResumeListenTimerRef.current)
+      deskResumeListenTimerRef.current = null
+    }
+  }, [])
+
+  const clearDeskSpeechStartTimer = useCallback(() => {
+    if (deskSpeechStartTimerRef.current !== null) {
+      clearTimeout(deskSpeechStartTimerRef.current)
+      deskSpeechStartTimerRef.current = null
+    }
+  }, [])
+
+  const setDeskConvoActive = useCallback((active: boolean) => {
+    deskConvoActiveRef.current = active
+    if (aliveRef.current) {
+      setDeskLiveConversation(active)
+    }
+  }, [])
+
+  const releaseDeskMicArbitration = useCallback(() => {
+    if (!deskMicReportedRef.current) return
+    deskMicReportedRef.current = false
+    getAiOfficeApi()?.reportButlerVoiceArbitration?.({ deskMicActive: false })
+  }, [])
+
+  const armDeskFollowUpTimer = useCallback(() => {
+    clearDeskFollowUpTimer()
+    if (!aliveRef.current || !deskConvoActiveRef.current || !micListeningRef.current) {
+      return
+    }
+    deskFollowUpTimerRef.current = setTimeout(() => {
+      deskFollowUpTimerRef.current = null
+      if (!aliveRef.current) return
+      if (micListeningRef.current && deskConvoActiveRef.current) {
+        setDeskConvoActive(false)
+        deskAwaitingReplyRef.current = false
+        const handle = micHandleRef.current
+        micHandleRef.current = null
+        micListeningRef.current = false
+        setMicListening(false)
+        setMicLevel(0)
+        handle?.stop(false)
+        releaseDeskMicArbitration()
+      }
+    }, DESK_FOLLOW_UP_WINDOW_MS)
+  }, [clearDeskFollowUpTimer, releaseDeskMicArbitration, setDeskConvoActive])
+
+  const scheduleDeskFollowUpListen = useCallback(
+    (delayMs = DESK_RESUME_LISTEN_DELAY_MS) => {
+      clearDeskResumeTimer()
+      if (
+        !aliveRef.current ||
+        !deskConvoActiveRef.current ||
+        micListeningRef.current ||
+        micTranscribingRef.current ||
+        prefsRef.current.dnd ||
+        !prefsRef.current.enabled
+      ) {
+        return
+      }
+      const attemptResume = (): void => {
+        deskResumeListenTimerRef.current = null
+        if (
+          !aliveRef.current ||
+          !deskConvoActiveRef.current ||
+          micListeningRef.current ||
+          micTranscribingRef.current ||
+          prefsRef.current.dnd ||
+          !prefsRef.current.enabled
+        ) {
+          return
+        }
+        if (
+          getButlerSpeechState().speaking ||
+          isButlerSpeechQueueBusy() ||
+          arbitrationRef.current.ttsSpeaking
+        ) {
+          return
+        }
+        if (isButlerSpeakingOrEchoGuard()) {
+          deskResumeListenTimerRef.current = setTimeout(attemptResume, 80)
+          return
+        }
+        startDeskMicSessionRef.current({ isFollowUp: true, hadExistingDraft: false })
+      }
+      deskResumeListenTimerRef.current = setTimeout(attemptResume, delayMs)
+    },
+    [clearDeskResumeTimer],
+  )
+
+  const armDeskSpeechStartFallback = useCallback(() => {
+    clearDeskSpeechStartTimer()
+    if (!deskConvoActiveRef.current || !deskAwaitingReplyRef.current) return
+    deskSpeechStartTimerRef.current = setTimeout(() => {
+      deskSpeechStartTimerRef.current = null
+      if (!aliveRef.current || !deskConvoActiveRef.current || !deskAwaitingReplyRef.current) {
+        return
+      }
+      if (
+        !getButlerSpeechState().speaking &&
+        !isButlerSpeechQueueBusy() &&
+        !arbitrationRef.current.ttsSpeaking
+      ) {
+        deskAwaitingReplyRef.current = false
+        scheduleDeskFollowUpListen(120)
+      }
+    }, DESK_SPEECH_START_TIMEOUT_MS)
+  }, [clearDeskSpeechStartTimer, scheduleDeskFollowUpListen])
 
   useEffect(() => {
+    aliveRef.current = true
     const api = getAiOfficeApi()
-    let alive = true
     let receivedPush = false
 
+    const recordSeenEntries = (entries: readonly ButlerConversationEntry[]) => {
+      for (const entry of entries) {
+        seenFeedIdsRef.current.add(entry.id)
+      }
+    }
+
+    if (typeof api?.getButlerPrefs === 'function') {
+      void api
+        .getButlerPrefs()
+        .then((loaded) => {
+          if (!aliveRef.current || !loaded) return
+          const normalized = normalizeButlerPrefs(loaded)
+          prefsRef.current = normalized
+          setPrefs(normalized)
+        })
+        .catch(() => undefined)
+    }
+
+    const offPrefs = api?.onButlerPrefsChanged?.((next) => {
+      if (!aliveRef.current) return
+      const normalized = normalizeButlerPrefs(next)
+      prefsRef.current = normalized
+      setPrefs(normalized)
+    })
+
+    if (typeof api?.getButlerVoiceConfig === 'function') {
+      void api
+        .getButlerVoiceConfig()
+        .then((loaded) => {
+          if (!aliveRef.current || !loaded) return
+          const normalized = normalizeButlerVoiceConfig(loaded)
+          voiceConfigRef.current = normalized
+          setVoiceConfig(normalized)
+        })
+        .catch(() => undefined)
+    }
+
+    const offVoiceConfig = api?.onButlerVoiceConfigChanged?.((next) => {
+      if (!aliveRef.current) return
+      const normalized = normalizeButlerVoiceConfig(next)
+      voiceConfigRef.current = normalized
+      setVoiceConfig(normalized)
+    })
+
+    const offArbitration = api?.onButlerVoiceArbitration?.((next) => {
+      if (!aliveRef.current || !next) return
+      arbitrationRef.current = next
+      setArbitration(next)
+    })
+
+    const offSpeech = subscribeButlerSpeechState((next) => {
+      if (aliveRef.current) setSpeechState(next)
+    })
+
     const unsubscribe = api?.onButlerDeskUpdated?.((next) => {
-      if (!alive) return
+      if (!aliveRef.current) return
       receivedPush = true
+      if (!hydratedFeedRef.current) {
+        hydratedFeedRef.current = true
+        recordSeenEntries(next.feed)
+        wasChiefBusyRef.current = Boolean(next.chiefBusy)
+      } else {
+        const newlyAddedPlainReplies: ButlerConversationEntry[] = []
+        let hasNewReportReply = false
+        for (const entry of next.feed) {
+          if (!seenFeedIdsRef.current.has(entry.id)) {
+            seenFeedIdsRef.current.add(entry.id)
+            if (entry.role === 'butler') {
+              if (entry.report) {
+                hasNewReportReply = true
+              } else if (entry.text.trim()) {
+                newlyAddedPlainReplies.push(entry)
+              }
+            }
+          }
+        }
+        const prevChiefBusy = wasChiefBusyRef.current
+        wasChiefBusyRef.current = Boolean(next.chiefBusy)
+
+        const canAutoSpeak =
+          prefsRef.current.voice &&
+          !prefsRef.current.dnd &&
+          voiceConfigRef.current.autoSpeakReplies
+
+        const latestReply = newlyAddedPlainReplies.at(-1)
+        const alreadySpeakingOrQueued =
+          getButlerSpeechState().speaking ||
+          isButlerSpeechQueueBusy() ||
+          arbitrationRef.current.ttsSpeaking
+        if (latestReply && !latestReply.missionId && canAutoSpeak && !alreadySpeakingOrQueued) {
+          manualEntrySpeakRef.current = false
+          void speakButlerSmart(latestReply.text, {
+            prefs: prefsRef.current,
+            voiceConfig: voiceConfigRef.current,
+            langTag: htmlLang(langRef.current),
+            sourceId: latestReply.id,
+          })
+        } else if (deskConvoActiveRef.current && deskAwaitingReplyRef.current) {
+          if (
+            canAutoSpeak &&
+            (hasNewReportReply || Boolean(latestReply) || (!next.chiefBusy && prevChiefBusy))
+          ) {
+            if (!alreadySpeakingOrQueued) {
+              armDeskSpeechStartFallback()
+            }
+          } else if (
+            !canAutoSpeak &&
+            !next.chiefBusy &&
+            (prevChiefBusy || hasNewReportReply || Boolean(latestReply))
+          ) {
+            deskAwaitingReplyRef.current = false
+            scheduleDeskFollowUpListen(120)
+          }
+        }
+      }
       setSnapshot(next)
     })
 
@@ -820,20 +1336,78 @@ export function ButlerDeskView({
       void api
         .butlerDeskState()
         .then((initial) => {
-          if (!alive || receivedPush || !initial) return
+          if (!aliveRef.current || receivedPush || !initial) return
+          hydratedFeedRef.current = true
+          recordSeenEntries(initial.feed)
+          wasChiefBusyRef.current = Boolean(initial.chiefBusy)
           setSnapshot(initial)
         })
         .catch((err: unknown) => {
-          if (!alive) return
+          if (!aliveRef.current) return
           setDelegateError(errorMessageFrom(err))
         })
+    } else {
+      hydratedFeedRef.current = true
     }
 
     return () => {
-      alive = false
+      aliveRef.current = false
+      setDeskConvoActive(false)
+      deskAwaitingReplyRef.current = false
+      clearDeskFollowUpTimer()
+      clearDeskResumeTimer()
+      clearDeskSpeechStartTimer()
+      const handle = micHandleRef.current
+      micHandleRef.current = null
+      micListeningRef.current = false
+      handle?.stop(false)
+      releaseDeskMicArbitration()
       unsubscribe?.()
+      offPrefs?.()
+      offVoiceConfig?.()
+      offArbitration?.()
+      offSpeech()
     }
-  }, [])
+  }, [
+    armDeskSpeechStartFallback,
+    clearDeskFollowUpTimer,
+    clearDeskResumeTimer,
+    clearDeskSpeechStartTimer,
+    releaseDeskMicArbitration,
+    scheduleDeskFollowUpListen,
+    setDeskConvoActive,
+  ])
+
+  const isAnySpeaking = speechState.speaking || arbitration.ttsSpeaking
+
+  useEffect(() => {
+    if (isAnySpeaking) {
+      clearDeskSpeechStartTimer()
+      wasAnySpeakingRef.current = true
+      return
+    }
+
+    if (wasAnySpeakingRef.current) {
+      wasAnySpeakingRef.current = false
+      if (manualEntrySpeakRef.current) {
+        manualEntrySpeakRef.current = false
+        return
+      }
+      if (snapshotRef.current.chiefBusy) {
+        return
+      }
+      if (
+        deskConvoActiveRef.current &&
+        deskAwaitingReplyRef.current &&
+        !micListeningRef.current &&
+        !micTranscribingRef.current &&
+        !prefsRef.current.dnd
+      ) {
+        deskAwaitingReplyRef.current = false
+        scheduleDeskFollowUpListen()
+      }
+    }
+  }, [clearDeskSpeechStartTimer, isAnySpeaking, scheduleDeskFollowUpListen])
 
   useEffect(() => {
     const container = feedRef.current
@@ -880,34 +1454,324 @@ export function ButlerDeskView({
 
   const sortedMissions = useMemo(() => sortMissionsForDesk(snapshot.missions), [snapshot.missions])
 
-  const handleDelegate = useCallback(async () => {
-    const trimmed = goalInput.trim()
-    if (!trimmed || delegating) return
+  const planReviewMission = useMemo(() => {
+    if (focusTarget?.missionId) {
+      const focused = snapshot.missions.find((m) => m.id === focusTarget.missionId)
+      if (focused?.status === 'awaiting_plan_approval' && focused.plan) return focused
+    }
+    const candidates = snapshot.missions.filter(
+      (m) => m.status === 'awaiting_plan_approval' && Boolean(m.plan),
+    )
+    if (candidates.length === 0) return null
+    candidates.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
+    return candidates[0] ?? null
+  }, [focusTarget?.missionId, snapshot.missions])
+
+  const handleApprovePlan = useCallback(
+    async (missionId: string) => {
+      if (approvingPlanMissionId) return
+      const api = getAiOfficeApi()
+      if (typeof api?.butlerApproveMissionPlan !== 'function') return
+
+      setApprovingPlanMissionId(missionId)
+      setPlanApproveError(null)
+      try {
+        const res = await api.butlerApproveMissionPlan({ missionId })
+        if (!aliveRef.current) return
+        if (!res?.ok) {
+          setPlanApproveError(res?.error || 'Failed to approve plan')
+        }
+      } catch (err: unknown) {
+        if (!aliveRef.current) return
+        setPlanApproveError(errorMessageFrom(err))
+      } finally {
+        if (aliveRef.current) setApprovingPlanMissionId(null)
+      }
+    },
+    [approvingPlanMissionId],
+  )
+
+  const submitGoalText = useCallback(async (rawText: string): Promise<boolean> => {
+    const trimmed = rawText.trim()
+    if (!trimmed) return false
 
     const api = getAiOfficeApi()
     if (typeof api?.butlerDelegate !== 'function') {
-      setDelegateError(t('butlerErrDisabled'))
-      return
+      setDelegateError(tRef.current('butlerErrDisabled'))
+      return false
     }
 
-    const draft = goalInput
     setDelegating(true)
     setDelegateError(null)
     setGoalInput('')
 
     try {
       const result = await api.butlerDelegate(trimmed)
+      if (!aliveRef.current) return false
       if (!result?.ok) {
-        setGoalInput(draft)
-        setDelegateError(result?.error || t('butlerErrFailed', { message: 'unknown' }))
+        setGoalInput(rawText)
+        setDelegateError(
+          result?.error || tRef.current('butlerErrFailed', { message: 'unknown' }),
+        )
+        return false
       }
+      return true
     } catch (err: unknown) {
-      setGoalInput(draft)
+      if (!aliveRef.current) return false
+      setGoalInput(rawText)
       setDelegateError(errorMessageFrom(err))
+      return false
     } finally {
-      setDelegating(false)
+      if (aliveRef.current) setDelegating(false)
     }
-  }, [delegating, goalInput, t])
+  }, [])
+
+  const handleDelegate = useCallback(async () => {
+    if (delegating) return
+    await submitGoalText(goalInput)
+  }, [delegating, goalInput, submitGoalText])
+
+  const handleToggleEntrySpeak = useCallback((entry: ButlerConversationEntry) => {
+    const currentSpeech = getButlerSpeechState()
+    if (currentSpeech.speaking && currentSpeech.sourceId === entry.id) {
+      manualEntrySpeakRef.current = false
+      deskAwaitingReplyRef.current = false
+      stopButlerSpeech()
+      return
+    }
+    const speechText = composeEntrySpeechText(entry)
+    if (!speechText) return
+    manualEntrySpeakRef.current = true
+    void speakButlerSmart(speechText, {
+      prefs: prefsRef.current,
+      voiceConfig: voiceConfigRef.current,
+      langTag: htmlLang(langRef.current),
+      sourceId: entry.id,
+    })
+  }, [])
+
+  const startDeskMicSession = useCallback(
+    (opts: { isFollowUp: boolean; hadExistingDraft: boolean }) => {
+      clearDeskResumeTimer()
+      clearDeskSpeechStartTimer()
+      clearDeskFollowUpTimer()
+
+      if (micHandleRef.current) {
+        const oldHandle = micHandleRef.current
+        micHandleRef.current = null
+        oldHandle.stop(false)
+      }
+
+      if (!opts.isFollowUp) {
+        manualEntrySpeakRef.current = false
+        stopButlerSpeech()
+        setDeskConvoActive(!opts.hadExistingDraft)
+      } else {
+        playWakeEarcon('wake')
+      }
+
+      deskAwaitingReplyRef.current = false
+      deskMicReportedRef.current = true
+      getAiOfficeApi()?.reportButlerVoiceArbitration?.({ deskMicActive: true })
+      setDelegateError(null)
+      micListeningRef.current = true
+      setMicListening(true)
+      setMicLevel(0)
+
+      const handle = startButlerMicCapture({
+        continuous: false,
+        silenceMs: voiceConfigRef.current.vadSilenceMs,
+        shouldSuppress: () => isButlerSpeakingOrEchoGuard() || arbitrationRef.current.ttsSpeaking,
+        onVoiceActivity: (speaking) => {
+          if (!aliveRef.current || !micListeningRef.current) return
+          if (speaking) {
+            clearDeskFollowUpTimer()
+          } else if (deskConvoActiveRef.current) {
+            armDeskFollowUpTimer()
+          }
+        },
+        onLevel: (lvl) => {
+          if (aliveRef.current && micListeningRef.current) setMicLevel(lvl)
+        },
+        onSpeechSegment: (wavBytes) => {
+          if (!aliveRef.current) return
+          clearDeskFollowUpTimer()
+          micHandleRef.current = null
+          micListeningRef.current = false
+          setMicListening(false)
+          setMicLevel(0)
+          const api = getAiOfficeApi()
+          if (typeof api?.butlerVoiceTranscribe !== 'function') {
+            setDeskConvoActive(false)
+            deskAwaitingReplyRef.current = false
+            releaseDeskMicArbitration()
+            return
+          }
+
+          micTranscribingRef.current = true
+          setMicTranscribing(true)
+          void (async () => {
+            let shouldRecoverListen = false
+            try {
+              const res = await api.butlerVoiceTranscribe!({
+                wavBase64: uint8ToBase64(wavBytes),
+                language: voiceConfigRef.current.sttLanguage,
+                purpose: 'command',
+              })
+              if (!aliveRef.current) return
+              if (res?.ok && res.text.trim()) {
+                const rawTranscript = res.text.trim()
+                if (opts.hadExistingDraft || goalInputRef.current.trim().length > 0) {
+                  setDeskConvoActive(false)
+                  deskAwaitingReplyRef.current = false
+                  setGoalInput((prev) =>
+                    prev.trim() ? `${prev.trim()} ${rawTranscript}` : rawTranscript,
+                  )
+                  return
+                }
+
+                const parsed = parseFollowUpTranscript(
+                  rawTranscript,
+                  prefsRef.current.name,
+                  voiceConfigRef.current.wakeAliases,
+                )
+                if (parsed.kind === 'dismiss') {
+                  playWakeEarcon('cancel')
+                  setDeskConvoActive(false)
+                  deskAwaitingReplyRef.current = false
+                  return
+                }
+                if (parsed.kind === 'wake_only' || parsed.kind === 'empty') {
+                  shouldRecoverListen = true
+                  return
+                }
+
+                setGoalInput(parsed.commandText)
+                if (deskConvoActiveRef.current) {
+                  deskAwaitingReplyRef.current = true
+                }
+                const ok = await submitGoalText(parsed.commandText)
+                if (!ok) {
+                  deskAwaitingReplyRef.current = false
+                  shouldRecoverListen = true
+                }
+              } else if (res?.ok) {
+                shouldRecoverListen = !opts.hadExistingDraft
+              } else {
+                deskAwaitingReplyRef.current = false
+                if (res && !res.ok && res.error) {
+                  setDelegateError(res.error)
+                }
+                shouldRecoverListen = true
+              }
+            } catch (err: unknown) {
+              if (!aliveRef.current) return
+              deskAwaitingReplyRef.current = false
+              setDelegateError(errorMessageFrom(err))
+              shouldRecoverListen = true
+            } finally {
+              micTranscribingRef.current = false
+              if (aliveRef.current) setMicTranscribing(false)
+              releaseDeskMicArbitration()
+              if (
+                shouldRecoverListen &&
+                aliveRef.current &&
+                deskConvoActiveRef.current &&
+                !prefsRef.current.dnd &&
+                prefsRef.current.enabled
+              ) {
+                scheduleDeskFollowUpListen(180)
+              }
+            }
+          })()
+        },
+        onError: (errMsg) => {
+          clearDeskFollowUpTimer()
+          setDeskConvoActive(false)
+          deskAwaitingReplyRef.current = false
+          micHandleRef.current = null
+          micListeningRef.current = false
+          if (aliveRef.current) {
+            setMicListening(false)
+            setMicLevel(0)
+            if (errMsg) setDelegateError(errMsg)
+          }
+          releaseDeskMicArbitration()
+        },
+      })
+
+      micHandleRef.current = handle
+      if (deskConvoActiveRef.current) {
+        armDeskFollowUpTimer()
+      }
+    },
+    [
+      armDeskFollowUpTimer,
+      clearDeskFollowUpTimer,
+      clearDeskResumeTimer,
+      clearDeskSpeechStartTimer,
+      releaseDeskMicArbitration,
+      scheduleDeskFollowUpListen,
+      setDeskConvoActive,
+      submitGoalText,
+    ],
+  )
+  startDeskMicSessionRef.current = startDeskMicSession
+
+  const handleToggleMic = useCallback(() => {
+    if (micListening) {
+      setDeskConvoActive(false)
+      deskAwaitingReplyRef.current = false
+      clearDeskFollowUpTimer()
+      clearDeskResumeTimer()
+      clearDeskSpeechStartTimer()
+      const handle = micHandleRef.current
+      micHandleRef.current = null
+      micListeningRef.current = false
+      setMicListening(false)
+      setMicLevel(0)
+      handle?.stop(true)
+      if (!micTranscribingRef.current) {
+        releaseDeskMicArbitration()
+      }
+      return
+    }
+
+    const hadExistingDraft = goalInputRef.current.trim().length > 0
+    startDeskMicSession({ isFollowUp: false, hadExistingDraft })
+  }, [
+    clearDeskFollowUpTimer,
+    clearDeskResumeTimer,
+    clearDeskSpeechStartTimer,
+    micListening,
+    releaseDeskMicArbitration,
+    setDeskConvoActive,
+    startDeskMicSession,
+  ])
+
+  const handleHangupDeskLive = useCallback(() => {
+    playWakeEarcon('cancel')
+    setDeskConvoActive(false)
+    deskAwaitingReplyRef.current = false
+    clearDeskFollowUpTimer()
+    clearDeskResumeTimer()
+    clearDeskSpeechStartTimer()
+    const handle = micHandleRef.current
+    micHandleRef.current = null
+    micListeningRef.current = false
+    setMicListening(false)
+    setMicLevel(0)
+    handle?.stop(false)
+    if (!micTranscribingRef.current) {
+      releaseDeskMicArbitration()
+    }
+  }, [
+    clearDeskFollowUpTimer,
+    clearDeskResumeTimer,
+    clearDeskSpeechStartTimer,
+    releaseDeskMicArbitration,
+    setDeskConvoActive,
+  ])
 
   const handleResolveDecision = useCallback(
     async (decisionId: string, optionId: string) => {
@@ -1001,6 +1865,64 @@ export function ButlerDeskView({
     }
   }, [])
 
+  const handleDeleteMission = useCallback(async (missionId: string) => {
+    if (deletingMissionInFlightRef.current.has(missionId)) return
+    const api = getAiOfficeApi()
+    if (typeof api?.butlerDeleteMission !== 'function') return
+
+    deletingMissionInFlightRef.current.add(missionId)
+    setMissionActionError(null)
+    setDeletingMissionIds((prev) => new Set(prev).add(missionId))
+    try {
+      const res = await api.butlerDeleteMission(missionId)
+      if (!aliveRef.current) return
+      if (!res?.ok) {
+        setMissionActionError(res?.error || 'Failed to delete mission')
+      }
+    } catch (err: unknown) {
+      if (!aliveRef.current) return
+      setMissionActionError(errorMessageFrom(err))
+    } finally {
+      deletingMissionInFlightRef.current.delete(missionId)
+      if (aliveRef.current) {
+        setDeletingMissionIds((prev) => {
+          const next = new Set(prev)
+          next.delete(missionId)
+          return next
+        })
+      }
+    }
+  }, [])
+
+  const handleRetryTask = useCallback(async (taskId: string) => {
+    if (retryingTaskInFlightRef.current.has(taskId)) return
+    const api = getAiOfficeApi()
+    if (typeof api?.butlerRetryTask !== 'function') return
+
+    retryingTaskInFlightRef.current.add(taskId)
+    setMissionActionError(null)
+    setRetryingTaskIds((prev) => new Set(prev).add(taskId))
+    try {
+      const res = await api.butlerRetryTask({ taskId })
+      if (!aliveRef.current) return
+      if (!res?.ok) {
+        setMissionActionError(res?.error || 'Failed to retry subtask')
+      }
+    } catch (err: unknown) {
+      if (!aliveRef.current) return
+      setMissionActionError(errorMessageFrom(err))
+    } finally {
+      retryingTaskInFlightRef.current.delete(taskId)
+      if (aliveRef.current) {
+        setRetryingTaskIds((prev) => {
+          const next = new Set(prev)
+          next.delete(taskId)
+          return next
+        })
+      }
+    }
+  }, [])
+
   const handleToggleSteer = useCallback((taskId: string) => {
     setOpenSteerTaskIds((prev) => {
       const next = new Set(prev)
@@ -1072,6 +1994,37 @@ export function ButlerDeskView({
         </div>
 
         <div className="butler-desk-header-telemetry">
+          {deskLiveConversation && (
+            <span className="butler-desk-live-bar" data-testid="butler-desk-live-bar">
+              <span className="butler-desk-live-dot" aria-hidden="true" />
+              <span>{t('butlerDeskLiveActive')}</span>
+              <button
+                type="button"
+                className="butler-btn is-compact is-danger butler-desk-hangup-btn"
+                data-testid="butler-desk-hangup-btn"
+                onClick={handleHangupDeskLive}
+              >
+                {t('butlerLiveSessionHangup')}
+              </button>
+            </span>
+          )}
+          {isAnySpeaking && (
+            <button
+              type="button"
+              className="butler-btn is-compact is-danger butler-desk-stop-speech-btn"
+              data-testid="butler-desk-stop-speech-btn"
+              onClick={() => {
+                manualEntrySpeakRef.current = false
+                deskAwaitingReplyRef.current = false
+                clearDeskFollowUpTimer()
+                clearDeskResumeTimer()
+                clearDeskSpeechStartTimer()
+                stopButlerSpeech()
+              }}
+            >
+              {t('butlerVoiceStopSpeaking')}
+            </button>
+          )}
           <span className={`butler-desk-status-pill${snapshot.chiefBusy ? ' is-busy' : ''}`}>
             <span className="butler-desk-status-dot" aria-hidden="true" />
             {snapshot.chiefBusy ? t('butlerDeskChiefBusy') : t('butlerDeskChiefIdle')}
@@ -1103,12 +2056,26 @@ export function ButlerDeskView({
                   key={entry.id}
                   entry={entry}
                   dateLocale={dateLocale}
+                  speaking={speechState.speaking && speechState.sourceId === entry.id}
+                  onToggleSpeak={handleToggleEntrySpeak}
                   onPreviewFile={onPreviewFile}
                   onOpenFile={onOpenFile}
                 />
               ))
             )}
           </div>
+
+          {planReviewMission && planReviewMission.plan && (
+            <div className="butler-plan-dock">
+              <PlanApprovalCard
+                mission={planReviewMission}
+                plan={planReviewMission.plan}
+                approving={approvingPlanMissionId === planReviewMission.id}
+                error={planApproveError}
+                onApprove={(id) => void handleApprovePlan(id)}
+              />
+            </div>
+          )}
 
           <div className="butler-desk-composer">
             {delegateError && (
@@ -1122,8 +2089,14 @@ export function ButlerDeskView({
                 data-testid="butler-desk-input"
                 rows={2}
                 value={goalInput}
-                disabled={delegating}
-                placeholder={t('butlerDeskInputPlaceholder')}
+                disabled={delegating || micTranscribing}
+                placeholder={
+                  micListening
+                    ? t('butlerVoiceWakeListening')
+                    : micTranscribing
+                      ? t('butlerVoiceTranscribing')
+                      : t('butlerDeskInputPlaceholder')
+                }
                 onCompositionStart={() => {
                   composingGoalRef.current = true
                 }}
@@ -1139,11 +2112,35 @@ export function ButlerDeskView({
                   }
                 }}
               />
+              {micListening && (
+                <div
+                  className="butler-desk-mic-meter"
+                  data-testid="butler-desk-mic-meter"
+                  aria-hidden="true"
+                >
+                  <span
+                    className="butler-desk-mic-meter-fill"
+                    style={{ transform: `scaleX(${Math.max(0.14, micLevel)})` }}
+                  />
+                </div>
+              )}
+              <button
+                type="button"
+                className={`butler-desk-mic-btn${micListening ? ' is-listening' : ''}`}
+                data-testid="butler-desk-mic-btn"
+                aria-pressed={micListening}
+                disabled={delegating || micTranscribing}
+                title={micListening ? t('butlerVoiceMicStop') : t('butlerVoiceMicStart')}
+                aria-label={micListening ? t('butlerVoiceMicStop') : t('butlerVoiceMicStart')}
+                onClick={handleToggleMic}
+              >
+                <MicGlyph />
+              </button>
               <button
                 type="button"
                 className="butler-desk-send-btn"
                 data-testid="butler-desk-send-btn"
-                disabled={delegating || goalInput.trim().length === 0}
+                disabled={delegating || micTranscribing || goalInput.trim().length === 0}
                 onClick={() => void handleDelegate()}
               >
                 {delegating ? t('butlerDeskSending') : t('butlerDeskSend')}
@@ -1233,7 +2230,9 @@ export function ButlerDeskView({
                       expanded={expanded}
                       focused={focusTarget?.missionId === mission.id}
                       cancellingMission={cancellingMissionIds.has(mission.id)}
+                      deletingMission={deletingMissionIds.has(mission.id)}
                       cancellingTasks={cancellingTaskIds}
+                      retryingTasks={retryingTaskIds}
                       steeringTasks={steeringTaskIds}
                       openSteerTaskIds={openSteerTaskIds}
                       steerDrafts={steerDrafts}
@@ -1242,12 +2241,14 @@ export function ButlerDeskView({
                         setExpandedOverrides((prev) => ({ ...prev, [id]: !cur }))
                       }
                       onCancelMission={(id) => void handleCancelMission(id)}
+                      onDeleteMission={(id) => void handleDeleteMission(id)}
                       onToggleSteer={handleToggleSteer}
                       onSteerDraftChange={(id, val) =>
                         setSteerDrafts((prev) => ({ ...prev, [id]: val }))
                       }
                       onSubmitSteer={(id) => void handleSubmitSteer(id)}
                       onCancelTask={(id) => void handleCancelTask(id)}
+                      onRetryTask={(id) => void handleRetryTask(id)}
                     />
                   )
                 })}

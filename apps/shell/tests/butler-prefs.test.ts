@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { isButlerOpenTarget } from '../src/shared/butler-api'
 import {
+  classifyButlerPlanReplyIntent,
+  isButlerApproveMissionPlanRequest,
+  isButlerOpenTarget,
+} from '../src/shared/butler-api'
+import {
+  BUTLER_WORKER_THINKING_EFFORTS,
   DEFAULT_BUTLER_PREFS,
+  isButlerWorkerThinkingEffort,
   mergeButlerPrefs,
   normalizeButlerPrefs,
   sameButlerPrefs,
@@ -126,5 +132,125 @@ describe('isButlerOpenTarget', () => {
     expect(isButlerOpenTarget({ type: 'todo', id: 't1' })).toBe(false)
     expect(isButlerOpenTarget({ type: 'session', sessionKey: '', label: 'x' })).toBe(false)
     expect(isButlerOpenTarget({ type: 'unknown' })).toBe(false)
+  })
+})
+
+describe('ButlerPrefs Wave 1 thinking & plan alignment fields', () => {
+  it('exposes defaults and strict validation for chiefFastMode, workerThinkingEffort, and planConfirmBeforeDispatch', () => {
+    expect(BUTLER_WORKER_THINKING_EFFORTS).toEqual(['follow', 'low', 'medium', 'high'])
+    expect(DEFAULT_BUTLER_PREFS.chiefFastMode).toBe(true)
+    expect(DEFAULT_BUTLER_PREFS.workerThinkingEffort).toBe('high')
+    expect(DEFAULT_BUTLER_PREFS.planConfirmBeforeDispatch).toBe(true)
+
+    expect(isButlerWorkerThinkingEffort('follow')).toBe(true)
+    expect(isButlerWorkerThinkingEffort('low')).toBe(true)
+    expect(isButlerWorkerThinkingEffort('medium')).toBe(true)
+    expect(isButlerWorkerThinkingEffort('high')).toBe(true)
+    expect(isButlerWorkerThinkingEffort('max')).toBe(false)
+    expect(isButlerWorkerThinkingEffort(123)).toBe(false)
+
+    const malformed = normalizeButlerPrefs({
+      chiefFastMode: 'false',
+      workerThinkingEffort: 'xhigh',
+      planConfirmBeforeDispatch: 0,
+    })
+    expect(malformed.chiefFastMode).toBe(true)
+    expect(malformed.workerThinkingEffort).toBe('high')
+    expect(malformed.planConfirmBeforeDispatch).toBe(true)
+
+    const updated = normalizeButlerPrefs({
+      chiefFastMode: false,
+      workerThinkingEffort: 'medium',
+      planConfirmBeforeDispatch: false,
+    })
+    expect(updated.chiefFastMode).toBe(false)
+    expect(updated.workerThinkingEffort).toBe('medium')
+    expect(updated.planConfirmBeforeDispatch).toBe(false)
+  })
+
+  it('merges and compares the 3 new fields accurately', () => {
+    const patched = mergeButlerPrefs(DEFAULT_BUTLER_PREFS, {
+      chiefFastMode: false,
+      workerThinkingEffort: 'follow',
+      planConfirmBeforeDispatch: false,
+    })
+    expect(patched.chiefFastMode).toBe(false)
+    expect(patched.workerThinkingEffort).toBe('follow')
+    expect(patched.planConfirmBeforeDispatch).toBe(false)
+    expect(sameButlerPrefs(DEFAULT_BUTLER_PREFS, patched)).toBe(false)
+    expect(sameButlerPrefs(patched, { ...patched })).toBe(true)
+  })
+})
+
+describe('isButlerApproveMissionPlanRequest & classifyButlerPlanReplyIntent', () => {
+  it('validates plan approval requests', () => {
+    expect(isButlerApproveMissionPlanRequest({ missionId: 'm1' })).toBe(true)
+    expect(isButlerApproveMissionPlanRequest({ missionId: 'm1', comment: 'Go ahead' })).toBe(true)
+    expect(isButlerApproveMissionPlanRequest({ missionId: '   ' })).toBe(false)
+    expect(isButlerApproveMissionPlanRequest({ missionId: 'm1', comment: 123 })).toBe(false)
+    expect(isButlerApproveMissionPlanRequest(null)).toBe(false)
+  })
+
+  it('classifies short unambiguous confirmations as approve (including multi-clause)', () => {
+    for (const reply of [
+      '好的',
+      '好，开始吧！',
+      '好，没问题，按这个办',
+      '好的，可以，开始吧',
+      '没问题，贾维斯',
+      '就按这个办吧',
+      '确认派发',
+      '安排下去吧，先生',
+      'ok',
+      'Okay, go ahead!',
+      'OK, looks good, go ahead!',
+      'Yes, start please',
+      'Looks good!',
+      'ship it',
+    ]) {
+      expect(classifyButlerPlanReplyIntent(reply), reply).toBe('approve')
+    }
+  })
+
+  it('classifies explicit cancellations as cancel (including multi-clause)', () => {
+    for (const reply of [
+      '取消',
+      '取消任务吧',
+      '算了',
+      '算了，取消任务',
+      '算了，不用做了，谢谢',
+      '不用做了',
+      'Cancel mission',
+      'Never mind, cancel mission',
+      'abort mission!',
+      'Never mind',
+    ]) {
+      expect(classifyButlerPlanReplyIntent(reply), reply).toBe('cancel')
+    }
+  })
+
+  it('classifies adversative qualifiers, mixed signals, honorific-only, and long replies as revise', () => {
+    for (const reply of [
+      '',
+      '   ',
+      '贾维斯',
+      '好，算了',
+      '好的，但是把第二步改成生成 PPT',
+      '没问题，不过先别改这个文件',
+      'Yes, but change step 2 instead',
+      'Wait, add a summary table at the end',
+      '把第二阶段拆分一下，加上对比分析',
+      '请问第二步的数据来源是从哪里获取的？',
+      '好的，没问题，好的，没问题，好的，没问题，好的，没问题，好的，没问题，好的，没问题',
+    ]) {
+      expect(classifyButlerPlanReplyIntent(reply), reply).toBe('revise')
+    }
+  })
+
+  it('does not confuse English words containing substring "but" or "add" with revise', () => {
+    expect(classifyButlerPlanReplyIntent('approve')).toBe('approve')
+    expect(classifyButlerPlanReplyIntent('ok, proceed')).toBe('approve')
+    expect(classifyButlerPlanReplyIntent('yes, butler')).toBe('approve')
+    expect(classifyButlerPlanReplyIntent('cancel address')).toBe('revise')
   })
 })

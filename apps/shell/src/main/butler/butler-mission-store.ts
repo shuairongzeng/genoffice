@@ -10,8 +10,10 @@ import type {
   ButlerDecisionOption,
   ButlerDecisionResolution,
   ButlerMission,
+  ButlerMissionPlan,
   ButlerMissionReport,
   ButlerMissionStatus,
+  ButlerProposedTaskStep,
   ButlerSubTask,
   ButlerSubTaskStatus,
   ButlerWorkerRole,
@@ -32,6 +34,8 @@ const VALID_WORKER_ROLES = new Set<ButlerWorkerRole>([
 ])
 
 const VALID_MISSION_STATUSES = new Set<ButlerMissionStatus>([
+  'clarifying',
+  'awaiting_plan_approval',
   'planning',
   'running',
   'waiting_human',
@@ -42,7 +46,9 @@ const VALID_MISSION_STATUSES = new Set<ButlerMissionStatus>([
   'interrupted',
 ])
 
-const NON_TERMINAL_MISSION_STATUSES = new Set<ButlerMissionStatus>([
+// Only in-flight execution states with active runtime turns recover as interrupted;
+// 'clarifying' and 'awaiting_plan_approval' hold no active child turns and survive restart intact.
+const RECOVERABLE_MISSION_STATUSES = new Set<ButlerMissionStatus>([
   'planning',
   'running',
   'waiting_human',
@@ -175,6 +181,55 @@ function normalizeStep(raw: unknown): ButlerStep | null {
   return { tool, kind }
 }
 
+function normalizeProposedStep(raw: unknown): ButlerProposedTaskStep | null {
+  if (!isRecord(raw)) return null
+  const id = asNonEmptyString(raw.id)
+  const title = asNonEmptyString(raw.title)
+  const brief = asNonEmptyString(raw.brief)
+  if (!id || !title || !brief) return null
+  const role: ButlerWorkerRole =
+    typeof raw.role === 'string' && VALID_WORKER_ROLES.has(raw.role as ButlerWorkerRole)
+      ? (raw.role as ButlerWorkerRole)
+      : 'general'
+  const scopePaths = Array.isArray(raw.scopePaths)
+    ? normalizeStringArray(raw.scopePaths)
+    : undefined
+  return {
+    id,
+    title,
+    brief,
+    role,
+    dependsOn: normalizeStringArray(raw.dependsOn),
+    ...(scopePaths && scopePaths.length > 0 ? { scopePaths } : {}),
+  }
+}
+
+function normalizeMissionPlan(raw: unknown): ButlerMissionPlan | undefined {
+  if (!isRecord(raw)) return undefined
+  const summary = asNonEmptyString(raw.summary)
+  const updatedAt = asFiniteNumber(raw.updatedAt)
+  if (!summary || updatedAt === null || !Array.isArray(raw.steps)) return undefined
+
+  const steps: ButlerProposedTaskStep[] = []
+  for (const item of raw.steps) {
+    const step = normalizeProposedStep(item)
+    if (step) steps.push(step)
+  }
+  if (steps.length === 0) return undefined
+
+  const rawRevision = asFiniteNumber(raw.revision)
+  const revision = rawRevision !== null && rawRevision >= 1 ? Math.round(rawRevision) : 1
+  const approvedAt = asFiniteNumber(raw.approvedAt)
+
+  return {
+    summary,
+    steps,
+    revision,
+    updatedAt,
+    ...(approvedAt !== null ? { approvedAt } : {}),
+  }
+}
+
 function normalizeMission(raw: unknown, onRecover: () => void): ButlerMission | null {
   if (!isRecord(raw)) return null
   const id = asNonEmptyString(raw.id)
@@ -190,13 +245,15 @@ function normalizeMission(raw: unknown, onRecover: () => void): ButlerMission | 
   if (!rawStatus) return null
 
   let status: ButlerMissionStatus = rawStatus
-  if (NON_TERMINAL_MISSION_STATUSES.has(rawStatus)) {
+  if (RECOVERABLE_MISSION_STATUSES.has(rawStatus)) {
     status = 'interrupted'
     onRecover()
   }
 
   const title = typeof raw.title === 'string' && raw.title.trim().length > 0 ? raw.title : goal
   const finishedAt = asFiniteNumber(raw.finishedAt)
+  const conversationNotes = normalizeStringArray(raw.conversationNotes)
+  const plan = normalizeMissionPlan(raw.plan)
   const report = normalizeReport(raw.report)
 
   return {
@@ -208,6 +265,8 @@ function normalizeMission(raw: unknown, onRecover: () => void): ButlerMission | 
     updatedAt,
     ...(finishedAt !== null ? { finishedAt } : {}),
     taskIds: normalizeStringArray(raw.taskIds),
+    ...(conversationNotes.length > 0 ? { conversationNotes } : {}),
+    ...(plan ? { plan } : {}),
     ...(report ? { report } : {}),
     ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
   }

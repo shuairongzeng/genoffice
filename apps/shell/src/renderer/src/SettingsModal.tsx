@@ -32,11 +32,14 @@ import {
   activeCustomEndpoint,
   clampMaxOutputTokens,
   customEndpointLabel,
+  getProviderAdapter,
   newCustomEndpointId,
   removeCustomEndpoint,
   selectCustomEndpoint,
+  thinkingShapeFor,
   upsertCustomEndpoint,
   AI_CUSTOM_PROTOCOLS,
+  type ThinkingEffort,
 } from '@genoffice/ai-provider/browser'
 import type {
   AiCustomCompat,
@@ -468,6 +471,15 @@ function foldModels(providerId: string, models: string[]) {
     )
 }
 
+const THINKING_EFFORT_LABEL_KEYS: Record<ThinkingEffort, StringKey> = {
+  none: 'setAiThinkingNone',
+  low: 'setAiThinkingLow',
+  medium: 'setAiThinkingMedium',
+  high: 'setAiThinkingHigh',
+  xhigh: 'setAiThinkingXHigh',
+  max: 'setAiThinkingMax',
+}
+
 /** AI model pane: provider / model / key / base URL, saved to userData/ai-settings.json */
 function AiModelPane({
   t,
@@ -663,6 +675,33 @@ function AiModelPane({
   }
   const isGenspark = provider === 'genspark'
   const isCodex = provider === 'codex'
+  const activeModelId = (config.model || meta?.defaultModel || '').trim()
+  let resolvedProtocol: Parameters<typeof thinkingShapeFor>[1]
+  try {
+    resolvedProtocol = getProviderAdapter(provider).resolveEndpoint({
+      ...config,
+      model: activeModelId,
+    }).protocol
+  } catch {
+    resolvedProtocol =
+      endpointApi === 'anthropic'
+        ? 'anthropic'
+        : endpointApi === 'gemini'
+          ? 'gemini'
+          : provider === 'anthropic'
+            ? 'anthropic'
+            : provider === 'gemini'
+              ? 'gemini'
+              : provider === 'openai'
+                ? 'openai-responses'
+                : 'openai-compatible'
+  }
+  const thinkingShape = activeModelId ? thinkingShapeFor(activeModelId, resolvedProtocol) : null
+  const storedThinking = activeModelId ? config.thinking?.[activeModelId] : undefined
+  const activeThinkingValue =
+    storedThinking && thinkingShape?.levels.includes(storedThinking as ThinkingEffort)
+      ? storedThinking
+      : ''
 
   const touch = () => {
     setDirty(true)
@@ -979,6 +1018,51 @@ function AiModelPane({
           </div>
         )}
       </div>
+      {thinkingShape && thinkingShape.levels.length > 0 && (
+        <div className="set-field" data-testid="set-ai-thinking-row">
+          <div className="set-field-text">
+            <div className="set-field-stack">
+              <label className="set-field-label" htmlFor="ai-thinking-effort">
+                {t('setAiThinkingEffort')}
+              </label>
+              <div className="set-field-desc">{t('setAiThinkingEffortDesc')}</div>
+            </div>
+          </div>
+          <div className="set-select-wrap">
+            <span className="set-select-text">
+              {activeThinkingValue
+                ? t(THINKING_EFFORT_LABEL_KEYS[activeThinkingValue as ThinkingEffort])
+                : t('setAiThinkingFollowDefault')}
+            </span>
+            <select
+              id="ai-thinking-effort"
+              className="set-select"
+              aria-label={t('setAiThinkingEffort')}
+              value={activeThinkingValue}
+              onChange={(e) => {
+                const next = e.target.value
+                if (!activeModelId) return
+                if (!next) {
+                  const rest = { ...(config.thinking ?? {}) }
+                  delete rest[activeModelId]
+                  updateConfig({ thinking: Object.keys(rest).length > 0 ? rest : undefined })
+                  return
+                }
+                updateConfig({
+                  thinking: { ...(config.thinking ?? {}), [activeModelId]: next },
+                })
+              }}
+            >
+              <option value="">{t('setAiThinkingFollowDefault')}</option>
+              {thinkingShape.levels.map((level) => (
+                <option key={level} value={level}>
+                  {t(THINKING_EFFORT_LABEL_KEYS[level])}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
       {isCodex ? (
         <div className="set-field">
           <div className="set-field-text">

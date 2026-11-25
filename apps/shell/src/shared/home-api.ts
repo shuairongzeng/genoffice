@@ -18,20 +18,45 @@ import type { DesktopArrangeMode } from '@genoffice/cli/control-protocol'
 import type { AiDockPrefs } from './desktop-geometry'
 import type { DockCustomItem, DockOpenState, DockPrefs } from './dock-prefs'
 import type { AiPetPrefs, AiPetPrefsPatch } from './ai-pet-prefs'
-import type { ButlerPrefs, ButlerPrefsPatch } from './butler-prefs'
+import type { ButlerPrefs, ButlerPrefsPatch, ButlerWorkerThinkingEffort } from './butler-prefs'
 import type {
   ButlerActionResult,
+  ButlerApproveMissionPlanRequest,
   ButlerDelegateResult,
   ButlerDeskSnapshot,
+  ButlerDesktopActionRequest,
+  ButlerDesktopActionResult,
+  ButlerDesktopActionTarget,
   ButlerHudState,
+  ButlerMediaCommand,
+  ButlerMicArbitrationPatch,
+  ButlerMicArbitrationState,
+  ButlerMissionListFilter,
+  ButlerMissionPlan,
   ButlerOpenDeskPayload,
   ButlerOpenTarget,
+  ButlerProposedTaskStep,
   ButlerResolveDecisionRequest,
   ButlerResolveDecisionResult,
+  ButlerRetryTaskRequest,
   ButlerSpeakRequest,
   ButlerSteerTaskRequest,
+  ButlerSttTranscribeRequest,
+  ButlerSttTranscribeResult,
   ButlerSubmitResult,
   ButlerTaskUpdate,
+  ButlerTtsStartRequest,
+  ButlerTtsStartResult,
+  ButlerTtsStreamEvent,
+  ButlerVoiceCloneState,
+  ButlerVoiceCloneUploadRequest,
+  ButlerVoiceConfig,
+  ButlerVoiceConfigPatch,
+  ButlerVoiceProbeRequest,
+  ButlerVoiceProbeResult,
+  ButlerWakePromptPayload,
+  ButlerWakeSummonRequest,
+  ButlerWakeSummonResult,
 } from './butler-api'
 import type {
   PiAgentCommandInfo,
@@ -76,9 +101,14 @@ export type {
   DockPrefs,
 } from './dock-prefs'
 export type { AiPetBondStage, AiPetId, AiPetPrefs, AiPetPrefsPatch } from './ai-pet-prefs'
-export type { ButlerPrefs, ButlerPrefsPatch } from './butler-prefs'
+export type {
+  ButlerPrefs,
+  ButlerPrefsPatch,
+  ButlerWorkerThinkingEffort,
+} from './butler-prefs'
 export type {
   ButlerArtifactRef,
+  ButlerApproveMissionPlanRequest,
   ButlerBriefing,
   ButlerBriefingItem,
   ButlerBriefingKind,
@@ -91,27 +121,54 @@ export type {
   ButlerDecisionResolution,
   ButlerDelegateResult,
   ButlerDeskSnapshot,
+  ButlerDesktopActionRequest,
+  ButlerDesktopActionResult,
+  ButlerDesktopActionTarget,
   ButlerHudState,
+  ButlerMediaCommand,
+  ButlerMicArbitrationPatch,
+  ButlerMicArbitrationState,
   ButlerMission,
+  ButlerMissionListFilter,
+  ButlerMissionPlan,
   ButlerMissionReport,
   ButlerMissionStatus,
   ButlerOpenDeskPayload,
   ButlerOpenTarget,
   ButlerPartOfDay,
+  ButlerProposedTaskStep,
   ButlerResolveDecisionRequest,
   ButlerResolveDecisionResult,
+  ButlerRetryTaskRequest,
   ButlerSpeakRequest,
   ButlerSteerTaskRequest,
   ButlerStep,
   ButlerStepKind,
+  ButlerSttLanguage,
+  ButlerSttTranscribeRequest,
+  ButlerSttTranscribeResult,
   ButlerSubTask,
   ButlerSubTaskStatus,
   ButlerSubmitError,
   ButlerSubmitResult,
   ButlerTaskStatus,
   ButlerTaskUpdate,
+  ButlerTtsStartRequest,
+  ButlerTtsStartResult,
+  ButlerTtsStreamEvent,
+  ButlerVoiceCloneState,
+  ButlerVoiceCloneUploadRequest,
+  ButlerVoiceConfig,
+  ButlerVoiceConfigPatch,
+  ButlerVoiceProbeRequest,
+  ButlerVoiceProbeResult,
+  ButlerVoiceProvider,
+  ButlerWakePromptPayload,
+  ButlerWakeSummonRequest,
+  ButlerWakeSummonResult,
   ButlerWorkerRole,
 } from './butler-api'
+export { BUTLER_MEDIA_COMMANDS } from './butler-api'
 export type {
   MagicContextEmbeddingMode,
   MagicContextStorageMode,
@@ -1092,6 +1149,7 @@ export interface DesktopMediaOpenPayload {
   filePath?: string
   token?: string
   mode?: 'normal' | 'mini'
+  command?: 'toggle-play' | 'pause' | 'next' | 'prev' | 'close'
 }
 
 export type DockNavIntent =
@@ -1344,14 +1402,50 @@ export interface HomeApi {
   butlerResolveDecision?(req: ButlerResolveDecisionRequest): Promise<ButlerResolveDecisionResult>
   /** Cancel an entire Butler mission and all queued/active subtasks (`home:butler-cancel-mission`). */
   butlerCancelMission?(missionId: string): Promise<ButlerActionResult>
+  /** Permanently delete a finished or cancelled Butler mission from history (`home:butler-delete-mission`). */
+  butlerDeleteMission?(missionId: string): Promise<ButlerActionResult>
   /** Cancel a single background worker subtask (`home:butler-cancel-task`). */
   butlerCancelTask?(taskId: string): Promise<ButlerActionResult>
+  /** Retry a failed, cancelled, or interrupted worker subtask (`home:butler-retry-task`). */
+  butlerRetryTask?(req: ButlerRetryTaskRequest): Promise<ButlerActionResult>
   /** Steer an active or failed worker task with updated instruction (`home:butler-steer-task`). */
   butlerSteerTask?(req: ButlerSteerTaskRequest): Promise<ButlerActionResult>
+  /** Approve a proposed Chief Butler mission plan and start background dispatch (`home:butler-approve-plan`). */
+  butlerApproveMissionPlan?(req: ButlerApproveMissionPlanRequest): Promise<ButlerActionResult>
   /** Request opening the Chief Butler desktop workbench window (`home:butler-open-desk`). */
   butlerOpenDesk?(payload?: ButlerOpenDeskPayload): Promise<void>
   /** Subscribe to main-process open-desk requests inside the shell window (`home:butler-open-desk`). */
   onButlerOpenDesk?(handler: (payload: ButlerOpenDeskPayload) => void): () => void
+  /** Read persisted Butler voice engine, STT/TTS, clone, and wake-word settings (`home:butler-voice-get`). */
+  getButlerVoiceConfig?(): Promise<ButlerVoiceConfig>
+  /** Persist a partial patch for Butler voice settings (`home:butler-voice-set`). */
+  setButlerVoiceConfig?(patch: ButlerVoiceConfigPatch): Promise<ButlerVoiceConfig>
+  /** Subscribe to cross-surface Butler voice settings updates (`home:butler-voice-changed`). */
+  onButlerVoiceConfigChanged?(handler: (config: ButlerVoiceConfig) => void): () => void
+  /** Probe the configured oMLX voice endpoint for STT/TTS models and preset voices (`home:butler-voice-probe`). */
+  butlerVoiceProbe?(req?: ButlerVoiceProbeRequest): Promise<ButlerVoiceProbeResult>
+  /** Transcribe a recorded WAV audio segment via oMLX STT (`home:butler-voice-transcribe`). */
+  butlerVoiceTranscribe?(req: ButlerSttTranscribeRequest): Promise<ButlerSttTranscribeResult>
+  /** Start streaming TTS synthesis over oMLX (`home:butler-voice-tts-start`). */
+  butlerVoiceTtsStart?(req: ButlerTtsStartRequest): Promise<ButlerTtsStartResult>
+  /** Abort an active TTS synthesis stream (`home:butler-voice-tts-stop`). */
+  butlerVoiceTtsStop?(requestId?: string): Promise<void>
+  /** Subscribe to streaming TTS audio chunks and terminal events (`home:butler-voice-tts-event`). */
+  onButlerVoiceTtsEvent?(handler: (event: ButlerTtsStreamEvent) => void): () => void
+  /** Inspect the stored reference audio metadata for voice cloning (`home:butler-voice-clone-get`). */
+  butlerVoiceCloneGet?(): Promise<ButlerVoiceCloneState>
+  /** Persist a validated WAV reference clip for CustomVoice cloning (`home:butler-voice-clone-set`). */
+  butlerVoiceCloneSet?(req: ButlerVoiceCloneUploadRequest): Promise<ButlerVoiceConfig>
+  /** Remove stored reference cloning audio and disable cloning (`home:butler-voice-clone-clear`). */
+  butlerVoiceCloneClear?(): Promise<ButlerVoiceConfig>
+  /** Summon HUD or dispatch a wake-word voice command (`home:butler-voice-wake-summon`). */
+  butlerVoiceWakeSummon?(req: ButlerWakeSummonRequest): Promise<ButlerWakeSummonResult>
+  /** Subscribe to main-process auto-listen prompts in the Butler HUD (`home:butler-voice-wake-prompt`). */
+  onButlerVoiceWakePrompt?(handler: (payload: ButlerWakePromptPayload) => void): () => void
+  /** Report local desk-mic or TTS speaking transitions for cross-window arbitration (`home:butler-voice-arbitration`). */
+  reportButlerVoiceArbitration?(patch: ButlerMicArbitrationPatch): void
+  /** Subscribe to synchronized mic/TTS arbitration snapshots (`home:butler-voice-arbitration`). */
+  onButlerVoiceArbitration?(handler: (state: ButlerMicArbitrationState) => void): () => void
   /**
    * Publish one of the Home loop's run events (or a message-list snapshot)
    * over `home:ask-run-event`: main relays it to every OTHER renderer, so a
@@ -2487,9 +2581,27 @@ export const HOME_CHANNELS = {
   butlerDelegate: 'home:butler-delegate',
   butlerResolveDecision: 'home:butler-resolve-decision',
   butlerCancelMission: 'home:butler-cancel-mission',
+  butlerDeleteMission: 'home:butler-delete-mission',
   butlerCancelTask: 'home:butler-cancel-task',
+  butlerRetryTask: 'home:butler-retry-task',
   butlerSteerTask: 'home:butler-steer-task',
+  butlerApprovePlan: 'home:butler-approve-plan',
   butlerOpenDesk: 'home:butler-open-desk',
+  /** Butler voice config, oMLX STT/TTS proxy, voice cloning, wake summon, and mic arbitration */
+  butlerVoiceGet: 'home:butler-voice-get',
+  butlerVoiceSet: 'home:butler-voice-set',
+  butlerVoiceChanged: 'home:butler-voice-changed',
+  butlerVoiceProbe: 'home:butler-voice-probe',
+  butlerVoiceTranscribe: 'home:butler-voice-transcribe',
+  butlerVoiceTtsStart: 'home:butler-voice-tts-start',
+  butlerVoiceTtsStop: 'home:butler-voice-tts-stop',
+  butlerVoiceTtsEvent: 'home:butler-voice-tts-event',
+  butlerVoiceCloneGet: 'home:butler-voice-clone-get',
+  butlerVoiceCloneSet: 'home:butler-voice-clone-set',
+  butlerVoiceCloneClear: 'home:butler-voice-clone-clear',
+  butlerVoiceWakeSummon: 'home:butler-voice-wake-summon',
+  butlerVoiceWakePrompt: 'home:butler-voice-wake-prompt',
+  butlerVoiceArbitration: 'home:butler-voice-arbitration',
   /** renderer → main: the doc-mode dock overlay's hot-edge transitions —
    *  `enter` from the strip summons the dock (or cancels a pending hide),
    *  `leave` from the revealed dock arms the grace timer */

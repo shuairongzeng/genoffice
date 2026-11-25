@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  truncateSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -61,7 +70,12 @@ import {
 } from './genoffice-workbench-extension'
 import { resolvePiRuntimePaths, type PiRuntimePaths } from './pi-agent-paths'
 import { readMagicContextStats } from './pi-memory-store'
-import { syncPiProviderAndMagicContextConfig, type SyncedPiModelSpec } from './pi-provider-sync'
+import {
+  applySessionThinkingToModelSpec,
+  syncPiProviderAndMagicContextConfig,
+  type SessionThinkingOverride,
+  type SyncedPiModelSpec,
+} from './pi-provider-sync'
 import {
   applyPiRuntimeEnv,
   ensurePiSubagentShim,
@@ -71,6 +85,16 @@ import {
 const MAX_CACHED_SESSIONS = 8
 const BACKFILL_MESSAGE_LIMIT = 40
 const COMMAND_WAIT_IDLE_MS = 10_000
+export const CHIEF_SESSION_MAX_BYTES = 32_768
+const MAX_TRANSIENT_SOCKET_RETRIES = 2
+const TRANSIENT_RETRY_BACKOFF_MS = [120, 280] as const
+
+const TRANSIENT_PI_SOCKET_ERROR_RE =
+  /UND_ERR_SOCKET|ECONNRESET|EPIPE|ECONNABORTED|ETIMEDOUT|other side closed|socket hang up|Connection error|fetch failed/i
+const CHIEF_TOOL_RESULT_ROLE_RE = /"role"\s*:\s*"toolResult"/
+const CHIEF_CONTEXT_EDIT_TYPE_RE = /"type"\s*:\s*"context_edit"/
+const CHIEF_LEGACY_PROMPT_MARKER = 'Two-Stage Alignment Instructions for Chief Butler:'
+const CHIEF_TOOL_RESULT_MAX_LINE_BYTES = 4096
 
 const dynamicImportEsm = new Function('specifier', 'return import(specifier)') as (
   specifier: string,
@@ -224,6 +248,87 @@ export function buildExcludeBuiltinTools(
     excluded.push('bash', 'powershell', 'edit', 'write')
   }
   return excluded
+}
+
+/**
+ * Exclude all built-in file and shell tools for the Chief Butler orchestrator
+ * session while preserving user preferences for background workers and regular chats.
+ */
+export function buildSessionExcludeBuiltinTools(
+  prefs: Pick<PiAgentPrefs, 'enablePiReadTools' | 'enablePiWriteTools'>,
+  sessionKey: string,
+): string[] {
+  if (isButlerChiefSession(sessionKey)) {
+    return ['read', 'grep', 'find', 'ls', 'bash', 'powershell', 'edit', 'write']
+  }
+  return buildExcludeBuiltinTools(prefs)
+}
+
+/**
+ * Return true when an existing Chief Butler session `.jsonl` file grew too large
+ * or contains corrupted legacy `toolResult`, `context_edit`, or `UND_ERR_SOCKET`
+ * frames that stall voice orchestration turns.
+ */
+export function shouldResetBloatedChiefSession(filePath: string): boolean {
+  if (!filePath || !existsSync(filePath)) return false
+  try {
+    if (statSync(filePath).size > CHIEF_SESSION_MAX_BYTES) {
+      return true
+    }
+    const content = readFileSync(filePath, 'utf8')
+    if (
+      content.includes('UND_ERR_SOCKET') ||
+      CHIEF_CONTEXT_EDIT_TYPE_RE.test(content) ||
+      content.includes(CHIEF_LEGACY_PROMPT_MARKER)
+    ) {
+      return true
+    }
+    for (const line of content.split(/\r?\n/)) {
+      if (line.length > CHIEF_TOOL_RESULT_MAX_LINE_BYTES && CHIEF_TOOL_RESULT_ROLE_RE.test(line)) {
+        return true
+      }
+      if (line.includes('"totalTokens":0') || line.includes('"totalTokens": 0')) {
+        try {
+          const parsed = JSON.parse(line) as {
+            message?: {
+              role?: unknown
+              stopReason?: unknown
+              usage?: {
+                input?: unknown
+                output?: unknown
+                cacheRead?: unknown
+                totalTokens?: unknown
+              }
+            }
+          }
+          const msg = parsed?.message
+          if (
+            msg?.role === 'assistant' &&
+            msg.stopReason === 'stop' &&
+            msg.usage?.totalTokens === 0 &&
+            msg.usage?.input === 0 &&
+            msg.usage?.output === 0 &&
+            msg.usage?.cacheRead === 0
+          ) {
+            return true
+          }
+        } catch {
+          // Ignore malformed JSONL lines while scanning legacy Chief session frames.
+        }
+      }
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
+/** Identify transient socket or stream drop errors safe for automatic session retry. */
+export function isTransientPiSocketError(errorMessage: string | undefined | null): boolean {
+  if (typeof errorMessage !== 'string') return false
+  const trimmed = errorMessage.trim()
+  if (!trimmed) return false
+  return TRANSIENT_PI_SOCKET_ERROR_RE.test(trimmed)
 }
 
 /**
@@ -388,6 +493,10 @@ export interface PiRuntimeManagerDeps {
     readonly key: string
     readonly factories: readonly ExtensionFactory[]
   } | null
+  readonly resolveSessionThinkingOverride?: (
+    sessionKey: string,
+  ) => SessionThinkingOverride | undefined
+  readonly loadPiSdk?: () => Promise<typeof import('@earendil-works/pi-coding-agent')>
 }
 
 interface CachedSessionRecord {
@@ -415,12 +524,21 @@ export async function syncCachedSessionModelAndThinking(
 ): Promise<boolean> {
   const modelChanged = cached.lastModelRef !== modelSpec.modelRef
   const thinkingChanged = cached.lastThinkingLevel !== modelSpec.thinkingLevel
-  if (!modelChanged && !thinkingChanged) {
+  const nextCompatFormat = (modelSpec.piModel.compat as Record<string, unknown> | undefined)
+    ?.thinkingFormat
+  const cachedCompatFormat = (cached.session.model?.compat as Record<string, unknown> | undefined)
+    ?.thinkingFormat
+  const compatFormatChanged = nextCompatFormat !== cachedCompatFormat
+  const offMapChanged =
+    modelSpec.piModel.thinkingLevelMap?.off !== cached.session.model?.thinkingLevelMap?.off
+  if (!modelChanged && !thinkingChanged && !compatFormatChanged && !offMapChanged) {
     return false
   }
   const needsModelRefresh =
     modelChanged ||
     cached.session.model?.reasoning !== modelSpec.piModel.reasoning ||
+    compatFormatChanged ||
+    offMapChanged ||
     Boolean(modelSpec.piModel.thinkingLevelMap) !==
       Boolean(cached.session.model?.thinkingLevelMap) ||
     (modelSpec.thinkingLevel !== undefined &&
@@ -452,6 +570,7 @@ interface ActivePromptRun {
   aborted: boolean
   userPersisted: boolean
   assistantStarted: boolean
+  lastStreamError: string | null
   usageTotals: { input: number; output: number }
 }
 
@@ -487,6 +606,7 @@ export function prefsReloadKey(
   storageMode: string,
   persona = '',
   sessionRoleKey = '',
+  pureOrchestrator = false,
 ): string {
   return JSON.stringify([
     prefs.magicContextEnabled,
@@ -502,6 +622,7 @@ export function prefsReloadKey(
     prefs.systemPrompt,
     persona,
     sessionRoleKey,
+    ...(pureOrchestrator ? ['pure-orch'] : []),
   ])
 }
 
@@ -592,8 +713,12 @@ export class PiAgentRuntimeManager {
 
   private async loadPiSdk(paths: PiRuntimePaths) {
     if (!this.piSdkPromise) {
-      const entryUrl = pathToFileURL(paths.piCodingAgentEntry).href
-      this.piSdkPromise = dynamicImportEsm(entryUrl)
+      if (this.deps.loadPiSdk) {
+        this.piSdkPromise = this.deps.loadPiSdk()
+      } else {
+        const entryUrl = pathToFileURL(paths.piCodingAgentEntry).href
+        this.piSdkPromise = dynamicImportEsm(entryUrl)
+      }
     }
     return this.piSdkPromise
   }
@@ -647,6 +772,7 @@ export class PiAgentRuntimeManager {
     getToolAnnotations?: Parameters<typeof createGenofficePermissionExtension>[1]
     persona?: string
     extraExtensionFactories?: readonly ExtensionFactory[]
+    pureOrchestrator?: boolean
   }) {
     const {
       sdk,
@@ -658,32 +784,39 @@ export class PiAgentRuntimeManager {
       getToolAnnotations,
       persona,
       extraExtensionFactories,
+      pureOrchestrator,
     } = opts
+    const extensionFactories: ExtensionFactory[] = pureOrchestrator
+      ? [...(extraExtensionFactories ?? [])]
+      : [
+          createGenofficeWorkbenchExtension(this.deps.workbench, coord),
+          createGenofficePermissionExtension(
+            {
+              getPermissionMode: this.deps.getPermissionMode,
+              sessionAllows: this.deps.sessionAllows,
+              workbench: this.deps.workbench,
+              coord,
+              requestConfirm: (req) => this.requestPanelConfirm(req),
+            },
+            getToolAnnotations,
+          ),
+          ...(extraExtensionFactories ?? []),
+        ]
     return new sdk.DefaultResourceLoader({
       cwd,
       agentDir: paths.agentDir,
       settingsManager,
-      additionalExtensionPaths: prefs.magicContextEnabled ? [paths.magicContextEntry] : [],
-      additionalSkillPaths: resolveBundledSkillDirs({
-        userDataDir: this.deps.userDataDir,
-        isPackaged: this.deps.isPackaged,
-        resourcesPath: this.deps.resourcesPath,
-        appRoot: this.deps.appRoot,
-      }),
-      extensionFactories: [
-        createGenofficeWorkbenchExtension(this.deps.workbench, coord),
-        createGenofficePermissionExtension(
-          {
-            getPermissionMode: this.deps.getPermissionMode,
-            sessionAllows: this.deps.sessionAllows,
-            workbench: this.deps.workbench,
-            coord,
-            requestConfirm: (req) => this.requestPanelConfirm(req),
-          },
-          getToolAnnotations,
-        ),
-        ...(extraExtensionFactories ?? []),
-      ],
+      additionalExtensionPaths:
+        !pureOrchestrator && prefs.magicContextEnabled ? [paths.magicContextEntry] : [],
+      additionalSkillPaths: pureOrchestrator
+        ? []
+        : resolveBundledSkillDirs({
+            userDataDir: this.deps.userDataDir,
+            isPackaged: this.deps.isPackaged,
+            resourcesPath: this.deps.resourcesPath,
+            appRoot: this.deps.appRoot,
+          }),
+      extensionFactories,
       systemPromptOverride: (base) =>
         appendButlerPersona(resolveGenofficeSystemPrompt(base, prefs.systemPrompt), persona ?? ''),
       agentsFilesOverride: ({ agentsFiles }) => ({
@@ -796,7 +929,12 @@ export class PiAgentRuntimeManager {
         'No compatible Pi AI model configuration is available (check provider settings or switch engine to legacy).',
       )
     }
+    const effectiveModelSpec = applySessionThinkingToModelSpec(
+      modelSpec,
+      this.deps.resolveSessionThinkingOverride?.(req.sessionKey),
+    )
 
+    const pureOrchestrator = isButlerChiefSession(req.sessionKey)
     const persona = this.deps.getPersonaSection?.() ?? ''
     const sessionExtensions = this.deps.resolveSessionExtensions?.(req.sessionKey) ?? null
     const currentPrefsKey = prefsReloadKey(
@@ -804,16 +942,17 @@ export class PiAgentRuntimeManager {
       prefs.magicContextStorageMode,
       persona,
       sessionExtensions?.key ?? '',
+      pureOrchestrator,
     )
     const cached = this.cache.get(req.sessionKey)
     if (cached) {
       if (cached.prefsKey === currentPrefsKey) {
         this.touchCache(req.sessionKey, cached)
-        if (await syncCachedSessionModelAndThinking(cached, modelSpec)) {
+        if (await syncCachedSessionModelAndThinking(cached, effectiveModelSpec)) {
           this.cache.set(req.sessionKey, {
             ...cached,
-            lastModelRef: modelSpec.modelRef,
-            lastThinkingLevel: modelSpec.thinkingLevel,
+            lastModelRef: effectiveModelSpec.modelRef,
+            lastThinkingLevel: effectiveModelSpec.thinkingLevel,
           })
         }
         return this.cache.get(req.sessionKey)!
@@ -846,24 +985,43 @@ export class PiAgentRuntimeManager {
       settingsManager,
       coord,
       persona,
+      pureOrchestrator,
       ...(sessionExtensions ? { extraExtensionFactories: sessionExtensions.factories } : {}),
       getToolAnnotations: (toolName) =>
         sessionRef?.extensionRunner.getToolDefinition(toolName)?.annotations,
     })
     await loader.reload()
-    for (const sk of loader.getSkills().skills) {
-      this.cachedSkillFileByName.set(sk.name, sk.filePath)
+    if (!pureOrchestrator) {
+      for (const sk of loader.getSkills().skills) {
+        this.cachedSkillFileByName.set(sk.name, sk.filePath)
+      }
     }
 
     const mapStore = this.getSessionMap(paths)
-    const existingSessionFile = mapStore.get(req.sessionKey)
+    let existingSessionFile = mapStore.get(req.sessionKey)
+    if (
+      existingSessionFile &&
+      pureOrchestrator &&
+      shouldResetBloatedChiefSession(existingSessionFile)
+    ) {
+      mapStore.delete(req.sessionKey)
+      try {
+        rmSync(existingSessionFile, { force: true })
+      } catch {
+        // Ignore bloated Chief session deletion failure.
+      }
+      existingSessionFile = undefined
+    }
+
     let sessionManager: SessionManager
     if (existingSessionFile) {
       sessionManager = sdk.SessionManager.open(existingSessionFile, paths.sessionsDir, cwd)
     } else {
       sessionManager = sdk.SessionManager.create(cwd, paths.sessionsDir)
       const projectStore = this.deps.getProjectStore()
-      if (projectStore && req.projectId && req.chatId) {
+      // Never backfill synthetic tool-less assistant turns into the Chief Butler session:
+      // it teaches small local models to imitate plain-text "already opened" replies without tool calls.
+      if (!pureOrchestrator && projectStore && req.projectId && req.chatId) {
         try {
           const legacyMessages = projectStore.loadChat(
             req.projectId,
@@ -882,9 +1040,9 @@ export class PiAgentRuntimeManager {
               sessionManager.appendMessage({
                 role: 'assistant',
                 content: [{ type: 'text', text: msg.text }],
-                api: modelSpec.piModel.api,
-                provider: modelSpec.piModel.provider,
-                model: modelSpec.piModel.id,
+                api: effectiveModelSpec.piModel.api,
+                provider: effectiveModelSpec.piModel.provider,
+                model: effectiveModelSpec.piModel.id,
                 usage: {
                   input: 0,
                   output: 0,
@@ -906,7 +1064,7 @@ export class PiAgentRuntimeManager {
       if (createdFile) mapStore.set(req.sessionKey, createdFile)
     }
 
-    const excludeTools = buildExcludeBuiltinTools(prefs)
+    const excludeTools = buildSessionExcludeBuiltinTools(prefs, req.sessionKey)
     const authPath = join(paths.agentDir, 'auth.json')
     const modelsPath = join(paths.agentDir, 'models.json')
     const modelRuntime = await sdk.ModelRuntime.create({ authPath, modelsPath })
@@ -915,8 +1073,10 @@ export class PiAgentRuntimeManager {
       cwd,
       agentDir: paths.agentDir,
       modelRuntime,
-      model: modelSpec.piModel,
-      ...(modelSpec.thinkingLevel !== undefined ? { thinkingLevel: modelSpec.thinkingLevel } : {}),
+      model: effectiveModelSpec.piModel,
+      ...(effectiveModelSpec.thinkingLevel !== undefined
+        ? { thinkingLevel: effectiveModelSpec.thinkingLevel }
+        : {}),
       ...(excludeTools.length > 0 ? { excludeTools } : {}),
       resourceLoader: loader,
       sessionManager,
@@ -948,8 +1108,8 @@ export class PiAgentRuntimeManager {
       sessionKey: req.sessionKey,
       session,
       coord,
-      lastModelRef: modelSpec.modelRef,
-      lastThinkingLevel: modelSpec.thinkingLevel,
+      lastModelRef: effectiveModelSpec.modelRef,
+      lastThinkingLevel: effectiveModelSpec.thinkingLevel,
       prefsKey: currentPrefsKey,
       busy: false,
     }
@@ -1054,6 +1214,7 @@ export class PiAgentRuntimeManager {
             run.stripper = createOrdinalPrefixStripper()
             run.currentMsgCleanText = ''
             run.textNeedsBreak = run.accumulatedCleanText.trim().length > 0
+            run.lastStreamError = null
           }
           break
         }
@@ -1183,12 +1344,8 @@ export class PiAgentRuntimeManager {
                 payload: run.currentMsgCleanText,
               })
             }
-            if (msg.stopReason === 'error' && msg.errorMessage) {
-              broadcastAskRunEventFromMain({
-                type: 'error',
-                sessionKey,
-                payload: msg.errorMessage,
-              })
+            if (msg.stopReason === 'error') {
+              run.lastStreamError = msg.errorMessage?.trim() || 'Stream failed with error stopReason'
             }
           }
           break
@@ -1217,9 +1374,10 @@ export class PiAgentRuntimeManager {
     const store = this.deps.getProjectStore()
     const cleanInstruction = req.instruction.trim()
     const isSlashCommand = cleanInstruction.startsWith('/')
+    const isChiefSession = isButlerChiefSession(req.sessionKey)
 
     const skillPaths: string[] = []
-    if (req.skills && req.skills.length > 0) {
+    if (!isChiefSession && req.skills && req.skills.length > 0) {
       const fromDeps = this.deps.resolveSkillPathsByName?.(req.skills) ?? []
       const seen = new Set<string>(fromDeps)
       skillPaths.push(...fromDeps)
@@ -1232,33 +1390,56 @@ export class PiAgentRuntimeManager {
       }
     }
 
-    const prepared = await prepareTurnWorkbenchState(this.deps.workbench, record.coord, {
-      sessionKey: req.sessionKey,
-      projectId: req.projectId,
-      chatId: req.chatId,
-      viewer: req.docPath ? 'overlay' : 'home',
-      scopePaths: req.scopePaths ?? [],
-      attachments: req.attachments ?? [],
-      instruction: cleanInstruction,
-      lineageSeed: req.lineageSeed,
-      lang: req.lang,
-      ignoreActiveTabContext: req.ignoreActiveTabContext,
-      focusedTabId: req.focusedTabId,
-      skillFilePaths: skillPaths,
-      onDocumentAgentProgress: (event: {
-        taskId: string
-        kind: string
-        status: AgentTaskStatus
-      }) => {
-        broadcastAskRunEventFromMain({
-          type: 'subagent-progress',
+    const prepared = isChiefSession
+      ? {
+          state: {
+            sessionKey: req.sessionKey,
+            projectId: req.projectId,
+            chatId: req.chatId,
+            viewer: 'home' as const,
+            scopePaths: req.scopePaths ?? [],
+            scopeNotIndexed: [],
+            attachments: req.attachments ?? [],
+            instruction: cleanInstruction,
+            corpus: [],
+            surfaceTabs: [],
+            browserTabs: [],
+            appManifest: null,
+            cliContext: null,
+            docCheckpoints: [],
+            lineageCandidates: [],
+          },
+          outboundPrompt: req.lineageSeed
+            ? `${req.lineageSeed}\n${cleanInstruction}`
+            : cleanInstruction,
+        }
+      : await prepareTurnWorkbenchState(this.deps.workbench, record.coord, {
           sessionKey: req.sessionKey,
-          payload: { ...event.status, docKind: event.kind },
+          projectId: req.projectId,
+          chatId: req.chatId,
+          viewer: req.docPath ? 'overlay' : 'home',
+          scopePaths: req.scopePaths ?? [],
+          attachments: req.attachments ?? [],
+          instruction: cleanInstruction,
+          lineageSeed: req.lineageSeed,
+          lang: req.lang,
+          ignoreActiveTabContext: req.ignoreActiveTabContext,
+          focusedTabId: req.focusedTabId,
+          skillFilePaths: skillPaths,
+          onDocumentAgentProgress: (event: {
+            taskId: string
+            kind: string
+            status: AgentTaskStatus
+          }) => {
+            broadcastAskRunEventFromMain({
+              type: 'subagent-progress',
+              sessionKey: req.sessionKey,
+              payload: { ...event.status, docKind: event.kind },
+            })
+          },
         })
-      },
-    })
 
-    const piSessionId = record.session.sessionManager.getSessionId()
+    let piSessionId = record.session.sessionManager.getSessionId()
     record.coord.bindPiSession(piSessionId, prepared.state)
 
     const run: ActivePromptRun = {
@@ -1278,6 +1459,7 @@ export class PiAgentRuntimeManager {
       aborted: false,
       userPersisted: false,
       assistantStarted: false,
+      lastStreamError: null,
       usageTotals: { input: 0, output: 0 },
     }
     this.activeRuns.set(req.sessionKey, run)
@@ -1323,12 +1505,94 @@ export class PiAgentRuntimeManager {
       }
 
       const outbound = isSlashCommand ? cleanInstruction : prepared.outboundPrompt
-      await record.coord.runWithTurnState(prepared.state, () =>
-        record.session.prompt(outbound, {
-          expandPromptTemplates: isSlashCommand,
-          ...(images.length > 0 ? { images } : {}),
-        }),
-      )
+      let attemptErr: string | null = null
+      let threwError = false
+
+      for (let attempt = 0; attempt <= MAX_TRANSIENT_SOCKET_RETRIES; attempt += 1) {
+        const sessionFile = record.session.sessionManager.getSessionFile?.()
+        const preTurnFileExisted = Boolean(sessionFile && existsSync(sessionFile))
+        const preTurnFileSize =
+          preTurnFileExisted && sessionFile ? statSync(sessionFile).size : 0
+
+        run.stripper = createOrdinalPrefixStripper()
+        run.rawTextChunks.length = 0
+        run.capturedNotices.length = 0
+        run.capturedCustomTexts.length = 0
+        run.currentMsgCleanText = ''
+        run.accumulatedCleanText = ''
+        run.accumulatedReasoning = ''
+        run.textNeedsBreak = false
+        run.reasoningNeedsBreak = false
+        run.lastStreamError = null
+        attemptErr = null
+        threwError = false
+
+        try {
+          await record.coord.runWithTurnState(prepared.state, () =>
+            record.session.prompt(outbound, {
+              expandPromptTemplates: isSlashCommand,
+              ...(images.length > 0 ? { images } : {}),
+            }),
+          )
+          attemptErr = run.lastStreamError
+        } catch (err) {
+          attemptErr = err instanceof Error ? err.message : String(err)
+          threwError = true
+        }
+
+        const canRetry =
+          attemptErr !== null &&
+          !run.aborted &&
+          isTransientPiSocketError(attemptErr) &&
+          run.toolCallsById.size === 0 &&
+          !run.accumulatedCleanText.trim() &&
+          attempt < MAX_TRANSIENT_SOCKET_RETRIES
+
+        if (!canRetry) {
+          break
+        }
+
+        // Roll back any failed user/error entries persisted to the JSONL file before reopening.
+        if (sessionFile) {
+          try {
+            if (preTurnFileExisted) {
+              if (existsSync(sessionFile)) {
+                truncateSync(sessionFile, preTurnFileSize)
+              }
+            } else {
+              this.getSessionMap(this.getPaths()).delete(req.sessionKey)
+              if (existsSync(sessionFile)) {
+                rmSync(sessionFile, { force: true })
+              }
+            }
+          } catch {
+            // Ignore best-effort JSONL rollback failure during socket retry.
+          }
+        }
+
+        // Dispose the stale cached session to release any poisoned keep-alive socket.
+        record.busy = false
+        record.coord.unbindPiSession(piSessionId)
+        this.cache.delete(req.sessionKey)
+        try {
+          record.session.dispose()
+        } catch {
+          // Ignore disposal error during transient socket retry.
+        }
+
+        const backoffMs = TRANSIENT_RETRY_BACKOFF_MS[attempt] ?? 280
+        await new Promise((r) => setTimeout(r, backoffMs))
+        if (run.aborted) {
+          attemptErr = 'Request was aborted'
+          threwError = true
+          break
+        }
+
+        record = await this.getOrCreateSessionRecord(req)
+        record.busy = true
+        piSessionId = record.session.sessionManager.getSessionId()
+        record.coord.bindPiSession(piSessionId, prepared.state)
+      }
 
       const commandOutput = [...run.capturedCustomTexts, ...run.capturedNotices]
         .filter((s) => s.trim().length > 0)
@@ -1337,6 +1601,20 @@ export class PiAgentRuntimeManager {
       const finalCleanText = stripOrdinalPrefix(
         run.accumulatedCleanText + run.stripper.flush(),
       ).trim()
+
+      if (attemptErr !== null && (threwError || !finalCleanText)) {
+        broadcastAskRunEventFromMain({
+          type: 'error',
+          sessionKey: req.sessionKey,
+          payload: attemptErr,
+        })
+        broadcastAskRunEventFromMain({
+          type: 'done',
+          sessionKey: req.sessionKey,
+          payload: null,
+        })
+        return { ok: false, error: attemptErr }
+      }
 
       if (isSlashCommand && !finalCleanText) {
         if (commandOutput) {

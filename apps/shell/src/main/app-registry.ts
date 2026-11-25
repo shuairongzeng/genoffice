@@ -659,6 +659,7 @@ export {
   clearMediaSessionForWebContents,
   isPlayableMediaExt,
   mediaFilePathForWebContents,
+  mediaLibraryStorePath,
   mediaReadSnapshot,
   prepareMediaSessionForWebContents,
   registerMediaIpc,

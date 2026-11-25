@@ -465,4 +465,36 @@ describe('ButlerSettingsPane', () => {
     )
     expect(descriptions).toContain(t('setButlerVoiceNone'))
   })
+
+  it('toggles chiefFastMode, updates workerThinkingEffort, and toggles planConfirmBeforeDispatch via setButlerPrefs', async () => {
+    await renderPane()
+
+    const chiefFastSwitch = switchByLabel(t('butlerSetChiefFast'))
+    expect(chiefFastSwitch.getAttribute('aria-checked')).toBe('true')
+    await act(async () => {
+      chiefFastSwitch.click()
+      await Promise.resolve()
+    })
+    expect(butlerPatches.at(-1)).toEqual({ chiefFastMode: false })
+    expect(chiefFastSwitch.getAttribute('aria-checked')).toBe('false')
+
+    const workerEffortSelect = host.querySelector<HTMLSelectElement>('#butler-worker-effort')!
+    expect(workerEffortSelect.value).toBe('high')
+    await act(async () => {
+      workerEffortSelect.value = 'medium'
+      workerEffortSelect.dispatchEvent(new Event('change', { bubbles: true }))
+      await Promise.resolve()
+    })
+    expect(butlerPatches.at(-1)).toEqual({ workerThinkingEffort: 'medium' })
+    expect(workerEffortSelect.value).toBe('medium')
+
+    const planConfirmSwitch = switchByLabel(t('butlerSetPlanConfirm'))
+    expect(planConfirmSwitch.getAttribute('aria-checked')).toBe('true')
+    await act(async () => {
+      planConfirmSwitch.click()
+      await Promise.resolve()
+    })
+    expect(butlerPatches.at(-1)).toEqual({ planConfirmBeforeDispatch: false })
+    expect(planConfirmSwitch.getAttribute('aria-checked')).toBe('false')
+  })
 })

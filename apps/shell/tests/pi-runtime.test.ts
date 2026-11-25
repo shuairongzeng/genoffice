@@ -1,28 +1,45 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ExtensionFactory } from '@earendil-works/pi-coding-agent'
 import { defaultAiSettings, type AiSettings } from '@genoffice/ai-provider'
+import { addAskRunObserver } from '../src/main/ask-run-observer'
 import { resolvePiRuntimePaths } from '../src/main/pi-agent/pi-agent-paths'
 import {
   buildSyncedPiModelSpec,
   syncPiProviderAndMagicContextConfig,
 } from '../src/main/pi-agent/pi-provider-sync'
 import {
+  CHIEF_SESSION_MAX_BYTES,
   GENOFFICE_PI_SYSTEM_PROMPT,
+  PiAgentRuntimeManager,
   SessionMapStore,
   advanceReasoningDelta,
   appendPiCleanText,
   buildExcludeBuiltinTools,
+  buildSessionExcludeBuiltinTools,
   createOrdinalPrefixStripper,
   filterAgentContextFiles,
+  isTransientPiSocketError,
   messageUsageDelta,
   prefsReloadKey,
   resolveGenofficeSystemPrompt,
+  shouldResetBloatedChiefSession,
   stripOrdinalPrefix,
   syncCachedSessionModelAndThinking,
 } from '../src/main/pi-agent/pi-runtime'
+import { BUTLER_CHIEF_SESSION_KEY } from '../src/shared/butler-orchestrator-api'
+import type { AskRunEvent } from '../src/shared/home-api'
 import { appendButlerPersona } from '../src/main/butler/butler-persona'
 import {
   STATIC_WORKBENCH_SYSTEM_PROMPT,
@@ -673,6 +690,546 @@ describe('pi-runtime helpers', () => {
       expect(settingsManager.getDefaultThinkingLevel()).toBe('medium')
     } finally {
       defaultSession.dispose()
+    }
+  })
+})
+
+describe('chief orchestrator isolation, session rotation, and transient socket retry', () => {
+  const savedEnv = { ...process.env }
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in savedEnv)) {
+        delete process.env[key]
+      }
+    }
+    Object.assign(process.env, savedEnv)
+  })
+
+  function makeDummyWorkbench(): WorkbenchToolsService {
+    const noopAsync = async () => ({})
+    return {
+      kbList: vi.fn(async () => []),
+      kbSearch: vi.fn(async () => []),
+      kbRead: noopAsync,
+      createDocument: noopAsync,
+      editFile: noopAsync,
+      deleteFile: noopAsync,
+      readAttachment: async () => ({ ok: false, error: 'none' }),
+      readAttachmentImage: () => ({ ok: false, error: 'none' }),
+      cliContext: () => null,
+      runCli: noopAsync,
+      getAppSkillManifest: vi.fn(async () => ({ windows: [], tools: [] })),
+      executeAppSkill: noopAsync as WorkbenchToolsService['executeAppSkill'],
+      describeDocumentAgent: async () => ({ error: 'none' }),
+      runDocumentAgent: async () => ({ ok: false, error: 'none', edits: [] }),
+      cancelDocumentAgent: () => false,
+      undoDocumentAgent: async () => ({ ok: false, error: 'none' }),
+      executeBrowserSkill: noopAsync,
+      listBrowserTabs: vi.fn(async () => []),
+      listSurfaceTabs: vi.fn(async () => []),
+      recordLineage: () => {},
+      lineageFor: () => null,
+    }
+  }
+
+  it('excludes all built-in tools for Chief session while preserving worker/chat prefs', () => {
+    const allEnabled = { enablePiReadTools: true, enablePiWriteTools: true }
+    expect(buildSessionExcludeBuiltinTools(allEnabled, BUTLER_CHIEF_SESSION_KEY)).toEqual([
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'bash',
+      'powershell',
+      'edit',
+      'write',
+    ])
+    expect(buildSessionExcludeBuiltinTools(allEnabled, 'default:butler-worker-1')).toEqual([])
+    expect(buildSessionExcludeBuiltinTools(allEnabled, 'proj-1:chat-1')).toEqual([])
+    expect(
+      buildSessionExcludeBuiltinTools(
+        { enablePiReadTools: false, enablePiWriteTools: true },
+        'default:butler-worker-1',
+      ),
+    ).toEqual(['read', 'grep', 'find', 'ls'])
+  })
+
+  it('detects transient socket errors accurately and ignores non-retryable 400 errors', () => {
+    expect(
+      isTransientPiSocketError('Connection error.: other side closed (UND_ERR_SOCKET)'),
+    ).toBe(true)
+    expect(isTransientPiSocketError('read ECONNRESET')).toBe(true)
+    expect(isTransientPiSocketError('socket hang up')).toBe(true)
+    expect(isTransientPiSocketError('fetch failed')).toBe(true)
+    expect(isTransientPiSocketError('request ETIMEDOUT')).toBe(true)
+
+    expect(isTransientPiSocketError('HTTP 400 Invalid argument')).toBe(false)
+    expect(isTransientPiSocketError('')).toBe(false)
+    expect(isTransientPiSocketError(null)).toBe(false)
+    expect(isTransientPiSocketError(undefined)).toBe(false)
+  })
+
+  it('identifies bloated or corrupted Chief JSONL sessions while keeping clean sessions intact', () => {
+    const dir = makeTempDir('genoffice-chief-bloat-')
+
+    const cleanFile = join(dir, 'clean.jsonl')
+    writeFileSync(
+      cleanFile,
+      [
+        JSON.stringify({ type: 'session', id: 's1', timestamp: '2026-11-25T00:00:00Z' }),
+        JSON.stringify({ type: 'message', id: 'm1', message: { role: 'user', content: 'hi' } }),
+        JSON.stringify({
+          type: 'message',
+          id: 'm2',
+          message: { role: 'assistant', content: [{ type: 'text', text: 'hello' }] },
+        }),
+      ].join('\n') + '\n',
+      'utf8',
+    )
+    expect(shouldResetBloatedChiefSession(cleanFile)).toBe(false)
+    expect(shouldResetBloatedChiefSession(join(dir, 'missing.jsonl'))).toBe(false)
+
+    const oversizedFile = join(dir, 'oversized.jsonl')
+    writeFileSync(oversizedFile, 'x'.repeat(CHIEF_SESSION_MAX_BYTES + 128), 'utf8')
+    expect(shouldResetBloatedChiefSession(oversizedFile)).toBe(true)
+
+    const socketErrFile = join(dir, 'socket-err.jsonl')
+    writeFileSync(
+      socketErrFile,
+      JSON.stringify({
+        type: 'message',
+        message: { role: 'assistant', stopReason: 'error', errorMessage: 'UND_ERR_SOCKET' },
+      }) + '\n',
+      'utf8',
+    )
+    expect(shouldResetBloatedChiefSession(socketErrFile)).toBe(true)
+
+    const contextEditFile = join(dir, 'context-edit.jsonl')
+    writeFileSync(
+      contextEditFile,
+      JSON.stringify({ type: 'context_edit', id: 'e1', targetId: 'm1' }) + '\n',
+      'utf8',
+    )
+    expect(shouldResetBloatedChiefSession(contextEditFile)).toBe(true)
+
+    const hugeToolResultFile = join(dir, 'huge-tool.jsonl')
+    writeFileSync(
+      hugeToolResultFile,
+      JSON.stringify({
+        type: 'message',
+        id: 't1',
+        message: { role: 'toolResult', content: [{ type: 'text', text: 'A'.repeat(5000) }] },
+      }) + '\n',
+      'utf8',
+    )
+    expect(shouldResetBloatedChiefSession(hugeToolResultFile)).toBe(true)
+
+    const syntheticBackfillFile = join(dir, 'synthetic-backfill.jsonl')
+    writeFileSync(
+      syntheticBackfillFile,
+      JSON.stringify({
+        type: 'message',
+        id: 's-backfill',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Opened media player.' }],
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+          stopReason: 'stop',
+        },
+      }) + '\n',
+      'utf8',
+    )
+    expect(shouldResetBloatedChiefSession(syntheticBackfillFile)).toBe(true)
+
+    const legacyPromptFile = join(dir, 'legacy-prompt.jsonl')
+    writeFileSync(
+      legacyPromptFile,
+      JSON.stringify({
+        type: 'message',
+        id: 'legacy-1',
+        message: {
+          role: 'user',
+          content: 'Two-Stage Alignment Instructions for Chief Butler:\nhello',
+        },
+      }) + '\n',
+      'utf8',
+    )
+    expect(shouldResetBloatedChiefSession(legacyPromptFile)).toBe(true)
+  })
+
+  it('isolates Chief session resources, rotates bloated JSONL, skips synthetic backfill, and skips workbench_context', async () => {
+    const userData = makeTempDir('genoffice-chief-isolation-')
+    const paths = resolvePiRuntimePaths({ userDataDir: userData, storageMode: 'isolated' })
+    mkdirSync(paths.sessionsDir, { recursive: true })
+
+    // Seed a bloated Chief session file in session-map.json.
+    const bloatedFile = join(paths.sessionsDir, 'old-bloated.jsonl')
+    writeFileSync(
+      bloatedFile,
+      JSON.stringify({ type: 'message', message: { role: 'assistant', errorMessage: 'UND_ERR_SOCKET' } }) + '\n',
+      'utf8',
+    )
+    const mapStore = new SessionMapStore(paths.sessionMapPath)
+    mapStore.set(BUTLER_CHIEF_SESSION_KEY, bloatedFile)
+
+    const loaderConfigs: Array<Record<string, unknown>> = []
+    const createSessionCalls: Array<Record<string, unknown>> = []
+    const appendedMessages: Array<{ role: string; textLength: number }> = []
+    const sentPrompts: string[] = []
+    const freshFile = join(paths.sessionsDir, 'fresh-chief.jsonl')
+
+    const fakeSdk = {
+      DefaultResourceLoader: class {
+        constructor(opts: Record<string, unknown>) {
+          loaderConfigs.push(opts)
+        }
+        async reload() {}
+        getSkills() {
+          return { skills: [] }
+        }
+      },
+      SettingsManager: {
+        create: () => ({}),
+      },
+      SessionManager: {
+        open: vi.fn(),
+        create: vi.fn(() => {
+          writeFileSync(freshFile, '{"type":"session","id":"fresh"}\n', 'utf8')
+          return {
+            getSessionFile: () => freshFile,
+            getSessionId: () => 'fresh-pi-id',
+            appendMessage: (msg: { role: string; content: unknown }) => {
+              const txt =
+                typeof msg.content === 'string'
+                  ? msg.content
+                  : Array.isArray(msg.content)
+                    ? String((msg.content[0] as { text?: string })?.text ?? '')
+                    : ''
+              appendedMessages.push({ role: msg.role, textLength: txt.length })
+            },
+          }
+        }),
+      },
+      ModelRuntime: {
+        create: vi.fn(async () => ({})),
+      },
+      createAgentSession: vi.fn(async (opts: Record<string, unknown>) => {
+        createSessionCalls.push(opts)
+        const listeners: Array<(ev: unknown) => void> = []
+        const session = {
+          model: opts.model,
+          sessionManager: opts.sessionManager,
+          extensionRunner: { getToolDefinition: () => undefined, getRegisteredCommands: () => [] },
+          getContextUsage: () => ({ tokens: 100, contextWindow: 128_000, percent: 0.1 }),
+          subscribe: (fn: (ev: unknown) => void) => listeners.push(fn),
+          bindExtensions: async () => {},
+          dispose: () => {},
+          setModel: async () => {},
+          setThinkingLevel: () => {},
+          prompt: async (text: string) => {
+            sentPrompts.push(text)
+            const msg = {
+              role: 'assistant',
+              stopReason: 'stop',
+              content: [{ type: 'text', text: '收到，先生。' }],
+            }
+            for (const l of listeners) l({ type: 'message_start', message: msg })
+            for (const l of listeners)
+              l({
+                type: 'message_update',
+                assistantMessageEvent: { type: 'text_delta', delta: '收到，先生。' },
+              })
+            for (const l of listeners) l({ type: 'message_end', message: msg })
+          },
+        }
+        return { session }
+      }),
+    }
+
+    const longHistory = Array.from({ length: 12 }, (_, idx) => ({
+      role: idx % 2 === 0 ? 'user' : 'assistant',
+      text: `msg-${idx}-` + 'Z'.repeat(800),
+      ts: new Date(1_700_000_000_000 + idx * 1000).toISOString(),
+    }))
+
+    const defaults = defaultAiSettings()
+    const settings: AiSettings = {
+      ...defaults,
+      provider: 'custom',
+      providers: {
+        ...defaults.providers,
+        custom: {
+          ...defaults.providers.custom,
+          baseUrl: 'http://127.0.0.1:7000/v1',
+          apiKey: '1234',
+          model: 'Huihui-Qwen3.8-27B-abliterated-UD-Q4_K_XL',
+        },
+      },
+    }
+
+    const workbench = makeDummyWorkbench()
+    const chiefExt: ExtensionFactory = () => {}
+    const manager = new PiAgentRuntimeManager({
+      userDataDir: userData,
+      getDefaultWorkingDir: () => userData,
+      isPackaged: false,
+      getPrefs: () => ({ ...DEFAULT_PI_AGENT_PREFS, magicContextEnabled: true }),
+      getAiSettings: () => settings,
+      getGskApiKey: () => '',
+      getPermissionMode: () => 'standard',
+      sessionAllows: { isAllowed: () => false, allowForSession: () => {} } as never,
+      workbench,
+      getProjectStore: () =>
+        ({
+          loadChat: () => longHistory,
+          appendChatMessage: () => {},
+        }) as never,
+      sendConfirmRequest: () => {},
+      sendStatusEvent: () => {},
+      sendNoticeEvent: () => {},
+      resolveSessionExtensions: () => ({ key: 'chief', factories: [chiefExt] }),
+      loadPiSdk: async () => fakeSdk as never,
+    })
+
+    try {
+      const res = await manager.prompt({
+        sessionKey: BUTLER_CHIEF_SESSION_KEY,
+        projectId: 'default',
+        chatId: 'butler-main',
+        instruction: '你好贾维斯',
+      })
+
+      expect(res).toEqual({ ok: true, finalText: '收到，先生。' })
+      // Bloated JSONL must be deleted and bypassed instead of opened.
+      expect(existsSync(bloatedFile)).toBe(false)
+      expect(fakeSdk.SessionManager.open).not.toHaveBeenCalled()
+      expect(fakeSdk.SessionManager.create).toHaveBeenCalledTimes(1)
+
+      // Synthetic tool-less backfill must never be injected into Chief sessions.
+      expect(appendedMessages).toHaveLength(0)
+
+      // Chief ResourceLoader skips magicContext, bundled skills, and workbench/permission extensions.
+      expect(loaderConfigs[0]?.additionalExtensionPaths).toEqual([])
+      expect(loaderConfigs[0]?.additionalSkillPaths).toEqual([])
+      expect(loaderConfigs[0]?.extensionFactories).toEqual([chiefExt])
+
+      // All 8 built-in tools are excluded for Chief.
+      expect(createSessionCalls[0]?.excludeTools).toEqual([
+        'read',
+        'grep',
+        'find',
+        'ls',
+        'bash',
+        'powershell',
+        'edit',
+        'write',
+      ])
+
+      // Outbound prompt skips <workbench_context> and workbench RPCs.
+      expect(sentPrompts).toEqual(['你好贾维斯'])
+      expect(workbench.kbList).not.toHaveBeenCalled()
+      expect(workbench.listSurfaceTabs).not.toHaveBeenCalled()
+    } finally {
+      manager.disposeAll()
+    }
+  })
+
+  it('retries transient UND_ERR_SOCKET error drops cleanly and surfaces unrecoverable errors', async () => {
+    const userData = makeTempDir('genoffice-socket-retry-')
+    const paths = resolvePiRuntimePaths({ userDataDir: userData, storageMode: 'isolated' })
+    mkdirSync(paths.sessionsDir, { recursive: true })
+    const sessionFile = join(paths.sessionsDir, 'retry-session.jsonl')
+
+    let script: Array<
+      | { kind: 'socket-error'; message: string }
+      | { kind: 'fatal-error'; message: string }
+      | { kind: 'success'; text: string }
+    > = []
+    let sessionSeq = 0
+    let disposedCount = 0
+
+    const fakeSdk = {
+      DefaultResourceLoader: class {
+        async reload() {}
+        getSkills() {
+          return { skills: [] }
+        }
+      },
+      SettingsManager: { create: () => ({}) },
+      SessionManager: {
+        open: vi.fn((file: string) => ({
+          getSessionFile: () => file,
+          getSessionId: () => `pi-open-${sessionSeq}`,
+        })),
+        create: vi.fn(() => {
+          writeFileSync(sessionFile, '{"type":"session","id":"s-retry"}\n', 'utf8')
+          return {
+            getSessionFile: () => sessionFile,
+            getSessionId: () => `pi-create-${sessionSeq}`,
+            appendMessage: () => {},
+          }
+        }),
+      },
+      ModelRuntime: { create: vi.fn(async () => ({})) },
+      createAgentSession: vi.fn(async (opts: Record<string, unknown>) => {
+        const idx = sessionSeq++
+        const listeners: Array<(ev: unknown) => void> = []
+        const session = {
+          model: opts.model,
+          sessionManager: opts.sessionManager,
+          extensionRunner: { getToolDefinition: () => undefined, getRegisteredCommands: () => [] },
+          getContextUsage: () => null,
+          subscribe: (fn: (ev: unknown) => void) => listeners.push(fn),
+          bindExtensions: async () => {},
+          dispose: () => {
+            disposedCount += 1
+          },
+          setModel: async () => {},
+          setThinkingLevel: () => {},
+          prompt: async () => {
+            const step = script[idx]!
+            if (step.kind === 'socket-error' || step.kind === 'fatal-error') {
+              // Simulate SessionManager appending dirty failed turn lines before resolving.
+              appendFileSync(
+                sessionFile,
+                JSON.stringify({ type: 'message', role: 'user' }) +
+                  '\n' +
+                  JSON.stringify({
+                    type: 'message',
+                    role: 'assistant',
+                    stopReason: 'error',
+                    errorMessage: step.message,
+                  }) +
+                  '\n',
+                'utf8',
+              )
+              const errMsg = {
+                role: 'assistant',
+                stopReason: 'error',
+                errorMessage: step.message,
+                content: [],
+              }
+              for (const l of listeners) l({ type: 'message_start', message: errMsg })
+              for (const l of listeners) l({ type: 'message_end', message: errMsg })
+              return
+            }
+
+            const okMsg = {
+              role: 'assistant',
+              stopReason: 'stop',
+              content: [{ type: 'text', text: step.text }],
+            }
+            for (const l of listeners) l({ type: 'message_start', message: okMsg })
+            for (const l of listeners)
+              l({
+                type: 'message_update',
+                assistantMessageEvent: { type: 'text_delta', delta: step.text },
+              })
+            for (const l of listeners) l({ type: 'message_end', message: okMsg })
+          },
+        }
+        return { session }
+      }),
+    }
+
+    const defaults = defaultAiSettings()
+    const settings: AiSettings = {
+      ...defaults,
+      provider: 'custom',
+      providers: {
+        ...defaults.providers,
+        custom: {
+          ...defaults.providers.custom,
+          baseUrl: 'http://127.0.0.1:7000/v1',
+          apiKey: '1234',
+          model: 'Huihui-Qwen3.8-27B-abliterated-UD-Q4_K_XL',
+        },
+      },
+    }
+
+    const events: AskRunEvent[] = []
+    const unsubObserver = addAskRunObserver({
+      onEvent: (ev) => events.push(ev),
+    })
+
+    const manager = new PiAgentRuntimeManager({
+      userDataDir: userData,
+      getDefaultWorkingDir: () => userData,
+      isPackaged: false,
+      getPrefs: () => DEFAULT_PI_AGENT_PREFS,
+      getAiSettings: () => settings,
+      getGskApiKey: () => '',
+      getPermissionMode: () => 'standard',
+      sessionAllows: { isAllowed: () => false, allowForSession: () => {} } as never,
+      workbench: makeDummyWorkbench(),
+      getProjectStore: () => null,
+      sendConfirmRequest: () => {},
+      sendStatusEvent: () => {},
+      sendNoticeEvent: () => {},
+      loadPiSdk: async () => fakeSdk as never,
+    })
+
+    try {
+      // 1. Attempt 1 fails silently with UND_ERR_SOCKET, attempt 2 succeeds cleanly.
+      script = [
+        { kind: 'socket-error', message: 'Connection error.: other side closed (UND_ERR_SOCKET)' },
+        { kind: 'success', text: '已为您整理完毕。' },
+      ]
+      const resOk = await manager.prompt({
+        sessionKey: BUTLER_CHIEF_SESSION_KEY,
+        projectId: 'default',
+        chatId: 'butler-main',
+        instruction: '整理一下汇报',
+      })
+      expect(resOk).toEqual({ ok: true, finalText: '已为您整理完毕。' })
+      expect(disposedCount).toBe(1)
+      expect(readFileSync(sessionFile, 'utf8')).not.toContain('UND_ERR_SOCKET')
+      expect(events.some((e) => e.type === 'error')).toBe(false)
+      expect(events.some((e) => e.type === 'text' && e.payload === '已为您整理完毕。')).toBe(true)
+      expect(events.at(-1)?.type).toBe('done')
+
+      // 2. Exhausted transient retries -> must return ok: false and emit 'error' + 'done'.
+      events.length = 0
+      sessionSeq = 0
+      disposedCount = 0
+      script = [
+        { kind: 'socket-error', message: 'Connection error.: other side closed (UND_ERR_SOCKET)' },
+        { kind: 'socket-error', message: 'Connection error.: other side closed (UND_ERR_SOCKET)' },
+        { kind: 'socket-error', message: 'Connection error.: other side closed (UND_ERR_SOCKET)' },
+      ]
+      const resExhausted = await manager.prompt({
+        sessionKey: BUTLER_CHIEF_SESSION_KEY,
+        projectId: 'default',
+        chatId: 'butler-main',
+        instruction: '继续整理',
+      })
+      expect(resExhausted).toEqual({
+        ok: false,
+        error: 'Connection error.: other side closed (UND_ERR_SOCKET)',
+      })
+      expect(disposedCount).toBe(2)
+      expect(events.filter((e) => e.type === 'error')).toHaveLength(1)
+      expect(events.at(-1)?.type).toBe('done')
+
+      // 3. Non-retryable error (HTTP 400) must fail immediately without retrying.
+      events.length = 0
+      sessionSeq = 0
+      disposedCount = 0
+      script = [{ kind: 'fatal-error', message: 'HTTP 400 Invalid argument' }]
+      const resFatal = await manager.prompt({
+        sessionKey: 'default:worker-non-retryable',
+        projectId: 'default',
+        chatId: 'worker-non-retryable',
+        instruction: 'run task',
+      })
+      expect(resFatal).toEqual({ ok: false, error: 'HTTP 400 Invalid argument' })
+      expect(disposedCount).toBe(0)
+      expect(events.filter((e) => e.type === 'error')).toHaveLength(1)
+      expect(events.at(-1)?.type).toBe('done')
+    } finally {
+      unsubObserver()
+      manager.disposeAll()
     }
   })
 })

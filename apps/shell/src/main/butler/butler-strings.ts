@@ -9,6 +9,11 @@ export type ButlerStringKey =
   | 'notifyConfirmBody'
   | 'speakDone'
   | 'speakError'
+  | 'speakMissionDone'
+  | 'speakPlanReview'
+  | 'speakAckReceived'
+  | 'speakMissionPlanned'
+  | 'speakDecisionNeeded'
   | 'errorEmptyReply'
   | 'notifyDecisionTitle'
   | 'notifyDecisionBody'
@@ -25,6 +30,12 @@ const dicts = {
     notifyConfirmBody: '「{title}」正在等待你批准：{tool}',
     speakDone: '{honorific}，「{title}」已完成。',
     speakError: '{honorific}，「{title}」没能完成。',
+    speakMissionDone: '{honorific}，{headline}。{summary}',
+    speakPlanReview: '{honorific}，我已拟好共 {count} 步的执行计划：{summary}。确认无误我就安排下去，如需修改请直接告诉我。',
+    speakAckReceived: '{honorific}，收到，马上为您安排。',
+    speakMissionPlanned:
+      '{honorific}，任务已安排妥当，已调派 {count} 项后台任务分头推进，完成后第一时间向您汇报。',
+    speakDecisionNeeded: '{honorific}，「{task}」需要您拍板确认：{title}。',
     errorEmptyReply: '没有收到任何回复，可能被记忆插件拒绝或模型未输出，请在 AI 面板查看详情',
     notifyDecisionTitle: '管家需要你拍板：{title}',
     notifyDecisionBody: '{task} — {summary}',
@@ -40,6 +51,12 @@ const dicts = {
     notifyConfirmBody: '"{title}" is waiting for your approval: {tool}',
     speakDone: '{honorific}, "{title}" is done.',
     speakError: '{honorific}, "{title}" could not be completed.',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, I have prepared a {count}-step plan: {summary}. Let me know if you want to proceed as planned or adjust anything.',
+    speakAckReceived: '{honorific}, right away — looking into it now.',
+    speakMissionPlanned:
+      '{honorific}, all set — {count} background tasks are underway. I will report back as soon as they finish.',
+    speakDecisionNeeded: '{honorific}, "{task}" needs your decision: {title}.',
     errorEmptyReply:
       'No reply was received (the memory plugin may have refused the turn or the model produced nothing). Open the AI panel for details.',
     notifyDecisionTitle: 'Butler needs your call: {title}',
@@ -56,6 +73,12 @@ const dicts = {
     notifyConfirmBody: '「{title}」が承認を待っています：{tool}',
     speakDone: '{honorific}、「{title}」が完了しました。',
     speakError: '{honorific}、「{title}」を完了できませんでした。',
+    speakMissionDone: '{honorific}、{headline}。{summary}',
+    speakPlanReview: '{honorific}、全 {count} ステップの実行計画を作成しました：{summary}。問題なければこのまま開始しますので、修正があればお知らせください。',
+    speakAckReceived: '{honorific}、承知しました。ただちに手配いたします。',
+    speakMissionPlanned:
+      '{honorific}、手配が完了しました。{count}件のバックグラウンドタスクを並行して進めており、完了次第ご報告いたします。',
+    speakDecisionNeeded: '{honorific}、「{task}」についてご判断をお願いします：{title}。',
     errorEmptyReply:
       '応答を受信できませんでした（メモリプラグインによる拒否またはモデル未出力の可能性があります）。AI パネルで詳細を確認してください。',
     notifyDecisionTitle: 'バトラーが判断を求めています：{title}',
@@ -72,6 +95,12 @@ const dicts = {
     notifyConfirmBody: '"{title}" 작업이 승인을 기다리고 있습니다: {tool}',
     speakDone: '{honorific}, "{title}" 작업이 완료되었습니다.',
     speakError: '{honorific}, "{title}" 작업을 완료하지 못했습니다.',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, 총 {count}단계 실행 계획을 준비했습니다: {summary}. 그대로 진행할지 수정할 부분이 있는지 말씀해 주세요.',
+    speakAckReceived: '{honorific}, 알겠습니다. 바로 진행하겠습니다.',
+    speakMissionPlanned:
+      '{honorific}, 배치가 완료되었습니다. {count}개의 백그라운드 작업이 진행 중이며 완료되는 대로 보고드리겠습니다.',
+    speakDecisionNeeded: '{honorific}, "{task}"에 대한 결정이 필요합니다: {title}.',
     errorEmptyReply:
       '응답을 받지 못했습니다(메모리 플러그인에서 거부되었거나 모델 출력이 없을 수 있음). AI 패널에서 세부 정보를 확인하세요.',
     notifyDecisionTitle: '집사가 결정을 기다리고 있습니다: {title}',
@@ -88,6 +117,12 @@ const dicts = {
     notifyConfirmBody: '« {title} » attend votre approbation : {tool}',
     speakDone: '{honorific}, « {title} » est terminée.',
     speakError: '{honorific}, « {title} » n’a pas pu être terminée.',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, j\'ai préparé un plan en {count} étapes : {summary}. Dites-moi si je peux le lancer ou si vous souhaitez l\'ajuster.',
+    speakAckReceived: '{honorific}, bien reçu — je m’en occupe immédiatement.',
+    speakMissionPlanned:
+      '{honorific}, tout est organisé — {count} tâches sont lancées en arrière-plan. Je vous ferai un retour dès qu’elles seront terminées.',
+    speakDecisionNeeded: '{honorific}, « {task} » requiert votre décision : {title}.',
     errorEmptyReply:
       'Aucune réponse n’a été reçue (le greffon mémoire a peut-être refusé le tour ou le modèle n’a rien produit). Ouvrez le panneau IA pour plus de détails.',
     notifyDecisionTitle: 'Le majordome attend votre décision : {title}',
@@ -104,6 +139,12 @@ const dicts = {
     notifyConfirmBody: '„{title}“ wartet auf Ihre Freigabe: {tool}',
     speakDone: '{honorific}, „{title}“ ist abgeschlossen.',
     speakError: '{honorific}, „{title}“ konnte nicht abgeschlossen werden.',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, ich habe einen {count}-stufigen Plan erstellt: {summary}. Geben Sie mir Bescheid, ob wir so starten oder etwas anpassen sollen.',
+    speakAckReceived: '{honorific}, verstanden — ich kümmere mich sofort darum.',
+    speakMissionPlanned:
+      '{honorific}, alles ist eingeleitet — {count} Hintergrundaufgaben laufen. Ich melde mich, sobald sie fertig sind.',
+    speakDecisionNeeded: '{honorific}, „{task}“ erfordert Ihre Entscheidung: {title}.',
     errorEmptyReply:
       'Keine Antwort erhalten (das Memory-Plugin hat den Durchgang möglicherweise abgelehnt oder das Modell hat nichts ausgegeben). Öffnen Sie das KI-Panel für Details.',
     notifyDecisionTitle: 'Der Butler braucht Ihre Entscheidung: {title}',
@@ -120,6 +161,12 @@ const dicts = {
     notifyConfirmBody: '«{title}» espera su aprobación: {tool}',
     speakDone: '{honorific}, «{title}» ha finalizado.',
     speakError: '{honorific}, no se pudo completar «{title}».',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, he preparado un plan de {count} pasos: {summary}. Dígame si procedo según lo previsto o si desea ajustar algo.',
+    speakAckReceived: '{honorific}, entendido — me pongo con ello ahora mismo.',
+    speakMissionPlanned:
+      '{honorific}, todo organizado: hay {count} tareas en marcha en segundo plano. Le informaré en cuanto terminen.',
+    speakDecisionNeeded: '{honorific}, «{task}» necesita su decisión: {title}.',
     errorEmptyReply:
       'No se recibió ninguna respuesta (puede que el complemento de memoria haya rechazado el turno o que el modelo no haya generado nada). Abra el panel de IA para ver los detalles.',
     notifyDecisionTitle: 'El mayordomo necesita tu decisión: {title}',
@@ -136,6 +183,12 @@ const dicts = {
     notifyConfirmBody: 'งาน "{title}" กำลังรอการอนุมัติจากคุณ: {tool}',
     speakDone: '{honorific} งาน "{title}" เสร็จสมบูรณ์แล้ว',
     speakError: '{honorific} ไม่สามารถทำงาน "{title}" ให้เสร็จสมบูรณ์ได้',
+    speakMissionDone: '{honorific} {headline} {summary}',
+    speakPlanReview: '{honorific} ผมได้เตรียมแผน {count} ขั้นตอนไว้แล้ว: {summary} แจ้งได้เลยครับว่าจะให้เริ่มตามนี้หรือปรับแก้ส่วนใด',
+    speakAckReceived: '{honorific} รับทราบครับ กำลังดำเนินการให้ทันที',
+    speakMissionPlanned:
+      '{honorific} จัดการเรียบร้อยแล้ว มี {count} งานกำลังทำงานอยู่เบื้องหลัง เมื่อเสร็จแล้วจะรีบรายงานทันที',
+    speakDecisionNeeded: '{honorific} งาน "{task}" ต้องการการตัดสินใจของคุณ: {title}',
     errorEmptyReply:
       'ไม่ได้รับคำตอบ (ปลั๊กอินหน่วยความจำอาจปฏิเสธการทำงาน หรือโมเดลไม่ส่งผลลัพธ์) โปรดเปิดแผง AI เพื่อดูรายละเอียด',
     notifyDecisionTitle: 'ผู้ช่วยต้องการการตัดสินใจของคุณ: {title}',
@@ -152,6 +205,12 @@ const dicts = {
     notifyConfirmBody: '"{title}" menunggu persetujuan Anda: {tool}',
     speakDone: '{honorific}, "{title}" telah selesai.',
     speakError: '{honorific}, "{title}" gagal diselesaikan.',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, saya telah menyiapkan rencana {count} langkah: {summary}. Beri tahu saya jika ingin lanjut sesuai rencana atau ada yang perlu diubah.',
+    speakAckReceived: '{honorific}, baik — segera saya proses sekarang.',
+    speakMissionPlanned:
+      '{honorific}, sudah diatur — {count} tugas latar belakang sedang berjalan. Saya akan melapor begitu selesai.',
+    speakDecisionNeeded: '{honorific}, "{task}" memerlukan keputusan Anda: {title}.',
     errorEmptyReply:
       'Tidak ada balasan yang diterima (plugin memori mungkin menolak giliran ini atau model tidak menghasilkan apa pun). Buka panel AI untuk detailnya.',
     notifyDecisionTitle: 'Pelayan memerlukan keputusan Anda: {title}',
@@ -168,6 +227,12 @@ const dicts = {
     notifyConfirmBody: 'Задача «{title}» ожидает вашего подтверждения: {tool}',
     speakDone: '{honorific}, задача «{title}» выполнена.',
     speakError: '{honorific}, задачу «{title}» не удалось завершить.',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, я подготовил план из {count} шагов: {summary}. Подскажите, можно запускать или нужно что-то скорректировать.',
+    speakAckReceived: '{honorific}, принято — уже беру в работу.',
+    speakMissionPlanned:
+      '{honorific}, всё распределено: в фоне запущено задач — {count}. Сообщу сразу по завершении.',
+    speakDecisionNeeded: '{honorific}, для «{task}» требуется ваше решение: {title}.',
     errorEmptyReply:
       'Ответ не получен (плагин памяти мог отклонить запрос или модель ничего не вывела). Откройте панель ИИ для подробностей.',
     notifyDecisionTitle: 'Дворецкому нужно ваше решение: {title}',
@@ -184,6 +249,12 @@ const dicts = {
     notifyConfirmBody: 'تنتظر «{title}» موافقتك: {tool}',
     speakDone: '{honorific}، اكتملت مهمة «{title}».',
     speakError: '{honorific}، تعذّر إكمال «{title}».',
+    speakMissionDone: '{honorific}، {headline}. {summary}',
+    speakPlanReview: '{honorific}، أعددت خطة من {count} خطوات: {summary}. أخبرني إن كنت ترغب في المضي قدماً أو تعديل أي جزء.',
+    speakAckReceived: '{honorific}، تم الاستلام — أباشر العمل على ذلك حالاً.',
+    speakMissionPlanned:
+      '{honorific}، تم الترتيب — هناك {count} مهام قيد التنفيذ في الخلفية، وسأبلغك فور انتهائها.',
+    speakDecisionNeeded: '{honorific}، تحتاج مهمة «{task}» إلى قرارك: {title}.',
     errorEmptyReply:
       'لم يتم استلام أي رد (ربما رفض ملحق الذاكرة الدور أو لم يُخرج النموذج شيئًا). افتح لوحة الذكاء الاصطناعي للتفاصيل.',
     notifyDecisionTitle: 'يحتاج المساعد إلى قرارك: {title}',
@@ -200,6 +271,12 @@ const dicts = {
     notifyConfirmBody: '"{title}" aguarda sua aprovação: {tool}',
     speakDone: '{honorific}, "{title}" foi concluída.',
     speakError: '{honorific}, não foi possível concluir "{title}".',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, preparei um plano de {count} etapas: {summary}. Diga-me se posso prosseguir como planejado ou se deseja ajustar algo.',
+    speakAckReceived: '{honorific}, entendido — já estou cuidando disso.',
+    speakMissionPlanned:
+      '{honorific}, tudo encaminhado — {count} tarefas estão em andamento em segundo plano. Avisarei assim que concluírem.',
+    speakDecisionNeeded: '{honorific}, "{task}" precisa da sua decisão: {title}.',
     errorEmptyReply:
       'Nenhuma resposta foi recebida (o plugin de memória pode ter recusado o turno ou o modelo não gerou nada). Abra o painel de IA para mais detalhes.',
     notifyDecisionTitle: 'O mordomo precisa da sua decisão: {title}',
@@ -216,6 +293,12 @@ const dicts = {
     notifyConfirmBody: '"{title}" è in attesa della tua approvazione: {tool}',
     speakDone: '{honorific}, "{title}" è stata completata.',
     speakError: '{honorific}, "{title}" non è stata completata.',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, ho preparato un piano in {count} fasi: {summary}. Mi faccia sapere se procedere così o modificare qualcosa.',
+    speakAckReceived: '{honorific}, ricevuto — provvedo subito.',
+    speakMissionPlanned:
+      '{honorific}, tutto predisposto — {count} attività sono in esecuzione in background. Le riferirò appena saranno concluse.',
+    speakDecisionNeeded: '{honorific}, "{task}" richiede la tua decisione: {title}.',
     errorEmptyReply:
       'Nessuna risposta ricevuta (il plugin memoria potrebbe aver rifiutato il turno o il modello non ha prodotto nulla). Apri il pannello IA per i dettagli.',
     notifyDecisionTitle: 'Il maggiordomo attende la tua decisione: {title}',
@@ -232,6 +315,12 @@ const dicts = {
     notifyConfirmBody: 'Zadanie „{title}” oczekuje na zatwierdzenie: {tool}',
     speakDone: '{honorific}, zadanie „{title}” zostało ukończone.',
     speakError: '{honorific}, nie udało się ukończyć zadania „{title}”.',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, przygotowałem plan w {count} krokach: {summary}. Proszę dać znać, czy uruchomić go w tej formie, czy coś zmienić.',
+    speakAckReceived: '{honorific}, przyjęto — już się tym zajmuję.',
+    speakMissionPlanned:
+      '{honorific}, wszystko zaplanowane — {count} zadań działa w tle. Zamelduję od razu po zakończeniu.',
+    speakDecisionNeeded: '{honorific}, zadanie „{task}” wymaga Twojej decyzji: {title}.',
     errorEmptyReply:
       'Nie otrzymano żadnej odpowiedzi (wtyczka pamięci mogła odrzucić turę lub model nic nie zwrócił). Otwórz panel AI, aby zobaczyć szczegóły.',
     notifyDecisionTitle: 'Lokaj potrzebuje Twojej decyzji: {title}',
@@ -248,6 +337,12 @@ const dicts = {
     notifyConfirmBody: 'Úkol „{title}“ čeká na vaše schválení: {tool}',
     speakDone: '{honorific}, úkol „{title}“ byl dokončen.',
     speakError: '{honorific}, úkol „{title}“ se nepodařilo dokončit.',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, připravil jsem plán o {count} krocích: {summary}. Dejte mi vědět, zda můžeme pokračovat, nebo chcete něco upravit.',
+    speakAckReceived: '{honorific}, rozumím — hned se do toho pouštím.',
+    speakMissionPlanned:
+      '{honorific}, vše je zařízeno — na pozadí běží {count} úkolů. Ozvu se hned po dokončení.',
+    speakDecisionNeeded: '{honorific}, úkol „{task}“ vyžaduje vaše rozhodnutí: {title}.',
     errorEmptyReply:
       'Nebyla přijata žádná odpověď (modul paměti mohl požadavek odmítnout nebo model nic nevytvořil). Podrobnosti najdete v panelu AI.',
     notifyDecisionTitle: 'Komorník potřebuje vaše rozhodnutí: {title}',
@@ -264,6 +359,12 @@ const dicts = {
     notifyConfirmBody: '"{title}" wacht op uw goedkeuring: {tool}',
     speakDone: '{honorific}, "{title}" is voltooid.',
     speakError: '{honorific}, "{title}" kon niet worden voltooid.',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, ik heb een plan van {count} stappen opgesteld: {summary}. Laat weten of we zo kunnen starten of iets moeten aanpassen.',
+    speakAckReceived: '{honorific}, begrepen — ik ga er direct mee aan de slag.',
+    speakMissionPlanned:
+      '{honorific}, alles is ingepland — {count} achtergrondtaken lopen. Ik meld me zodra ze klaar zijn.',
+    speakDecisionNeeded: '{honorific}, "{task}" vraagt om uw beslissing: {title}.',
     errorEmptyReply:
       'Geen antwoord ontvangen (de geheugenplug-in heeft de beurt mogelijk geweigerd of het model heeft niets uitgevoerd). Open het AI-paneel voor details.',
     notifyDecisionTitle: 'De butler heeft uw beslissing nodig: {title}',
@@ -280,6 +381,12 @@ const dicts = {
     notifyConfirmBody: '"{title}" sedang menunggu kelulusan anda: {tool}',
     speakDone: '{honorific}, "{title}" telah selesai.',
     speakError: '{honorific}, "{title}" gagal diselesaikan.',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, saya telah menyediakan pelan {count} langkah: {summary}. Maklumkan jika mahu teruskan seperti dirancang atau ubah apa-apa.',
+    speakAckReceived: '{honorific}, difahami — saya uruskan sekarang.',
+    speakMissionPlanned:
+      '{honorific}, semua telah diatur — {count} tugasan latar belakang sedang berjalan. Saya akan laporkan sebaik selesai.',
+    speakDecisionNeeded: '{honorific}, "{task}" memerlukan keputusan anda: {title}.',
     errorEmptyReply:
       'Tiada balasan diterima (pemalam memori mungkin menolak giliran atau model tidak mengeluarkan apa-apa). Buka panel AI untuk butiran.',
     notifyDecisionTitle: 'Pembantu memerlukan keputusan anda: {title}',
@@ -296,6 +403,12 @@ const dicts = {
     notifyConfirmBody: '"{title}" ממתינה לאישורך: {tool}',
     speakDone: '{honorific}, "{title}" הושלמה.',
     speakError: '{honorific}, לא ניתן היה להשלים את "{title}".',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, הכנתי תוכנית בת {count} שלבים: {summary}. עדכן אותי אם להמשיך כמתוכנן או לשנות דבר מה.',
+    speakAckReceived: '{honorific}, התקבל — מטפל בכך מיד.',
+    speakMissionPlanned:
+      '{honorific}, הכול סודר — {count} משימות רקע פועלות כעת. אדווח מיד עם סיומן.',
+    speakDecisionNeeded: '{honorific}, "{task}" דורשת את החלטתך: {title}.',
     errorEmptyReply:
       'לא התקבלה תשובה (ייתכן שתוסף הזיכרון דחה את התור או שהמודל לא הפיק דבר). פתח את חלונית ה-AI לפרטים.',
     notifyDecisionTitle: 'העוזר זקוק להחלטתך: {title}',
@@ -312,6 +425,12 @@ const dicts = {
     notifyConfirmBody: '"{title}" आपकी स्वीकृति की प्रतीक्षा कर रहा है: {tool}',
     speakDone: '{honorific}, "{title}" पूर्ण हो गया है।',
     speakError: '{honorific}, "{title}" पूर्ण नहीं हो सका।',
+    speakMissionDone: '{honorific}, {headline}। {summary}',
+    speakPlanReview: '{honorific}, मैंने {count} चरणों की कार्य योजना तैयार की है: {summary}। बताएं कि इसे ऐसे ही शुरू करूं या कुछ बदलाव करना है।',
+    speakAckReceived: '{honorific}, जी बिल्कुल — मैं अभी इस पर काम शुरू कर रहा हूँ।',
+    speakMissionPlanned:
+      '{honorific}, सब व्यवस्थित हो गया है — {count} पृष्ठभूमि कार्य चल रहे हैं। पूर्ण होते ही आपको सूचित करूँगा।',
+    speakDecisionNeeded: '{honorific}, "{task}" के लिए आपका निर्णय आवश्यक है: {title}।',
     errorEmptyReply:
       'कोई उत्तर प्राप्त नहीं हुआ (मेमोरी प्लगइन ने टर्न अस्वीकार किया हो सकता है या मॉडल ने कुछ उत्पन्न नहीं किया)। विवरण के लिए AI पैनल खोलें।',
     notifyDecisionTitle: 'बटलर को आपके निर्णय की आवश्यकता है: {title}',
@@ -328,6 +447,12 @@ const dicts = {
     notifyConfirmBody: '「{title}」正等待您核准：{tool}',
     speakDone: '{honorific}，「{title}」已完成。',
     speakError: '{honorific}，「{title}」未能完成。',
+    speakMissionDone: '{honorific}，{headline}。{summary}',
+    speakPlanReview: '{honorific}，我已擬好共 {count} 步的執行計畫：{summary}。確認無誤我就安排下去，如需修改請直接告訴我。',
+    speakAckReceived: '{honorific}，收到，馬上為您安排。',
+    speakMissionPlanned:
+      '{honorific}，任務已安排妥當，已調派 {count} 項背景任務分頭推進，完成後第一時間向您回報。',
+    speakDecisionNeeded: '{honorific}，「{task}」需要您拍板確認：{title}。',
     errorEmptyReply: '沒有收到任何回覆，可能被記憶外掛拒絕或模型未輸出，請在 AI 面板檢視詳情',
     notifyDecisionTitle: '管家需要您拍板：{title}',
     notifyDecisionBody: '{task} — {summary}',
@@ -343,6 +468,12 @@ const dicts = {
     notifyConfirmBody: '"{title}" đang chờ bạn phê duyệt: {tool}',
     speakDone: '{honorific}, "{title}" đã xong.',
     speakError: '{honorific}, không thể hoàn thành "{title}".',
+    speakMissionDone: '{honorific}, {headline}. {summary}',
+    speakPlanReview: '{honorific}, tôi đã chuẩn bị kế hoạch gồm {count} bước: {summary}. Hãy cho tôi biết nếu bạn muốn tiến hành ngay hay cần điều chỉnh gì.',
+    speakAckReceived: '{honorific}, đã rõ — tôi sẽ xử lý ngay.',
+    speakMissionPlanned:
+      '{honorific}, mọi việc đã được sắp xếp — {count} tác vụ nền đang chạy. Tôi sẽ báo cáo ngay khi hoàn tất.',
+    speakDecisionNeeded: '{honorific}, "{task}" cần bạn quyết định: {title}.',
     errorEmptyReply:
       'Không nhận được phản hồi nào (plugin bộ nhớ có thể đã từ chối lượt hoặc mô hình không xuất gì). Mở bảng AI để xem chi tiết.',
     notifyDecisionTitle: 'Quản gia cần bạn quyết định: {title}',

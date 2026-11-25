@@ -223,6 +223,7 @@ import {
   markSheetsUntitledPath,
   markSheetsUnsavedNew,
   mediaFilePathForWebContents,
+  mediaLibraryStorePath,
   mediaReadSnapshot,
   onAiSettingsUpdated,
   prepareMediaSessionForWebContents,
@@ -383,13 +384,37 @@ import {
   writeButlerState,
 } from './butler/butler-prefs-store'
 import { createButlerService, stepKindForTool } from './butler/butler-service'
+import {
+  butlerVoiceClonePath,
+  createButlerVoiceService,
+  readButlerVoiceConfig,
+  watchButlerVoiceConfig,
+  type ButlerVoiceService,
+} from './butler/butler-voice-service'
 import { tButler } from './butler/butler-strings'
-import type { ButlerOpenTarget } from '../shared/butler-api'
+import {
+  collectPlayableMediaFiles,
+  listSampleMediaTracks,
+  searchLocalMediaTracks,
+  type ButlerMediaTrackCandidate,
+} from './butler/butler-media-search'
+import { readMediaLibrary } from './media-library'
+import {
+  createStreamingSpeechChunker,
+  type ButlerOpenTarget,
+  type ButlerSpeakRequest,
+  type StreamingSpeechChunker,
+} from '../shared/butler-api'
 import {
   isButlerChiefSession,
   isButlerWorkerSession,
+  type ButlerActionResult,
+  type ButlerDesktopActionRequest,
+  type ButlerDesktopActionResult,
+  type ButlerDesktopActionTarget,
   type ButlerOpenDeskPayload,
 } from '../shared/butler-orchestrator-api'
+import type { ButlerWakePromptPayload } from '../shared/butler-voice-api'
 import { isUserVisibleFile, type FileTargetSources } from './file-targets'
 import { pdfSaveAsTarget } from './rename-validation'
 import { FolderWatcher, isInsideRoot, pathsUnder, rebasePath, uniqueNameIn } from './folder-tree'
@@ -4029,10 +4054,23 @@ async function confirmBrowserPageAction(request: BrowserPageActionConfirm): Prom
 let systemPresence: SystemPresence | null = null
 let butlerHud: ButlerHudWindow | null = null
 let activeButlerMissionEngine: ButlerMissionEngine | null = null
+let activeButlerVoiceService: ButlerVoiceService | null = null
+let stopButlerVoiceWatch: (() => void) | null = null
 
 function summonButler(): boolean {
-  if (!readButlerPrefs(APP_SETTINGS_PATH()).enabled || !butlerHud) return false
+  const prefs = readButlerPrefs(APP_SETTINGS_PATH())
+  if (!prefs.enabled || !butlerHud) return false
+  const wasVisible = butlerHud.isVisible()
   butlerHud.toggle()
+  if (!wasVisible && butlerHud.isVisible()) {
+    const voiceCfg = readButlerVoiceConfig(APP_SETTINGS_PATH())
+    if (prefs.voice && voiceCfg.hotkeyAutoListen) {
+      butlerHud.send(HOME_CHANNELS.butlerVoiceWakePrompt, {
+        autoListen: true,
+        wakeAck: false,
+      } satisfies ButlerWakePromptPayload)
+    }
+  }
   return true
 }
 
@@ -4907,15 +4945,24 @@ function newBrowserTab(): void {
 }
 
 /** Open or focus the persistent desktop media player window hosted on the Home surface. */
-function openDesktopMediaPlayer(filePath?: string): boolean {
+function openDesktopMediaPlayer(
+  filePath?: string,
+  command?: DesktopMediaOpenPayload['command'],
+): boolean {
   if (!shellWindow || shellWindow.isDestroyed()) return false
   const wc = shellWindow.webContents
-  const entry = prepareMediaSessionForWebContents(wc.id, filePath)
+  if (command === 'close') {
+    sendToShellRenderer(HOME_CHANNELS.desktopMediaOpen, { command: 'close' })
+    return true
+  }
+  const entry =
+    filePath || !command ? prepareMediaSessionForWebContents(wc.id, filePath) : undefined
   tabManager?.openHomeTab()
   revealShellWindow()
   const payload: DesktopMediaOpenPayload = {
     ...(filePath ? { filePath: entry?.filePath ?? filePath } : {}),
     ...(entry ? { token: entry.token } : {}),
+    ...(command ? { command } : {}),
   }
   if (wc.isLoadingMainFrame()) {
     wc.once('did-finish-load', () => {
@@ -7872,14 +7919,25 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     getPersonaSection: () => buildButlerPersonaSection(readButlerPrefs(APP_SETTINGS_PATH())),
     interceptConfirmRequest: (req) =>
       butlerMissionEngine ? butlerMissionEngine.interceptWorkerConfirm(req) : Promise.resolve(null),
+    resolveSessionThinkingOverride: (sessionKey) => {
+      const bp = readButlerPrefs(APP_SETTINGS_PATH())
+      if (isButlerChiefSession(sessionKey) && bp.chiefFastMode) {
+        return { mode: 'off' }
+      }
+      if (isButlerWorkerSession(sessionKey) && bp.workerThinkingEffort !== 'follow') {
+        return { mode: 'effort', effort: bp.workerThinkingEffort }
+      }
+      return undefined
+    },
     resolveSessionExtensions: (sessionKey) => {
       if (!butlerMissionEngine) return null
       if (isButlerChiefSession(sessionKey)) {
+        const bp = readButlerPrefs(APP_SETTINGS_PATH())
         return {
-          key: 'butler:chief',
+          key: bp.planConfirmBeforeDispatch ? 'butler:chief:plan-gate' : 'butler:chief',
           factories: [
             createButlerChiefExtension(butlerMissionEngine, {
-              prefs: readButlerPrefs(APP_SETTINGS_PATH()),
+              prefs: bp,
             }),
           ],
         }
@@ -7947,6 +8005,11 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     workArea: () => screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea,
   })
   butlerHud = hudWindow
+  const butlerVoiceService = createButlerVoiceService({
+    settingsPath: APP_SETTINGS_PATH,
+    cloneStorePath: () => butlerVoiceClonePath(app.getPath('userData')),
+  })
+  activeButlerVoiceService = butlerVoiceService
   const openButlerSession = (sessionKey: string): void => {
     const sep = sessionKey.indexOf(':')
     const projectId = sep > 0 ? sessionKey.slice(0, sep) : 'default'
@@ -8015,9 +8078,216 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       shellWindow.flashFrame(true)
     }
   }
+  const formatButlerLocalizedSpeech = (rawSpeak: string, honorific: string): string =>
+    honorific.length > 0 ? rawSpeak.trim() : rawSpeak.replace(/^[\s,，、.。،]+/, '').trim()
+
+  const sendHudSpeechIfEnabled = (req: ButlerSpeakRequest): boolean => {
+    const text = req.text.trim()
+    if (!text) return false
+    const prefs = readButlerPrefs(APP_SETTINGS_PATH())
+    const voiceCfg = readButlerVoiceConfig(APP_SETTINGS_PATH())
+    if (!prefs.enabled || !prefs.voice || prefs.dnd || !voiceCfg.autoSpeakReplies) return false
+    hudWindow.send(HOME_CHANNELS.butlerSpeak, { ...req, text } satisfies ButlerSpeakRequest)
+    return true
+  }
+
+  let chiefStreamCounter = 0
+  let chiefStream: {
+    readonly turnId: string
+    readonly chunker: StreamingSpeechChunker
+    lastMsgRaw: string
+    emittedChunks: number
+    aborted: boolean
+    active: boolean
+    callbackSuppressed: boolean
+  } | null = null
+  let chiefLastTurnStreamSpoken = false
+
+  const emitChiefStreamSpeech = (sentence: string, isFinal: boolean): void => {
+    if (!chiefStream || !chiefStream.active || chiefStream.aborted) return
+    const clean = sentence.trim()
+    if (!clean) return
+    const isFirst = chiefStream.emittedChunks === 0
+    if (
+      sendHudSpeechIfEnabled({
+        text: clean,
+        enqueue: !isFirst,
+        phase: 'stream',
+        openFollowUp: true,
+        streamTurnId: chiefStream.turnId,
+        streamFinal: isFinal,
+      })
+    ) {
+      chiefStream.emittedChunks += 1
+    }
+  }
+
+  const consumeChiefStreamSpoken = (): boolean => {
+    if (chiefStream && chiefStream.active) {
+      if (!chiefStream.aborted && chiefStream.emittedChunks > 0) {
+        chiefStream.callbackSuppressed = true
+        return true
+      }
+      return false
+    }
+    if (!chiefLastTurnStreamSpoken) return false
+    chiefLastTurnStreamSpoken = false
+    return true
+  }
+
+  const collectButlerMediaLibraryTracks = (): readonly ButlerMediaTrackCandidate[] => {
+    const store = readMediaLibrary(mediaLibraryStorePath())
+    const folders = [...store.folders]
+    try {
+      const musicDir = app.getPath('music')
+      if (musicDir) folders.push(musicDir)
+    } catch {
+      // Ignore unavailable OS music folder paths.
+    }
+    return collectPlayableMediaFiles({
+      folders,
+      pinnedFiles: store.pinnedFiles,
+      lastFilePath: store.lastFilePath,
+      isSupportedExt: isPlayableMediaExt,
+    })
+  }
+
+  const executeButlerDesktopAction = async (
+    req: ButlerDesktopActionRequest,
+  ): Promise<ButlerDesktopActionResult> => {
+    switch (req.target) {
+      case 'media-player': {
+        const mediaCommand = req.mediaCommand
+        const query = req.query?.trim()
+        const explicitPath = req.pathOrUrl?.trim()
+
+        if (mediaCommand === 'close') {
+          const ok = openDesktopMediaPlayer(undefined, 'close')
+          return ok
+            ? { ok: true }
+            : { ok: false, error: 'Main shell window is not available to close media player' }
+        }
+
+        if (mediaCommand === 'list') {
+          const allTracks = collectButlerMediaLibraryTracks()
+          if (allTracks.length === 0) {
+            return {
+              ok: false,
+              error: 'No local audio or video tracks were found in your media library or Music folder.',
+              tracks: [],
+            }
+          }
+          const matched = query
+            ? searchLocalMediaTracks(allTracks, query, 15).matches
+            : listSampleMediaTracks(allTracks, 15)
+          return {
+            ok: true,
+            tracks: matched.map((track) => track.title),
+          }
+        }
+
+        if (
+          mediaCommand === 'pause' ||
+          mediaCommand === 'toggle-play' ||
+          mediaCommand === 'next' ||
+          mediaCommand === 'prev'
+        ) {
+          if (!query && !explicitPath) {
+            const ok = openDesktopMediaPlayer(undefined, mediaCommand)
+            return ok
+              ? { ok: true }
+              : {
+                  ok: false,
+                  error: 'Main shell window is not available for media playback control',
+                }
+          }
+        }
+
+        if (explicitPath) {
+          if (!existsSync(explicitPath)) {
+            return { ok: false, error: `Media file not found: ${explicitPath}` }
+          }
+          recordRecentFile(explicitPath)
+          const ok = openDesktopMediaPlayer(explicitPath)
+          if (!ok) {
+            return { ok: false, error: 'Main shell window is not available to open media player' }
+          }
+          return {
+            ok: true,
+            openedPath: explicitPath,
+            matchedTitle: basename(explicitPath, extname(explicitPath)),
+          }
+        }
+
+        if (query) {
+          const allTracks = collectButlerMediaLibraryTracks()
+          const result = searchLocalMediaTracks(allTracks, query, 8)
+          if (!result.bestMatch) {
+            const suggestions = listSampleMediaTracks(allTracks, 8).map((track) => track.title)
+            return {
+              ok: false,
+              error:
+                allTracks.length === 0
+                  ? 'No local audio or video tracks were found in your media library.'
+                  : `No track matching "${query}" was found in your local media library.`,
+              tracks: suggestions,
+            }
+          }
+          recordRecentFile(result.bestMatch.path)
+          const ok = openDesktopMediaPlayer(result.bestMatch.path)
+          if (!ok) {
+            return { ok: false, error: 'Main shell window is not available to open media player' }
+          }
+          return {
+            ok: true,
+            openedPath: result.bestMatch.path,
+            matchedTitle: result.bestMatch.title,
+            tracks: result.matches.map((track) => track.title),
+          }
+        }
+
+        openMediaPlayerTab()
+        return { ok: true }
+      }
+      case 'settings':
+        openHomeSettings('butler')
+        return { ok: true }
+      case 'butler-desk':
+        openButlerDesk()
+        return { ok: true }
+      case 'browser': {
+        const manager = tabManager
+        if (!manager) return { ok: false, error: 'Tab manager is unavailable' }
+        const tabId = manager.openBrowserTab()
+        revealShellWindow()
+        const rawUrl = req.pathOrUrl?.trim()
+        if (tabId && rawUrl) {
+          const targetUrl = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(rawUrl)
+            ? rawUrl
+            : `https://${rawUrl}`
+          const chrome = manager.webContentsForTab(tabId)
+          if (chrome && !chrome.isDestroyed()) {
+            void browserModule.browserNavigate(chrome, targetUrl)
+          }
+        }
+        return { ok: true }
+      }
+      case 'file': {
+        const targetPath = req.pathOrUrl?.trim()
+        if (!targetPath) return { ok: false, error: 'pathOrUrl is required for file target' }
+        routeDocumentPath(targetPath)
+        revealShellWindow()
+        return { ok: true }
+      }
+    }
+  }
+
   butlerMissionEngine = createButlerMissionEngine({
     statePath: butlerMissionsPath(app.getPath('userData')),
     defaultWorkdir: () => defaultSaveDir(),
+    requirePlanApproval: () => readButlerPrefs(APP_SETTINGS_PATH()).planConfirmBeforeDispatch,
+    conversationalMode: () => true,
+    executeDesktopAction: executeButlerDesktopAction,
     runPrompt: async (sessionKey, promptText) => {
       const sep = sessionKey.indexOf(':')
       const projectId = sep > 0 ? sessionKey.slice(0, sep) : 'default'
@@ -8046,6 +8316,93 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       sendToShellRenderer(HOME_CHANNELS.butlerDeskUpdated, snapshot)
       hudWindow.sendDeskUpdated(snapshot)
     },
+    onMissionAccepted: (mission) => {
+      const ackTimer = setTimeout(() => {
+        const latest = butlerMissionEngine
+          ?.getSnapshot()
+          .missions.find((item) => item.id === mission.id)
+        if (!latest || latest.status !== 'planning') return
+        const honorific = readButlerPrefs(APP_SETTINGS_PATH()).honorific.trim()
+        const text = formatButlerLocalizedSpeech(
+          tButler(currentLang(), 'speakAckReceived', { honorific }),
+          honorific,
+        )
+        sendHudSpeechIfEnabled({
+          text,
+          enqueue: false,
+          phase: 'ack',
+          openFollowUp: false,
+        })
+      }, 220)
+      ackTimer.unref?.()
+    },
+    onMissionPlanned: (_mission, dispatchedTasks, chiefReplyText) => {
+      if (consumeChiefStreamSpoken()) return
+      const honorific = readButlerPrefs(APP_SETTINGS_PATH()).honorific.trim()
+      const cleanChief = chiefReplyText?.trim() ?? ''
+      const text =
+        cleanChief.length > 0
+          ? cleanChief.slice(0, 240)
+          : formatButlerLocalizedSpeech(
+              tButler(currentLang(), 'speakMissionPlanned', {
+                honorific,
+                count: dispatchedTasks.length,
+              }),
+              honorific,
+            )
+      sendHudSpeechIfEnabled({
+        text,
+        enqueue: true,
+        phase: 'planned',
+        openFollowUp: true,
+      })
+    },
+    onClarificationAsked: (_mission, replyText) => {
+      if (consumeChiefStreamSpoken()) return
+      const cleanText = replyText.trim().slice(0, 320)
+      if (cleanText.length > 0) {
+        sendHudSpeechIfEnabled({
+          text: cleanText,
+          enqueue: true,
+          phase: 'clarifying',
+          openFollowUp: true,
+        })
+      }
+    },
+    onPlanProposed: (_mission, plan, chiefReplyText) => {
+      if (consumeChiefStreamSpoken()) return
+      const honorific = readButlerPrefs(APP_SETTINGS_PATH()).honorific.trim()
+      const cleanChief = chiefReplyText?.trim() ?? ''
+      const text =
+        cleanChief.length > 0
+          ? cleanChief.slice(0, 320)
+          : formatButlerLocalizedSpeech(
+              tButler(currentLang(), 'speakPlanReview', {
+                honorific,
+                count: plan.steps.length,
+                summary: plan.summary,
+              }),
+              honorific,
+            )
+      sendHudSpeechIfEnabled({
+        text,
+        enqueue: true,
+        phase: 'plan_review',
+        openFollowUp: true,
+      })
+    },
+    onConversationalReply: (replyText) => {
+      if (consumeChiefStreamSpoken()) return
+      const cleanText = replyText.trim().slice(0, 320)
+      if (cleanText.length > 0) {
+        sendHudSpeechIfEnabled({
+          text: cleanText,
+          enqueue: true,
+          phase: 'completed',
+          openFollowUp: true,
+        })
+      }
+    },
     onDecisionCreated: (decision, task) => {
       const lang = currentLang()
       const taskLabel = task?.title ?? decision.title
@@ -8054,27 +8411,91 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
         tButler(lang, 'notifyDecisionBody', { task: taskLabel, summary: decision.summary }),
         () => openButlerDesk({ missionId: decision.missionId, decisionId: decision.id }),
       )
+      const honorific = readButlerPrefs(APP_SETTINGS_PATH()).honorific.trim()
+      const text = formatButlerLocalizedSpeech(
+        tButler(lang, 'speakDecisionNeeded', {
+          honorific,
+          task: taskLabel,
+          title: decision.title,
+        }),
+        honorific,
+      )
+      sendHudSpeechIfEnabled({
+        text,
+        enqueue: true,
+        phase: 'decision',
+        openFollowUp: true,
+      })
     },
     onMissionCompleted: (mission, report) => {
       const prefs = readButlerPrefs(APP_SETTINGS_PATH())
-      if (!prefs.notifyDone) return
+      const lang = currentLang()
       const shellFocused = Boolean(
         shellWindow && !shellWindow.isDestroyed() && shellWindow.isFocused(),
       )
-      if (shellFocused) return
-      const lang = currentLang()
-      showButlerOsNotification(
-        tButler(lang, 'notifyDoneTitle', { name: prefs.name }),
-        tButler(lang, 'notifyMissionDoneBody', { headline: report.headline }),
-        () => openButlerDesk({ missionId: mission.id }),
-      )
+      if (prefs.notifyDone && !shellFocused) {
+        showButlerOsNotification(
+          tButler(lang, 'notifyDoneTitle', { name: prefs.name }),
+          tButler(lang, 'notifyMissionDoneBody', { headline: report.headline }),
+          () => openButlerDesk({ missionId: mission.id }),
+        )
+      }
+      if (consumeChiefStreamSpoken()) return
+      let text = ''
+      if (mission.taskIds.length === 0) {
+        text = report.summary.trim() || report.headline.trim()
+      } else {
+        const nonListLines = report.summary
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0 && !line.startsWith('- '))
+        const conciseSummary = (
+          nonListLines.length > 0
+            ? nonListLines.join(' ')
+            : report.summary
+                .split(/\r?\n/)
+                .map((line) => line.replace(/^-\s*/, '').trim())
+                .filter(Boolean)
+                .slice(0, 2)
+                .join(' ')
+        ).slice(0, 260)
+        const honorific = prefs.honorific.trim()
+        text = formatButlerLocalizedSpeech(
+          tButler(lang, 'speakMissionDone', {
+            honorific,
+            headline: report.headline,
+            summary: conciseSummary,
+          }),
+          honorific,
+        )
+      }
+      sendHudSpeechIfEnabled({
+        text,
+        enqueue: true,
+        phase: 'completed',
+        openFollowUp: true,
+      })
     },
   })
   activeButlerMissionEngine = butlerMissionEngine
   void butlerMissionEngine.init()
   addAskRunObserver({
     onBegin: (input) => {
-      if (isButlerChiefSession(input.sessionKey) || isButlerWorkerSession(input.sessionKey)) return
+      if (isButlerChiefSession(input.sessionKey)) {
+        chiefStreamCounter += 1
+        chiefLastTurnStreamSpoken = false
+        chiefStream = {
+          turnId: `chief-${chiefStreamCounter}`,
+          chunker: createStreamingSpeechChunker(),
+          lastMsgRaw: '',
+          emittedChunks: 0,
+          aborted: false,
+          active: true,
+          callbackSuppressed: false,
+        }
+        return
+      }
+      if (isButlerWorkerSession(input.sessionKey)) return
       butlerService.observer.onBegin?.(input)
     },
     onEvent: (event) => {
@@ -8098,7 +8519,39 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
         }
         return
       }
-      if (event.sessionKey && isButlerChiefSession(event.sessionKey)) return
+      if (event.sessionKey && isButlerChiefSession(event.sessionKey)) {
+        if (!chiefStream || !chiefStream.active || chiefStream.aborted) return
+        if (event.type === 'tool-start') {
+          chiefStream.lastMsgRaw = ''
+          return
+        }
+        if (event.type === 'stop' || event.type === 'error') {
+          chiefStream.aborted = true
+          chiefStream.chunker.reset()
+          return
+        }
+        if (event.type === 'text' && typeof event.payload === 'string') {
+          const payloadText = event.payload
+          let delta = ''
+          if (!chiefStream.lastMsgRaw) {
+            delta = payloadText
+          } else if (payloadText.startsWith(chiefStream.lastMsgRaw)) {
+            delta = payloadText.slice(chiefStream.lastMsgRaw.length)
+          } else if (chiefStream.lastMsgRaw.startsWith(payloadText)) {
+            return
+          } else {
+            delta = `\n${payloadText}`
+          }
+          chiefStream.lastMsgRaw = payloadText
+          if (delta) {
+            const sentences = chiefStream.chunker.push(delta, 'delta')
+            for (const s of sentences) {
+              emitChiefStreamSpeech(s, false)
+            }
+          }
+        }
+        return
+      }
       butlerService.observer.onEvent?.(event)
     },
     onConfirm: (sessionKey, req) => {
@@ -8106,10 +8559,25 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       butlerService.observer.onConfirm?.(sessionKey, req)
     },
     onFinish: (sessionKey) => {
-      if (isButlerChiefSession(sessionKey) || isButlerWorkerSession(sessionKey)) {
-        if (isButlerWorkerSession(sessionKey)) {
-          butlerMissionEngine?.recordWorkerStep(sessionKey, null)
+      if (isButlerChiefSession(sessionKey)) {
+        if (chiefStream && chiefStream.active) {
+          if (!chiefStream.aborted) {
+            const tail = chiefStream.chunker.flush()
+            for (let i = 0; i < tail.length; i += 1) {
+              emitChiefStreamSpeech(tail[i]!, i === tail.length - 1)
+            }
+          }
+          chiefLastTurnStreamSpoken =
+            !chiefStream.aborted &&
+            chiefStream.emittedChunks > 0 &&
+            !chiefStream.callbackSuppressed
+          chiefStream.active = false
+          chiefStream = null
         }
+        return
+      }
+      if (isButlerWorkerSession(sessionKey)) {
+        butlerMissionEngine?.recordWorkerStep(sessionKey, null)
         return
       }
       butlerService.observer.onFinish?.(sessionKey)
@@ -8120,6 +8588,24 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     service: butlerService,
     missionEngine: butlerMissionEngine,
     openDesk: openButlerDesk,
+    voiceService: butlerVoiceService,
+    showHud: () => {
+      if (!hudWindow.isVisible()) hudWindow.show()
+    },
+    focusHud: () => {
+      if (!hudWindow.isVisible()) {
+        hudWindow.show()
+      } else {
+        hudWindow.webContents()?.focus()
+      }
+    },
+    broadcastShell: (channel, payload) => {
+      sendToShellRenderer(channel, payload)
+      tabManager?.drawerOverlayWebContents()?.send(channel, payload)
+    },
+    broadcastHud: (channel, payload) => {
+      hudWindow.send(channel, payload)
+    },
     isHudSender: (wc) => hudWindow.isHudSender(wc),
     isShellSender: (wc) =>
       Boolean(shellWindow && !shellWindow.isDestroyed() && shellWindow.webContents === wc),
@@ -8290,6 +8776,11 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     sendToShellRenderer(HOME_CHANNELS.butlerChanged, prefs)
     tabManager?.drawerOverlayWebContents()?.send(HOME_CHANNELS.butlerChanged, prefs)
     butlerHud?.send(HOME_CHANNELS.butlerChanged, prefs)
+  })
+  stopButlerVoiceWatch = watchButlerVoiceConfig(APP_SETTINGS_PATH(), (voiceCfg) => {
+    sendToShellRenderer(HOME_CHANNELS.butlerVoiceChanged, voiceCfg)
+    tabManager?.drawerOverlayWebContents()?.send(HOME_CHANNELS.butlerVoiceChanged, voiceCfg)
+    butlerHud?.send(HOME_CHANNELS.butlerVoiceChanged, voiceCfg)
   })
   let deferredScheduled = false
   let deferredExecuted = false
@@ -8475,6 +8966,10 @@ app.on('will-quit', () => {
   // global shortcuts and the tray icon must not outlive the process
   systemPresence?.dispose()
   systemPresence = null
+  stopButlerVoiceWatch?.()
+  stopButlerVoiceWatch = null
+  activeButlerVoiceService?.dispose()
+  activeButlerVoiceService = null
   butlerHud?.dispose()
   butlerHud = null
   // a second instance that lost the lock quits too; it must not delete the running editor's list

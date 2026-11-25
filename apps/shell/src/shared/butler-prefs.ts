@@ -6,6 +6,17 @@
  * renderer panels, and unit tests all normalize against one exact contract.
  */
 
+export const BUTLER_WORKER_THINKING_EFFORTS = ['follow', 'low', 'medium', 'high'] as const
+export type ButlerWorkerThinkingEffort = (typeof BUTLER_WORKER_THINKING_EFFORTS)[number]
+
+/** Check whether `value` is a supported worker thinking effort override. */
+export function isButlerWorkerThinkingEffort(value: unknown): value is ButlerWorkerThinkingEffort {
+  return (
+    typeof value === 'string' &&
+    (BUTLER_WORKER_THINKING_EFFORTS as readonly string[]).includes(value)
+  )
+}
+
 export interface ButlerPrefs {
   readonly enabled: boolean
   readonly name: string
@@ -20,6 +31,9 @@ export interface ButlerPrefs {
   readonly voice: boolean
   readonly voiceRate: number
   readonly voiceName: string
+  readonly chiefFastMode: boolean
+  readonly workerThinkingEffort: ButlerWorkerThinkingEffort
+  readonly planConfirmBeforeDispatch: boolean
 }
 
 export type ButlerPrefsPatch = Partial<ButlerPrefs>
@@ -38,6 +52,9 @@ export const DEFAULT_BUTLER_PREFS: ButlerPrefs = {
   voice: true,
   voiceRate: 1,
   voiceName: '',
+  chiefFastMode: true,
+  workerThinkingEffort: 'high',
+  planConfirmBeforeDispatch: true,
 }
 
 const NAME_MAX = 24
@@ -110,6 +127,14 @@ export function normalizeButlerPrefs(value: unknown): ButlerPrefs {
     voice: normalizeBool(raw.voice, DEFAULT_BUTLER_PREFS.voice),
     voiceRate: normalizeVoiceRate(raw.voiceRate),
     voiceName: sanitizeButlerLine(raw.voiceName, VOICE_NAME_MAX),
+    chiefFastMode: normalizeBool(raw.chiefFastMode, DEFAULT_BUTLER_PREFS.chiefFastMode),
+    workerThinkingEffort: isButlerWorkerThinkingEffort(raw.workerThinkingEffort)
+      ? raw.workerThinkingEffort
+      : DEFAULT_BUTLER_PREFS.workerThinkingEffort,
+    planConfirmBeforeDispatch: normalizeBool(
+      raw.planConfirmBeforeDispatch,
+      DEFAULT_BUTLER_PREFS.planConfirmBeforeDispatch,
+    ),
   }
 }
 
@@ -134,6 +159,15 @@ export function mergeButlerPrefs(current: ButlerPrefs, patch: unknown): ButlerPr
     voice: typeof p.voice === 'boolean' ? p.voice : base.voice,
     voiceRate: typeof p.voiceRate === 'number' ? p.voiceRate : base.voiceRate,
     voiceName: typeof p.voiceName === 'string' ? p.voiceName : base.voiceName,
+    chiefFastMode: typeof p.chiefFastMode === 'boolean' ? p.chiefFastMode : base.chiefFastMode,
+    workerThinkingEffort:
+      typeof p.workerThinkingEffort === 'string'
+        ? p.workerThinkingEffort
+        : base.workerThinkingEffort,
+    planConfirmBeforeDispatch:
+      typeof p.planConfirmBeforeDispatch === 'boolean'
+        ? p.planConfirmBeforeDispatch
+        : base.planConfirmBeforeDispatch,
   })
 }
 
@@ -152,6 +186,9 @@ export function sameButlerPrefs(a: ButlerPrefs, b: ButlerPrefs): boolean {
     a.maxPerHour === b.maxPerHour &&
     a.voice === b.voice &&
     a.voiceRate === b.voiceRate &&
-    a.voiceName === b.voiceName
+    a.voiceName === b.voiceName &&
+    a.chiefFastMode === b.chiefFastMode &&
+    a.workerThinkingEffort === b.workerThinkingEffort &&
+    a.planConfirmBeforeDispatch === b.planConfirmBeforeDispatch
   )
 }

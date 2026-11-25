@@ -209,6 +209,24 @@ describe('registerButlerIpc', () => {
           updatedAt: 2,
           taskIds: ['task-1'],
         },
+        {
+          id: 'mission-2',
+          title: 'Draft deck',
+          goal: 'Prepare deck',
+          status: 'awaiting_plan_approval' as const,
+          createdAt: 3,
+          updatedAt: 4,
+          taskIds: [],
+        },
+        {
+          id: 'mission-3',
+          title: 'Clarify scope',
+          goal: 'Clarify scope',
+          status: 'clarifying' as const,
+          createdAt: 5,
+          updatedAt: 6,
+          taskIds: [],
+        },
       ],
       tasks: [],
       decisions: [
@@ -233,6 +251,9 @@ describe('registerButlerIpc', () => {
     const cancelMission = vi.fn().mockResolvedValue({ ok: true })
     const cancelTask = vi.fn().mockResolvedValue({ ok: true })
     const steerTask = vi.fn().mockResolvedValue({ ok: true })
+    const retryTask = vi.fn().mockResolvedValue({ ok: true })
+    const deleteMission = vi.fn().mockResolvedValue({ ok: true })
+    const approveMissionPlan = vi.fn().mockResolvedValue({ ok: true })
     const openDesk = vi.fn()
 
     registerButlerIpc({
@@ -253,6 +274,9 @@ describe('registerButlerIpc', () => {
         cancelMission,
         cancelTask,
         steerTask,
+        retryTask,
+        deleteMission,
+        approveMissionPlan,
       } as never,
       openDesk,
       isHudSender: (wc) => wc === (hudSender as unknown),
@@ -267,7 +291,7 @@ describe('registerButlerIpc', () => {
 
     const hudState = await invoke(HOME_CHANNELS.butlerHudState, hudSender)
     expect(hudState).toMatchObject({
-      activeMissionCount: 1,
+      activeMissionCount: 3,
       pendingDecisions: [expect.objectContaining({ id: 'dec-1' })],
     })
 
@@ -306,5 +330,97 @@ describe('registerButlerIpc', () => {
       decisionId: 'dec-1',
     })
     expect(openDesk).toHaveBeenCalledWith({ missionId: 'mission-1', decisionId: 'dec-1' })
+
+    await expect(
+      invoke(HOME_CHANNELS.butlerApprovePlan, strangerSender, { missionId: 'mission-2' }),
+    ).rejects.toThrow(/Unauthorized/)
+    await expect(
+      invoke(HOME_CHANNELS.butlerApprovePlan, shellSender, { missionId: '  ' }),
+    ).rejects.toThrow(/Invalid/)
+    await expect(
+      invoke(HOME_CHANNELS.butlerApprovePlan, hudSender, {
+        missionId: 'mission-2',
+        comment: 'Go ahead',
+      }),
+    ).resolves.toEqual({ ok: true })
+    expect(approveMissionPlan).toHaveBeenCalledWith({
+      missionId: 'mission-2',
+      comment: 'Go ahead',
+    })
+
+    await expect(
+      invoke(HOME_CHANNELS.butlerDeleteMission, strangerSender, 'mission-2'),
+    ).rejects.toThrow(/Unauthorized/)
+    await expect(invoke(HOME_CHANNELS.butlerDeleteMission, shellSender, '  ')).rejects.toThrow(
+      /Invalid/,
+    )
+    await expect(
+      invoke(HOME_CHANNELS.butlerDeleteMission, hudSender, 'mission-2'),
+    ).resolves.toEqual({ ok: true })
+    expect(deleteMission).toHaveBeenCalledWith('mission-2')
+
+    await expect(
+      invoke(HOME_CHANNELS.butlerRetryTask, strangerSender, { taskId: 'task-1' }),
+    ).rejects.toThrow(/Unauthorized/)
+    await expect(invoke(HOME_CHANNELS.butlerRetryTask, shellSender, { taskId: '' })).rejects.toThrow(
+      /Invalid/,
+    )
+    await expect(
+      invoke(HOME_CHANNELS.butlerRetryTask, hudSender, {
+        taskId: 'task-1',
+        instruction: 'Use clean cache',
+      }),
+    ).resolves.toEqual({ ok: true })
+    expect(retryTask).toHaveBeenCalledWith({
+      taskId: 'task-1',
+      instruction: 'Use clean cache',
+    })
+  })
+
+  it('broadcasts global TTS stop event and clears ttsSpeaking arbitration when requestId is omitted', async () => {
+    const broadcastShell = vi.fn()
+    const broadcastHud = vi.fn()
+    const stopTts = vi.fn()
+
+    registerButlerIpc({
+      settingsPath: () => settingsPath,
+      service: {
+        submit: vi.fn(),
+        hudState: () => ({
+          prefs: { ...DEFAULT_BUTLER_PREFS, enabled: true },
+          hotkey: 'Alt+Space',
+          briefing: null,
+          tasks: [],
+        }),
+      },
+      voiceService: {
+        stopTts,
+      } as never,
+      broadcastShell,
+      broadcastHud,
+      isHudSender: (wc) => wc === (hudSender as unknown),
+      isShellSender: (wc) => wc === (shellSender as unknown),
+      openTarget: vi.fn(),
+      hideHud: vi.fn(),
+      resizeHud: vi.fn(),
+    })
+
+    const invoke = (channel: string, sender: unknown, ...args: unknown[]) =>
+      ipcMock.handles.get(channel)!({ sender }, ...args)
+
+    await invoke(HOME_CHANNELS.butlerVoiceTtsStop, shellSender)
+    expect(stopTts).toHaveBeenCalledWith(undefined)
+    expect(broadcastShell).toHaveBeenCalledWith(
+      HOME_CHANNELS.butlerVoiceTtsEvent,
+      expect.objectContaining({ requestId: '*', type: 'error', fallbackSystem: false }),
+    )
+    expect(broadcastHud).toHaveBeenCalledWith(
+      HOME_CHANNELS.butlerVoiceTtsEvent,
+      expect.objectContaining({ requestId: '*', type: 'error', fallbackSystem: false }),
+    )
+    expect(broadcastHud).toHaveBeenCalledWith(
+      HOME_CHANNELS.butlerVoiceArbitration,
+      expect.objectContaining({ ttsSpeaking: false }),
+    )
   })
 })

@@ -8,9 +8,11 @@ import {
   resolveProfileCredential,
   resolveThinkingEffort,
   thinkingShapeFor,
+  type AiProtocol,
   type AiProviderConfig,
   type AiSettings,
   type ResolvedEndpoint,
+  type ThinkingEffort,
 } from '@genoffice/ai-provider'
 import { endpointSupportsVision } from '@genoffice/ai-provider/browser'
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
@@ -62,17 +64,53 @@ function mapProtocolToPiApi(protocol: string): Api {
   }
 }
 
-/**
- * Resolve opt-in positive thinking effort for Pi runtime. Unset, unsupported, or
- * `'none'` resolves to `undefined` so `piModel.reasoning` remains `false`.
- */
-function resolvePiThinkingLevel(
+export type SessionThinkingOverride =
+  | { readonly mode: 'off' }
+  | { readonly mode: 'effort'; readonly effort: 'low' | 'medium' | 'high' }
+
+type ResolvedThinkingMode =
+  | { readonly mode: 'unset' }
+  | { readonly mode: 'off' }
+  | { readonly mode: 'effort'; readonly effort: ThinkingEffort }
+
+function mapPiApiToProtocol(api: Api): AiProtocol {
+  switch (api) {
+    case 'anthropic-messages':
+      return 'anthropic'
+    case 'google-generative-ai':
+      return 'gemini'
+    case 'openai-responses':
+      return 'openai-responses'
+    default:
+      return 'openai-compatible'
+  }
+}
+
+function resolveRawThinkingPick(
   config: AiProviderConfig,
   endpoint: ResolvedEndpoint,
-): ThinkingLevel | undefined {
+): string | undefined {
+  return (
+    config.thinking?.[config.model] ??
+    (endpoint.model && endpoint.model !== config.model
+      ? config.thinking?.[endpoint.model]
+      : undefined)
+  )
+}
+
+/**
+ * Resolve global thinking configuration into an explicit mode (`unset`, `off`,
+ * or positive `effort`). Preserves `unset` when unconfigured or unsupported,
+ * while honoring explicit `'none'` selections so thinking-on-by-default models
+ * receive protocol-specific disable parameters.
+ */
+function resolveGlobalPiThinkingMode(
+  config: AiProviderConfig,
+  endpoint: ResolvedEndpoint,
+): ResolvedThinkingMode {
   let effort = resolveThinkingEffort(config, endpoint.protocol)
   if (!effort && endpoint.model && endpoint.model !== config.model) {
-    const rawPick = config.thinking?.[config.model] ?? config.thinking?.[endpoint.model]
+    const rawPick = resolveRawThinkingPick(config, endpoint)
     effort = resolveThinkingEffort(
       {
         model: endpoint.model,
@@ -81,8 +119,159 @@ function resolvePiThinkingLevel(
       endpoint.protocol,
     )
   }
-  if (!effort || effort === 'none') return undefined
-  return effort
+  if (effort && effort !== 'none') {
+    return { mode: 'effort', effort }
+  }
+  if (resolveRawThinkingPick(config, endpoint) === 'none') {
+    return { mode: 'off' }
+  }
+  return { mode: 'unset' }
+}
+
+function stripThinkingCompatFields(entries: Record<string, unknown>): Record<string, unknown> {
+  const copy = { ...entries }
+  delete copy.thinkingFormat
+  delete copy.forceAdaptiveThinking
+  return copy
+}
+
+function pickEffortLevel(
+  requested: ThinkingEffort,
+  supported: readonly ThinkingEffort[],
+): ThinkingEffort | undefined {
+  if (supported.includes(requested)) return requested
+  for (const fallback of ['high', 'medium', 'low'] as const) {
+    if (supported.includes(fallback)) return fallback
+  }
+  return supported.find((lvl) => lvl !== 'none')
+}
+
+function applyResolvedThinkingMode(
+  baseSpec: SyncedPiModelSpec,
+  target: ResolvedThinkingMode,
+  protocolOverride?: AiProtocol,
+): SyncedPiModelSpec {
+  if (target.mode === 'unset') {
+    return baseSpec
+  }
+
+  const { modelId, providerId, piModel } = baseSpec
+  const protocol = protocolOverride ?? mapPiApiToProtocol(piModel.api)
+  const shape = thinkingShapeFor(modelId, protocol)
+  const isQwen = /(?:^|[/_-])qwen\d/i.test(modelId)
+  const isDeepSeek = /(?:^|[/_-])deep-?seek/i.test(modelId)
+  const isZai =
+    /(?:^|[/_-])glm-/i.test(modelId) ||
+    providerId === 'zai' ||
+    piModel.baseUrl.includes('bigmodel.cn') ||
+    piModel.baseUrl.includes('api.z.ai')
+  const isToggleFamily = /(?:^|[/_-])(?:ling-|ring-|spark-x|mimo-)/i.test(modelId)
+
+  const baseCompatEntries = piModel.compat
+    ? { ...(piModel.compat as Record<string, unknown>) }
+    : {}
+
+  let reasoning = false
+  let nextThinkingLevel: ThinkingLevel | undefined
+  let nextCompatEntries = stripThinkingCompatFields(baseCompatEntries)
+  let nextThinkingLevelMap: ThinkingLevelMap | undefined
+
+  if (target.mode === 'off') {
+    nextThinkingLevel = 'off'
+    if (piModel.api === 'openai-completions') {
+      if (isQwen) {
+        reasoning = true
+        nextCompatEntries = { ...nextCompatEntries, thinkingFormat: 'qwen' }
+      } else if (isDeepSeek || isToggleFamily) {
+        reasoning = true
+        nextCompatEntries = { ...nextCompatEntries, thinkingFormat: 'deepseek' }
+      } else if (isZai) {
+        reasoning = true
+        nextCompatEntries = { ...nextCompatEntries, thinkingFormat: 'zai' }
+      } else if (shape.kind === 'openai-effort' && shape.levels.includes('none')) {
+        reasoning = true
+        nextThinkingLevelMap = { ...piModel.thinkingLevelMap, off: 'none' }
+      } else {
+        reasoning = false
+      }
+    } else if (piModel.api === 'openai-responses') {
+      if (shape.levels.includes('none')) {
+        reasoning = true
+        nextThinkingLevelMap = { ...piModel.thinkingLevelMap, off: 'none' }
+      } else {
+        reasoning = false
+      }
+    } else {
+      reasoning = false
+    }
+  } else {
+    let targetEffort: ThinkingEffort | undefined
+    if (shape.levels.length > 0) {
+      targetEffort = pickEffortLevel(target.effort, shape.levels)
+    } else if (piModel.api === 'openai-completions' || piModel.api === 'openai-responses') {
+      targetEffort = target.effort
+    } else {
+      targetEffort = undefined
+    }
+
+    if (!targetEffort || targetEffort === 'none') {
+      reasoning = false
+      nextThinkingLevel = undefined
+    } else {
+      reasoning = true
+      nextThinkingLevel = targetEffort
+      if (piModel.api === 'openai-completions') {
+        if (isQwen) {
+          nextCompatEntries = { ...nextCompatEntries, thinkingFormat: 'qwen' }
+        } else if (isDeepSeek || isToggleFamily) {
+          nextCompatEntries = { ...nextCompatEntries, thinkingFormat: 'deepseek' }
+        } else if (isZai) {
+          nextCompatEntries = { ...nextCompatEntries, thinkingFormat: 'zai' }
+        }
+      } else if (
+        piModel.api === 'anthropic-messages' &&
+        shape.kind === 'anthropic-adaptive' &&
+        shape.levels.length > 0
+      ) {
+        nextCompatEntries = { ...nextCompatEntries, forceAdaptiveThinking: true }
+      }
+
+      if (targetEffort === 'xhigh' || targetEffort === 'max') {
+        nextThinkingLevelMap = { [targetEffort]: targetEffort }
+      }
+    }
+  }
+
+  const nextCompat =
+    Object.keys(nextCompatEntries).length > 0
+      ? (nextCompatEntries as NonNullable<Model<Api>['compat']>)
+      : undefined
+  const { compat: _oldCompat, thinkingLevelMap: _oldMap, ...restPiModel } = piModel
+  const nextPiModel: Model<Api> = {
+    ...restPiModel,
+    reasoning,
+    ...(nextThinkingLevelMap ? { thinkingLevelMap: nextThinkingLevelMap } : {}),
+    ...(nextCompat ? { compat: nextCompat } : {}),
+  }
+
+  const { thinkingLevel: _oldLevel, ...restSpec } = baseSpec
+  return {
+    ...restSpec,
+    piModel: nextPiModel,
+    ...(nextThinkingLevel !== undefined ? { thinkingLevel: nextThinkingLevel } : {}),
+  }
+}
+
+/**
+ * Apply a per-session thinking override on top of a base `SyncedPiModelSpec`
+ * without mutating the base spec or global `models.json`.
+ */
+export function applySessionThinkingToModelSpec(
+  baseSpec: SyncedPiModelSpec,
+  override?: SessionThinkingOverride,
+): SyncedPiModelSpec {
+  if (!override) return baseSpec
+  return applyResolvedThinkingMode(baseSpec, override)
 }
 
 export interface SyncedPiModelSpec {
@@ -136,8 +325,7 @@ export function buildSyncedPiModelSpec(
   )
   const maxTokens = endpoint.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS
   const supportsVision = endpointSupportsVision(effectiveSettings)
-  const thinkingLevel = resolvePiThinkingLevel(resolvedConfig, endpoint)
-  const reasoning = thinkingLevel !== undefined
+  const globalMode = resolveGlobalPiThinkingMode(resolvedConfig, endpoint)
 
   const compatEntries: Record<string, unknown> = {}
   if (api === 'openai-completions') {
@@ -147,21 +335,10 @@ export function buildSyncedPiModelSpec(
     if (endpoint.echoReasoning !== undefined) {
       compatEntries.requiresReasoningContentOnAssistantMessages = endpoint.echoReasoning
     }
-  } else if (
-    api === 'anthropic-messages' &&
-    reasoning &&
-    thinkingShapeFor(modelId, endpoint.protocol).kind === 'anthropic-adaptive'
-  ) {
-    compatEntries.forceAdaptiveThinking = true
   }
   const compat =
     Object.keys(compatEntries).length > 0
       ? (compatEntries as NonNullable<Model<Api>['compat']>)
-      : undefined
-
-  const thinkingLevelMap: ThinkingLevelMap | undefined =
-    thinkingLevel === 'xhigh' || thinkingLevel === 'max'
-      ? { [thinkingLevel]: thinkingLevel }
       : undefined
 
   const piModel: Model<Api> = {
@@ -171,8 +348,7 @@ export function buildSyncedPiModelSpec(
     provider: providerId,
     baseUrl: endpoint.baseUrl,
     input: supportsVision ? ['text', 'image'] : ['text'],
-    reasoning,
-    ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+    reasoning: false,
     contextWindow,
     maxTokens,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -180,14 +356,15 @@ export function buildSyncedPiModelSpec(
     ...(compat ? { compat } : {}),
   }
 
-  return {
+  const baseSpec: SyncedPiModelSpec = {
     providerId,
     modelId,
     modelRef: `${providerId}/${modelId}`,
     piModel,
     apiKey: resolvedConfig.apiKey || undefined,
-    ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
   }
+
+  return applyResolvedThinkingMode(baseSpec, globalMode, endpoint.protocol)
 }
 
 function readJsonSafe(path: string): Record<string, unknown> {

@@ -112,7 +112,7 @@ export function thinkingShapeFor(model: string, protocol?: AiProtocol): Thinking
   if (/(^|\/)mimo-/.test(id)) return { kind: 'toggle', levels: ['none', 'medium'] }
   // DashScope Qwen 3.x: enable_thinking plus a thinking_budget token cap
   // (per-model ranges; these picks sit inside the band the guide cites)
-  if (/(^|\/)qwen\d/.test(id))
+  if (/(?:^|[/_-])qwen\d/i.test(id))
     return { kind: 'qwen-budget', levels: ['none', 'low', 'medium', 'high'] }
   // xAI's grok takes the OpenAI-style effort field on the current lineup and
   // states reasoning cannot be disabled; xhigh exists from grok-4.6 on.

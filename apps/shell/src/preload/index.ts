@@ -69,19 +69,37 @@ import type {
   FileSearchRerank,
   FileSearchSettings,
   ButlerActionResult,
+  ButlerApproveMissionPlanRequest,
   ButlerDelegateResult,
   ButlerDeskSnapshot,
   ButlerHudState,
+  ButlerMicArbitrationPatch,
+  ButlerMicArbitrationState,
   ButlerOpenDeskPayload,
   ButlerOpenTarget,
   ButlerPrefs,
   ButlerPrefsPatch,
   ButlerResolveDecisionRequest,
   ButlerResolveDecisionResult,
+  ButlerRetryTaskRequest,
   ButlerSpeakRequest,
   ButlerSteerTaskRequest,
+  ButlerSttTranscribeRequest,
+  ButlerSttTranscribeResult,
   ButlerSubmitResult,
   ButlerTaskUpdate,
+  ButlerTtsStartRequest,
+  ButlerTtsStartResult,
+  ButlerTtsStreamEvent,
+  ButlerVoiceCloneState,
+  ButlerVoiceCloneUploadRequest,
+  ButlerVoiceConfig,
+  ButlerVoiceConfigPatch,
+  ButlerVoiceProbeRequest,
+  ButlerVoiceProbeResult,
+  ButlerWakePromptPayload,
+  ButlerWakeSummonRequest,
+  ButlerWakeSummonResult,
 } from '../shared/home-api'
 import type { ProjectApi } from '@genoffice/project-store'
 import { HOME_CHANNELS, HOME_TAB_KINDS } from '../shared/home-api'
@@ -89,6 +107,7 @@ import { normalizeForwardedAskQuery, type PendingAskQuery } from '../shared/ask-
 import { normalizeAiDock } from '../shared/desktop-geometry'
 import { normalizeAiPetPrefs } from '../shared/ai-pet-prefs'
 import { normalizeButlerPrefs } from '../shared/butler-prefs'
+import { normalizeButlerVoiceConfig } from '../shared/butler-voice-api'
 import { PI_AGENT_CHANNELS } from '../shared/pi-agent-api'
 import type {
   PiAgentCommandInfo,
@@ -1116,11 +1135,22 @@ const homeApi: HomeApi = {
   async butlerCancelMission(missionId: string): Promise<ButlerActionResult> {
     return ipcRenderer.invoke(HOME_CHANNELS.butlerCancelMission, missionId)
   },
+  async butlerDeleteMission(missionId: string): Promise<ButlerActionResult> {
+    return ipcRenderer.invoke(HOME_CHANNELS.butlerDeleteMission, missionId)
+  },
   async butlerCancelTask(taskId: string): Promise<ButlerActionResult> {
     return ipcRenderer.invoke(HOME_CHANNELS.butlerCancelTask, taskId)
   },
+  async butlerRetryTask(req: ButlerRetryTaskRequest): Promise<ButlerActionResult> {
+    return ipcRenderer.invoke(HOME_CHANNELS.butlerRetryTask, req)
+  },
   async butlerSteerTask(req: ButlerSteerTaskRequest): Promise<ButlerActionResult> {
     return ipcRenderer.invoke(HOME_CHANNELS.butlerSteerTask, req)
+  },
+  async butlerApproveMissionPlan(
+    req: ButlerApproveMissionPlanRequest,
+  ): Promise<ButlerActionResult> {
+    return ipcRenderer.invoke(HOME_CHANNELS.butlerApprovePlan, req)
   },
   async butlerOpenDesk(payload?: ButlerOpenDeskPayload): Promise<void> {
     await ipcRenderer.invoke(HOME_CHANNELS.butlerOpenDesk, payload)
@@ -1129,6 +1159,119 @@ const homeApi: HomeApi = {
     const listener = (_event: IpcRendererEvent, payload: ButlerOpenDeskPayload) => handler(payload)
     ipcRenderer.on(HOME_CHANNELS.butlerOpenDesk, listener)
     return () => ipcRenderer.removeListener(HOME_CHANNELS.butlerOpenDesk, listener)
+  },
+  async getButlerVoiceConfig(): Promise<ButlerVoiceConfig> {
+    return normalizeButlerVoiceConfig(await ipcRenderer.invoke(HOME_CHANNELS.butlerVoiceGet))
+  },
+  async setButlerVoiceConfig(patch: ButlerVoiceConfigPatch): Promise<ButlerVoiceConfig> {
+    return normalizeButlerVoiceConfig(await ipcRenderer.invoke(HOME_CHANNELS.butlerVoiceSet, patch))
+  },
+  onButlerVoiceConfigChanged(handler) {
+    const listener = (_event: IpcRendererEvent, config: unknown): void => {
+      handler(normalizeButlerVoiceConfig(config))
+    }
+    ipcRenderer.on(HOME_CHANNELS.butlerVoiceChanged, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.butlerVoiceChanged, listener)
+  },
+  async butlerVoiceProbe(req?: ButlerVoiceProbeRequest): Promise<ButlerVoiceProbeResult> {
+    return (await ipcRenderer.invoke(
+      HOME_CHANNELS.butlerVoiceProbe,
+      req ?? {},
+    )) as ButlerVoiceProbeResult
+  },
+  async butlerVoiceTranscribe(
+    req: ButlerSttTranscribeRequest,
+  ): Promise<ButlerSttTranscribeResult> {
+    return (await ipcRenderer.invoke(
+      HOME_CHANNELS.butlerVoiceTranscribe,
+      req,
+    )) as ButlerSttTranscribeResult
+  },
+  async butlerVoiceTtsStart(req: ButlerTtsStartRequest): Promise<ButlerTtsStartResult> {
+    return (await ipcRenderer.invoke(
+      HOME_CHANNELS.butlerVoiceTtsStart,
+      req,
+    )) as ButlerTtsStartResult
+  },
+  async butlerVoiceTtsStop(requestId?: string): Promise<void> {
+    await ipcRenderer.invoke(HOME_CHANNELS.butlerVoiceTtsStop, requestId)
+  },
+  onButlerVoiceTtsEvent(handler) {
+    const listener = (_event: IpcRendererEvent, payload: unknown): void => {
+      if (!payload || typeof payload !== 'object') return
+      const raw = payload as Partial<ButlerTtsStreamEvent>
+      if (typeof raw.requestId !== 'string' || !raw.requestId) return
+      if (raw.type !== 'chunk' && raw.type !== 'done' && raw.type !== 'error') return
+      const rawChunk: unknown = raw.chunk
+      let chunk: Uint8Array | undefined
+      if (rawChunk instanceof Uint8Array) {
+        chunk = rawChunk
+      } else if (rawChunk instanceof ArrayBuffer) {
+        chunk = new Uint8Array(rawChunk)
+      } else if (ArrayBuffer.isView(rawChunk)) {
+        chunk = new Uint8Array(rawChunk.buffer, rawChunk.byteOffset, rawChunk.byteLength)
+      }
+      handler({
+        requestId: raw.requestId,
+        type: raw.type,
+        ...(chunk ? { chunk } : {}),
+        ...(typeof raw.fallbackSystem === 'boolean'
+          ? { fallbackSystem: raw.fallbackSystem }
+          : {}),
+        ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
+      })
+    }
+    ipcRenderer.on(HOME_CHANNELS.butlerVoiceTtsEvent, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.butlerVoiceTtsEvent, listener)
+  },
+  async butlerVoiceCloneGet(): Promise<ButlerVoiceCloneState> {
+    return (await ipcRenderer.invoke(HOME_CHANNELS.butlerVoiceCloneGet)) as ButlerVoiceCloneState
+  },
+  async butlerVoiceCloneSet(req: ButlerVoiceCloneUploadRequest): Promise<ButlerVoiceConfig> {
+    return normalizeButlerVoiceConfig(
+      await ipcRenderer.invoke(HOME_CHANNELS.butlerVoiceCloneSet, req),
+    )
+  },
+  async butlerVoiceCloneClear(): Promise<ButlerVoiceConfig> {
+    return normalizeButlerVoiceConfig(await ipcRenderer.invoke(HOME_CHANNELS.butlerVoiceCloneClear))
+  },
+  async butlerVoiceWakeSummon(req: ButlerWakeSummonRequest): Promise<ButlerWakeSummonResult> {
+    return (await ipcRenderer.invoke(
+      HOME_CHANNELS.butlerVoiceWakeSummon,
+      req,
+    )) as ButlerWakeSummonResult
+  },
+  onButlerVoiceWakePrompt(handler) {
+    const listener = (_event: IpcRendererEvent, payload: unknown): void => {
+      if (!payload || typeof payload !== 'object') return
+      const raw = payload as Partial<ButlerWakePromptPayload>
+      handler({
+        autoListen: raw.autoListen === true,
+        wakeAck: raw.wakeAck === true,
+      })
+    }
+    ipcRenderer.on(HOME_CHANNELS.butlerVoiceWakePrompt, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.butlerVoiceWakePrompt, listener)
+  },
+  reportButlerVoiceArbitration(patch: ButlerMicArbitrationPatch) {
+    if (!patch || typeof patch !== 'object') return
+    ipcRenderer.send(HOME_CHANNELS.butlerVoiceArbitration, patch)
+  },
+  onButlerVoiceArbitration(handler) {
+    const listener = (_event: IpcRendererEvent, payload: unknown): void => {
+      if (!payload || typeof payload !== 'object') return
+      const raw = payload as Partial<ButlerMicArbitrationState>
+      handler({
+        deskMicActive: raw.deskMicActive === true,
+        ttsSpeaking: raw.ttsSpeaking === true,
+        updatedAt:
+          typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt)
+            ? raw.updatedAt
+            : Date.now(),
+      })
+    }
+    ipcRenderer.on(HOME_CHANNELS.butlerVoiceArbitration, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.butlerVoiceArbitration, listener)
   },
   // the loop's pub/sub backbone: Home's loop publishes run events, the
   // mirror mounts subscribe — a closed mount never receives one

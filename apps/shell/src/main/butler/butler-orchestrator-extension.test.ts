@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type {
   ButlerDecisionItem,
   ButlerDecisionResolution,
+  ButlerMission,
+  ButlerMissionPlan,
   ButlerMissionReport,
   ButlerSubTask,
   ButlerWorkerRole,
@@ -107,17 +109,63 @@ function createMockChiefBridge() {
     generatedAt: 1_700_000_000_300,
   }
 
+  const samplePlan: ButlerMissionPlan = {
+    summary: 'Gather Q4 sales figures and draft an executive summary.',
+    steps: [
+      {
+        id: 'step-1',
+        title: 'Collect sales data',
+        brief: 'Inspect sales sheets.',
+        role: 'research',
+        dependsOn: [],
+      },
+    ],
+    revision: 1,
+    updatedAt: 1_700_000_000_050,
+  }
+  const sampleMission: ButlerMission = {
+    id: 'mission-1',
+    title: 'Q4 Sales Brief',
+    goal: 'Prepare the Q4 executive sales summary',
+    status: 'awaiting_plan_approval',
+    createdAt: 1_700_000_000_000,
+    updatedAt: 1_700_000_000_050,
+    taskIds: ['task-1'],
+    plan: samplePlan,
+  }
+
+  const proposePlan = vi.fn<ButlerChiefToolBridge['proposePlan']>().mockResolvedValue({
+    ok: true,
+    plan: samplePlan,
+    mission: sampleMission,
+  })
+  const approveMissionPlan = vi
+    .fn<ButlerChiefToolBridge['approveMissionPlan']>()
+    .mockResolvedValue({ ok: true })
   const dispatchTask = vi.fn<ButlerChiefToolBridge['dispatchTask']>().mockResolvedValue({
     ok: true,
     task: sampleTask,
   })
+  const listMissions = vi
+    .fn<ButlerChiefToolBridge['listMissions']>()
+    .mockResolvedValue([sampleMission])
   const listTasks = vi.fn<ButlerChiefToolBridge['listTasks']>().mockResolvedValue([sampleTask])
   const inspectTask = vi.fn<ButlerChiefToolBridge['inspectTask']>().mockResolvedValue({
     task: sampleTask,
     decisions: [sampleDecision],
   })
+  const updateMissionDetails = vi
+    .fn<ButlerChiefToolBridge['updateMissionDetails']>()
+    .mockResolvedValue({ ok: true, mission: sampleMission })
   const steerTask = vi.fn<ButlerChiefToolBridge['steerTask']>().mockResolvedValue({ ok: true })
+  const retryTask = vi.fn<ButlerChiefToolBridge['retryTask']>().mockResolvedValue({ ok: true })
   const cancelTask = vi.fn<ButlerChiefToolBridge['cancelTask']>().mockResolvedValue({ ok: true })
+  const cancelMission = vi
+    .fn<ButlerChiefToolBridge['cancelMission']>()
+    .mockResolvedValue({ ok: true })
+  const deleteMission = vi
+    .fn<ButlerChiefToolBridge['deleteMission']>()
+    .mockResolvedValue({ ok: true })
   const requestChiefDecision = vi
     .fn<ButlerChiefToolBridge['requestChiefDecision']>()
     .mockResolvedValue(sampleResolution)
@@ -125,29 +173,50 @@ function createMockChiefBridge() {
     ok: true,
     report: sampleReport,
   })
+  const executeDesktopAction = vi
+    .fn<ButlerChiefToolBridge['executeDesktopAction']>()
+    .mockResolvedValue({ ok: true })
 
   const bridge: ButlerChiefToolBridge = {
+    proposePlan,
+    approveMissionPlan,
     dispatchTask,
+    listMissions,
     listTasks,
     inspectTask,
+    updateMissionDetails,
     steerTask,
+    retryTask,
     cancelTask,
+    cancelMission,
+    deleteMission,
     requestChiefDecision,
     publishReport,
+    executeDesktopAction,
   }
 
   return {
     bridge,
     spies: {
+      proposePlan,
+      approveMissionPlan,
       dispatchTask,
+      listMissions,
       listTasks,
       inspectTask,
+      updateMissionDetails,
       steerTask,
+      retryTask,
       cancelTask,
+      cancelMission,
+      deleteMission,
       requestChiefDecision,
       publishReport,
+      executeDesktopAction,
     },
     fixtures: {
+      sampleMission,
+      samplePlan,
       sampleTask,
       sampleDecision,
       sampleResolution,
@@ -157,13 +226,110 @@ function createMockChiefBridge() {
 }
 
 describe('butler-orchestrator-extension', () => {
-  it('registers exactly the 7 BUTLER_CHIEF_TOOL_NAMES tools and forwards every call to bridge', async () => {
+  it('registers all 15 BUTLER_CHIEF_TOOL_NAMES tools and forwards every call to bridge', async () => {
     const { bridge, spies, fixtures } = createMockChiefBridge()
     const harness = createMockPiHarness()
     createButlerChiefExtension(bridge)(harness.pi)
 
     expect(harness.registeredNames).toEqual([...BUTLER_CHIEF_TOOL_NAMES])
-    expect(harness.registeredNames).toHaveLength(7)
+    expect(harness.registeredNames).toHaveLength(15)
+
+    // 0. butler_propose_plan
+    const proposeTool = harness.tools.get('butler_propose_plan')!
+    const proposeRes = await proposeTool.execute(
+      'call-propose',
+      {
+        missionId: 'mission-1',
+        title: 'Q4 Sales Brief',
+        summary: 'Collect sales figures first, then draft report.',
+        steps: [
+          {
+            id: 's1',
+            title: 'Collect sales data',
+            brief: 'Inspect sales sheets.',
+            role: 'research',
+            dependsOn: [],
+            scopePaths: ['D:/workspace/sales.xlsx'],
+          },
+        ],
+      },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(spies.proposePlan).toHaveBeenCalledWith({
+      missionId: 'mission-1',
+      title: 'Q4 Sales Brief',
+      summary: 'Collect sales figures first, then draft report.',
+      steps: [
+        {
+          id: 's1',
+          title: 'Collect sales data',
+          brief: 'Inspect sales sheets.',
+          role: 'research',
+          dependsOn: [],
+          scopePaths: ['D:/workspace/sales.xlsx'],
+        },
+      ],
+    })
+    expect(proposeRes.isError).toBeUndefined()
+    expect(JSON.parse((proposeRes.content[0] as { text: string }).text)).toEqual({
+      ok: true,
+      plan: fixtures.samplePlan,
+      mission: fixtures.sampleMission,
+    })
+
+    const badProposeEmptySteps = await proposeTool.execute(
+      'call-propose-bad-steps',
+      { summary: 'Plan', steps: [] },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(badProposeEmptySteps.isError).toBe(true)
+    const badProposeRole = await proposeTool.execute(
+      'call-propose-bad-role',
+      { summary: 'Plan', steps: [{ title: 'T', brief: 'B', role: 'invalid' }] },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(badProposeRole.isError).toBe(true)
+    expect(spies.proposePlan).toHaveBeenCalledTimes(1)
+
+    // butler_approve_plan
+    const approveTool = harness.tools.get('butler_approve_plan')!
+    const approveDefaultRes = await approveTool.execute(
+      'call-approve-default',
+      {},
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(approveDefaultRes.isError).toBeUndefined()
+    expect(spies.approveMissionPlan).toHaveBeenCalledWith({ missionId: 'latest' })
+
+    const approveExplicitRes = await approveTool.execute(
+      'call-approve-explicit',
+      { missionId: 'mission-1', comment: 'Proceed immediately' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(approveExplicitRes.isError).toBeUndefined()
+    expect(spies.approveMissionPlan).toHaveBeenCalledWith({
+      missionId: 'mission-1',
+      comment: 'Proceed immediately',
+    })
+    const badApprove = await approveTool.execute(
+      'call-approve-bad',
+      { missionId: '   ' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(badApprove.isError).toBe(true)
+    expect(spies.approveMissionPlan).toHaveBeenCalledTimes(2)
 
     // 1. butler_dispatch_task (valid DAG task)
     const dispatchTool = harness.tools.get('butler_dispatch_task')!
@@ -389,6 +555,174 @@ describe('butler-orchestrator-extension', () => {
     )
     expect(badReportRes.isError).toBe(true)
     expect(spies.publishReport).toHaveBeenCalledTimes(1)
+
+    // butler_list_missions
+    const listMissionsTool = harness.tools.get('butler_list_missions')!
+    const listAllRes = await listMissionsTool.execute(
+      'call-list-missions',
+      { filter: 'active' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(spies.listMissions).toHaveBeenCalledWith('active')
+    expect(JSON.parse((listAllRes.content[0] as { text: string }).text)).toEqual({
+      ok: true,
+      count: 1,
+      missions: [fixtures.sampleMission],
+    })
+    const badListFilter = await listMissionsTool.execute(
+      'call-list-missions-bad',
+      { filter: 'bogus' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(badListFilter.isError).toBe(true)
+
+    // butler_update_mission
+    const updateMissionTool = harness.tools.get('butler_update_mission')!
+    const updateRes = await updateMissionTool.execute(
+      'call-update-mission',
+      {
+        missionId: 'mission-1',
+        title: 'Updated Q4 Brief',
+        summary: 'Refined steps',
+      },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(updateRes.isError).toBeUndefined()
+    expect(spies.updateMissionDetails).toHaveBeenCalledWith({
+      missionId: 'mission-1',
+      title: 'Updated Q4 Brief',
+      summary: 'Refined steps',
+    })
+    const emptyUpdate = await updateMissionTool.execute(
+      'call-update-mission-empty',
+      { missionId: 'mission-1' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(emptyUpdate.isError).toBe(true)
+
+    // butler_retry_task
+    const retryTool = harness.tools.get('butler_retry_task')!
+    const retryRes = await retryTool.execute(
+      'call-retry',
+      { taskId: 'task-1', instruction: 'Try mirror source' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(retryRes.isError).toBeUndefined()
+    expect(spies.retryTask).toHaveBeenCalledWith({
+      taskId: 'task-1',
+      instruction: 'Try mirror source',
+    })
+    const badRetry = await retryTool.execute(
+      'call-retry-bad',
+      { taskId: '' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(badRetry.isError).toBe(true)
+
+    // butler_cancel_mission & butler_delete_mission
+    const cancelMissionTool = harness.tools.get('butler_cancel_mission')!
+    await cancelMissionTool.execute('call-cancel-m-default', {}, undefined, undefined, dummyCtx)
+    expect(spies.cancelMission).toHaveBeenCalledWith('latest')
+    await cancelMissionTool.execute(
+      'call-cancel-m-explicit',
+      { missionId: 'mission-1' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(spies.cancelMission).toHaveBeenCalledWith('mission-1')
+
+    const deleteMissionTool = harness.tools.get('butler_delete_mission')!
+    const deleteRes = await deleteMissionTool.execute(
+      'call-delete-m',
+      { missionId: 'mission-1' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(deleteRes.isError).toBeUndefined()
+    expect(spies.deleteMission).toHaveBeenCalledWith('mission-1')
+    const badDelete = await deleteMissionTool.execute(
+      'call-delete-m-bad',
+      {},
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(badDelete.isError).toBe(true)
+
+    // butler_desktop_action
+    const desktopTool = harness.tools.get('butler_desktop_action')!
+    const mediaRes = await desktopTool.execute(
+      'call-desktop-media',
+      { target: 'media-player' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(mediaRes.isError).toBeUndefined()
+    expect(spies.executeDesktopAction).toHaveBeenCalledWith({ target: 'media-player' })
+    const songRes = await desktopTool.execute(
+      'call-desktop-song',
+      { target: 'media-player', query: '起风了', mediaCommand: 'play' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(songRes.isError).toBeUndefined()
+    expect(spies.executeDesktopAction).toHaveBeenCalledWith({
+      target: 'media-player',
+      query: '起风了',
+      mediaCommand: 'play',
+    })
+    const badMediaCmd = await desktopTool.execute(
+      'call-desktop-bad-cmd',
+      { target: 'media-player', mediaCommand: 'rewind' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(badMediaCmd.isError).toBe(true)
+    const fileRes = await desktopTool.execute(
+      'call-desktop-file',
+      { target: 'file', pathOrUrl: 'D:/docs/report.pdf' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(fileRes.isError).toBeUndefined()
+    expect(spies.executeDesktopAction).toHaveBeenCalledWith({
+      target: 'file',
+      pathOrUrl: 'D:/docs/report.pdf',
+    })
+    const missingFilePath = await desktopTool.execute(
+      'call-desktop-file-missing',
+      { target: 'file' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(missingFilePath.isError).toBe(true)
+    const badTarget = await desktopTool.execute(
+      'call-desktop-bad',
+      { target: 'terminal' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(badTarget.isError).toBe(true)
   })
 
   it('catches bridge rejections gracefully as structured error tool results', async () => {
@@ -434,15 +768,7 @@ describe('butler-orchestrator-extension', () => {
     // Strict tool surface check: ONLY 1 tool allowed, zero chief orchestration tools
     expect(harness.registeredNames).toEqual(['butler_worker_request_decision'])
     expect(harness.registeredNames).toEqual([...BUTLER_WORKER_TOOL_NAMES])
-    for (const forbidden of [
-      'butler_dispatch_task',
-      'butler_list_tasks',
-      'butler_inspect_task',
-      'butler_steer_task',
-      'butler_cancel_task',
-      'butler_request_decision',
-      'butler_publish_report',
-    ]) {
+    for (const forbidden of BUTLER_CHIEF_TOOL_NAMES) {
       expect(harness.tools.has(forbidden)).toBe(false)
     }
 
@@ -613,5 +939,20 @@ describe('butler-orchestrator-extension', () => {
 
     // Distinct instructions per role
     expect(seenPrompts.size).toBe(roles.length)
+
+    // planConfirmBeforeDispatch is forwarded to Chief role prompt
+    const gatedHarness = createMockPiHarness()
+    createButlerChiefExtension(bridge, {
+      prefs: {
+        name: 'Jarvis',
+        honorific: 'Boss',
+        userName: 'Alice',
+        planConfirmBeforeDispatch: true,
+      },
+    })(gatedHarness.pi)
+    const gatedHandler = gatedHarness.getBeforeAgentStart()!
+    const gatedOut = gatedHandler({ systemPrompt: 'BASE' }, dummyCtx) as { systemPrompt: string }
+    expect(gatedOut.systemPrompt).toContain('butler_propose_plan')
+    expect(gatedOut.systemPrompt).toContain('Do NOT call `butler_dispatch_task` before user approval')
   })
 })

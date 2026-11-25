@@ -273,6 +273,77 @@ describe('butler-mission-store', () => {
 
     await engine.dispose()
   })
+
+  it('preserves clarifying and awaiting_plan_approval missions with conversationNotes and plan across restart', async () => {
+    const dir = makeTempDir()
+    const filePath = butlerMissionsPath(dir)
+
+    const savedState: ButlerPersistedMissions = {
+      version: 1,
+      missions: [
+        {
+          id: 'm-clarify',
+          title: 'Clarifying',
+          goal: 'Prepare quarterly report',
+          status: 'clarifying',
+          createdAt: 100,
+          updatedAt: 110,
+          taskIds: [],
+          conversationNotes: ['Prepare quarterly report'],
+        },
+        {
+          id: 'm-draft',
+          title: 'Draft Plan',
+          goal: 'Analyze Q4 metrics',
+          status: 'awaiting_plan_approval',
+          createdAt: 120,
+          updatedAt: 130,
+          taskIds: [],
+          conversationNotes: ['Analyze Q4 metrics', 'Focus on APAC'],
+          plan: {
+            summary: 'Analyze APAC sheets then write brief.',
+            steps: [
+              {
+                id: 's1',
+                title: 'Inspect APAC sheet',
+                brief: 'Read APAC sales workbook.',
+                role: 'sheets',
+                dependsOn: [],
+                scopePaths: ['D:/work/apac.xlsx'],
+              },
+              {
+                id: 's2',
+                title: 'Write summary',
+                brief: 'Draft summary doc.',
+                role: 'docs',
+                dependsOn: ['s1'],
+              },
+            ],
+            revision: 2,
+            updatedAt: 130,
+          },
+        },
+      ],
+      tasks: [],
+      decisions: [],
+      feed: [],
+      updatedAt: 130,
+    }
+
+    writeFileSync(filePath, JSON.stringify(savedState), 'utf8')
+    const loaded = await readButlerMissionState(filePath)
+    expect(loaded.recovered).toBe(false)
+    expect(loaded.missions.find((m) => m.id === 'm-clarify')?.status).toBe('clarifying')
+    expect(loaded.missions.find((m) => m.id === 'm-clarify')?.conversationNotes).toEqual([
+      'Prepare quarterly report',
+    ])
+    const draft = loaded.missions.find((m) => m.id === 'm-draft')!
+    expect(draft.status).toBe('awaiting_plan_approval')
+    expect(draft.conversationNotes).toEqual(['Analyze Q4 metrics', 'Focus on APAC'])
+    expect(draft.plan?.revision).toBe(2)
+    expect(draft.plan?.steps).toHaveLength(2)
+    expect(draft.plan?.steps[1]?.dependsOn).toEqual(['s1'])
+  })
 })
 
 describe('butler-mission-engine DAG scheduling & concurrency', () => {
@@ -944,6 +1015,623 @@ describe('butler-mission-engine report publishing, steering, and cancellation', 
 
     await engine.dispose()
     // Idempotent second dispose
+    await engine.dispose()
+  })
+
+  it('invokes onMissionAccepted and onMissionPlanned lifecycle hooks with dispatched subtasks', async () => {
+    const dir = makeTempDir()
+    const statePath = butlerMissionsPath(dir)
+    const acceptedIds: string[] = []
+    const plannedEvents: Array<{
+      missionId: string
+      taskCount: number
+      chiefReplyText?: string
+    }> = []
+
+    let engine!: ReturnType<typeof createButlerMissionEngine>
+    engine = createButlerMissionEngine({
+      statePath,
+      onMissionAccepted: (mission) => acceptedIds.push(mission.id),
+      onMissionPlanned: (mission, missionTasks, chiefReplyText) =>
+        plannedEvents.push({
+          missionId: mission.id,
+          taskCount: missionTasks.length,
+          chiefReplyText,
+        }),
+      runPrompt: async (sessionKey) => {
+        if (sessionKey === BUTLER_CHIEF_SESSION_KEY) {
+          const snap = engine.getSnapshot()
+          const planningMission = snap.missions.find((m) => m.status === 'planning')
+          if (planningMission) {
+            await engine.dispatchTask({
+              missionId: planningMission.id,
+              title: 'Draft brief',
+              brief: 'Write summary',
+              role: 'docs',
+            })
+            return { ok: true, finalText: '已调派文档专家为您起草简报。' }
+          }
+          return { ok: true, finalText: '简报已完成。' }
+        }
+        return { ok: true, finalText: 'Done.' }
+      },
+      abortSession: vi.fn(async () => {}),
+    })
+
+    await engine.init()
+    const res = await engine.delegate('帮我起草项目简报')
+    expect(res.ok).toBe(true)
+    expect(acceptedIds).toEqual([res.missionId])
+
+    await engine.whenIdle()
+
+    expect(plannedEvents).toEqual([
+      {
+        missionId: res.missionId,
+        taskCount: 1,
+        chiefReplyText: '已调派文档专家为您起草简报。',
+      },
+    ])
+
+    await engine.dispose()
+  })
+})
+
+describe('butler-mission-engine two-stage alignment & plan approval gate', () => {
+  it('supports multi-turn clarification, plan proposal, revision, and verbal approval with DAG remapping', async () => {
+    const dir = makeTempDir()
+    const statePath = butlerMissionsPath(dir)
+    const clarifications: string[] = []
+    const proposedPlans: Array<{ missionId: string; revision: number; reply?: string }> = []
+    const chiefPrompts: string[] = []
+    const workerOrder: string[] = []
+
+    let chiefTurn = 0
+    let engine!: ReturnType<typeof createButlerMissionEngine>
+    engine = createButlerMissionEngine({
+      statePath,
+      requirePlanApproval: () => true,
+      onClarificationAsked: (_m, text) => clarifications.push(text),
+      onPlanProposed: (m, plan, reply) =>
+        proposedPlans.push({ missionId: m.id, revision: plan.revision, reply }),
+      runPrompt: async (sessionKey, prompt) => {
+        if (sessionKey === BUTLER_CHIEF_SESSION_KEY) {
+          if (prompt.includes('Subtask Outcomes:')) {
+            return { ok: true, finalText: '报告已完成并全部汇总。' }
+          }
+          chiefPrompts.push(prompt)
+          chiefTurn += 1
+          const missionId = /Mission ID:\s*(mission-\S+)/.exec(prompt)![1]!
+
+          if (chiefTurn === 1) {
+            return {
+              ok: true,
+              finalText: '请问您希望这份季度总结面向管理层还是技术团队，需要包含图表吗？',
+            }
+          }
+          if (chiefTurn === 2) {
+            await engine.proposePlan({
+              missionId,
+              summary: '先整理财务数据，再生成中文汇报文档',
+              steps: [
+                {
+                  id: 'collect',
+                  title: '整理财务数据',
+                  brief: '统计 Q4 营收与成本。',
+                  role: 'sheets',
+                },
+                {
+                  id: 'write',
+                  title: '撰写中文汇报',
+                  brief: '编写管理层中文汇报。',
+                  role: 'docs',
+                  dependsOn: ['collect'],
+                },
+              ],
+            })
+            return { ok: true, finalText: '我已拟好两步计划，请确认是否按此执行。' }
+          }
+          if (chiefTurn === 3) {
+            await engine.proposePlan({
+              missionId,
+              summary: '先整理财务数据，再生成英文管理层汇报文档',
+              steps: [
+                {
+                  id: 'collect',
+                  title: '整理财务数据',
+                  brief: '统计 Q4 营收与成本。',
+                  role: 'sheets',
+                },
+                {
+                  id: 'write',
+                  title: 'Write English executive report',
+                  brief: 'Draft English executive summary.',
+                  role: 'docs',
+                  dependsOn: ['collect'],
+                },
+              ],
+            })
+            return { ok: true, finalText: '已将第 2 步更新为英文报告，确认无误就开始执行。' }
+          }
+          return { ok: true }
+        }
+
+        const title = /Title:\s*(.+)/.exec(prompt)?.[1]?.trim() ?? ''
+        workerOrder.push(title)
+        return { ok: true, finalText: `Finished ${title}` }
+      },
+      abortSession: vi.fn(async () => {}),
+    })
+
+    await engine.init()
+
+    // Turn 1: Ambiguous request enters 'clarifying'.
+    const d1 = await engine.delegate('帮我准备季度汇报')
+    expect(d1.ok).toBe(true)
+    const missionId = d1.missionId!
+    await engine.whenIdle()
+
+    expect(clarifications).toEqual([
+      '请问您希望这份季度总结面向管理层还是技术团队，需要包含图表吗？',
+    ])
+    expect(engine.getSnapshot().missions.find((m) => m.id === missionId)?.status).toBe('clarifying')
+    expect(engine.getSnapshot().tasks).toHaveLength(0)
+
+    // Turn 2: Clarification reply reuses SAME missionId and proposes draft v1.
+    const d2 = await engine.delegate('面向管理层，不需要图表')
+    expect(d2).toEqual({ ok: true, missionId })
+    await engine.whenIdle()
+
+    expect(chiefPrompts[1]).toContain('1. User: 帮我准备季度汇报')
+    expect(chiefPrompts[1]).toContain('2. User: 面向管理层，不需要图表')
+    expect(proposedPlans).toHaveLength(1)
+    expect(proposedPlans[0]).toMatchObject({ missionId, revision: 1 })
+    expect(engine.getSnapshot().missions.find((m) => m.id === missionId)?.status).toBe(
+      'awaiting_plan_approval',
+    )
+    expect(engine.getSnapshot().tasks).toHaveLength(0)
+
+    // Turn 3: Revision reply updates draft to v2 without dispatching workers.
+    const d3 = await engine.delegate('不过把第2步改成英文报告')
+    expect(d3).toEqual({ ok: true, missionId })
+    await engine.whenIdle()
+
+    expect(chiefPrompts[2]).toContain('Current Draft Plan (revision 1')
+    expect(chiefPrompts[2]).toContain('3. User: 不过把第2步改成英文报告')
+    expect(proposedPlans).toHaveLength(2)
+    expect(proposedPlans[1]).toMatchObject({ missionId, revision: 2 })
+    expect(engine.getSnapshot().tasks).toHaveLength(0)
+
+    // Turn 4: Verbal approval dispatches DAG tasks with remapped dependencies and runs to done.
+    const d4 = await engine.delegate('好，按这个办')
+    expect(d4).toEqual({ ok: true, missionId })
+    await engine.whenIdle()
+
+    expect(chiefPrompts).toHaveLength(3)
+    expect(workerOrder).toEqual(['整理财务数据', 'Write English executive report'])
+    const finalSnap = engine.getSnapshot()
+    const finalMission = finalSnap.missions.find((m) => m.id === missionId)!
+    expect(finalMission.status).toBe('done')
+    expect(finalMission.plan?.approvedAt).toBeTypeOf('number')
+    expect(finalMission.taskIds).toHaveLength(2)
+    expect(finalSnap.tasks[1]!.dependsOn).toEqual([finalSnap.tasks[0]!.id])
+
+    await engine.dispose()
+  })
+
+  it('enforces Critic hard gate on unapproved dispatchTask and executes cleanly via UI approveMissionPlan', async () => {
+    const dir = makeTempDir()
+    const statePath = butlerMissionsPath(dir)
+    const proposedRevisions: number[] = []
+    let workerStarted = false
+
+    let engine!: ReturnType<typeof createButlerMissionEngine>
+    engine = createButlerMissionEngine({
+      statePath,
+      requirePlanApproval: () => true,
+      onPlanProposed: (_m, plan) => proposedRevisions.push(plan.revision),
+      runPrompt: async (sessionKey, prompt) => {
+        if (sessionKey === BUTLER_CHIEF_SESSION_KEY) {
+          if (prompt.includes('Subtask Outcomes:')) {
+            return { ok: true, finalText: 'All approved tasks finished.' }
+          }
+          const missionId = /Mission ID:\s*(mission-\S+)/.exec(prompt)![1]!
+          // Chief attempts to bypass butler_propose_plan by calling dispatchTask directly.
+          const r1 = await engine.dispatchTask({
+            missionId,
+            id: 'raw-1',
+            title: 'Research logs',
+            brief: 'Scan error logs',
+            role: 'research',
+          })
+          expect(r1).toMatchObject({ ok: true, stagedForApproval: true })
+          const r2 = await engine.dispatchTask({
+            missionId,
+            id: 'raw-2',
+            title: 'Draft report',
+            brief: 'Summarize findings',
+            role: 'docs',
+            dependsOn: ['raw-1'],
+          })
+          expect(r2).toMatchObject({ ok: true, stagedForApproval: true })
+          return { ok: true, finalText: 'Drafted 2 steps awaiting your approval.' }
+        }
+        workerStarted = true
+        return { ok: true, finalText: 'Worker completed' }
+      },
+      abortSession: vi.fn(async () => {}),
+    })
+
+    await engine.init()
+    const delegated = await engine.delegate('Investigate recent errors and write a report')
+    const missionId = delegated.missionId!
+    await engine.whenIdle()
+
+    expect(workerStarted).toBe(false)
+    expect(proposedRevisions).toEqual([2])
+    const awaitingSnap = engine.getSnapshot()
+    expect(awaitingSnap.tasks).toHaveLength(0)
+    const stagedMission = awaitingSnap.missions.find((m) => m.id === missionId)!
+    expect(stagedMission.status).toBe('awaiting_plan_approval')
+    expect(stagedMission.plan?.steps.map((s) => s.id)).toEqual(['raw-1', 'raw-2'])
+    expect(stagedMission.plan?.steps[1]?.dependsOn).toEqual(['raw-1'])
+
+    // Approve via UI action and verify idempotent second call.
+    const approveRes = await engine.approveMissionPlan({ missionId, comment: 'Approved from Desk' })
+    expect(approveRes).toEqual({ ok: true })
+    await expect(engine.approveMissionPlan({ missionId })).resolves.toEqual({ ok: true })
+
+    await engine.whenIdle()
+    expect(workerStarted).toBe(true)
+    const doneSnap = engine.getSnapshot()
+    const doneMission = doneSnap.missions.find((m) => m.id === missionId)!
+    expect(doneMission.status).toBe('done')
+    expect(doneSnap.tasks).toHaveLength(2)
+    expect(doneSnap.tasks[1]!.dependsOn).toEqual([doneSnap.tasks[0]!.id])
+
+    await engine.dispose()
+  })
+
+  it('completes simple single-turn greetings directly as done without triggering plan approval gate', async () => {
+    const dir = makeTempDir()
+    const statePath = butlerMissionsPath(dir)
+    const completedReports: ButlerMissionReport[] = []
+    const clarifications: string[] = []
+    const proposals: number[] = []
+
+    const engine = createButlerMissionEngine({
+      statePath,
+      requirePlanApproval: () => true,
+      onClarificationAsked: (_m, text) => clarifications.push(text),
+      onPlanProposed: (_m, plan) => proposals.push(plan.revision),
+      onMissionCompleted: (_m, report) => completedReports.push(report),
+      runPrompt: async () => ({
+        ok: true,
+        finalText: '您好，先生，随时准备为您效劳。',
+      }),
+      abortSession: vi.fn(async () => {}),
+    })
+
+    await engine.init()
+    const res = await engine.delegate('你好')
+    expect(res.ok).toBe(true)
+    await engine.whenIdle()
+
+    expect(clarifications).toEqual([])
+    expect(proposals).toEqual([])
+    expect(completedReports).toHaveLength(1)
+    expect(completedReports[0]!.summary).toBe('您好，先生，随时准备为您效劳。')
+    expect(engine.getSnapshot().missions[0]!.status).toBe('done')
+
+    await engine.dispose()
+  })
+
+  it('rejects cyclic plan dependencies in proposePlan and supports verbal cancellation', async () => {
+    const dir = makeTempDir()
+    const statePath = butlerMissionsPath(dir)
+
+    let engine!: ReturnType<typeof createButlerMissionEngine>
+    engine = createButlerMissionEngine({
+      statePath,
+      requirePlanApproval: () => true,
+      runPrompt: async (_sk, prompt) => {
+        const missionId = /Mission ID:\s*(mission-\S+)/.exec(prompt)![1]!
+        const badPlan = await engine.proposePlan({
+          missionId,
+          summary: 'Cyclic test',
+          steps: [
+            { id: 'a', title: 'A', brief: 'A', dependsOn: ['b'] },
+            { id: 'b', title: 'B', brief: 'B', dependsOn: ['a'] },
+          ],
+        })
+        expect(badPlan.ok).toBe(false)
+        expect(badPlan.error).toMatch(/Cyclic/)
+
+        await engine.proposePlan({
+          missionId,
+          summary: 'Valid plan',
+          steps: [{ id: 'a', title: 'A', brief: 'A' }],
+        })
+        return { ok: true, finalText: 'Ready for review.' }
+      },
+      abortSession: vi.fn(async () => {}),
+    })
+
+    await engine.init()
+    const first = await engine.delegate('Run something')
+    await engine.whenIdle()
+    expect(engine.getSnapshot().missions[0]!.status).toBe('awaiting_plan_approval')
+
+    const cancelled = await engine.delegate('取消任务吧')
+    expect(cancelled).toEqual({ ok: true, missionId: first.missionId })
+    expect(engine.getSnapshot().missions[0]!.status).toBe('cancelled')
+
+    await engine.dispose()
+  })
+
+  it('keeps pure chat decoupled in conversationalMode with <butler_live_state> under 800 chars', async () => {
+    const dir = makeTempDir()
+    const statePath = butlerMissionsPath(dir)
+
+    const capturedPrompts: string[] = []
+    const accepted: string[] = []
+    const completed: string[] = []
+    const clarifications: string[] = []
+    const convReplies: string[] = []
+
+    const engine = createButlerMissionEngine({
+      statePath,
+      conversationalMode: () => true,
+      requirePlanApproval: () => true,
+      runPrompt: async (_sk, prompt) => {
+        capturedPrompts.push(prompt)
+        return { ok: true, finalText: 'Doing well, sir. Need anything opened today?' }
+      },
+      abortSession: vi.fn(async () => {}),
+      onMissionAccepted: (m) => accepted.push(m.id),
+      onMissionCompleted: (m) => completed.push(m.id),
+      onClarificationAsked: (_m, text) => clarifications.push(text),
+      onConversationalReply: (replyText) => convReplies.push(replyText),
+    })
+
+    await engine.init()
+    const res = await engine.delegate('How are you doing today?')
+    expect(res).toEqual({ ok: true })
+    await engine.whenIdle()
+
+    expect(accepted).toEqual([])
+    expect(completed).toEqual([])
+    expect(clarifications).toEqual([])
+    expect(convReplies).toEqual(['Doing well, sir. Need anything opened today?'])
+
+    const snap = engine.getSnapshot()
+    expect(snap.missions).toEqual([])
+    expect(snap.feed.map((f) => f.role)).toEqual(['user', 'butler'])
+
+    expect(capturedPrompts).toHaveLength(1)
+    const stateMatch = /<butler_live_state>[\s\S]*?<\/butler_live_state>/.exec(capturedPrompts[0]!)
+    expect(stateMatch).not.toBeNull()
+    expect(stateMatch![0]!.length).toBeLessThan(800)
+
+    await engine.dispose()
+  })
+
+  it('preempts an active conversational Chief turn without aborting running background workers', async () => {
+    const dir = makeTempDir()
+    const statePath = butlerMissionsPath(dir)
+
+    const workerStarted = deferred<void>()
+    const releaseWorker = deferred<void>()
+    const turn1Idle = deferred<void>()
+    const turnAStarted = deferred<void>()
+    const releaseTurnA = deferred<void>()
+    const abortCalls: string[] = []
+    const convReplies: string[] = []
+    const completedReports: ButlerMissionReport[] = []
+
+    let sawTurn1Busy = false
+    let chiefCallCount = 0
+    let engine!: ReturnType<typeof createButlerMissionEngine>
+    engine = createButlerMissionEngine({
+      statePath,
+      conversationalMode: () => true,
+      runPrompt: async (sessionKey) => {
+        if (sessionKey === BUTLER_CHIEF_SESSION_KEY) {
+          chiefCallCount += 1
+          if (chiefCallCount === 1) {
+            await engine.dispatchTask({
+              title: 'Background job',
+              brief: 'Work quietly',
+              role: 'general',
+            })
+            return { ok: true, finalText: 'Dispatched the worker.' }
+          }
+          if (chiefCallCount === 2) {
+            turnAStarted.resolve()
+            await releaseTurnA.promise
+            return { ok: false, aborted: true, error: 'Aborted' }
+          }
+          if (chiefCallCount === 3) {
+            return { ok: true, finalText: 'Handled your latest message.' }
+          }
+          return { ok: true, finalText: 'Worker finished cleanly.' }
+        }
+        workerStarted.resolve()
+        await releaseWorker.promise
+        return { ok: true, finalText: 'Worker output.' }
+      },
+      abortSession: vi.fn(async (sk) => {
+        abortCalls.push(sk)
+        if (sk === BUTLER_CHIEF_SESSION_KEY) {
+          releaseTurnA.resolve()
+        }
+      }),
+      onSnapshotUpdated: (snap) => {
+        if (snap.chiefBusy && chiefCallCount === 1) {
+          sawTurn1Busy = true
+        } else if (sawTurn1Busy && !snap.chiefBusy && chiefCallCount === 1) {
+          turn1Idle.resolve()
+        }
+      },
+      onConversationalReply: (text) => convReplies.push(text),
+      onMissionCompleted: (_m, report) => completedReports.push(report),
+    })
+
+    await engine.init()
+    await engine.delegate('Start a background job')
+    await workerStarted.promise
+    await turn1Idle.promise
+
+    // Turn A blocks in Chief prompt; immediately preempt with Turn B.
+    const turnAPromise = engine.delegate('First question A')
+    await turnAStarted.promise
+    await turnAPromise
+
+    await engine.delegate('Actually handle B instead')
+    releaseWorker.resolve()
+    await engine.whenIdle()
+
+    expect(abortCalls).toEqual([BUTLER_CHIEF_SESSION_KEY])
+    expect(convReplies).toEqual(['Handled your latest message.'])
+    expect(completedReports).toHaveLength(1)
+    expect(engine.getSnapshot().missions[0]!.status).toBe('done')
+
+    await engine.dispose()
+  })
+
+  it('supports full voice CRUD lifecycle: auto proposePlan, updateMissionDetails, approve latest, retryTask, listMissions, cancel latest, deleteMission, and executeDesktopAction', async () => {
+    const dir = makeTempDir()
+    const statePath = butlerMissionsPath(dir)
+
+    const desktopCalls: Array<{
+      target: string
+      pathOrUrl?: string
+      query?: string
+      mediaCommand?: string
+    }> = []
+    const planProposals: Array<{ missionId: string; revision: number; reply?: string }> = []
+    const missionPlannedEvents: Array<{ missionId: string; count: number; reply?: string }> = []
+    const convReplies: string[] = []
+
+    let failFirstWorkerRun = true
+    let turnIndex = 0
+    let engine!: ReturnType<typeof createButlerMissionEngine>
+    engine = createButlerMissionEngine({
+      statePath,
+      conversationalMode: () => true,
+      requirePlanApproval: () => true,
+      executeDesktopAction: async (req) => {
+        desktopCalls.push(req)
+        return { ok: true }
+      },
+      runPrompt: async (sessionKey) => {
+        if (sessionKey === BUTLER_CHIEF_SESSION_KEY) {
+          turnIndex += 1
+          if (turnIndex === 1) {
+            const proposed = await engine.proposePlan({
+              title: 'Draft Report Plan',
+              summary: 'Research numbers first.',
+              steps: [{ id: 's1', title: 'Fetch totals', brief: 'Read sheet', role: 'research' }],
+            })
+            expect(proposed.ok).toBe(true)
+            expect(proposed.mission?.id).toMatch(/^mission-/)
+            return { ok: true, finalText: 'I drafted a 1-step plan. Ready to start?' }
+          }
+          if (turnIndex === 2) {
+            const approved = await engine.approveMissionPlan({ missionId: 'latest' })
+            expect(approved.ok).toBe(true)
+            return { ok: true, finalText: 'Starting the research specialist now.' }
+          }
+          return { ok: true, finalText: 'Synthesis summary complete.' }
+        }
+        if (failFirstWorkerRun) {
+          failFirstWorkerRun = false
+          return { ok: false, error: 'Temporary timeout' }
+        }
+        return { ok: true, finalText: 'Fetched totals successfully.' }
+      },
+      abortSession: vi.fn(async () => {}),
+      onPlanProposed: (m, p, reply) =>
+        planProposals.push({ missionId: m.id, revision: p.revision, reply }),
+      onMissionPlanned: (m, tList, reply) =>
+        missionPlannedEvents.push({ missionId: m.id, count: tList.length, reply }),
+      onConversationalReply: (reply) => convReplies.push(reply),
+    })
+
+    await engine.init()
+
+    // 1. Propose plan without missionId creates mission automatically
+    await engine.delegate('Prepare sales totals')
+    await engine.whenIdle()
+    expect(planProposals).toHaveLength(1)
+    const missionId = planProposals[0]!.missionId
+    expect(planProposals[0]!.revision).toBe(1)
+    expect(convReplies).toEqual([])
+
+    // 2. Update draft mission title & summary via updateMissionDetails
+    const updRes = await engine.updateMissionDetails({
+      missionId: 'latest',
+      title: 'Q4 Sales Audit',
+      summary: 'Updated audit summary.',
+    })
+    expect(updRes.ok).toBe(true)
+    expect(updRes.mission?.title).toBe('Q4 Sales Audit')
+    expect(updRes.mission?.plan?.revision).toBe(2)
+
+    // 3. Approve plan via 'latest' during conversational turn -> deferred single onMissionPlanned with reply
+    await engine.delegate('Yes start it')
+    await engine.whenIdle()
+    expect(missionPlannedEvents).toEqual([
+      { missionId, count: 1, reply: 'Starting the research specialist now.' },
+    ])
+    expect(convReplies).toEqual([])
+
+    // First worker attempt failed -> mission failed
+    expect(engine.listMissions('failed')).toHaveLength(1)
+    const failedTask = engine.listTasks(missionId)[0]!
+    expect(failedTask.status).toBe('failed')
+
+    // 4. Retry failed task with refined instruction -> mission completes
+    const retryRes = await engine.retryTask({
+      taskId: failedTask.id,
+      instruction: 'Use backup sheet',
+    })
+    expect(retryRes).toEqual({ ok: true })
+    await engine.whenIdle()
+    expect(engine.listMissions('done')).toHaveLength(1)
+    expect(engine.listMissions('failed')).toHaveLength(0)
+
+    // 5. Desktop action validation & dispatch
+    expect(await engine.executeDesktopAction({ target: 'file' })).toEqual({
+      ok: false,
+      error: 'pathOrUrl is required when target is "file"',
+    })
+    expect(await engine.executeDesktopAction({ target: 'media-player' })).toEqual({ ok: true })
+    expect(
+      await engine.executeDesktopAction({
+        target: 'media-player',
+        query: '起风了',
+        mediaCommand: 'play',
+      }),
+    ).toEqual({ ok: true })
+    expect(desktopCalls).toEqual([
+      { target: 'media-player' },
+      { target: 'media-player', query: '起风了', mediaCommand: 'play' },
+    ])
+
+    // 6. Create another draft mission, test cancelMission('latest'), then deleteMission
+    await engine.proposePlan({
+      summary: 'Another plan',
+      steps: [{ title: 'Step A', brief: 'Do A' }],
+    })
+    expect(engine.listMissions('active')).toHaveLength(1)
+    expect(await engine.cancelMission('latest')).toEqual({ ok: true })
+    expect(engine.listMissions('cancelled')).toHaveLength(1)
+
+    expect(await engine.deleteMission(missionId)).toEqual({ ok: true })
+    expect(engine.listMissions('all')).toHaveLength(1)
+    expect(engine.listTasks(missionId)).toEqual([])
+
     await engine.dispose()
   })
 })

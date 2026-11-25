@@ -132,6 +132,83 @@ body.butler-hud-body {
   opacity: 0.65;
 }
 
+.butler-hud-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-subtle) 84%, transparent);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.butler-hud-icon-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.butler-hud-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.butler-hud-icon-btn:focus-visible {
+  outline: 2px solid var(--color-brand-secondary);
+  outline-offset: 1px;
+}
+
+.butler-hud-icon-btn.is-listening {
+  border-color: color-mix(in srgb, var(--color-brand-secondary) 52%, transparent);
+  background: color-mix(in srgb, var(--color-brand-secondary) 16%, transparent);
+  color: var(--color-brand-secondary);
+  animation: butler-hud-mic-pulse 1.2s ease-in-out infinite;
+}
+
+.butler-hud-icon-btn.is-danger {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.butler-hud-mic-meter {
+  width: 44px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.butler-hud-mic-meter-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-brand-secondary);
+  transform-origin: left center;
+  transition: transform 60ms linear;
+}
+
+@keyframes butler-hud-mic-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 0 3px var(--butler-ring-glow);
+  }
+}
+
 .butler-hud-keycaps {
   display: flex;
   align-items: center;
@@ -421,6 +498,40 @@ body.butler-hud-body {
   background: var(--butler-confirm-bg);
 }
 
+.butler-hud-plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-brand-secondary) 36%, var(--border));
+  background: color-mix(in srgb, var(--color-brand-secondary) 8%, var(--surface));
+}
+
+.butler-hud-plan-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-brand-secondary);
+}
+
+.butler-hud-plan-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.butler-hud-plan-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .butler-hud-decisions-head {
   display: flex;
   align-items: center;
@@ -505,6 +616,72 @@ body.butler-hud-body {
   outline-offset: 1px;
 }
 
+/* Live call status banner */
+.butler-hud-live-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--success) 24%, var(--border-subtle));
+  background: color-mix(in srgb, var(--success-bg) 70%, var(--surface));
+  font-size: 11px;
+}
+
+.butler-hud-live-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+}
+
+.butler-hud-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--success);
+  animation: butler-reactor-pulse 1.4s ease-in-out infinite;
+}
+
+.butler-hud-live-badge {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--success);
+}
+
+.butler-hud-live-hint {
+  min-width: 0;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.butler-hud-hangup-btn {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.butler-hud-hangup-btn:hover {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+}
+
+.butler-hud-hangup-btn:focus-visible {
+  outline: 2px solid var(--color-brand-secondary);
+  outline-offset: 1px;
+}
+
 /* Footer row */
 .butler-hud-footer {
   display: flex;
@@ -515,6 +692,36 @@ body.butler-hud-body {
   border-top: 1px solid color-mix(in srgb, var(--border-subtle) 85%, transparent);
   font-size: 11px;
   color: var(--text-tertiary);
+}
+
+.butler-hud-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.butler-hud-sentinel-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--success) 32%, transparent);
+  background: var(--success-bg);
+  color: var(--success);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.butler-hud-sentinel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: butler-reactor-pulse 2s ease-in-out infinite;
 }
 
 .butler-hud-hint {
@@ -554,13 +761,18 @@ body.butler-hud-body {
 
 @media (prefers-reduced-motion: reduce) {
   .butler-hud-reactor.is-running .butler-hud-reactor-svg,
-  .butler-hud-reactor.is-running .butler-hud-reactor-arc {
+  .butler-hud-reactor.is-running .butler-hud-reactor-arc,
+  .butler-hud-icon-btn.is-listening,
+  .butler-hud-live-dot,
+  .butler-hud-sentinel-dot {
     animation: none;
   }
 
   .butler-hud-chip,
   .butler-hud-action-btn,
-  .butler-hud-brief-trigger {
+  .butler-hud-brief-trigger,
+  .butler-hud-hangup-btn,
+  .butler-hud-icon-btn {
     transition: none;
   }
 }

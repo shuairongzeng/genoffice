@@ -46,8 +46,11 @@ let unsubscribeSpy: ReturnType<typeof vi.fn>
 let delegateMock: ReturnType<typeof vi.fn>
 let resolveDecisionMock: ReturnType<typeof vi.fn>
 let cancelMissionMock: ReturnType<typeof vi.fn>
+let deleteMissionMock: ReturnType<typeof vi.fn>
 let cancelTaskMock: ReturnType<typeof vi.fn>
+let retryTaskMock: ReturnType<typeof vi.fn>
 let steerTaskMock: ReturnType<typeof vi.fn>
+let approvePlanMock: ReturnType<typeof vi.fn>
 let openPathMock: ReturnType<typeof vi.fn>
 
 function makeEmptySnapshot(overrides?: Partial<ButlerDeskSnapshot>): ButlerDeskSnapshot {
@@ -125,8 +128,11 @@ beforeEach(() => {
   delegateMock = vi.fn(async () => ({ ok: true, missionId: 'm-new' }))
   resolveDecisionMock = vi.fn(async () => ({ ok: true }))
   cancelMissionMock = vi.fn(async () => ({ ok: true }))
+  deleteMissionMock = vi.fn(async () => ({ ok: true }))
   cancelTaskMock = vi.fn(async () => ({ ok: true }))
+  retryTaskMock = vi.fn(async () => ({ ok: true }))
   steerTaskMock = vi.fn(async () => ({ ok: true }))
+  approvePlanMock = vi.fn(async () => ({ ok: true }))
   openPathMock = vi.fn(async () => undefined)
 
   window.aiOffice = {
@@ -142,8 +148,11 @@ beforeEach(() => {
     butlerDelegate: delegateMock,
     butlerResolveDecision: resolveDecisionMock,
     butlerCancelMission: cancelMissionMock,
+    butlerDeleteMission: deleteMissionMock,
     butlerCancelTask: cancelTaskMock,
+    butlerRetryTask: retryTaskMock,
     butlerSteerTask: steerTaskMock,
+    butlerApproveMissionPlan: approvePlanMock,
     openPath: openPathMock,
   } as unknown as HomeApi
 })
@@ -322,6 +331,8 @@ describe('ButlerDeskView pure helpers', () => {
     ])
 
     const missionStatuses: ButlerMissionStatus[] = [
+      'clarifying',
+      'awaiting_plan_approval',
       'planning',
       'running',
       'waiting_human',
@@ -332,11 +343,15 @@ describe('ButlerDeskView pure helpers', () => {
       'interrupted',
     ]
     expect(missionStatuses.filter(isMissionActive)).toEqual([
+      'clarifying',
+      'awaiting_plan_approval',
       'planning',
       'running',
       'waiting_human',
       'synthesizing',
     ])
+    expect(missionStatusLabelKey('clarifying')).toBe('butlerMissionStatusClarifying')
+    expect(missionStatusLabelKey('awaiting_plan_approval')).toBe('butlerMissionStatusAwaitingPlan')
     expect(missionStatusLabelKey('done')).toBe('butlerTaskStatusDone')
   })
 })
@@ -775,5 +790,172 @@ describe('ButlerDeskView rendering and interactions', () => {
     const card = host.querySelector<HTMLElement>('[data-mission-id="m-finished"]')!
     expect(card.classList.contains('is-focused')).toBe(true)
     expect(card.querySelector('[data-task-id="t-focus-1"]')).toBeTruthy()
+  })
+
+  it('renders PlanApprovalCard when mission is awaiting_plan_approval and approves via butlerApproveMissionPlan', async () => {
+    currentSnapshot = makeEmptySnapshot({
+      missions: [
+        makeMission({
+          id: 'm-plan-1',
+          title: 'Q4 Slides Mission',
+          status: 'awaiting_plan_approval',
+          plan: {
+            summary: 'Research quarterly numbers first, then build executive slides.',
+            revision: 2,
+            updatedAt: 3000,
+            steps: [
+              {
+                id: 'step-1',
+                title: 'Collect Q4 metrics',
+                brief: 'Read financial sheets in workspace.',
+                role: 'research',
+                dependsOn: [],
+              },
+              {
+                id: 'step-2',
+                title: 'Build presentation deck',
+                brief: 'Draft 10-slide PPTX summary.',
+                role: 'slides',
+                dependsOn: ['step-1'],
+              },
+            ],
+          },
+        }),
+      ],
+    })
+
+    await renderDesk({}, 'en')
+
+    const planCard = host.querySelector<HTMLElement>('[data-testid="butler-plan-card"]')!
+    expect(planCard).toBeTruthy()
+    expect(planCard.dataset.missionId).toBe('m-plan-1')
+    expect(planCard.textContent).toContain(enT('butlerPlanCardTitle'))
+    expect(planCard.textContent).toContain(enT('butlerPlanCardRevision', { rev: 2 }))
+    expect(planCard.textContent).toContain(
+      'Research quarterly numbers first, then build executive slides.',
+    )
+    expect(planCard.textContent).toContain('Collect Q4 metrics')
+    expect(planCard.textContent).toContain('Build presentation deck')
+    expect(planCard.textContent).toContain(enT('butlerRoleResearch'))
+    expect(planCard.textContent).toContain(enT('butlerRoleSlides'))
+
+    const approveBtn = planCard.querySelector<HTMLButtonElement>(
+      '[data-testid="butler-approve-plan-btn"]',
+    )!
+    await act(async () => {
+      approveBtn.click()
+      await Promise.resolve()
+    })
+    expect(approvePlanMock).toHaveBeenCalledWith({ missionId: 'm-plan-1' })
+  })
+
+  it('renders Delete Mission and Retry SubTask buttons for failed/cancelled/interrupted tasks with loading guards', async () => {
+    let resolveDelete: ((res: { ok: boolean }) => void) | null = null
+    let resolveRetry: ((res: { ok: boolean }) => void) | null = null
+    deleteMissionMock.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: boolean }>((resolve) => {
+          resolveDelete = resolve
+        }),
+    )
+    retryTaskMock.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: boolean }>((resolve) => {
+          resolveRetry = resolve
+        }),
+    )
+
+    currentSnapshot = makeEmptySnapshot({
+      missions: [
+        makeMission({
+          id: 'm-del-retry',
+          title: 'Recoverable Mission',
+          status: 'failed',
+          taskIds: ['t-failed', 't-cancelled', 't-interrupted', 't-done'],
+        }),
+      ],
+      tasks: [
+        makeSubTask({
+          id: 't-failed',
+          missionId: 'm-del-retry',
+          title: 'Failed step',
+          status: 'failed',
+        }),
+        makeSubTask({
+          id: 't-cancelled',
+          missionId: 'm-del-retry',
+          title: 'Cancelled step',
+          status: 'cancelled',
+        }),
+        makeSubTask({
+          id: 't-interrupted',
+          missionId: 'm-del-retry',
+          title: 'Interrupted step',
+          status: 'interrupted',
+        }),
+        makeSubTask({
+          id: 't-done',
+          missionId: 'm-del-retry',
+          title: 'Completed step',
+          status: 'done',
+        }),
+      ],
+    })
+
+    await renderDesk({ focusTarget: { missionId: 'm-del-retry' } }, 'en')
+
+    const missionCard = host.querySelector<HTMLElement>('[data-mission-id="m-del-retry"]')!
+    const deleteBtn = missionCard.querySelector<HTMLButtonElement>(
+      '[data-testid="butler-delete-mission-btn"]',
+    )!
+    expect(deleteBtn).toBeTruthy()
+    expect(deleteBtn.textContent).toBe(enT('butlerMissionDelete'))
+
+    const failedRow = missionCard.querySelector<HTMLElement>('[data-task-id="t-failed"]')!
+    const cancelledRow = missionCard.querySelector<HTMLElement>('[data-task-id="t-cancelled"]')!
+    const interruptedRow = missionCard.querySelector<HTMLElement>('[data-task-id="t-interrupted"]')!
+    const doneRow = missionCard.querySelector<HTMLElement>('[data-task-id="t-done"]')!
+
+    const failedRetryBtn = failedRow.querySelector<HTMLButtonElement>(
+      '[data-testid="butler-retry-task-btn"]',
+    )!
+    expect(failedRetryBtn).toBeTruthy()
+    expect(failedRetryBtn.textContent).toBe(enT('butlerTaskRetry'))
+    expect(cancelledRow.querySelector('[data-testid="butler-retry-task-btn"]')).toBeTruthy()
+    expect(interruptedRow.querySelector('[data-testid="butler-retry-task-btn"]')).toBeTruthy()
+    expect(doneRow.querySelector('[data-testid="butler-retry-task-btn"]')).toBeNull()
+
+    // Click Retry twice while in flight: loading guard disables button and allows only 1 IPC call.
+    await act(async () => {
+      failedRetryBtn.click()
+      failedRetryBtn.click()
+      await Promise.resolve()
+    })
+    expect(failedRetryBtn.disabled).toBe(true)
+    expect(retryTaskMock).toHaveBeenCalledTimes(1)
+    expect(retryTaskMock).toHaveBeenCalledWith({ taskId: 't-failed' })
+
+    await act(async () => {
+      resolveRetry?.({ ok: true })
+      await Promise.resolve()
+    })
+    expect(failedRetryBtn.disabled).toBe(false)
+
+    // Click Delete twice while in flight: loading guard disables button and allows only 1 IPC call.
+    await act(async () => {
+      deleteBtn.click()
+      deleteBtn.click()
+      await Promise.resolve()
+    })
+    expect(deleteBtn.disabled).toBe(true)
+    expect(deleteMissionMock).toHaveBeenCalledTimes(1)
+    expect(deleteMissionMock).toHaveBeenCalledWith('m-del-retry')
+
+    await act(async () => {
+      resolveDelete?.({ ok: false, error: 'Cannot remove mission right now' })
+      await Promise.resolve()
+    })
+    expect(deleteBtn.disabled).toBe(false)
+    expect(host.textContent).toContain('Cannot remove mission right now')
   })
 })
