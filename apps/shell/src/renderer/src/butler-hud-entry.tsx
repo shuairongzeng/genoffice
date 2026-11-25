@@ -8,8 +8,10 @@ import type {
   ButlerMission,
   ButlerOpenTarget,
   ButlerSubmitError,
+  ButlerSubTask,
   ButlerTaskUpdate,
   ButlerVoiceConfig,
+  ButlerWorkerRole,
 } from '../../shared/butler-api'
 import {
   DEFAULT_BUTLER_PREFS,
@@ -48,7 +50,7 @@ import {
   type ButlerMicCaptureHandle,
   type ButlerSpeechState,
 } from './butler-voice'
-import { useI18n } from './locale'
+import { useI18n, type StringKey } from './locale'
 import './butler-hud.css'
 
 const MAX_VISIBLE_TASKS = 4
@@ -60,6 +62,21 @@ export const FOLLOW_UP_WINDOW_MS = 300_000
 const REPLY_WAIT_FALLBACK_MS = 60_000
 const SILENT_TURN_RECOVERY_MS = 500
 const FOLLOW_UP_RESUME_DELAY_MS = 260
+
+const HUD_ROLE_LABEL_KEYS: Record<ButlerWorkerRole, StringKey> = {
+  general: 'butlerRoleGeneral',
+  files: 'butlerRoleFiles',
+  research: 'butlerRoleResearch',
+  docs: 'butlerRoleDocs',
+  sheets: 'butlerRoleSheets',
+  slides: 'butlerRoleSlides',
+  browser: 'butlerRoleBrowser',
+  ops: 'butlerRoleOps',
+}
+
+function hudWorkerRoleLabelKey(role: ButlerWorkerRole): StringKey {
+  return HUD_ROLE_LABEL_KEYS[role] ?? 'butlerRoleGeneral'
+}
 
 const IS_MAC = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')
 
@@ -174,6 +191,7 @@ export function ButlerHudEntry(): React.JSX.Element {
   const [briefing, setBriefing] = useState<ButlerBriefing | null>(null)
   const [tasks, setTasks] = useState<ButlerTaskUpdate[]>([])
   const [missions, setMissions] = useState<ButlerMission[]>([])
+  const [deskTasks, setDeskTasks] = useState<ButlerSubTask[]>([])
   const [pendingDecisions, setPendingDecisions] = useState<ButlerDecisionItem[]>([])
   const [resolvingDecisionIds, setResolvingDecisionIds] = useState<
     Readonly<Record<string, boolean>>
@@ -680,6 +698,7 @@ export function ButlerHudEntry(): React.JSX.Element {
         .then((snap) => {
           if (!aliveRef.current || receivedDeskPush || !snap) return
           setMissions(Array.isArray(snap.missions) ? [...snap.missions] : [])
+          setDeskTasks(Array.isArray(snap.tasks) ? [...snap.tasks] : [])
         })
         .catch(() => undefined)
     }
@@ -764,6 +783,7 @@ export function ButlerHudEntry(): React.JSX.Element {
       if (!aliveRef.current || !snap) return
       receivedDeskPush = true
       setMissions(Array.isArray(snap.missions) ? [...snap.missions] : [])
+      setDeskTasks(Array.isArray(snap.tasks) ? [...snap.tasks] : [])
       setPendingDecisions(snap.decisions.filter((d) => d.status === 'pending'))
 
       const feed = Array.isArray(snap.feed) ? snap.feed : []
@@ -1100,8 +1120,34 @@ export function ButlerHudEntry(): React.JSX.Element {
     }
   }
 
+  const runningSubTasks = deskTasks.filter((task) => task.status === 'running')
+  const primaryRunningSubTask =
+    runningSubTasks.length > 0
+      ? [...runningSubTasks].sort(
+          (a, b) =>
+            (b.lastActiveAt ?? b.startedAt ?? b.createdAt) -
+            (a.lastActiveAt ?? a.startedAt ?? a.createdAt),
+        )[0] ?? null
+      : null
+
+  const primaryWorkerLiveSummary = primaryRunningSubTask
+    ? (() => {
+        const stepPart = primaryRunningSubTask.step
+          ? `${t(stepLabelKey(primaryRunningSubTask.step.kind))}${
+              primaryRunningSubTask.step.tool ? ` · ${primaryRunningSubTask.step.tool}` : ''
+            }`
+          : ''
+        const notePart = primaryRunningSubTask.progressNote?.trim() ?? ''
+        if (stepPart && notePart) return `${stepPart} — ${notePart}`
+        if (notePart) return notePart
+        if (stepPart) return stepPart
+        return primaryRunningSubTask.title
+      })()
+    : ''
+
   const anyRunning =
     tasks.some((task) => task.status === 'running') ||
+    runningSubTasks.length > 0 ||
     pendingDecisions.length > 0 ||
     activeListening ||
     transcribing
@@ -1149,6 +1195,7 @@ export function ButlerHudEntry(): React.JSX.Element {
       pendingPlanMission ||
       pendingDecisions.length > 0 ||
       briefing ||
+      primaryRunningSubTask ||
       visibleTasks.length > 0,
   )
 
@@ -1429,6 +1476,47 @@ export function ButlerHudEntry(): React.JSX.Element {
                   </ul>
                 )}
               </section>
+            )}
+
+            {primaryRunningSubTask && (
+              <button
+                type="button"
+                className="butler-hud-worker-strip"
+                data-testid="butler-hud-worker-strip"
+                onClick={() =>
+                  openTarget({ type: 'desk', missionId: primaryRunningSubTask.missionId })
+                }
+              >
+                <div className="butler-hud-worker-strip-top">
+                  <span className="butler-hud-worker-role">
+                    {t(hudWorkerRoleLabelKey(primaryRunningSubTask.role))}
+                  </span>
+                  {(primaryRunningSubTask.stepCount ?? 0) > 0 && (
+                    <span className="butler-hud-worker-step">
+                      {t('butlerTaskStepCount', { count: primaryRunningSubTask.stepCount! })}
+                    </span>
+                  )}
+                  {(primaryRunningSubTask.health === 'slow' ||
+                    primaryRunningSubTask.health === 'stalled') && (
+                    <span
+                      className="butler-hud-worker-health"
+                      data-health={primaryRunningSubTask.health}
+                    >
+                      {primaryRunningSubTask.health === 'stalled'
+                        ? t('butlerTaskHealthStalled')
+                        : t('butlerTaskHealthSlow')}
+                    </span>
+                  )}
+                  {runningSubTasks.length > 1 && (
+                    <span className="butler-hud-worker-extra">
+                      +{runningSubTasks.length - 1}
+                    </span>
+                  )}
+                </div>
+                <p className="butler-hud-worker-summary" title={primaryWorkerLiveSummary}>
+                  {primaryWorkerLiveSummary}
+                </p>
+              </button>
             )}
 
             {visibleTasks.length > 0 && (

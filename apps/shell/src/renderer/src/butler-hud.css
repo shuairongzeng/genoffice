@@ -397,12 +397,18 @@ body.butler-hud-body {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  height: 18px;
-  padding: 0 7px;
+  box-sizing: border-box;
+  min-height: 18px;
+  max-width: 100%;
+  padding: 2px 7px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 500;
-  line-height: 1;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border: 1px solid var(--border);
   background: var(--surface-subtle);
   color: var(--text-secondary);
@@ -448,8 +454,9 @@ body.butler-hud-body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  height: 24px;
-  padding: 0 10px;
+  box-sizing: border-box;
+  min-height: 24px;
+  padding: 3px 10px;
   border-radius: 7px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 84%, transparent);
@@ -457,6 +464,8 @@ body.butler-hud-body {
   font-family: inherit;
   font-size: 11px;
   font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     background-color var(--transition-fast),
@@ -530,6 +539,108 @@ body.butler-hud-body {
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.butler-hud-worker-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-brand-secondary) 28%, var(--border-subtle));
+  background: color-mix(in srgb, var(--color-brand-secondary) 7%, var(--surface));
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.butler-hud-worker-strip:hover {
+  border-color: color-mix(in srgb, var(--color-brand-secondary) 46%, var(--border-subtle));
+  background: color-mix(in srgb, var(--color-brand-secondary) 12%, var(--surface));
+}
+
+.butler-hud-worker-strip:focus-visible {
+  outline: 2px solid var(--color-brand-secondary);
+  outline-offset: 1px;
+}
+
+.butler-hud-worker-strip-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.butler-hud-worker-role {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 18px;
+  max-width: 100%;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid color-mix(in srgb, var(--color-brand-secondary) 36%, transparent);
+  background: color-mix(in srgb, var(--color-brand-secondary) 14%, transparent);
+  color: var(--color-brand-secondary);
+}
+
+.butler-hud-worker-step,
+.butler-hud-worker-extra {
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.butler-hud-worker-health {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 18px;
+  max-width: 100%;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.butler-hud-worker-health[data-health='slow'] {
+  border: 1px solid var(--butler-confirm-border);
+  background: var(--butler-confirm-bg);
+  color: var(--color-ai-action);
+}
+
+.butler-hud-worker-health[data-health='stalled'] {
+  border: 1px solid var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.butler-hud-worker-summary {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .butler-hud-decisions-head {
@@ -661,6 +772,8 @@ body.butler-hud-body {
 
 .butler-hud-hangup-btn {
   flex-shrink: 0;
+  box-sizing: border-box;
+  min-height: 20px;
   padding: 2px 8px;
   border-radius: 999px;
   border: 1px solid var(--danger-border);
@@ -669,6 +782,8 @@ body.butler-hud-body {
   font-family: inherit;
   font-size: 10.5px;
   font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
   cursor: pointer;
   transition: background-color var(--transition-fast);
 }
@@ -772,6 +887,7 @@ body.butler-hud-body {
   .butler-hud-action-btn,
   .butler-hud-brief-trigger,
   .butler-hud-hangup-btn,
+  .butler-hud-worker-strip,
   .butler-hud-icon-btn {
     transition: none;
   }

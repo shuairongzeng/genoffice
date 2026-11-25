@@ -5,6 +5,7 @@
  */
 
 import type { ButlerStep } from './butler-api'
+import { BUTLER_WORKER_ROLES } from './butler-worker-telemetry'
 
 export const BUTLER_CHIEF_PROJECT_ID = 'default'
 export const BUTLER_CHIEF_CHAT_ID = 'butler-main'
@@ -24,7 +25,28 @@ export function isButlerWorkerSession(sessionKey: string): boolean {
   )
 }
 
-export type ButlerWorkerRole = 'general' | 'research' | 'docs' | 'sheets' | 'slides' | 'browser'
+export type ButlerWorkerRole = (typeof BUTLER_WORKER_ROLES)[number]
+
+export type ButlerStepKind =
+  | 'read'
+  | 'search'
+  | 'browse'
+  | 'edit'
+  | 'create'
+  | 'command'
+  | 'think'
+  | 'other'
+
+export type ButlerWorkerHealth = 'normal' | 'slow' | 'stalled'
+
+export interface ButlerWorkerActivityEntry {
+  readonly seq: number
+  readonly at: number
+  readonly kind: ButlerStepKind | 'note' | 'error'
+  readonly tool?: string
+  readonly summary: string
+  readonly isError?: boolean
+}
 
 export type ButlerMissionStatus =
   | 'clarifying'
@@ -120,6 +142,11 @@ export interface ButlerSubTask {
   readonly createdAt: number
   readonly startedAt?: number
   readonly finishedAt?: number
+  readonly stepCount?: number
+  readonly lastActiveAt?: number
+  readonly consecutiveErrors?: number
+  readonly health?: ButlerWorkerHealth
+  readonly activityLog?: readonly ButlerWorkerActivityEntry[]
 }
 
 export interface ButlerMissionReport {
@@ -267,6 +294,40 @@ export interface ButlerDesktopActionResult extends ButlerActionResult {
   readonly openedPath?: string
   readonly matchedTitle?: string
   readonly tracks?: readonly string[]
+}
+
+export const BUTLER_DESKTOP_TODO_ACTIONS = [
+  'list',
+  'add',
+  'update',
+  'complete',
+  'uncomplete',
+  'toggle',
+  'delete',
+  'clear_done',
+] as const
+export type ButlerDesktopTodoAction = (typeof BUTLER_DESKTOP_TODO_ACTIONS)[number]
+
+export interface ButlerDesktopTodoItem {
+  readonly id: string
+  readonly text: string
+  readonly done: boolean
+}
+
+export interface ButlerDesktopTodoRequest {
+  readonly action: ButlerDesktopTodoAction
+  readonly text?: string
+  readonly id?: string
+  readonly match?: string
+}
+
+export interface ButlerDesktopTodoResult extends ButlerActionResult {
+  readonly action?: ButlerDesktopTodoAction
+  readonly item?: ButlerDesktopTodoItem
+  readonly todos?: readonly ButlerDesktopTodoItem[]
+  readonly matches?: readonly ButlerDesktopTodoItem[]
+  readonly remainingCount?: number
+  readonly removedCount?: number
 }
 
 export const BUTLER_MISSION_LIST_FILTERS = [
@@ -426,3 +487,5 @@ export function classifyButlerPlanReplyIntent(text: string): 'approve' | 'cancel
   if (sawApprove && !sawCancel) return 'approve'
   return 'revise'
 }
+
+export * from './butler-worker-telemetry'

@@ -34,6 +34,7 @@ import {
   messageUsageDelta,
   prefsReloadKey,
   resolveGenofficeSystemPrompt,
+  resolveWorkerExcludedBuiltinTools,
   shouldResetBloatedChiefSession,
   stripOrdinalPrefix,
   syncCachedSessionModelAndThinking,
@@ -1229,6 +1230,180 @@ describe('chief orchestrator isolation, session rotation, and transient socket r
       expect(events.at(-1)?.type).toBe('done')
     } finally {
       unsubObserver()
+      manager.disposeAll()
+    }
+  })
+
+  it('resolves worker role built-in tool exclusions cleanly', () => {
+    expect(resolveWorkerExcludedBuiltinTools('research')).toEqual([
+      'bash',
+      'powershell',
+      'edit',
+      'write',
+    ])
+    for (const role of ['docs', 'sheets', 'slides', 'browser']) {
+      expect(resolveWorkerExcludedBuiltinTools(role)).toEqual(['bash', 'powershell'])
+    }
+    for (const role of ['files', 'ops', 'general', 'unknown-custom-role']) {
+      expect(resolveWorkerExcludedBuiltinTools(role)).toEqual([])
+    }
+  })
+
+  it('merges sessionExtensions.excludeBuiltinTools with prefs and invalidates cache when exclusions change', async () => {
+    const userData = makeTempDir('genoffice-worker-exclusions-')
+    const paths = resolvePiRuntimePaths({ userDataDir: userData, storageMode: 'isolated' })
+    mkdirSync(paths.sessionsDir, { recursive: true })
+
+    const createSessionCalls: Array<Record<string, unknown>> = []
+    let disposedCount = 0
+
+    const fakeSdk = {
+      DefaultResourceLoader: class {
+        async reload() {}
+        getSkills() {
+          return { skills: [] }
+        }
+      },
+      SettingsManager: { create: () => ({}) },
+      SessionManager: {
+        open: vi.fn(),
+        create: vi.fn(() => {
+          const sessionFile = join(paths.sessionsDir, `w-${createSessionCalls.length}.jsonl`)
+          writeFileSync(sessionFile, '{"type":"session","id":"w"}\n', 'utf8')
+          return {
+            getSessionFile: () => sessionFile,
+            getSessionId: () => `worker-pi-${createSessionCalls.length}`,
+            appendMessage: () => {},
+          }
+        }),
+      },
+      ModelRuntime: { create: vi.fn(async () => ({})) },
+      createAgentSession: vi.fn(async (opts: Record<string, unknown>) => {
+        createSessionCalls.push(opts)
+        const listeners: Array<(ev: unknown) => void> = []
+        return {
+          session: {
+            model: opts.model,
+            sessionManager: opts.sessionManager,
+            extensionRunner: { getToolDefinition: () => undefined, getRegisteredCommands: () => [] },
+            getContextUsage: () => null,
+            subscribe: (fn: (ev: unknown) => void) => listeners.push(fn),
+            bindExtensions: async () => {},
+            dispose: () => {
+              disposedCount += 1
+            },
+            setModel: async () => {},
+            setThinkingLevel: () => {},
+            prompt: async () => {
+              const msg = {
+                role: 'assistant',
+                stopReason: 'stop',
+                content: [{ type: 'text', text: 'done' }],
+              }
+              for (const l of listeners) l({ type: 'message_start', message: msg })
+              for (const l of listeners) l({ type: 'message_end', message: msg })
+            },
+          },
+        }
+      }),
+    }
+
+    const defaults = defaultAiSettings()
+    const settings: AiSettings = {
+      ...defaults,
+      provider: 'openai',
+      providers: {
+        ...defaults.providers,
+        openai: { ...defaults.providers.openai, apiKey: 'sk-test', model: 'gpt-4o' },
+      },
+    }
+
+    let currentRoleExclusions: readonly string[] = resolveWorkerExcludedBuiltinTools('docs')
+    let enableReadTools = false
+
+    const manager = new PiAgentRuntimeManager({
+      userDataDir: userData,
+      getDefaultWorkingDir: () => userData,
+      isPackaged: false,
+      getPrefs: () => ({
+        ...DEFAULT_PI_AGENT_PREFS,
+        enablePiReadTools: enableReadTools,
+        enablePiWriteTools: true,
+      }),
+      getAiSettings: () => settings,
+      getGskApiKey: () => '',
+      getPermissionMode: () => 'standard',
+      sessionAllows: { isAllowed: () => false, allowForSession: () => {} } as never,
+      workbench: makeDummyWorkbench(),
+      getProjectStore: () => null,
+      sendConfirmRequest: () => {},
+      sendStatusEvent: () => {},
+      sendNoticeEvent: () => {},
+      resolveSessionExtensions: (sessionKey) => {
+        if (sessionKey === BUTLER_CHIEF_SESSION_KEY) {
+          return { key: 'chief', factories: [] }
+        }
+        return {
+          key: 'worker',
+          factories: [],
+          excludeBuiltinTools: currentRoleExclusions,
+        }
+      },
+      loadPiSdk: async () => fakeSdk as never,
+    })
+
+    try {
+      // 1. Worker with docs exclusions + enablePiReadTools: false gets deduplicated union.
+      await manager.prompt({
+        sessionKey: 'default:butler-worker-role-test',
+        projectId: 'default',
+        chatId: 'butler-worker-role-test',
+        instruction: 'draft doc',
+      })
+      expect(createSessionCalls[0]?.excludeTools).toEqual([
+        'bash',
+        'find',
+        'grep',
+        'ls',
+        'powershell',
+        'read',
+      ])
+
+      // 2. Narrower/different exclusion set ('research') on same key must invalidate cache.
+      enableReadTools = true
+      currentRoleExclusions = resolveWorkerExcludedBuiltinTools('research')
+      await manager.prompt({
+        sessionKey: 'default:butler-worker-role-test',
+        projectId: 'default',
+        chatId: 'butler-worker-role-test',
+        instruction: 'verify facts',
+      })
+      expect(disposedCount).toBe(1)
+      expect(createSessionCalls[1]?.excludeTools).toEqual([
+        'bash',
+        'edit',
+        'powershell',
+        'write',
+      ])
+
+      // 3. Chief session still excludes all 8 built-in tools.
+      await manager.prompt({
+        sessionKey: BUTLER_CHIEF_SESSION_KEY,
+        projectId: 'default',
+        chatId: 'butler-main',
+        instruction: 'hello',
+      })
+      expect(createSessionCalls[2]?.excludeTools).toEqual([
+        'read',
+        'grep',
+        'find',
+        'ls',
+        'bash',
+        'powershell',
+        'edit',
+        'write',
+      ])
+    } finally {
       manager.disposeAll()
     }
   })

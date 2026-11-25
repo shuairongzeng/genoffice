@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { createJsonStore } from './json-store'
+import type {
+  ButlerDesktopTodoRequest,
+  ButlerDesktopTodoResult,
+} from '../shared/butler-orchestrator-api'
 import { HOME_CHANNELS, type TodoItem } from '../shared/home-api'
 
 /**
@@ -85,6 +89,216 @@ export async function addTodo(userDataDir: string, text: string): Promise<TodoIt
   const normalized = normalizeTodos(items)
   await writeTodos(userDataDir, normalized)
   return normalized
+}
+
+function countRemainingTodos(items: readonly TodoItem[]): number {
+  let count = 0
+  for (const item of items) {
+    if (!item.done) count += 1
+  }
+  return count
+}
+
+function resolveTargetTodo(
+  items: readonly TodoItem[],
+  req: ButlerDesktopTodoRequest,
+):
+  | { readonly ok: true; readonly index: number; readonly item: TodoItem }
+  | { readonly ok: false; readonly result: ButlerDesktopTodoResult } {
+  const remainingCount = countRemainingTodos(items)
+  const rawId = req.id?.trim()
+  if (rawId) {
+    const idx = items.findIndex((item) => item.id === rawId)
+    if (idx === -1) {
+      return {
+        ok: false,
+        result: {
+          ok: false,
+          action: req.action,
+          error: `No desktop todo found with id "${rawId}".`,
+          todos: items,
+          remainingCount,
+        },
+      }
+    }
+    return { ok: true, index: idx, item: items[idx]! }
+  }
+
+  const rawMatch = req.match?.trim()
+  if (!rawMatch) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        action: req.action,
+        error: `Either "id" or "match" is required for desktop todo action "${req.action}".`,
+        todos: items,
+        remainingCount,
+      },
+    }
+  }
+
+  const needle = rawMatch.toLowerCase()
+  const matchedIndices: number[] = []
+  for (let i = 0; i < items.length; i += 1) {
+    if (items[i]!.text.toLowerCase().includes(needle)) {
+      matchedIndices.push(i)
+    }
+  }
+
+  if (matchedIndices.length === 0) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        action: req.action,
+        error: `No desktop todo matching "${rawMatch}" was found.`,
+        todos: items,
+        remainingCount,
+      },
+    }
+  }
+
+  if (matchedIndices.length > 1) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        action: req.action,
+        error: `Multiple desktop todos match "${rawMatch}". Clarify which item or specify its id.`,
+        matches: matchedIndices.map((idx) => items[idx]!),
+        todos: items,
+        remainingCount,
+      },
+    }
+  }
+
+  const index = matchedIndices[0]!
+  return { ok: true, index, item: items[index]! }
+}
+
+/**
+ * Execute CRUD operations on the desktop floating Todo card store and emit
+ * the updated list so mounted renderers stay in sync immediately.
+ */
+export async function manageDesktopTodos(
+  userDataDir: string,
+  req: ButlerDesktopTodoRequest,
+  onChanged?: (items: TodoItem[]) => void,
+): Promise<ButlerDesktopTodoResult> {
+  const current = readTodos(userDataDir)
+
+  switch (req.action) {
+    case 'list':
+      return {
+        ok: true,
+        action: 'list',
+        todos: current,
+        remainingCount: countRemainingTodos(current),
+      }
+
+    case 'add': {
+      const text = req.text?.trim() ?? ''
+      if (!text) {
+        return {
+          ok: false,
+          action: 'add',
+          error: 'Todo text must not be empty when action is "add".',
+          todos: current,
+          remainingCount: countRemainingTodos(current),
+        }
+      }
+      const next = await addTodo(userDataDir, text)
+      onChanged?.(next)
+      return {
+        ok: true,
+        action: 'add',
+        item: next[0],
+        todos: next,
+        remainingCount: countRemainingTodos(next),
+      }
+    }
+
+    case 'update': {
+      const nextText = req.text?.trim().slice(0, MAX_TEXT) ?? ''
+      if (!nextText) {
+        return {
+          ok: false,
+          action: 'update',
+          error: 'Replacement "text" is required when action is "update".',
+          todos: current,
+          remainingCount: countRemainingTodos(current),
+        }
+      }
+      const target = resolveTargetTodo(current, req)
+      if (!target.ok) return target.result
+
+      const updated: TodoItem = { ...target.item, text: nextText }
+      const next = normalizeTodos(current.map((item, idx) => (idx === target.index ? updated : item)))
+      await writeTodos(userDataDir, next)
+      onChanged?.(next)
+      return {
+        ok: true,
+        action: 'update',
+        item: next[target.index] ?? updated,
+        todos: next,
+        remainingCount: countRemainingTodos(next),
+      }
+    }
+
+    case 'complete':
+    case 'uncomplete':
+    case 'toggle': {
+      const target = resolveTargetTodo(current, req)
+      if (!target.ok) return target.result
+
+      const nextDone =
+        req.action === 'complete' ? true : req.action === 'uncomplete' ? false : !target.item.done
+      const updated: TodoItem = { ...target.item, done: nextDone }
+      const next = normalizeTodos(current.map((item, idx) => (idx === target.index ? updated : item)))
+      await writeTodos(userDataDir, next)
+      onChanged?.(next)
+      return {
+        ok: true,
+        action: req.action,
+        item: next[target.index] ?? updated,
+        todos: next,
+        remainingCount: countRemainingTodos(next),
+      }
+    }
+
+    case 'delete': {
+      const target = resolveTargetTodo(current, req)
+      if (!target.ok) return target.result
+
+      const next = current.filter((_, idx) => idx !== target.index)
+      await writeTodos(userDataDir, next)
+      onChanged?.(next)
+      return {
+        ok: true,
+        action: 'delete',
+        item: target.item,
+        todos: next,
+        remainingCount: countRemainingTodos(next),
+      }
+    }
+
+    case 'clear_done': {
+      const next = current.filter((item) => !item.done)
+      const removedCount = current.length - next.length
+      if (removedCount > 0) {
+        await writeTodos(userDataDir, next)
+        onChanged?.(next)
+      }
+      return {
+        ok: true,
+        action: 'clear_done',
+        removedCount,
+        todos: next,
+        remainingCount: countRemainingTodos(next),
+      }
+    }
+  }
 }
 
 /**

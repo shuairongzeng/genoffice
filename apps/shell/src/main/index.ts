@@ -169,7 +169,13 @@ import {
 import { registerHomeFileIpc, stringPaths } from './home-ipc'
 import { openEditorOf as openEditorGuard, openDocumentRefusal } from './open-editor-guard'
 import { isValidRawRenameName } from './rename-validation'
-import { addTodo, broadcastTodosChanged, registerTodosIpc, readTodos } from './todos-ipc'
+import {
+  addTodo,
+  broadcastTodosChanged,
+  manageDesktopTodos,
+  registerTodosIpc,
+  readTodos,
+} from './todos-ipc'
 import { statPathEntries } from './recent-files'
 import { runEditorCommand as dispatchEditorCommand } from './editor-command-dispatch'
 import {
@@ -353,7 +359,7 @@ import { watchAiPermissions, readAiPermissions, shouldAskBrowserPageAction } fro
 import { createAiSessionAllows } from './ai-session-allows'
 import { PI_AGENT_CHANNELS } from '../shared/pi-agent-api'
 import { readPiAgentPrefs, watchPiAgentPrefs } from './pi-agent/pi-agent-prefs'
-import { PiAgentRuntimeManager } from './pi-agent/pi-runtime'
+import { PiAgentRuntimeManager, resolveWorkerExcludedBuiltinTools } from './pi-agent/pi-runtime'
 import { createPiEcosystemService } from './pi-agent/pi-ecosystem-service'
 import { isEnvLegacyEngineForced, registerPiAgentIpc } from './pi-agent-ipc'
 import { createWorkbenchToolsService } from './workbench-tools-service'
@@ -7944,6 +7950,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
       }
       if (isButlerWorkerSession(sessionKey)) {
         const role = butlerMissionEngine.recoverWorkerRoleForSession(sessionKey) ?? 'general'
+        const excludeBuiltinTools = resolveWorkerExcludedBuiltinTools(role)
         const task = butlerMissionEngine
           .getSnapshot()
           .tasks.find((item) => item.sessionKey === sessionKey)
@@ -7956,6 +7963,7 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
               ...(task?.scopePaths ? { scopePaths: task.scopePaths } : {}),
             }),
           ],
+          excludeBuiltinTools,
         }
       }
       return null
@@ -8288,6 +8296,8 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     requirePlanApproval: () => readButlerPrefs(APP_SETTINGS_PATH()).planConfirmBeforeDispatch,
     conversationalMode: () => true,
     executeDesktopAction: executeButlerDesktopAction,
+    manageDesktopTodos: (req) =>
+      manageDesktopTodos(app.getPath('userData'), req, broadcastTodosChanged),
     runPrompt: async (sessionKey, promptText) => {
       const sep = sessionKey.indexOf(':')
       const projectId = sep > 0 ? sessionKey.slice(0, sep) : 'default'
@@ -8501,20 +8511,53 @@ export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
     onEvent: (event) => {
       if (event.sessionKey && isButlerWorkerSession(event.sessionKey)) {
         if (event.type === 'tool-start') {
-          const toolName =
+          const payloadObj =
             event.payload && typeof event.payload === 'object'
-              ? (event.payload as { name?: unknown }).name
-              : undefined
-          if (typeof toolName === 'string' && toolName.trim().length > 0) {
-            butlerMissionEngine?.recordWorkerStep(event.sessionKey, {
-              tool: toolName,
+              ? (event.payload as { name?: unknown; input?: unknown })
+              : null
+          const toolName = typeof payloadObj?.name === 'string' ? payloadObj.name.trim() : ''
+          if (toolName.length > 0) {
+            const toolInput =
+              payloadObj?.input &&
+              typeof payloadObj.input === 'object' &&
+              !Array.isArray(payloadObj.input)
+                ? (payloadObj.input as Record<string, unknown>)
+                : undefined
+            butlerMissionEngine?.recordWorkerEvent(event.sessionKey, {
+              type: 'tool-start',
+              toolName,
+              input: toolInput,
               kind: stepKindForTool(toolName),
             })
           }
+        } else if (event.type === 'tool-executed') {
+          const payloadObj =
+            event.payload && typeof event.payload === 'object'
+              ? (event.payload as {
+                  call?: { name?: unknown }
+                  execution?: { isError?: unknown; summary?: unknown }
+                })
+              : null
+          const toolName =
+            typeof payloadObj?.call?.name === 'string' ? payloadObj.call.name.trim() : ''
+          if (toolName.length > 0) {
+            butlerMissionEngine?.recordWorkerEvent(event.sessionKey, {
+              type: 'tool-executed',
+              toolName,
+              isError: payloadObj?.execution?.isError === true,
+              ...(typeof payloadObj?.execution?.summary === 'string'
+                ? { summary: payloadObj.execution.summary }
+                : {}),
+            })
+          }
+        } else if (event.type === 'text' && typeof event.payload === 'string') {
+          butlerMissionEngine?.recordWorkerEvent(event.sessionKey, {
+            type: 'text',
+            text: event.payload,
+          })
         } else if (event.type === 'reasoning') {
-          butlerMissionEngine?.recordWorkerStep(event.sessionKey, {
-            tool: 'thinking',
-            kind: 'think',
+          butlerMissionEngine?.recordWorkerEvent(event.sessionKey, {
+            type: 'reasoning',
           })
         }
         return

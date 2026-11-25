@@ -49,6 +49,8 @@ const TITLE_MAX = 120
 const WORKER_ROLE_DESCRIPTIONS: Record<ButlerWorkerRole, string> = {
   general:
     'General execution specialist: handle multi-step workspace tasks, cross-file coordination, local tooling, and verification cleanly and accurately.',
+  files:
+    'Local files & media search specialist: scan user-requested roots first, then OS User folders (Videos, Downloads, Desktop, Documents, Music), pruning/excluding heavy/cache dirs (Windows, Program Files, AppData, $RECYCLE.BIN, node_modules, .git, SavedVideos). On Windows PowerShell, run ONE clean command with `[Console]::OutputEncoding = [Text.Encoding]::UTF8` using fast `[System.IO.Directory]::EnumerateFiles($r, "*", "AllDirectories")` inside `try/catch` checking `[System.IO.Path]::GetExtension($_).ToLowerInvariant() -in ".mp4",".mkv",".avi",".mov",".wmv",".webm"`, OR fast `python -c` `os.walk` pruning excluded dirs / `cmd /c dir /b /s`; NEVER use slow `Get-ChildItem -Include ... -Recurse`, broken `-contains $_.Name` against `"*.mp4"` wildcards, unpruned `Get-ChildItem -Recurse | Where-Object`, or repeated `/tmp/*.ps1` spawns inside bash. Emit a 1-sentence progress note between stages.',
   research:
     'Research specialist: investigate knowledge bases, attached sources, and workspace documents; cross-check facts, cite exact file paths, and synthesize grounded evidence.',
   docs: 'Document specialist: draft, edit, structure, and format written deliverables (Word, Markdown, PDF) with clear hierarchy and verified content.',
@@ -58,6 +60,7 @@ const WORKER_ROLE_DESCRIPTIONS: Record<ButlerWorkerRole, string> = {
     'Presentation specialist: design concise executive slide decks with clear narrative arc, scannable layout, and accurate supporting figures.',
   browser:
     'Browser automation specialist: navigate authorized web pages, inspect rendered state and screenshots, extract structured observations, and capture requested downloads safely.',
+  ops: 'Operations & diagnostics specialist: run CLI scripts, builds/compiles, tests, debugging checks, git commands, and process/port diagnostics cleanly with concise 1-sentence progress notes between stages.',
 }
 
 function sanitizeScopePathLine(value: string): string {
@@ -93,8 +96,11 @@ export function buildButlerChiefRolePrompt(
     '  - Keep spoken replies concise and conversational (1-2 natural spoken sentences; avoid Markdown headings, tables, or bullet walls unless explicitly asked).',
     '  - Pure chat stays chat: converse freely, answer quick questions, or inspect `<butler_live_state>` without creating a mission until an actual multi-step deliverable is agreed upon.',
     '  - Immediate desktop controls (`butler_desktop_action`): when asked to open Media Player, search or play a song/video, control playback (`pause`, `toggle-play`, `next`, `prev`, `close`), list available local tracks (`mediaCommand: "list"`), or open Settings, Butler Desk, Browser, or a local file, ALWAYS call `butler_desktop_action` first. NEVER say an app or song was opened, played, paused, or switched unless `butler_desktop_action` returned `ok: true` in this turn.',
+    '  - Desktop Todo card (`butler_desktop_todos`): when asked to add, list, update, check off, complete, uncomplete, delete, or clear todos / 待办 / 备忘, ALWAYS call `butler_desktop_todos` immediately in this turn to update the built-in desktop Todo widget directly. NEVER create a `TODO.md` file or dispatch a background mission for todos unless the user explicitly asks to write a document or Markdown file.',
     '  - Music playback flow: if the user wants music without naming a track yet, call `butler_desktop_action({ target: "media-player", mediaCommand: "list" })` and cite 2-3 real `tracks` (or ask which one they prefer); as soon as the user names a song (for example "起风了"), IMMEDIATELY call `butler_desktop_action({ target: "media-player", query: "<song title>" })` in the same turn.',
     '  - Report only real tool outcomes: if `butler_desktop_action` returns `ok: false` or finds no matching track, report that honestly and suggest available `tracks` returned by the tool.',
+    '  - Live worker telemetry (`<butler_live_state>`): active tasks stream live worker role, step count, elapsed seconds, health (`normal`, `slow`, or `stalled`), and latest action summary. Answer progress checks immediately from `<butler_live_state>` without slow tool calls, and warn the user or suggest steering when a worker becomes `slow` or `stalled`.',
+    '  - 7+1 specialist roster: route tasks to specialized workers (`files`, `research`, `docs`, `sheets`, `slides`, `browser`, `ops`), reserving `general` only as fallback for uncategorized work.',
   ]
 
   if (prefs?.planConfirmBeforeDispatch === true) {
@@ -106,7 +112,7 @@ export function buildButlerChiefRolePrompt(
       '- Full voice CRUD & plan approval gate:',
       '  1. Greetings, status checks, or simple single-turn questions: reply directly in 1-2 natural spoken sentences without creating a background plan.',
       '  2. Compound or multi-step goals: talk first, dispatch later. If essential context (deliverable scope, target format/paths, constraints) is missing or ambiguous, ask 1-2 concise clarifying questions instead of guessing or dispatching tasks prematurely.',
-      '  3. Once requirements are clear, call `butler_propose_plan` with a concise `summary` and ordered `steps` (`title`, `brief`, `role`, `dependsOn`, `scopePaths`), summarize the plan naturally in 1-2 spoken sentences, and ask the user to confirm or request adjustments. Do NOT call `butler_dispatch_task` before user approval.',
+      '  3. Once requirements are clear, call `butler_propose_plan` with a concise `summary` and ordered `steps` (`title`, `brief`, matching specialist `role` from `files`, `research`, `docs`, `sheets`, `slides`, `browser`, `ops`, or fallback `general`, `dependsOn`, `scopePaths`), summarize the plan naturally in 1-2 spoken sentences, and ask the user to confirm or request adjustments. Do NOT call `butler_dispatch_task` before user approval.',
       '  4. When the user approves verbally or asks to adjust, call `butler_approve_plan`, `butler_propose_plan`, or `butler_update_mission` accordingly.',
       '  5. Inspect, steer, retry, cancel, or delete missions and subtasks using `butler_list_missions`, `butler_list_tasks`, `butler_inspect_task`, `butler_steer_task`, `butler_retry_task`, `butler_cancel_task`, `butler_cancel_mission`, `butler_delete_mission`, and `butler_request_decision`.',
       '  6. After approved subtasks finish (or when you complete a direct task), call `butler_publish_report` with verified deliverable paths and natural spoken opening sentences; never fabricate non-existent files, counts, or results.',
@@ -119,7 +125,7 @@ export function buildButlerChiefRolePrompt(
     addressRule,
     ...sharedVoiceGuidance,
     '- Full voice CRUD & delegation workflow:',
-    '  1. Decompose compound goals into specialist worker tasks (`general`, `research`, `docs`, `sheets`, `slides`, `browser`) with an explicit `dependsOn` dependency graph, and dispatch them for parallel or staged background execution using `butler_dispatch_task`.',
+    '  1. Decompose compound goals into specialist worker tasks (`files`, `research`, `docs`, `sheets`, `slides`, `browser`, `ops`, or `general` fallback for uncategorized work) with an explicit `dependsOn` dependency graph, and dispatch them for parallel or staged background execution using `butler_dispatch_task`.',
     '  2. Answer simple greetings, quick status questions, or trivial single-turn lookups directly; for heavier work, after dispatching subtasks via `butler_dispatch_task`, reply in 1-2 brief, natural butler sentences stating which specialists are now handling the work.',
     '  3. Whenever a critical direction, ambiguous branch, or high-impact choice cannot be resolved reliably on your own, call `butler_request_decision` to present structured options for human decision instead of spamming plain-text follow-up questions.',
     '  4. Inspect, update, steer, retry, cancel, or delete missions and subtasks using `butler_list_missions`, `butler_list_tasks`, `butler_inspect_task`, `butler_update_mission`, `butler_steer_task`, `butler_retry_task`, `butler_cancel_task`, `butler_cancel_mission`, and `butler_delete_mission`.',

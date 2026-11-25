@@ -199,14 +199,17 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 26px;
-  padding: 0 11px;
+  box-sizing: border-box;
+  min-height: 26px;
+  padding: 3px 11px;
   border-radius: 999px;
   border: 1px solid var(--butler-desk-border);
   background: var(--butler-desk-panel-elevated);
   font-size: 12px;
   font-weight: 500;
-  line-height: 1;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
   color: var(--butler-desk-ink-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -220,6 +223,7 @@
 .butler-desk-status-dot {
   width: 7px;
   height: 7px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: var(--butler-desk-emerald);
   box-shadow: 0 0 8px color-mix(in srgb, var(--butler-desk-emerald) 65%, transparent);
@@ -235,20 +239,24 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 26px;
-  padding: 0 6px 0 10px;
+  box-sizing: border-box;
+  min-height: 26px;
+  padding: 3px 6px 3px 10px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--butler-desk-emerald) 44%, transparent);
   background: var(--butler-desk-emerald-soft);
   color: var(--butler-desk-emerald);
   font-size: 12px;
   font-weight: 600;
-  line-height: 1;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .butler-desk-live-dot {
   width: 7px;
   height: 7px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: var(--butler-desk-emerald);
   box-shadow: 0 0 8px color-mix(in srgb, var(--butler-desk-emerald) 65%, transparent);
@@ -256,8 +264,9 @@
 }
 
 .butler-desk-hangup-btn {
-  height: 20px;
-  padding: 0 8px;
+  min-height: 20px;
+  padding: 2px 8px;
+  line-height: 1.25;
   border-radius: 999px;
 }
 
@@ -276,7 +285,7 @@
 /* Split cockpit workspace */
 .butler-desk-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.63fr) minmax(300px, 1fr);
+  grid-template-columns: minmax(0, 1.42fr) minmax(348px, 1fr);
   gap: 16px;
   flex: 1;
   min-height: 0;
@@ -398,12 +407,14 @@
 
 .butler-desk-entry.is-system .butler-desk-bubble {
   max-width: 92%;
-  padding: 6px 12px;
-  border-radius: 999px;
+  padding: 7px 12px;
+  border-radius: 10px;
   border: 1px solid var(--butler-desk-border);
   background: var(--butler-desk-panel-inset);
   color: var(--butler-desk-ink-muted);
   font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
 }
 
 .butler-desk-entry-meta {
@@ -594,14 +605,18 @@
 .butler-artifact-missing-pill {
   display: inline-flex;
   align-items: center;
-  height: 22px;
-  padding: 0 8px;
+  box-sizing: border-box;
+  min-height: 22px;
+  padding: 2px 8px;
   border-radius: 6px;
   border: 1px solid color-mix(in srgb, var(--butler-desk-rose) 34%, transparent);
   background: var(--butler-desk-rose-soft);
   color: var(--butler-desk-rose);
   font-size: 11px;
   font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .butler-report-next {
@@ -672,14 +687,18 @@
 .butler-plan-rev-badge {
   display: inline-flex;
   align-items: center;
-  height: 20px;
-  padding: 0 8px;
+  box-sizing: border-box;
+  min-height: 20px;
+  padding: 2px 8px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--butler-desk-accent) 36%, transparent);
   background: color-mix(in srgb, var(--butler-desk-accent) 12%, transparent);
   color: var(--butler-desk-accent);
   font-size: 11px;
   font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .butler-plan-summary {
@@ -885,8 +904,9 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  height: 34px;
-  padding: 0 15px;
+  box-sizing: border-box;
+  min-height: 34px;
+  padding: 6px 15px;
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--butler-desk-accent) 45%, transparent);
   background: var(--butler-desk-accent);
@@ -894,6 +914,8 @@
   font-family: inherit;
   font-size: 12.5px;
   font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     opacity var(--transition-fast),
@@ -916,6 +938,7 @@
   gap: 14px;
   min-width: 0;
   min-height: 0;
+  padding-right: 4px;
   overflow-y: auto;
 }
 
@@ -954,15 +977,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
+  min-height: 20px;
+  padding: 2px 6px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--butler-desk-amber) 45%, transparent);
   background: var(--butler-desk-amber-soft);
   color: var(--butler-desk-amber);
   font-size: 11px;
   font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1012,11 +1039,18 @@
 .butler-decision-kind-badge {
   display: inline-flex;
   align-items: center;
-  height: 20px;
-  padding: 0 8px;
+  box-sizing: border-box;
+  min-height: 20px;
+  max-width: 100%;
+  padding: 2px 8px;
   border-radius: 6px;
   font-size: 11px;
   font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border: 1px solid var(--butler-desk-border);
   background: var(--butler-desk-panel-inset);
   color: var(--butler-desk-ink-muted);
@@ -1118,8 +1152,9 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  height: 28px;
-  padding: 0 11px;
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 4px 11px;
   border-radius: 7px;
   border: 1px solid var(--butler-desk-border-strong);
   background: var(--butler-desk-panel);
@@ -1127,6 +1162,9 @@
   font-family: inherit;
   font-size: 12px;
   font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
   transition:
     background-color var(--transition-fast),
@@ -1165,9 +1203,10 @@
 }
 
 .butler-btn.is-compact {
-  height: 24px;
-  padding: 0 8px;
-  font-size: 11px;
+  min-height: 24px;
+  padding: 3px 9px;
+  font-size: 11.5px;
+  line-height: 1.25;
   border-radius: 6px;
 }
 
@@ -1219,7 +1258,7 @@
 .butler-mission-head {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
   padding: 10px 12px;
 }
 
@@ -1228,22 +1267,27 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-}
-
-.butler-mission-title-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
   min-width: 0;
-  flex: 1;
 }
 
 .butler-mission-title {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   font-size: 13px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.4;
   color: var(--butler-desk-ink);
+  word-break: break-word;
+}
+
+.butler-mission-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-width: 0;
 }
 
 .butler-mission-meta {
@@ -1251,26 +1295,43 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
   font-size: 11px;
   color: var(--butler-desk-ink-muted);
   font-variant-numeric: tabular-nums;
 }
 
+.butler-mission-progress {
+  font-size: 11px;
+  color: var(--butler-desk-ink-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .butler-mission-controls {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
-  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .butler-status-badge {
   display: inline-flex;
   align-items: center;
-  height: 19px;
-  padding: 0 7px;
+  box-sizing: border-box;
+  min-height: 20px;
+  max-width: 100%;
+  padding: 2px 8px;
   border-radius: 999px;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border: 1px solid var(--butler-desk-border);
   background: var(--butler-desk-panel-inset);
   color: var(--butler-desk-ink-muted);
@@ -1308,14 +1369,71 @@
 .butler-role-badge {
   display: inline-flex;
   align-items: center;
-  height: 19px;
-  padding: 0 7px;
+  box-sizing: border-box;
+  min-height: 20px;
+  max-width: 100%;
+  padding: 2px 7px;
   border-radius: 5px;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border: 1px solid color-mix(in srgb, var(--butler-desk-violet) 32%, transparent);
   background: var(--butler-desk-violet-soft);
   color: var(--butler-desk-violet);
+}
+
+.butler-telemetry-badge {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 20px;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--butler-desk-border);
+  background: var(--butler-desk-panel-inset);
+  color: var(--butler-desk-ink-muted);
+}
+
+.butler-health-badge {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 20px;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.butler-health-badge[data-health='slow'] {
+  border: 1px solid color-mix(in srgb, var(--butler-desk-amber) 44%, transparent);
+  background: var(--butler-desk-amber-soft);
+  color: var(--butler-desk-amber);
+}
+
+.butler-health-badge[data-health='stalled'] {
+  border: 1px solid color-mix(in srgb, var(--butler-desk-rose) 44%, transparent);
+  background: var(--butler-desk-rose-soft);
+  color: var(--butler-desk-rose);
 }
 
 .butler-mission-subtasks {
@@ -1388,7 +1506,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   margin-top: 2px;
 }
 
@@ -1401,8 +1520,117 @@
 .butler-subtask-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
   margin-left: auto;
+}
+
+.butler-subtask-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 164px;
+  overflow-y: auto;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  list-style: none;
+  border-radius: 6px;
+  border: 1px solid var(--butler-desk-border);
+  background: var(--butler-desk-panel-inset);
+}
+
+.butler-subtask-activity-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--butler-desk-ink-muted);
+}
+
+.butler-subtask-activity-item.is-error {
+  color: var(--butler-desk-rose);
+}
+
+.butler-activity-time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  color: var(--butler-desk-ink-dim);
+}
+
+.butler-activity-tool {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid var(--butler-desk-border);
+  background: var(--butler-desk-panel);
+  color: var(--butler-desk-ink);
+  font-family: inherit;
+  font-size: 10.5px;
+}
+
+.butler-subtask-activity-item.is-error .butler-activity-tool {
+  border-color: color-mix(in srgb, var(--butler-desk-rose) 40%, transparent);
+  color: var(--butler-desk-rose);
+}
+
+.butler-activity-summary {
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.butler-desk-feed,
+.butler-desk-aside,
+.butler-plan-dock,
+.butler-subtask-activity-list,
+.butler-decision-detail {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--butler-desk-ink-dim) 34%, transparent) transparent;
+}
+
+.butler-desk-feed::-webkit-scrollbar,
+.butler-desk-aside::-webkit-scrollbar,
+.butler-plan-dock::-webkit-scrollbar,
+.butler-subtask-activity-list::-webkit-scrollbar,
+.butler-decision-detail::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.butler-desk-feed::-webkit-scrollbar-track,
+.butler-desk-aside::-webkit-scrollbar-track,
+.butler-plan-dock::-webkit-scrollbar-track,
+.butler-subtask-activity-list::-webkit-scrollbar-track,
+.butler-decision-detail::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.butler-desk-feed::-webkit-scrollbar-thumb,
+.butler-desk-aside::-webkit-scrollbar-thumb,
+.butler-plan-dock::-webkit-scrollbar-thumb,
+.butler-subtask-activity-list::-webkit-scrollbar-thumb,
+.butler-decision-detail::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--butler-desk-ink-dim) 32%, transparent);
+}
+
+.butler-desk-feed::-webkit-scrollbar-thumb:hover,
+.butler-desk-aside::-webkit-scrollbar-thumb:hover,
+.butler-plan-dock::-webkit-scrollbar-thumb:hover,
+.butler-subtask-activity-list::-webkit-scrollbar-thumb:hover,
+.butler-decision-detail::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--butler-desk-ink-dim) 54%, transparent);
+}
+
+.butler-desk-feed::-webkit-scrollbar-button,
+.butler-desk-aside::-webkit-scrollbar-button,
+.butler-plan-dock::-webkit-scrollbar-button,
+.butler-subtask-activity-list::-webkit-scrollbar-button,
+.butler-decision-detail::-webkit-scrollbar-button {
+  display: none;
 }
 
 .butler-steer-row {
@@ -1434,7 +1662,7 @@
   color: var(--butler-desk-ink-dim);
 }
 
-@media (max-width: 920px) {
+@media (max-width: 960px) {
   .butler-desk-body {
     grid-template-columns: 1fr;
     overflow-y: auto;
@@ -1446,6 +1674,7 @@
 
   .butler-desk-aside {
     overflow: visible;
+    padding-right: 0;
   }
 }
 

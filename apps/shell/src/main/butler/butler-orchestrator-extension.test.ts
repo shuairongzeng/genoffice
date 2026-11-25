@@ -1,13 +1,14 @@
 import type { ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import { describe, expect, it, vi } from 'vitest'
-import type {
-  ButlerDecisionItem,
-  ButlerDecisionResolution,
-  ButlerMission,
-  ButlerMissionPlan,
-  ButlerMissionReport,
-  ButlerSubTask,
-  ButlerWorkerRole,
+import {
+  BUTLER_WORKER_ROLES,
+  type ButlerDecisionItem,
+  type ButlerDecisionResolution,
+  type ButlerMission,
+  type ButlerMissionPlan,
+  type ButlerMissionReport,
+  type ButlerSubTask,
+  type ButlerWorkerRole,
 } from '../../shared/butler-orchestrator-api'
 import {
   BUTLER_CHIEF_TOOL_NAMES,
@@ -176,6 +177,14 @@ function createMockChiefBridge() {
   const executeDesktopAction = vi
     .fn<ButlerChiefToolBridge['executeDesktopAction']>()
     .mockResolvedValue({ ok: true })
+  const manageDesktopTodos = vi
+    .fn<ButlerChiefToolBridge['manageDesktopTodos']>()
+    .mockResolvedValue({
+      ok: true,
+      action: 'list',
+      todos: [],
+      remainingCount: 0,
+    })
 
   const bridge: ButlerChiefToolBridge = {
     proposePlan,
@@ -193,6 +202,7 @@ function createMockChiefBridge() {
     requestChiefDecision,
     publishReport,
     executeDesktopAction,
+    manageDesktopTodos,
   }
 
   return {
@@ -213,6 +223,7 @@ function createMockChiefBridge() {
       requestChiefDecision,
       publishReport,
       executeDesktopAction,
+      manageDesktopTodos,
     },
     fixtures: {
       sampleMission,
@@ -226,13 +237,13 @@ function createMockChiefBridge() {
 }
 
 describe('butler-orchestrator-extension', () => {
-  it('registers all 15 BUTLER_CHIEF_TOOL_NAMES tools and forwards every call to bridge', async () => {
+  it('registers all 16 BUTLER_CHIEF_TOOL_NAMES tools and forwards every call to bridge', async () => {
     const { bridge, spies, fixtures } = createMockChiefBridge()
     const harness = createMockPiHarness()
     createButlerChiefExtension(bridge)(harness.pi)
 
     expect(harness.registeredNames).toEqual([...BUTLER_CHIEF_TOOL_NAMES])
-    expect(harness.registeredNames).toHaveLength(15)
+    expect(harness.registeredNames).toHaveLength(16)
 
     // 0. butler_propose_plan
     const proposeTool = harness.tools.get('butler_propose_plan')!
@@ -723,6 +734,71 @@ describe('butler-orchestrator-extension', () => {
       dummyCtx,
     )
     expect(badTarget.isError).toBe(true)
+
+    // 15. butler_desktop_todos
+    const todosTool = harness.tools.get('butler_desktop_todos')!
+    const todoListRes = await todosTool.execute(
+      'call-todo-list',
+      { action: 'list' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(todoListRes.isError).toBeUndefined()
+    expect(spies.manageDesktopTodos).toHaveBeenCalledWith({ action: 'list' })
+
+    const todoAddRes = await todosTool.execute(
+      'call-todo-add',
+      { action: 'add', text: '明天 07:00 起床煮饭' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(todoAddRes.isError).toBeUndefined()
+    expect(spies.manageDesktopTodos).toHaveBeenCalledWith({
+      action: 'add',
+      text: '明天 07:00 起床煮饭',
+    })
+
+    const todoCompleteRes = await todosTool.execute(
+      'call-todo-complete',
+      { action: 'complete', match: '起床' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(todoCompleteRes.isError).toBeUndefined()
+    expect(spies.manageDesktopTodos).toHaveBeenCalledWith({
+      action: 'complete',
+      match: '起床',
+    })
+
+    const badTodoAction = await todosTool.execute(
+      'call-todo-bad-action',
+      { action: 'archive' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(badTodoAction.isError).toBe(true)
+
+    const missingTodoText = await todosTool.execute(
+      'call-todo-missing-text',
+      { action: 'add' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(missingTodoText.isError).toBe(true)
+
+    const missingTodoLocator = await todosTool.execute(
+      'call-todo-missing-locator',
+      { action: 'delete' },
+      undefined,
+      undefined,
+      dummyCtx,
+    )
+    expect(missingTodoLocator.isError).toBe(true)
   })
 
   it('catches bridge rejections gracefully as structured error tool results', async () => {
@@ -890,15 +966,23 @@ describe('butler-orchestrator-extension', () => {
       }),
     )
 
-    // Worker role prompts across all 6 roles
-    const roles: readonly ButlerWorkerRole[] = [
-      'general',
-      'research',
-      'docs',
-      'sheets',
-      'slides',
-      'browser',
-    ]
+    // Worker role prompts across all 8 roles
+    const roles: readonly ButlerWorkerRole[] = [...BUTLER_WORKER_ROLES]
+    expect(roles).toHaveLength(8)
+    expect(roles).toContain('files')
+    expect(roles).toContain('ops')
+
+    // Ensure tool parameter schemas expose all 8 BUTLER_WORKER_ROLES
+    const dispatchSchema = chiefHarness.tools.get('butler_dispatch_task')!.parameters as {
+      properties: { role: { enum: string[] } }
+    }
+    expect(dispatchSchema.properties.role.enum).toEqual([...BUTLER_WORKER_ROLES])
+    const proposeSchema = chiefHarness.tools.get('butler_propose_plan')!.parameters as {
+      properties: { steps: { items: { properties: { role: { enum: string[] } } } } }
+    }
+    expect(proposeSchema.properties.steps.items.properties.role.enum).toEqual([
+      ...BUTLER_WORKER_ROLES,
+    ])
     const seenPrompts = new Set<string>()
     for (const role of roles) {
       const workerHarness = createMockPiHarness()

@@ -1,8 +1,10 @@
 import type { AgentToolResult, ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import {
   BUTLER_DESKTOP_ACTION_TARGETS,
+  BUTLER_DESKTOP_TODO_ACTIONS,
   BUTLER_MEDIA_COMMANDS,
   BUTLER_MISSION_LIST_FILTERS,
+  BUTLER_WORKER_ROLES,
   type ButlerActionResult,
   type ButlerApproveMissionPlanRequest,
   type ButlerDecisionItem,
@@ -11,6 +13,9 @@ import {
   type ButlerDesktopActionRequest,
   type ButlerDesktopActionResult,
   type ButlerDesktopActionTarget,
+  type ButlerDesktopTodoAction,
+  type ButlerDesktopTodoRequest,
+  type ButlerDesktopTodoResult,
   type ButlerMediaCommand,
   type ButlerMission,
   type ButlerMissionListFilter,
@@ -43,18 +48,14 @@ export const BUTLER_CHIEF_TOOL_NAMES = [
   'butler_request_decision',
   'butler_publish_report',
   'butler_desktop_action',
+  'butler_desktop_todos',
 ] as const
 
 export const BUTLER_WORKER_TOOL_NAMES = ['butler_worker_request_decision'] as const
 
-const VALID_WORKER_ROLES: readonly ButlerWorkerRole[] = [
-  'general',
-  'research',
-  'docs',
-  'sheets',
-  'slides',
-  'browser',
-]
+const WORKER_ROLE_ENUM_DESCRIPTION =
+  'Specialist worker role (`files`, `research`, `docs`, `sheets`, `slides`, `browser`, `ops`, or `general` fallback).'
+
 const VALID_OPTION_STYLES: ReadonlySet<NonNullable<ButlerDecisionOption['style']>> = new Set([
   'primary',
   'default',
@@ -153,6 +154,7 @@ export interface ButlerChiefToolBridge {
   readonly executeDesktopAction: (
     req: ButlerDesktopActionRequest,
   ) => Promise<ButlerDesktopActionResult>
+  readonly manageDesktopTodos: (req: ButlerDesktopTodoRequest) => Promise<ButlerDesktopTodoResult>
 }
 
 export interface ButlerWorkerToolBridge {
@@ -378,11 +380,11 @@ function parsePlanSteps(raw: unknown): ParseResult<ButlerPlanStepInput[]> {
     if (item.role !== undefined) {
       if (
         typeof item.role !== 'string' ||
-        !VALID_WORKER_ROLES.includes(item.role as ButlerWorkerRole)
+        !BUTLER_WORKER_ROLES.includes(item.role as ButlerWorkerRole)
       ) {
         return {
           ok: false,
-          error: `steps[${i}]: "role" must be one of: ${VALID_WORKER_ROLES.join(', ')}`,
+          error: `steps[${i}]: "role" must be one of: ${BUTLER_WORKER_ROLES.join(', ')}`,
         }
       }
       role = item.role as ButlerWorkerRole
@@ -458,7 +460,8 @@ const DECISION_BASE_PROPERTIES = {
 const PLAN_STEPS_SCHEMA = {
   type: 'array',
   minItems: 1,
-  description: 'Ordered list of proposed specialist steps.',
+  description:
+    'Ordered list of proposed specialist steps (roles: files, research, docs, sheets, slides, browser, ops, or general fallback).',
   items: {
     type: 'object',
     properties: {
@@ -467,8 +470,8 @@ const PLAN_STEPS_SCHEMA = {
       brief: { type: 'string', description: 'Detailed specialist brief.' },
       role: {
         type: 'string',
-        enum: [...VALID_WORKER_ROLES],
-        description: 'Specialist worker role (defaults to "general").',
+        enum: [...BUTLER_WORKER_ROLES],
+        description: WORKER_ROLE_ENUM_DESCRIPTION,
       },
       dependsOn: {
         type: 'array',
@@ -628,8 +631,8 @@ export function createButlerChiefExtension(
           },
           role: {
             type: 'string',
-            enum: [...VALID_WORKER_ROLES],
-            description: 'Specialist worker role (defaults to "general").',
+            enum: [...BUTLER_WORKER_ROLES],
+            description: WORKER_ROLE_ENUM_DESCRIPTION,
           },
           dependsOn: {
             type: 'array',
@@ -660,9 +663,9 @@ export function createButlerChiefExtension(
         if (params.role !== undefined) {
           if (
             typeof params.role !== 'string' ||
-            !VALID_WORKER_ROLES.includes(params.role as ButlerWorkerRole)
+            !BUTLER_WORKER_ROLES.includes(params.role as ButlerWorkerRole)
           ) {
-            return errorToolResult(`"role" must be one of: ${VALID_WORKER_ROLES.join(', ')}`)
+            return errorToolResult(`"role" must be one of: ${BUTLER_WORKER_ROLES.join(', ')}`)
           }
           role = params.role as ButlerWorkerRole
         }
@@ -1139,6 +1142,88 @@ export function createButlerChiefExtension(
           ...(pathOrUrlRes.value !== undefined ? { pathOrUrl: pathOrUrlRes.value } : {}),
           ...(queryRes.value !== undefined ? { query: queryRes.value } : {}),
           ...(mediaCommand !== undefined ? { mediaCommand } : {}),
+        })
+        return jsonToolResult(res, !res.ok)
+      },
+    })
+
+    registerToolDef(pi, {
+      name: 'butler_desktop_todos',
+      label: 'Manage Desktop Todos',
+      description:
+        "Read or manage the user's built-in GenOffice Desktop Todo card immediately (list, add, update, complete, uncomplete, toggle, delete, clear_done) without creating a file or starting a background mission.",
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: [...BUTLER_DESKTOP_TODO_ACTIONS],
+            description:
+              'Todo action: list, add, update, complete, uncomplete, toggle, delete, or clear_done.',
+          },
+          text: {
+            type: 'string',
+            description: 'Todo item text (required when action is "add" or "update").',
+          },
+          id: {
+            type: 'string',
+            description: 'Exact todo ID from list output when targeting a specific item.',
+          },
+          match: {
+            type: 'string',
+            description:
+              'Case-insensitive keyword substring to locate a todo item when id is omitted.',
+          },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      readOnly: false,
+      execute: async (_toolCallId, params) => {
+        if (!isPlainObject(params)) return errorToolResult('Arguments must be an object')
+        if (
+          typeof params.action !== 'string' ||
+          !BUTLER_DESKTOP_TODO_ACTIONS.includes(params.action as ButlerDesktopTodoAction)
+        ) {
+          return errorToolResult(
+            `"action" must be one of: ${BUTLER_DESKTOP_TODO_ACTIONS.join(', ')}`,
+          )
+        }
+        const action = params.action as ButlerDesktopTodoAction
+        const textRes = readOptionalNonEmptyString(params, 'text')
+        if (!textRes.ok) return errorToolResult(textRes.error)
+        const idRes = readOptionalNonEmptyString(params, 'id')
+        if (!idRes.ok) return errorToolResult(idRes.error)
+        const matchRes = readOptionalNonEmptyString(params, 'match')
+        if (!matchRes.ok) return errorToolResult(matchRes.error)
+
+        if (action === 'add' && textRes.value === undefined) {
+          return errorToolResult('"text" is required when "action" is "add"')
+        }
+        if (action === 'update') {
+          if (textRes.value === undefined) {
+            return errorToolResult('"text" is required when "action" is "update"')
+          }
+          if (idRes.value === undefined && matchRes.value === undefined) {
+            return errorToolResult('"id" or "match" is required when "action" is "update"')
+          }
+        }
+        if (
+          (action === 'complete' ||
+            action === 'uncomplete' ||
+            action === 'toggle' ||
+            action === 'delete') &&
+          idRes.value === undefined &&
+          matchRes.value === undefined
+        ) {
+          return errorToolResult(`"id" or "match" is required when "action" is "${action}"`)
+        }
+
+        const res = await bridge.manageDesktopTodos({
+          action,
+          ...(textRes.value !== undefined ? { text: textRes.value } : {}),
+          ...(idRes.value !== undefined ? { id: idRes.value } : {}),
+          ...(matchRes.value !== undefined ? { match: matchRes.value } : {}),
         })
         return jsonToolResult(res, !res.ok)
       },

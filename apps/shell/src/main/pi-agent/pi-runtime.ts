@@ -251,17 +251,49 @@ export function buildExcludeBuiltinTools(
 }
 
 /**
+ * Resolve built-in tool exclusions for an ephemeral Butler worker role so
+ * specialist workers never invoke slow shell or unintended write tools.
+ */
+export function resolveWorkerExcludedBuiltinTools(role: string): string[] {
+  switch (role) {
+    case 'research':
+      return ['bash', 'powershell', 'edit', 'write']
+    case 'docs':
+    case 'sheets':
+    case 'slides':
+    case 'browser':
+      return ['bash', 'powershell']
+    case 'files':
+    case 'ops':
+    case 'general':
+    default:
+      return []
+  }
+}
+
+/**
  * Exclude all built-in file and shell tools for the Chief Butler orchestrator
- * session while preserving user preferences for background workers and regular chats.
+ * session while merging user preferences and per-session exclusions for
+ * background workers and regular chats.
  */
 export function buildSessionExcludeBuiltinTools(
   prefs: Pick<PiAgentPrefs, 'enablePiReadTools' | 'enablePiWriteTools'>,
   sessionKey: string,
+  extraExcluded?: readonly string[],
 ): string[] {
   if (isButlerChiefSession(sessionKey)) {
     return ['read', 'grep', 'find', 'ls', 'bash', 'powershell', 'edit', 'write']
   }
-  return buildExcludeBuiltinTools(prefs)
+  const base = buildExcludeBuiltinTools(prefs)
+  if (!extraExcluded || extraExcluded.length === 0) {
+    return base
+  }
+  const combined = new Set<string>(base)
+  for (const tool of extraExcluded) {
+    const trimmed = tool.trim()
+    if (trimmed) combined.add(trimmed)
+  }
+  return [...combined].sort()
 }
 
 /**
@@ -492,6 +524,7 @@ export interface PiRuntimeManagerDeps {
   readonly resolveSessionExtensions?: (sessionKey: string) => {
     readonly key: string
     readonly factories: readonly ExtensionFactory[]
+    readonly excludeBuiltinTools?: readonly string[]
   } | null
   readonly resolveSessionThinkingOverride?: (
     sessionKey: string,
@@ -607,6 +640,7 @@ export function prefsReloadKey(
   persona = '',
   sessionRoleKey = '',
   pureOrchestrator = false,
+  excludeTools: readonly string[] = [],
 ): string {
   return JSON.stringify([
     prefs.magicContextEnabled,
@@ -623,6 +657,7 @@ export function prefsReloadKey(
     persona,
     sessionRoleKey,
     ...(pureOrchestrator ? ['pure-orch'] : []),
+    ...(excludeTools.length > 0 ? [[...excludeTools].sort()] : []),
   ])
 }
 
@@ -937,12 +972,18 @@ export class PiAgentRuntimeManager {
     const pureOrchestrator = isButlerChiefSession(req.sessionKey)
     const persona = this.deps.getPersonaSection?.() ?? ''
     const sessionExtensions = this.deps.resolveSessionExtensions?.(req.sessionKey) ?? null
+    const excludeTools = buildSessionExcludeBuiltinTools(
+      prefs,
+      req.sessionKey,
+      sessionExtensions?.excludeBuiltinTools,
+    )
     const currentPrefsKey = prefsReloadKey(
       prefs,
       prefs.magicContextStorageMode,
       persona,
       sessionExtensions?.key ?? '',
       pureOrchestrator,
+      excludeTools,
     )
     const cached = this.cache.get(req.sessionKey)
     if (cached) {
@@ -1064,7 +1105,6 @@ export class PiAgentRuntimeManager {
       if (createdFile) mapStore.set(req.sessionKey, createdFile)
     }
 
-    const excludeTools = buildSessionExcludeBuiltinTools(prefs, req.sessionKey)
     const authPath = join(paths.agentDir, 'auth.json')
     const modelsPath = join(paths.agentDir, 'models.json')
     const modelRuntime = await sdk.ModelRuntime.create({ authPath, modelsPath })

@@ -7,7 +7,12 @@ import {
   BUTLER_CHIEF_SESSION_KEY,
   BUTLER_WORKER_CHAT_PREFIX,
   classifyButlerPlanReplyIntent,
+  evaluateWorkerHealth,
+  extractWorkerProgressNote,
+  inferButlerWorkerRole,
   isButlerWorkerSession,
+  redactTelemetrySecrets,
+  summarizeWorkerToolCall,
   type ButlerActionResult,
   type ButlerApproveMissionPlanRequest,
   type ButlerArtifactRef,
@@ -20,6 +25,8 @@ import {
   type ButlerDesktopActionRequest,
   type ButlerDesktopActionResult,
   type ButlerDesktopActionTarget,
+  type ButlerDesktopTodoRequest,
+  type ButlerDesktopTodoResult,
   type ButlerMission,
   type ButlerMissionListFilter,
   type ButlerMissionPlan,
@@ -32,6 +39,8 @@ import {
   type ButlerSteerTaskRequest,
   type ButlerSubTask,
   type ButlerSubTaskStatus,
+  type ButlerWorkerActivityEntry,
+  type ButlerWorkerHealth,
   type ButlerWorkerRole,
 } from '../../shared/butler-orchestrator-api'
 import type { PiAgentConfirmReply, PiAgentConfirmRequest } from '../../shared/pi-agent-api'
@@ -44,7 +53,9 @@ import {
 const DEFAULT_MAX_CONCURRENT = 3
 const MAX_TITLE_LEN = 60
 const MAX_OUTPUT_SUMMARY_LEN = 800
-const MAX_LIVE_STATE_CHARS = 780
+const MAX_LIVE_STATE_CHARS = 1100
+const MAX_ACTIVITY_LOG_ENTRIES = 8
+const TELEMETRY_NOTIFY_THROTTLE_MS = 150
 const STEER_ABORT_SETTLE_MS = 25
 
 const TERMINAL_MISSION_STATUSES = new Set<ButlerMissionStatus>([
@@ -107,6 +118,7 @@ export interface ButlerMissionEngineDeps {
   readonly executeDesktopAction?: (
     req: ButlerDesktopActionRequest,
   ) => Promise<ButlerDesktopActionResult>
+  readonly manageDesktopTodos?: (req: ButlerDesktopTodoRequest) => Promise<ButlerDesktopTodoResult>
   readonly requirePlanApproval?: () => boolean
   readonly conversationalMode?: () => boolean
   readonly now?: () => number
@@ -120,6 +132,27 @@ export interface ButlerPlanStepInput {
   readonly dependsOn?: readonly string[]
   readonly scopePaths?: readonly string[]
 }
+
+export type ButlerWorkerObservedEvent =
+  | {
+      readonly type: 'tool-start'
+      readonly toolName: string
+      readonly input?: Record<string, unknown> | null
+      readonly kind?: ButlerStep['kind']
+    }
+  | {
+      readonly type: 'tool-executed'
+      readonly toolName: string
+      readonly isError?: boolean
+      readonly summary?: string
+    }
+  | {
+      readonly type: 'text'
+      readonly text: string
+    }
+  | {
+      readonly type: 'reasoning'
+    }
 
 export interface ButlerMissionEngine {
   init(): Promise<ButlerDeskSnapshot>
@@ -176,6 +209,7 @@ export interface ButlerMissionEngine {
   cancelMission(missionId: string): Promise<ButlerActionResult>
   deleteMission(missionId: string): Promise<ButlerActionResult>
   executeDesktopAction(req: ButlerDesktopActionRequest): Promise<ButlerDesktopActionResult>
+  manageDesktopTodos(req: ButlerDesktopTodoRequest): Promise<ButlerDesktopTodoResult>
   interceptWorkerConfirm(req: PiAgentConfirmRequest): Promise<PiAgentConfirmReply | null>
   requestWorkerChoice(
     sessionKey: string,
@@ -208,6 +242,7 @@ export interface ButlerMissionEngine {
     readonly error?: string
   }>
   recordWorkerStep(sessionKey: string, step: ButlerStep | null, progressNote?: string): void
+  recordWorkerEvent(sessionKey: string, event: ButlerWorkerObservedEvent): void
   recoverWorkerRoleForSession(sessionKey: string): ButlerWorkerRole | null
   whenIdle(): Promise<void>
 }
@@ -369,7 +404,30 @@ function cloneTask(t: ButlerSubTask): ButlerSubTask {
     ...(t.scopePaths ? { scopePaths: [...t.scopePaths] } : {}),
     step: t.step ? { ...t.step } : null,
     artifacts: t.artifacts.map(cloneArtifact),
+    ...(t.activityLog
+      ? { activityLog: t.activityLog.map((entry) => ({ ...entry })) }
+      : {}),
   }
+}
+
+function inferStepKindFallback(toolName: string): ButlerStep['kind'] {
+  const lower = toolName.trim().toLowerCase()
+  if (lower.includes('read') || lower === 'ls') return 'read'
+  if (lower.includes('search') || lower.includes('find') || lower.includes('grep')) return 'search'
+  if (lower.startsWith('browser')) return 'browse'
+  if (lower.includes('write') || lower.includes('create')) return 'create'
+  if (lower.includes('edit')) return 'edit'
+  if (
+    lower === 'bash' ||
+    lower === 'powershell' ||
+    lower === 'pwsh' ||
+    lower === 'exec' ||
+    lower.includes('command')
+  ) {
+    return 'command'
+  }
+  if (lower === 'thinking') return 'think'
+  return 'other'
 }
 
 function cloneDecision(d: ButlerDecisionItem): ButlerDecisionItem {
@@ -409,12 +467,15 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
   const missionWorkdirById = new Map<string, string | undefined>()
   const taskWorkdirById = new Map<string, string | undefined>()
   const steerNotesByTaskId = new Map<string, string[]>()
+  const taskStepStartedAt = new Map<string, number>()
   const planningMissions = new Set<string>()
   const synthesizingMissions = new Set<string>()
   const activeWorkers = new Map<string, ActiveWorkerRun>()
   const pendingWaiters = new Map<string, PendingDecisionWaiter>()
   const trackedBackgroundOps = new Map<symbol, Promise<void>>()
 
+  let telemetryNotifyTimer: ReturnType<typeof setTimeout> | null = null
+  let telemetryLastNotifiedAt = 0
   let chiefBusy = false
   let chiefPendingCount = 0
   let chiefGeneration = 0
@@ -532,11 +593,13 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
         }
       }
       const scopePaths = rawStep.scopePaths?.map((p: string) => p.trim()).filter(Boolean)
+      const cleanTitle = rawStep.title.trim()
+      const cleanBrief = rawStep.brief.trim()
       normalizedSteps.push({
         id: stepId,
-        title: rawStep.title.trim(),
-        brief: rawStep.brief.trim(),
-        role: rawStep.role ?? 'general',
+        title: cleanTitle,
+        brief: cleanBrief,
+        role: inferButlerWorkerRole({ role: rawStep.role, title: cleanTitle, brief: cleanBrief }),
         dependsOn,
         ...(scopePaths && scopePaths.length > 0 ? { scopePaths } : {}),
       })
@@ -595,11 +658,13 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
         sessionsToAbort.push(t.sessionKey)
       }
 
+      taskStepStartedAt.delete(t.id)
       if (opts.markTasksCancelled) {
         tasks[i] = {
           ...t,
           status: 'cancelled',
           step: null,
+          health: 'normal',
           finishedAt: ts,
         }
       }
@@ -616,7 +681,21 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
     }
   }
 
+  const hydrateTaskWithLiveHealth = (t: ButlerSubTask, now: number): ButlerSubTask => {
+    const cloned = cloneTask(t)
+    if (cloned.status !== 'running') return cloned
+    const liveHealth = evaluateWorkerHealth({
+      status: cloned.status,
+      startedAt: cloned.startedAt,
+      stepStartedAt: taskStepStartedAt.get(cloned.id) ?? cloned.lastActiveAt ?? cloned.startedAt,
+      consecutiveErrors: cloned.consecutiveErrors,
+      now,
+    })
+    return { ...cloned, health: liveHealth }
+  }
+
   const buildButlerLiveStateBlock = (): string => {
+    const now = nowFn()
     const gateOn = deps.requirePlanApproval?.() === true
     const activeMissions = missions.filter((m) => !TERMINAL_MISSION_STATUSES.has(m.status))
     const pendingDecs = decisions.filter((d) => d.status === 'pending')
@@ -638,8 +717,21 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
     const relevantTasks = tasks
       .filter((t) => t.status !== 'done')
       .slice(-5)
-    for (const t of relevantTasks) {
-      lines.push(`T ${t.id} [${t.status}] "${t.title.slice(0, 28)}" (m=${t.missionId})`)
+    for (const rawTask of relevantTasks) {
+      const t = hydrateTaskWithLiveHealth(rawTask, now)
+      const elapsedSec =
+        t.startedAt !== undefined ? Math.max(0, Math.floor((now - t.startedAt) / 1000)) : 0
+      const latestLogSummary =
+        t.activityLog && t.activityLog.length > 0
+          ? t.activityLog[t.activityLog.length - 1]!.summary
+          : ''
+      const rawAction = t.progressNote?.trim() || latestLogSummary || t.step?.tool || ''
+      const latestAction = rawAction.length > 64 ? `${rawAction.slice(0, 63).trimEnd()}…` : rawAction
+      const actionSuffix = latestAction ? ` -> ${latestAction}` : ''
+      const statusTag = `${t.status}|${t.role}|step=${t.stepCount ?? 0}|${elapsedSec}s|${t.health ?? 'normal'}`
+      lines.push(
+        `T ${t.id} [${statusTag}] "${t.title.slice(0, 28)}"${actionSuffix} (m=${t.missionId})`,
+      )
     }
 
     for (const d of pendingDecs.slice(-3)) {
@@ -669,23 +761,51 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
     return undefined
   }
 
-  const buildSnapshot = (): ButlerDeskSnapshot => ({
-    chiefSessionKey: BUTLER_CHIEF_SESSION_KEY,
-    chiefBusy,
-    missions: missions.map(cloneMission),
-    tasks: tasks.map(cloneTask),
-    decisions: decisions.map(cloneDecision),
-    feed: feed.map(cloneFeedEntry),
-    concurrency: {
-      running: tasks.filter((t) => t.status === 'running').length,
-      maxConcurrent,
-      queued: tasks.filter((t) => t.status === 'queued').length,
-    },
-  })
+  const buildSnapshot = (): ButlerDeskSnapshot => {
+    const now = nowFn()
+    return {
+      chiefSessionKey: BUTLER_CHIEF_SESSION_KEY,
+      chiefBusy,
+      missions: missions.map(cloneMission),
+      tasks: tasks.map((t) => hydrateTaskWithLiveHealth(t, now)),
+      decisions: decisions.map(cloneDecision),
+      feed: feed.map(cloneFeedEntry),
+      concurrency: {
+        running: tasks.filter((t) => t.status === 'running').length,
+        maxConcurrent,
+        queued: tasks.filter((t) => t.status === 'queued').length,
+      },
+    }
+  }
+
+  const clearTelemetryNotifyTimer = (): void => {
+    if (telemetryNotifyTimer !== null) {
+      clearTimeout(telemetryNotifyTimer)
+      telemetryNotifyTimer = null
+    }
+  }
 
   const notifySnapshot = (): void => {
     if (disposed) return
+    telemetryLastNotifiedAt = Date.now()
     deps.onSnapshotUpdated?.(buildSnapshot())
+  }
+
+  const scheduleThrottledNotifySnapshot = (): void => {
+    if (disposed) return
+    const now = Date.now()
+    const elapsed = now - telemetryLastNotifiedAt
+    if (elapsed >= TELEMETRY_NOTIFY_THROTTLE_MS && telemetryNotifyTimer === null) {
+      notifySnapshot()
+      return
+    }
+    if (telemetryNotifyTimer !== null) return
+    const waitMs = Math.max(10, TELEMETRY_NOTIFY_THROTTLE_MS - Math.max(0, elapsed))
+    telemetryNotifyTimer = setTimeout(() => {
+      telemetryNotifyTimer = null
+      notifySnapshot()
+    }, waitMs)
+    telemetryNotifyTimer.unref?.()
   }
 
   const buildPersistedPayload = (): ButlerPersistedMissions => ({
@@ -708,6 +828,7 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
   }
 
   const commitState = (): void => {
+    clearTelemetryNotifyTimer()
     void enqueuePersist()
     notifySnapshot()
   }
@@ -1309,22 +1430,26 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
           const latest = tasks.find((t) => t.id === taskSnapshot.id)
           if (!latest || latest.status === 'cancelled') return
 
+          taskStepStartedAt.delete(taskSnapshot.id)
           updateTask(taskSnapshot.id, (prev) => ({
             ...prev,
             status: 'done',
             step: null,
+            health: 'normal',
             outputSummary,
             artifacts,
             error: undefined,
             finishedAt: nowFn(),
           }))
         } else {
+          taskStepStartedAt.delete(taskSnapshot.id)
           const errorText =
             res.error?.trim() || (res.aborted ? 'Task aborted' : 'Worker execution failed')
           updateTask(taskSnapshot.id, (prev) => ({
             ...prev,
             status: 'failed',
             step: null,
+            health: 'normal',
             error: errorText,
             finishedAt: nowFn(),
           }))
@@ -1380,11 +1505,15 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
         resolveSettled,
       }
 
+      const startTs = nowFn()
+      taskStepStartedAt.set(task.id, startTs)
       const started = updateTask(task.id, (prev) => ({
         ...prev,
         status: 'running',
         step: null,
-        startedAt: prev.startedAt ?? nowFn(),
+        health: 'normal',
+        lastActiveAt: prev.lastActiveAt ?? startTs,
+        startedAt: prev.startedAt ?? startTs,
       }))
 
       if (!started) continue
@@ -1928,6 +2057,8 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       if (disposePromise) return disposePromise
       disposePromise = (async () => {
         disposed = true
+        clearTelemetryNotifyTimer()
+        taskStepStartedAt.clear()
 
         resolvePendingWaitersFor(() => true, 'cancelled', 'Engine disposed')
 
@@ -2249,12 +2380,13 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
           return { ok: false, error: 'Cyclic task dependency detected' }
         }
 
+        const inferredRole = inferButlerWorkerRole({ role: input.role, title, brief })
         const scopePaths = input.scopePaths?.map((p) => p.trim()).filter(Boolean)
         const stagedStep: ButlerProposedTaskStep = {
           id: stepId,
           title,
           brief,
-          role: input.role ?? 'general',
+          role: inferredRole,
           dependsOn,
           ...(scopePaths && scopePaths.length > 0 ? { scopePaths } : {}),
         }
@@ -2322,7 +2454,7 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
         missionId: mission.id,
         title,
         brief,
-        role: input.role ?? 'general',
+        role: inferButlerWorkerRole({ role: input.role, title, brief }),
         dependsOn,
         ...(scopePaths && scopePaths.length > 0 ? { scopePaths } : {}),
         sessionKey,
@@ -2373,7 +2505,7 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       const task = tasks.find((t) => t.id === taskId)
       if (!task) return null
       return {
-        task: cloneTask(task),
+        task: hydrateTaskWithLiveHealth(task, nowFn()),
         decisions: decisions.filter((d) => d.taskId === taskId).map(cloneDecision),
       }
     },
@@ -2505,10 +2637,12 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
           activeRun.resolveSettled()
         }
 
+        taskStepStartedAt.delete(taskId)
         updateTask(taskId, (prev) => ({
           ...prev,
           status: 'queued',
           step: null,
+          health: 'normal',
           error: undefined,
           finishedAt: undefined,
         }))
@@ -2519,10 +2653,12 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       }
 
       if (task.status === 'interrupted' || task.status === 'failed') {
+        taskStepStartedAt.delete(taskId)
         updateTask(taskId, (prev) => ({
           ...prev,
           status: 'queued',
           step: null,
+          health: 'normal',
           error: undefined,
           finishedAt: undefined,
         }))
@@ -2584,10 +2720,15 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
         steerNotesByTaskId.set(taskId, existingNotes)
       }
 
+      taskStepStartedAt.delete(taskId)
       updateTask(taskId, (prev) => ({
         ...prev,
         status: 'queued',
         step: null,
+        health: 'normal',
+        consecutiveErrors: 0,
+        stepCount: 0,
+        activityLog: undefined,
         error: undefined,
         outputSummary: undefined,
         startedAt: undefined,
@@ -2629,10 +2770,12 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
         activeRun.resolveSettled()
       }
 
+      taskStepStartedAt.delete(taskId)
       updateTask(taskId, (prev) => ({
         ...prev,
         status: 'cancelled',
         step: null,
+        health: 'normal',
         finishedAt: nowFn(),
       }))
 
@@ -2749,6 +2892,23 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
         return {
           ok: false,
           error: err instanceof Error ? err.message : String(err ?? 'Desktop action failed'),
+        }
+      }
+    },
+
+    async manageDesktopTodos(req: ButlerDesktopTodoRequest): Promise<ButlerDesktopTodoResult> {
+      if (disposed) {
+        return { ok: false, error: 'Engine disposed' }
+      }
+      if (!deps.manageDesktopTodos) {
+        return { ok: false, error: 'Desktop todo controls are not configured' }
+      }
+      try {
+        return await deps.manageDesktopTodos(req)
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err ?? 'Desktop todo operation failed'),
         }
       }
     },
@@ -3079,12 +3239,154 @@ export function createButlerMissionEngine(deps: ButlerMissionEngineDeps): Butler
       const task = findTaskBySession(sessionKey)
       if (!task || TERMINAL_TASK_STATUSES.has(task.status)) return
 
+      const ts = nowFn()
+      if (step === null) {
+        taskStepStartedAt.delete(task.id)
+      } else {
+        taskStepStartedAt.set(task.id, ts)
+      }
+
       updateTask(task.id, (prev) => ({
         ...prev,
         step: step ? { ...step } : null,
+        lastActiveAt: ts,
+        ...(step === null ? { health: 'normal' as const } : {}),
         ...(progressNote !== undefined ? { progressNote } : {}),
       }))
       commitState()
+    },
+
+    recordWorkerEvent(sessionKey: string, event: ButlerWorkerObservedEvent): void {
+      if (!isButlerWorkerSession(sessionKey)) return
+      const task = findTaskBySession(sessionKey)
+      if (!task || TERMINAL_TASK_STATUSES.has(task.status)) return
+
+      const ts = nowFn()
+      const appendActivity = (
+        prevLog: readonly ButlerWorkerActivityEntry[] | undefined,
+        entry: Omit<ButlerWorkerActivityEntry, 'seq'>,
+      ): readonly ButlerWorkerActivityEntry[] => {
+        const lastSeq = prevLog && prevLog.length > 0 ? prevLog[prevLog.length - 1]!.seq : 0
+        const nextEntry: ButlerWorkerActivityEntry = { seq: lastSeq + 1, ...entry }
+        return [...(prevLog ?? []), nextEntry].slice(-MAX_ACTIVITY_LOG_ENTRIES)
+      }
+
+      if (event.type === 'tool-start') {
+        const toolName = event.toolName.trim()
+        if (!toolName) return
+        const kind = event.kind ?? inferStepKindFallback(toolName)
+        const callSummary = summarizeWorkerToolCall(toolName, event.input)
+        const summary = callSummary || toolName
+        taskStepStartedAt.set(task.id, ts)
+        updateTask(task.id, (prev) => {
+          const health: ButlerWorkerHealth = evaluateWorkerHealth({
+            status: prev.status,
+            startedAt: prev.startedAt,
+            stepStartedAt: ts,
+            consecutiveErrors: prev.consecutiveErrors,
+            now: ts,
+          })
+          return {
+            ...prev,
+            step: { tool: toolName, kind },
+            stepCount: (prev.stepCount ?? 0) + 1,
+            lastActiveAt: ts,
+            health,
+            activityLog: appendActivity(prev.activityLog, {
+              at: ts,
+              kind,
+              tool: toolName,
+              summary,
+            }),
+          }
+        })
+        scheduleThrottledNotifySnapshot()
+        return
+      }
+
+      if (event.type === 'tool-executed') {
+        const toolName = event.toolName.trim()
+        const isError = event.isError === true
+        updateTask(task.id, (prev) => {
+          const consecutiveErrors = isError ? (prev.consecutiveErrors ?? 0) + 1 : 0
+          const stepStartedAt = taskStepStartedAt.get(prev.id) ?? prev.lastActiveAt ?? prev.startedAt
+          const health: ButlerWorkerHealth = evaluateWorkerHealth({
+            status: prev.status,
+            startedAt: prev.startedAt,
+            stepStartedAt,
+            consecutiveErrors,
+            now: ts,
+          })
+          const rawErr = redactTelemetrySecrets(event.summary?.trim() || `${toolName} failed`).replace(
+            /\s+/g,
+            ' ',
+          )
+          const errSummary =
+            rawErr.length > 110 ? `${rawErr.slice(0, 109).trimEnd()}…` : rawErr
+          return {
+            ...prev,
+            consecutiveErrors,
+            lastActiveAt: ts,
+            health,
+            ...(isError
+              ? {
+                  activityLog: appendActivity(prev.activityLog, {
+                    at: ts,
+                    kind: 'error',
+                    ...(toolName ? { tool: toolName } : {}),
+                    summary: errSummary || 'Tool execution failed',
+                    isError: true,
+                  }),
+                }
+              : {}),
+          }
+        })
+        scheduleThrottledNotifySnapshot()
+        return
+      }
+
+      if (event.type === 'text') {
+        const note = extractWorkerProgressNote(event.text)
+        if (!note && task.lastActiveAt === ts) return
+        updateTask(task.id, (prev) => {
+          const stepStartedAt = taskStepStartedAt.get(prev.id) ?? prev.lastActiveAt ?? prev.startedAt
+          const health: ButlerWorkerHealth = evaluateWorkerHealth({
+            status: prev.status,
+            startedAt: prev.startedAt,
+            stepStartedAt,
+            consecutiveErrors: prev.consecutiveErrors,
+            now: ts,
+          })
+          return {
+            ...prev,
+            lastActiveAt: ts,
+            health,
+            ...(note ? { progressNote: note } : {}),
+          }
+        })
+        scheduleThrottledNotifySnapshot()
+        return
+      }
+
+      if (event.type === 'reasoning') {
+        if (!taskStepStartedAt.has(task.id)) {
+          taskStepStartedAt.set(task.id, ts)
+        }
+        const stepStartedAt = taskStepStartedAt.get(task.id)!
+        updateTask(task.id, (prev) => ({
+          ...prev,
+          step: { tool: 'thinking', kind: 'think' },
+          lastActiveAt: ts,
+          health: evaluateWorkerHealth({
+            status: prev.status,
+            startedAt: prev.startedAt,
+            stepStartedAt,
+            consecutiveErrors: prev.consecutiveErrors,
+            now: ts,
+          }),
+        }))
+        scheduleThrottledNotifySnapshot()
+      }
     },
 
     recoverWorkerRoleForSession(sessionKey: string): ButlerWorkerRole | null {

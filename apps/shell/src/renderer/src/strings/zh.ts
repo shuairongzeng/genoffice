@@ -1324,6 +1324,17 @@ export const zh = {
   butlerTaskRetry: '重试',
   butlerHudLiveHint: '我在听，聊完随时安排（说“没事了”挂断）',
   butlerDeskLiveActive: '常驻语音通话中',
+  butlerRoleFiles: '档案专员',
+  butlerRoleOps: '系统专员',
+  butlerTaskStepCount: '第 {count} 步',
+  butlerTaskElapsed: '已耗时 {elapsed}',
+  butlerTaskHealthSlow: '耗时较长',
+  butlerTaskHealthStalled: '疑似受阻',
+  butlerTaskActivityShow: '实时动态 ({count})',
+  butlerTaskActivityHide: '收起动态',
+  butlerMissionStatusPlanning: '规划拆解中',
+  butlerMissionStatusSynthesizing: '汇总报告中',
+  butlerSystemSteeredTask: '已向「{title}」传达纠偏指示：{instruction}',
 }
 
 export type Dict = typeof zh

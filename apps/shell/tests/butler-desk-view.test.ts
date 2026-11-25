@@ -20,6 +20,7 @@ import {
   canSteerSubTask,
   decisionKindLabelKey,
   formatDecisionOptionLabel,
+  formatElapsedDuration,
   isMissionActive,
   isSubTaskActive,
   missionStatusLabelKey,
@@ -293,15 +294,29 @@ describe('ButlerDeskView pure helpers', () => {
       'butlerDecisionKindRecovery',
     ])
 
-    const roles: ButlerWorkerRole[] = ['general', 'research', 'docs', 'sheets', 'slides', 'browser']
+    const roles: ButlerWorkerRole[] = [
+      'general',
+      'files',
+      'research',
+      'docs',
+      'sheets',
+      'slides',
+      'browser',
+      'ops',
+    ]
     expect(roles.map(workerRoleLabelKey)).toEqual([
       'butlerRoleGeneral',
+      'butlerRoleFiles',
       'butlerRoleResearch',
       'butlerRoleDocs',
       'butlerRoleSheets',
       'butlerRoleSlides',
       'butlerRoleBrowser',
+      'butlerRoleOps',
     ])
+    expect(formatElapsedDuration(12_000)).toBe('12s')
+    expect(formatElapsedDuration(65_000)).toBe('1m 05s')
+    expect(formatElapsedDuration(3_900_000)).toBe('1h 05m')
 
     const subStatuses: ButlerSubTaskStatus[] = [
       'queued',
@@ -352,6 +367,8 @@ describe('ButlerDeskView pure helpers', () => {
     ])
     expect(missionStatusLabelKey('clarifying')).toBe('butlerMissionStatusClarifying')
     expect(missionStatusLabelKey('awaiting_plan_approval')).toBe('butlerMissionStatusAwaitingPlan')
+    expect(missionStatusLabelKey('planning')).toBe('butlerMissionStatusPlanning')
+    expect(missionStatusLabelKey('synthesizing')).toBe('butlerMissionStatusSynthesizing')
     expect(missionStatusLabelKey('done')).toBe('butlerTaskStatusDone')
   })
 })
@@ -957,5 +974,247 @@ describe('ButlerDeskView rendering and interactions', () => {
     })
     expect(deleteBtn.disabled).toBe(false)
     expect(host.textContent).toContain('Cannot remove mission right now')
+  })
+
+  it('renders live step count, elapsed timer, slow/stalled health indicators, and collapsible activityLog timeline', async () => {
+    vi.useFakeTimers()
+    const baseNow = 1_700_000_065_000
+    vi.setSystemTime(baseNow)
+    try {
+      currentSnapshot = makeEmptySnapshot({
+        missions: [
+          makeMission({
+            id: 'm-telemetry',
+            title: 'Scan workspace & run diagnostics',
+            status: 'running',
+            taskIds: ['t-run-slow', 't-run-stalled', 't-done-log'],
+          }),
+        ],
+        tasks: [
+          makeSubTask({
+            id: 't-run-slow',
+            missionId: 'm-telemetry',
+            title: 'Scan videos folder',
+            role: 'files',
+            status: 'running',
+            startedAt: baseNow - 12_000,
+            lastActiveAt: baseNow - 35_000,
+            stepCount: 3,
+            health: 'slow',
+            step: {
+              kind: 'command',
+              tool: 'find',
+            },
+            activityLog: [
+              {
+                seq: 1,
+                at: baseNow - 10_000,
+                kind: 'command',
+                tool: 'find',
+                summary: 'Scanning D:/Videos for .mp4',
+              },
+              {
+                seq: 2,
+                at: baseNow - 4_000,
+                kind: 'error',
+                tool: 'read',
+                summary: 'Permission denied on System Volume',
+                isError: true,
+              },
+            ],
+          }),
+          makeSubTask({
+            id: 't-run-stalled',
+            missionId: 'm-telemetry',
+            title: 'Verify shell build',
+            role: 'ops',
+            status: 'running',
+            startedAt: baseNow - 95_000,
+            lastActiveAt: baseNow - 92_000,
+            stepCount: 2,
+            consecutiveErrors: 3,
+            step: {
+              kind: 'command',
+              tool: 'bash',
+            },
+          }),
+          makeSubTask({
+            id: 't-done-log',
+            missionId: 'm-telemetry',
+            title: 'Draft report',
+            role: 'docs',
+            status: 'done',
+            startedAt: baseNow - 80_000,
+            finishedAt: baseNow - 15_000,
+            stepCount: 4,
+            activityLog: [
+              {
+                seq: 1,
+                at: baseNow - 75_000,
+                kind: 'create',
+                tool: 'write',
+                summary: 'Created summary.md',
+              },
+            ],
+          }),
+        ],
+      })
+
+      await renderDesk({}, 'en')
+
+      const slowRow = host.querySelector<HTMLElement>('[data-task-id="t-run-slow"]')!
+      expect(slowRow.querySelector('.butler-role-badge')?.textContent).toBe(enT('butlerRoleFiles'))
+      expect(
+        slowRow.querySelector('[data-testid="butler-subtask-step-badge"]')?.textContent,
+      ).toBe(enT('butlerTaskStepCount', { count: 3 }))
+      expect(
+        slowRow.querySelector('[data-testid="butler-subtask-elapsed-badge"]')?.textContent,
+      ).toBe(enT('butlerTaskElapsed', { elapsed: '12s' }))
+      const slowHealth = slowRow.querySelector<HTMLElement>(
+        '[data-testid="butler-subtask-health-badge"]',
+      )!
+      expect(slowHealth.dataset.health).toBe('slow')
+      expect(slowHealth.textContent).toBe(enT('butlerTaskHealthSlow'))
+
+      // Running subtask activity timeline is expanded by default.
+      const slowToggle = slowRow.querySelector<HTMLButtonElement>(
+        '[data-testid="butler-subtask-activity-toggle"]',
+      )!
+      expect(slowToggle.textContent).toBe(enT('butlerTaskActivityHide'))
+      const slowList = slowRow.querySelector<HTMLElement>(
+        '[data-testid="butler-subtask-activity-list"]',
+      )!
+      expect(slowList).toBeTruthy()
+      expect(slowList.textContent).toContain('find')
+      expect(slowList.textContent).toContain('+2s')
+      expect(slowList.textContent).toContain('Scanning D:/Videos for .mp4')
+      const errorItem = slowList.querySelector<HTMLElement>('[data-error="true"]')!
+      expect(errorItem).toBeTruthy()
+      expect(errorItem.textContent).toContain('Permission denied on System Volume')
+
+      // Collapse and re-expand the running subtask timeline.
+      await act(async () => {
+        slowToggle.click()
+        await Promise.resolve()
+      })
+      expect(slowRow.querySelector('[data-testid="butler-subtask-activity-list"]')).toBeNull()
+      expect(slowToggle.textContent).toBe(enT('butlerTaskActivityShow', { count: 2 }))
+
+      await act(async () => {
+        slowToggle.click()
+        await Promise.resolve()
+      })
+      expect(slowRow.querySelector('[data-testid="butler-subtask-activity-list"]')).toBeTruthy()
+
+      // Advance 1s tick -> live elapsed counter advances to 13s.
+      await act(async () => {
+        vi.advanceTimersByTime(1000)
+        await Promise.resolve()
+      })
+      expect(
+        slowRow.querySelector('[data-testid="butler-subtask-elapsed-badge"]')?.textContent,
+      ).toBe(enT('butlerTaskElapsed', { elapsed: '13s' }))
+
+      // Stalled subtask evaluates health dynamically even without a precomputed health field.
+      const stalledRow = host.querySelector<HTMLElement>('[data-task-id="t-run-stalled"]')!
+      expect(stalledRow.querySelector('.butler-role-badge')?.textContent).toBe(enT('butlerRoleOps'))
+      const stalledHealth = stalledRow.querySelector<HTMLElement>(
+        '[data-testid="butler-subtask-health-badge"]',
+      )!
+      expect(stalledHealth.dataset.health).toBe('stalled')
+      expect(stalledHealth.textContent).toBe(enT('butlerTaskHealthStalled'))
+
+      // Finished subtask shows fixed duration (1m 05s) and collapsed activityLog until toggled.
+      const doneRow = host.querySelector<HTMLElement>('[data-task-id="t-done-log"]')!
+      expect(
+        doneRow.querySelector('[data-testid="butler-subtask-elapsed-badge"]')?.textContent,
+      ).toBe(enT('butlerTaskElapsed', { elapsed: '1m 05s' }))
+      expect(doneRow.querySelector('[data-testid="butler-subtask-activity-list"]')).toBeNull()
+
+      const doneToggle = doneRow.querySelector<HTMLButtonElement>(
+        '[data-testid="butler-subtask-activity-toggle"]',
+      )!
+      expect(doneToggle.textContent).toBe(enT('butlerTaskActivityShow', { count: 1 }))
+      await act(async () => {
+        doneToggle.click()
+        await Promise.resolve()
+      })
+      const doneList = doneRow.querySelector<HTMLElement>(
+        '[data-testid="butler-subtask-activity-list"]',
+      )!
+      expect(doneList).toBeTruthy()
+      expect(doneList.textContent).toContain('Created summary.md')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('localizes steered system entries, omits duplicate thinking label, and keeps zero-subtask cards free of expand toggles', async () => {
+    currentSnapshot = makeEmptySnapshot({
+      feed: [
+        {
+          id: 'sys-steer',
+          role: 'system',
+          text: 'Steered task "Rename Butler": check hot reload behavior now',
+          createdAt: 1000,
+        },
+      ],
+      missions: [
+        makeMission({
+          id: 'm-synth',
+          title: 'Rename Butler',
+          status: 'synthesizing',
+          updatedAt: 2000,
+          taskIds: ['t-think'],
+        }),
+        makeMission({
+          id: 'm-empty',
+          title: 'Chat Only',
+          status: 'done',
+          updatedAt: 1000,
+          taskIds: [],
+        }),
+      ],
+      tasks: [
+        makeSubTask({
+          id: 't-think',
+          missionId: 'm-synth',
+          role: 'ops',
+          status: 'running',
+          step: { kind: 'think', tool: 'thinking' },
+          progressNote: 'Inspecting app-settings watcher',
+        }),
+      ],
+    })
+
+    await renderDesk({}, 'zh')
+
+    const feed = host.querySelector('[data-testid="butler-desk-feed"]')!
+    expect(feed.textContent).toContain(
+      zhT('butlerSystemSteeredTask', {
+        title: 'Rename Butler',
+        instruction: 'check hot reload behavior now',
+      }),
+    )
+    expect(feed.textContent).not.toContain('Steered task')
+
+    const synthCard = host.querySelector<HTMLElement>('[data-mission-id="m-synth"]')!
+    expect(synthCard.querySelector('.butler-status-badge')?.textContent).toBe(
+      zhT('butlerMissionStatusSynthesizing'),
+    )
+    const thinkRow = synthCard.querySelector<HTMLElement>('[data-task-id="t-think"]')!
+    const noteText = thinkRow.querySelector('.butler-subtask-note')?.textContent ?? ''
+    expect(noteText).toContain(zhT('butlerStepThink'))
+    expect(noteText).toContain('Inspecting app-settings watcher')
+    expect(noteText).not.toContain('thinking')
+
+    const emptyCard = host.querySelector<HTMLElement>('[data-mission-id="m-empty"]')!
+    const emptyExpandBtn = [...emptyCard.querySelectorAll<HTMLButtonElement>('button')].find(
+      (b) =>
+        b.textContent === zhT('butlerMissionsToggleExpand') ||
+        b.textContent === zhT('butlerMissionsToggleCollapse'),
+    )
+    expect(emptyExpandBtn).toBeUndefined()
+    expect(emptyCard.querySelector('.butler-mission-progress')).toBeNull()
   })
 })

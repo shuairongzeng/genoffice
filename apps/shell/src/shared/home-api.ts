@@ -27,6 +27,10 @@ import type {
   ButlerDesktopActionRequest,
   ButlerDesktopActionResult,
   ButlerDesktopActionTarget,
+  ButlerDesktopTodoAction,
+  ButlerDesktopTodoItem,
+  ButlerDesktopTodoRequest,
+  ButlerDesktopTodoResult,
   ButlerHudState,
   ButlerMediaCommand,
   ButlerMicArbitrationPatch,
@@ -124,6 +128,10 @@ export type {
   ButlerDesktopActionRequest,
   ButlerDesktopActionResult,
   ButlerDesktopActionTarget,
+  ButlerDesktopTodoAction,
+  ButlerDesktopTodoItem,
+  ButlerDesktopTodoRequest,
+  ButlerDesktopTodoResult,
   ButlerHudState,
   ButlerMediaCommand,
   ButlerMicArbitrationPatch,
@@ -166,9 +174,20 @@ export type {
   ButlerWakePromptPayload,
   ButlerWakeSummonRequest,
   ButlerWakeSummonResult,
+  ButlerWorkerActivityEntry,
+  ButlerWorkerHealth,
   ButlerWorkerRole,
 } from './butler-api'
-export { BUTLER_MEDIA_COMMANDS } from './butler-api'
+export {
+  BUTLER_DESKTOP_TODO_ACTIONS,
+  BUTLER_MEDIA_COMMANDS,
+  BUTLER_WORKER_ROLES,
+  evaluateWorkerHealth,
+  extractWorkerProgressNote,
+  inferButlerWorkerRole,
+  redactTelemetrySecrets,
+  summarizeWorkerToolCall,
+} from './butler-api'
 export type {
   MagicContextEmbeddingMode,
   MagicContextStorageMode,

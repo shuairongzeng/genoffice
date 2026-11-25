@@ -6,7 +6,9 @@ import {
   appendButlerPersona,
   buildButlerChiefRolePrompt,
   buildButlerPersonaSection,
+  buildButlerWorkerRolePrompt,
 } from '../src/main/butler/butler-persona'
+import { BUTLER_WORKER_ROLES } from '../src/shared/butler-orchestrator-api'
 import { DEFAULT_BUTLER_PREFS } from '../src/shared/butler-prefs'
 
 describe('buildButlerPersonaSection', () => {
@@ -90,8 +92,12 @@ describe('buildButlerChiefRolePrompt', () => {
     })
     expect(omittedPrompt).toContain('butler_dispatch_task')
     expect(omittedPrompt).toContain('butler_desktop_action')
+    expect(omittedPrompt).toContain('butler_desktop_todos')
     expect(omittedPrompt).toContain('butler_delete_mission')
     expect(omittedPrompt).toContain('butler_retry_task')
+    expect(omittedPrompt).toContain('files')
+    expect(omittedPrompt).toContain('ops')
+    expect(omittedPrompt).toContain('stalled')
     expect(omittedPrompt).not.toContain('butler_propose_plan')
     expect(explicitFalse).toBe(omittedPrompt)
   })
@@ -109,8 +115,33 @@ describe('buildButlerChiefRolePrompt', () => {
     expect(a).toContain('butler_propose_plan')
     expect(a).toContain('butler_approve_plan')
     expect(a).toContain('butler_desktop_action')
+    expect(a).toContain('butler_desktop_todos')
     expect(a).toContain('<butler_live_state>')
+    expect(a).toContain('files')
+    expect(a).toContain('ops')
     expect(a).toContain('Do NOT call `butler_dispatch_task` before user approval')
     expect(a).toContain('talk first, dispatch later')
+  })
+
+  it('builds distinct specialist prompts for all 8 BUTLER_WORKER_ROLES including files hygiene and ops', () => {
+    const prompts = new Set(
+      BUTLER_WORKER_ROLES.map((role) =>
+        buildButlerWorkerRolePrompt(role, { title: `Check ${role}` }),
+      ),
+    )
+    expect(prompts.size).toBe(8)
+
+    const filesPrompt = buildButlerWorkerRolePrompt('files', { title: 'Find local videos' })
+    expect(filesPrompt).toContain('[Console]::OutputEncoding = [Text.Encoding]::UTF8')
+    expect(filesPrompt).toContain('/tmp/*.ps1')
+    expect(filesPrompt).toContain('node_modules')
+    expect(filesPrompt).toContain('SavedVideos')
+    expect(filesPrompt).toContain('[System.IO.Directory]::EnumerateFiles')
+    expect(filesPrompt).toContain('[System.IO.Path]::GetExtension')
+    expect(filesPrompt).toContain('Get-ChildItem -Include')
+
+    const opsPrompt = buildButlerWorkerRolePrompt('ops', { title: 'Diagnose build failure' })
+    expect(opsPrompt).toContain('scripts')
+    expect(opsPrompt).toContain('diagnostics')
   })
 })

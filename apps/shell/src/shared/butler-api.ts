@@ -1,13 +1,10 @@
-import type { ButlerDecisionItem } from './butler-orchestrator-api'
+import type { ButlerDecisionItem, ButlerStepKind } from './butler-orchestrator-api'
 import type { ButlerPrefs } from './butler-prefs'
 
 export * from './butler-orchestrator-api'
 export * from './butler-voice-api'
 
 export type ButlerTaskStatus = 'running' | 'confirm' | 'done' | 'error'
-
-export type ButlerStepKind =
-  'read' | 'search' | 'browse' | 'edit' | 'create' | 'command' | 'think' | 'other'
 
 export interface ButlerStep {
   readonly tool: string

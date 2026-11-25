@@ -23,7 +23,11 @@ import type {
   ButlerSubTaskStatus,
   ButlerWorkerRole,
 } from '../../shared/butler-orchestrator-api'
-import { BUTLER_CHIEF_SESSION_KEY } from '../../shared/butler-orchestrator-api'
+import {
+  BUTLER_CHIEF_SESSION_KEY,
+  evaluateWorkerHealth,
+  type ButlerWorkerHealth,
+} from '../../shared/butler-orchestrator-api'
 import {
   DEFAULT_BUTLER_PREFS,
   normalizeButlerPrefs,
@@ -102,11 +106,13 @@ const DECISION_KIND_LABEL_KEYS: Record<ButlerDecisionKind, StringKey> = {
 
 const ROLE_LABEL_KEYS: Record<ButlerWorkerRole, StringKey> = {
   general: 'butlerRoleGeneral',
+  files: 'butlerRoleFiles',
   research: 'butlerRoleResearch',
   docs: 'butlerRoleDocs',
   sheets: 'butlerRoleSheets',
   slides: 'butlerRoleSlides',
   browser: 'butlerRoleBrowser',
+  ops: 'butlerRoleOps',
 }
 
 const SUBTASK_STATUS_LABEL_KEYS: Record<ButlerSubTaskStatus, StringKey> = {
@@ -122,10 +128,10 @@ const SUBTASK_STATUS_LABEL_KEYS: Record<ButlerSubTaskStatus, StringKey> = {
 const MISSION_STATUS_LABEL_KEYS: Record<ButlerMissionStatus, StringKey> = {
   clarifying: 'butlerMissionStatusClarifying',
   awaiting_plan_approval: 'butlerMissionStatusAwaitingPlan',
-  planning: 'butlerDeskSending',
+  planning: 'butlerMissionStatusPlanning',
   running: 'butlerTaskStatusRunning',
   waiting_human: 'butlerTaskStatusWaitingHuman',
-  synthesizing: 'butlerDeskChiefBusy',
+  synthesizing: 'butlerMissionStatusSynthesizing',
   done: 'butlerTaskStatusDone',
   failed: 'butlerTaskStatusFailed',
   cancelled: 'butlerTaskStatusCancelled',
@@ -267,15 +273,64 @@ function formatClock(ts: number, dateLocale: string): string {
   }
 }
 
+/** Format an elapsed millisecond duration concisely (e.g. `12s`, `1m 05s`). */
+export function formatElapsedDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000))
+  if (totalSec < 60) {
+    return `${totalSec}s`
+  }
+  if (totalSec < 3600) {
+    const minutes = Math.floor(totalSec / 60)
+    const seconds = totalSec % 60
+    return `${minutes}m ${String(seconds).padStart(2, '0')}s`
+  }
+  const hours = Math.floor(totalSec / 3600)
+  const minutes = Math.floor((totalSec % 3600) / 60)
+  return `${hours}h ${String(minutes).padStart(2, '0')}m`
+}
+
+function formatActivityOffset(
+  entryAt: number,
+  startedAt: number | undefined,
+  dateLocale: string,
+): string {
+  if (startedAt !== undefined && Number.isFinite(startedAt) && entryAt >= startedAt) {
+    return `+${formatElapsedDuration(entryAt - startedAt)}`
+  }
+  return formatClock(entryAt, dateLocale)
+}
+
 function formatSubTaskLiveNote(task: ButlerSubTask, t: ReturnType<typeof useI18n>['t']): string {
+  const stepTool =
+    task.step?.tool && !(task.step.kind === 'think' && task.step.tool === 'thinking')
+      ? task.step.tool
+      : ''
   const stepText = task.step
-    ? `${t(stepLabelKey(task.step.kind))}${task.step.tool ? ` · ${task.step.tool}` : ''}`
+    ? `${t(stepLabelKey(task.step.kind))}${stepTool ? ` · ${stepTool}` : ''}`
     : ''
   const note = task.progressNote?.trim() ?? ''
   if (note && stepText) return `${stepText} — ${note}`
   if (note) return note
   if (stepText) return stepText
   return task.outputSummary?.trim() ?? ''
+}
+
+const STEERED_TASK_SYSTEM_RE = /^Steered task "(.+?)":\s*([\s\S]+)$/
+
+function formatFeedEntryText(
+  entry: ButlerConversationEntry,
+  t: ReturnType<typeof useI18n>['t'],
+): string {
+  if (entry.role === 'system') {
+    const steeredMatch = STEERED_TASK_SYSTEM_RE.exec(entry.text)
+    if (steeredMatch) {
+      return t('butlerSystemSteeredTask', {
+        title: steeredMatch[1]!,
+        instruction: steeredMatch[2]!,
+      })
+    }
+  }
+  return entry.text
 }
 
 function sortMissionsForDesk(missions: readonly ButlerMission[]): ButlerMission[] {
@@ -684,6 +739,7 @@ function DecisionCard({
 function SubTaskRow({
   task,
   tasksById,
+  nowMs,
   cancelling,
   retrying,
   steering,
@@ -698,6 +754,7 @@ function SubTaskRow({
 }: {
   readonly task: ButlerSubTask
   readonly tasksById: ReadonlyMap<string, ButlerSubTask>
+  readonly nowMs: number
   readonly cancelling: boolean
   readonly retrying: boolean
   readonly steering: boolean
@@ -710,12 +767,46 @@ function SubTaskRow({
   readonly onCancelTask: (taskId: string) => void
   readonly onRetryTask: (taskId: string) => void
 }): React.JSX.Element {
-  const { t } = useI18n()
+  const { t, dateLocale } = useI18n()
   const composingRef = useRef(false)
+  const [activityExpandedOverride, setActivityExpandedOverride] = useState<boolean | null>(null)
   const liveNote = formatSubTaskLiveNote(task, t)
   const depLabels = task.dependsOn.map((depId) => tasksById.get(depId)?.title ?? depId)
   const canRetry =
     task.status === 'failed' || task.status === 'cancelled' || task.status === 'interrupted'
+
+  const stepCount = task.stepCount ?? 0
+  const hasElapsedRef =
+    task.startedAt !== undefined &&
+    Number.isFinite(task.startedAt) &&
+    (task.status === 'running' ||
+      (task.finishedAt !== undefined && Number.isFinite(task.finishedAt)) ||
+      (task.lastActiveAt !== undefined && Number.isFinite(task.lastActiveAt)))
+  const endRefMs =
+    task.status === 'running' ? nowMs : (task.finishedAt ?? task.lastActiveAt ?? nowMs)
+  const elapsedMs = hasElapsedRef ? Math.max(0, endRefMs - task.startedAt!) : 0
+
+  const dynamicHealth: ButlerWorkerHealth =
+    task.status === 'running'
+      ? evaluateWorkerHealth({
+          status: task.status,
+          startedAt: task.startedAt,
+          stepStartedAt: task.lastActiveAt ?? task.startedAt,
+          consecutiveErrors: task.consecutiveErrors,
+          now: nowMs,
+        })
+      : 'normal'
+  const effectiveHealth: ButlerWorkerHealth =
+    task.health === 'stalled' || dynamicHealth === 'stalled'
+      ? 'stalled'
+      : task.health === 'slow' || dynamicHealth === 'slow'
+        ? 'slow'
+        : 'normal'
+
+  const activityEntries = task.activityLog ?? []
+  const activityExpanded = activityExpandedOverride ?? task.status === 'running'
+  const visibleActivityEntries =
+    activityEntries.length > 12 ? activityEntries.slice(-12) : activityEntries
 
   return (
     <div className="butler-subtask-row" data-task-id={task.id}>
@@ -725,6 +816,27 @@ function SubTaskRow({
           <span className="butler-status-badge" data-status={task.status}>
             {t(subTaskStatusLabelKey(task.status))}
           </span>
+          {stepCount > 0 && (
+            <span className="butler-telemetry-badge" data-testid="butler-subtask-step-badge">
+              {t('butlerTaskStepCount', { count: stepCount })}
+            </span>
+          )}
+          {hasElapsedRef && (
+            <span className="butler-telemetry-badge" data-testid="butler-subtask-elapsed-badge">
+              {t('butlerTaskElapsed', { elapsed: formatElapsedDuration(elapsedMs) })}
+            </span>
+          )}
+          {(effectiveHealth === 'slow' || effectiveHealth === 'stalled') && (
+            <span
+              className="butler-health-badge"
+              data-health={effectiveHealth}
+              data-testid="butler-subtask-health-badge"
+            >
+              {effectiveHealth === 'stalled'
+                ? t('butlerTaskHealthStalled')
+                : t('butlerTaskHealthSlow')}
+            </span>
+          )}
         </div>
       </div>
 
@@ -747,6 +859,19 @@ function SubTaskRow({
           </span>
         )}
         <div className="butler-subtask-actions">
+          {activityEntries.length > 0 && (
+            <button
+              type="button"
+              className="butler-btn is-compact"
+              data-testid="butler-subtask-activity-toggle"
+              aria-expanded={activityExpanded}
+              onClick={() => setActivityExpandedOverride(!activityExpanded)}
+            >
+              {activityExpanded
+                ? t('butlerTaskActivityHide')
+                : t('butlerTaskActivityShow', { count: activityEntries.length })}
+            </button>
+          )}
           {canSteerSubTask(task.status) && (
             <button
               type="button"
@@ -779,6 +904,24 @@ function SubTaskRow({
           )}
         </div>
       </div>
+
+      {activityExpanded && visibleActivityEntries.length > 0 && (
+        <ul className="butler-subtask-activity-list" data-testid="butler-subtask-activity-list">
+          {visibleActivityEntries.map((entry) => (
+            <li
+              key={`${entry.seq}-${entry.at}`}
+              className={`butler-subtask-activity-item${entry.isError ? ' is-error' : ''}`}
+              data-error={entry.isError ? 'true' : undefined}
+            >
+              <span className="butler-activity-time">
+                {formatActivityOffset(entry.at, task.startedAt, dateLocale)}
+              </span>
+              {entry.tool && <code className="butler-activity-tool">{entry.tool}</code>}
+              <span className="butler-activity-summary">{entry.summary}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {steerOpen && (
         <>
@@ -827,6 +970,7 @@ function SubTaskRow({
 function MissionCard({
   mission,
   tasksById,
+  nowMs,
   expanded,
   focused,
   cancellingMission,
@@ -848,6 +992,7 @@ function MissionCard({
 }: {
   readonly mission: ButlerMission
   readonly tasksById: ReadonlyMap<string, ButlerSubTask>
+  readonly nowMs: number
   readonly expanded: boolean
   readonly focused: boolean
   readonly cancellingMission: boolean
@@ -880,16 +1025,29 @@ function MissionCard({
     >
       <div className="butler-mission-head">
         <div className="butler-mission-top-row">
-          <div className="butler-mission-title-wrap">
-            <h3 className="butler-mission-title">{mission.title || mission.goal}</h3>
-            <div className="butler-mission-meta">
-              <span className="butler-status-badge" data-status={mission.status}>
-                {t(missionStatusLabelKey(mission.status))}
-              </span>
-              <span>
+          <h3 className="butler-mission-title">{mission.title || mission.goal}</h3>
+          {subtasks.length > 0 && (
+            <button
+              type="button"
+              className="butler-btn is-compact"
+              aria-expanded={expanded}
+              onClick={() => onToggleExpand(mission.id, expanded)}
+            >
+              {expanded ? t('butlerMissionsToggleCollapse') : t('butlerMissionsToggleExpand')}
+            </button>
+          )}
+        </div>
+
+        <div className="butler-mission-bar">
+          <div className="butler-mission-meta">
+            <span className="butler-status-badge" data-status={mission.status}>
+              {t(missionStatusLabelKey(mission.status))}
+            </span>
+            {progress.total > 0 && (
+              <span className="butler-mission-progress">
                 {progress.done}/{progress.total}
               </span>
-            </div>
+            )}
           </div>
 
           <div className="butler-mission-controls">
@@ -912,14 +1070,6 @@ function MissionCard({
             >
               {t('butlerMissionDelete')}
             </button>
-            <button
-              type="button"
-              className="butler-btn is-compact"
-              aria-expanded={expanded}
-              onClick={() => onToggleExpand(mission.id, expanded)}
-            >
-              {expanded ? t('butlerMissionsToggleCollapse') : t('butlerMissionsToggleExpand')}
-            </button>
           </div>
         </div>
 
@@ -933,6 +1083,7 @@ function MissionCard({
               key={task.id}
               task={task}
               tasksById={tasksById}
+              nowMs={nowMs}
               cancelling={cancellingTasks.has(task.id)}
               retrying={retryingTasks.has(task.id)}
               steering={steeringTasks.has(task.id)}
@@ -972,10 +1123,11 @@ function FeedEntryRow({
   const roleClass =
     entry.role === 'user' ? 'is-user' : entry.role === 'system' ? 'is-system' : 'is-butler'
   const canSpeak = entry.role === 'butler' && Boolean(entry.text.trim() || entry.report)
+  const displayText = formatFeedEntryText(entry, t)
 
   return (
     <div className={`butler-desk-entry ${roleClass}`} data-entry-role={entry.role}>
-      {entry.text && <div className="butler-desk-bubble">{entry.text}</div>}
+      {displayText && <div className="butler-desk-bubble">{displayText}</div>}
       {entry.report && (
         <ReportCard
           report={entry.report}
@@ -1377,6 +1529,23 @@ export function ButlerDeskView({
     scheduleDeskFollowUpListen,
     setDeskConvoActive,
   ])
+
+  const [nowMs, setNowMs] = useState<number>(() => Date.now())
+  const hasRunningSubTask = useMemo(
+    () => snapshot.tasks.some((task) => task.status === 'running'),
+    [snapshot.tasks],
+  )
+
+  useEffect(() => {
+    if (!hasRunningSubTask) return
+    setNowMs(Date.now())
+    const timer = setInterval(() => {
+      setNowMs(Date.now())
+    }, 1000)
+    return () => {
+      clearInterval(timer)
+    }
+  }, [hasRunningSubTask])
 
   const isAnySpeaking = speechState.speaking || arbitration.ttsSpeaking
 
@@ -2227,6 +2396,7 @@ export function ButlerDeskView({
                       key={mission.id}
                       mission={mission}
                       tasksById={tasksById}
+                      nowMs={nowMs}
                       expanded={expanded}
                       focused={focusTarget?.missionId === mission.id}
                       cancellingMission={cancellingMissionIds.has(mission.id)}

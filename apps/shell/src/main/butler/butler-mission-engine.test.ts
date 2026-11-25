@@ -1509,6 +1509,7 @@ describe('butler-mission-engine two-stage alignment & plan approval gate', () =>
       query?: string
       mediaCommand?: string
     }> = []
+    const todoCalls: Array<{ action: string; text?: string; match?: string }> = []
     const planProposals: Array<{ missionId: string; revision: number; reply?: string }> = []
     const missionPlannedEvents: Array<{ missionId: string; count: number; reply?: string }> = []
     const convReplies: string[] = []
@@ -1523,6 +1524,15 @@ describe('butler-mission-engine two-stage alignment & plan approval gate', () =>
       executeDesktopAction: async (req) => {
         desktopCalls.push(req)
         return { ok: true }
+      },
+      manageDesktopTodos: async (req) => {
+        todoCalls.push(req)
+        return {
+          ok: true,
+          action: req.action,
+          ...(req.text ? { item: { id: 'todo-1', text: req.text, done: false } } : {}),
+          remainingCount: 1,
+        }
       },
       runPrompt: async (sessionKey) => {
         if (sessionKey === BUTLER_CHIEF_SESSION_KEY) {
@@ -1618,6 +1628,15 @@ describe('butler-mission-engine two-stage alignment & plan approval gate', () =>
       { target: 'media-player' },
       { target: 'media-player', query: '起风了', mediaCommand: 'play' },
     ])
+    expect(
+      await engine.manageDesktopTodos({ action: 'add', text: '明天 07:00 起床煮饭' }),
+    ).toEqual({
+      ok: true,
+      action: 'add',
+      item: { id: 'todo-1', text: '明天 07:00 起床煮饭', done: false },
+      remainingCount: 1,
+    })
+    expect(todoCalls).toEqual([{ action: 'add', text: '明天 07:00 起床煮饭' }])
 
     // 6. Create another draft mission, test cancelMission('latest'), then deleteMission
     await engine.proposePlan({
@@ -1632,6 +1651,239 @@ describe('butler-mission-engine two-stage alignment & plan approval gate', () =>
     expect(engine.listMissions('all')).toHaveLength(1)
     expect(engine.listTasks(missionId)).toEqual([])
 
+    await engine.dispose()
+  })
+
+  it('persists and clamps worker telemetry fields in butler-mission-store and recovers running health safely', async () => {
+    const dir = makeTempDir()
+    const statePath = butlerMissionsPath(dir)
+
+    const longLog = Array.from({ length: 12 }, (_, idx) => ({
+      seq: idx + 1,
+      at: 1_700_000_000_000 + idx * 1000,
+      kind: 'command' as const,
+      tool: 'powershell',
+      summary: `Step ${idx + 1}`,
+    }))
+
+    await writeButlerMissionState(statePath, {
+      version: 1,
+      missions: [
+        {
+          id: 'm-1',
+          title: 'Scan media',
+          goal: 'Locate local videos',
+          status: 'running',
+          createdAt: 1000,
+          updatedAt: 2000,
+          taskIds: ['t-files'],
+        },
+      ],
+      tasks: [
+        {
+          id: 't-files',
+          missionId: 'm-1',
+          title: 'Scan Videos folder',
+          brief: 'Search local video files',
+          role: 'files',
+          dependsOn: [],
+          sessionKey: 'default:butler-worker-t-files',
+          status: 'running',
+          step: { tool: 'powershell', kind: 'command' },
+          progressNote: 'Scanning Videos directory',
+          artifacts: [],
+          createdAt: 1000,
+          startedAt: 1100,
+          stepCount: 12,
+          lastActiveAt: 1_700_000_011_000,
+          consecutiveErrors: 2,
+          health: 'slow',
+          activityLog: longLog,
+        },
+      ],
+      decisions: [],
+      feed: [],
+      updatedAt: 3000,
+    })
+
+    const recovered = await readButlerMissionState(statePath)
+    expect(recovered.recovered).toBe(true)
+    const recoveredTask = recovered.tasks[0]!
+    expect(recoveredTask.role).toBe('files')
+    expect(recoveredTask.status).toBe('interrupted')
+    expect(recoveredTask.health).toBe('normal')
+    expect(recoveredTask.stepCount).toBe(12)
+    expect(recoveredTask.consecutiveErrors).toBe(2)
+    expect(recoveredTask.activityLog).toHaveLength(8)
+    expect(recoveredTask.activityLog![0]!.seq).toBe(5)
+    expect(recoveredTask.activityLog![7]!.seq).toBe(12)
+  })
+
+  it('auto-routes specialist roles via inferButlerWorkerRole across dispatchTask, proposePlan, and updateMissionDetails', async () => {
+    const dir = makeTempDir()
+    const statePath = butlerMissionsPath(dir)
+
+    const engine = createButlerMissionEngine({
+      statePath,
+      conversationalMode: () => true,
+      requirePlanApproval: () => true,
+      runPrompt: async () => ({ ok: true, finalText: 'OK' }),
+      abortSession: vi.fn(async () => {}),
+    })
+
+    await engine.init()
+
+    const proposed = await engine.proposePlan({
+      title: 'Check files and build',
+      summary: 'Search videos then verify compile errors.',
+      steps: [
+        { id: 's1', title: '找本地视频电影', brief: 'Scan desktop and Downloads for mp4' },
+        { id: 's2', title: '排查编译报错', brief: 'Run vitest and inspect git build scripts', role: 'general' },
+        { id: 's3', title: 'Coordinate follow-up', brief: 'Handle remaining miscellaneous wrap-up' },
+      ],
+    })
+    expect(proposed.ok).toBe(true)
+    expect(proposed.plan!.steps.map((s) => s.role)).toEqual(['files', 'ops', 'general'])
+
+    const updated = await engine.updateMissionDetails({
+      missionId: proposed.mission!.id,
+      steps: [
+        { id: 's1', title: 'Analyze sales workbook', brief: 'Audit xlsx formulas' },
+        { id: 's2', title: 'Explicit docs override', brief: 'Check build script logs', role: 'docs' },
+      ],
+    })
+    expect(updated.ok).toBe(true)
+    expect(updated.mission!.plan!.steps.map((s) => s.role)).toEqual(['sheets', 'docs'])
+
+    const directEngine = createButlerMissionEngine({
+      statePath: butlerMissionsPath(join(dir, 'direct')),
+      requirePlanApproval: () => false,
+      runPrompt: async () => ({ ok: true, finalText: 'Done' }),
+      abortSession: vi.fn(async () => {}),
+    })
+    await directEngine.init()
+    const directRes = await directEngine.dispatchTask({
+      title: 'Locate local videos',
+      brief: 'Search Downloads for mkv movies',
+    })
+    expect(directRes.ok).toBe(true)
+    expect(directRes.task?.role).toBe('files')
+    await directEngine.whenIdle()
+    await engine.dispose()
+    await directEngine.dispose()
+  })
+
+  it('tracks live worker telemetry with 150ms throttling, computes slow/stalled health, and formats <butler_live_state>', async () => {
+    const dir = makeTempDir()
+    const statePath = butlerMissionsPath(dir)
+
+    let currentTime = 1_700_000_000_000
+    const workerBlocked = deferred<void>()
+    const workerStarted = deferred<void>()
+    const chiefAnswered = deferred<void>()
+    const capturedPrompts: string[] = []
+    let snapshotCount = 0
+
+    const engine = createButlerMissionEngine({
+      statePath,
+      conversationalMode: () => true,
+      now: () => currentTime,
+      runPrompt: async (sessionKey, prompt) => {
+        if (sessionKey === BUTLER_CHIEF_SESSION_KEY) {
+          capturedPrompts.push(prompt)
+          chiefAnswered.resolve()
+          return { ok: true, finalText: 'Checked live telemetry.' }
+        }
+        workerStarted.resolve()
+        await workerBlocked.promise
+        return { ok: true, finalText: 'Completed video scan.' }
+      },
+      abortSession: vi.fn(async () => {}),
+      onSnapshotUpdated: () => {
+        snapshotCount += 1
+      },
+    })
+
+    await engine.init()
+
+    const direct = await engine.dispatchTask({
+      title: 'Find videos on disk',
+      brief: 'Locate local mp4 files cleanly',
+    })
+    expect(direct.ok).toBe(true)
+    const workerSession = direct.task!.sessionKey
+    const taskId = direct.task!.id
+    await workerStarted.promise
+
+    const snapshotsBeforeEvents = snapshotCount
+    for (let i = 1; i <= 10; i += 1) {
+      currentTime += 10
+      engine.recordWorkerEvent(workerSession, {
+        type: 'tool-start',
+        toolName: 'bash',
+        kind: 'command',
+        input: { command: `find /media/set-${i} -H Bearer secret-tok-${i}` },
+      })
+    }
+
+    // Immediate first broadcast + trailing coalesced updates (far fewer than 10 synchronous writes).
+    expect(snapshotCount - snapshotsBeforeEvents).toBeLessThanOrEqual(2)
+
+    engine.recordWorkerEvent(workerSession, {
+      type: 'text',
+      text: '```bash\necho raw\n```\nScanning Downloads and Videos folders now.',
+    })
+    engine.recordWorkerEvent(workerSession, {
+      type: 'tool-executed',
+      toolName: 'bash',
+      isError: true,
+      summary: 'Access denied with api_key=topsecret123',
+    })
+    engine.recordWorkerEvent(workerSession, {
+      type: 'tool-executed',
+      toolName: 'bash',
+      isError: true,
+      summary: 'Timeout hitting folder',
+    })
+
+    let inspected = engine.inspectTask(taskId)!
+    expect(inspected.task.stepCount).toBe(10)
+    expect(inspected.task.progressNote).toBe('Scanning Downloads and Videos folders now.')
+    expect(inspected.task.consecutiveErrors).toBe(2)
+    expect(inspected.task.health).toBe('slow')
+    expect(inspected.task.activityLog).toHaveLength(8)
+    expect(JSON.stringify(inspected.task.activityLog)).not.toContain('secret-tok')
+    expect(JSON.stringify(inspected.task.activityLog)).not.toContain('topsecret123')
+
+    // Success resets consecutive errors and returns health to normal.
+    engine.recordWorkerEvent(workerSession, {
+      type: 'tool-executed',
+      toolName: 'bash',
+      isError: false,
+      summary: 'Found 3 files',
+    })
+    inspected = engine.inspectTask(taskId)!
+    expect(inspected.task.consecutiveErrors).toBe(0)
+    expect(inspected.task.health).toBe('normal')
+
+    // Step duration >= 90s causes dynamic health classification as 'stalled'.
+    currentTime += 95_000
+    const liveTask = engine.getSnapshot().tasks.find((t) => t.id === taskId)!
+    expect(liveTask.health).toBe('stalled')
+
+    // Trigger Chief turn while worker is stalled to inspect formatted <butler_live_state>.
+    await engine.delegate('How is my video search going?')
+    await chiefAnswered.promise
+    expect(capturedPrompts).toHaveLength(1)
+    const stateMatch = /<butler_live_state>[\s\S]*?<\/butler_live_state>/.exec(capturedPrompts[0]!)
+    expect(stateMatch).not.toBeNull()
+    expect(stateMatch![0]!.length).toBeLessThanOrEqual(1100)
+    expect(stateMatch![0]).toContain('|files|step=10|')
+    expect(stateMatch![0]).toContain('|stalled]')
+    expect(stateMatch![0]).toContain('-> Scanning Downloads and Videos folders now.')
+
+    workerBlocked.resolve()
+    await engine.whenIdle()
     await engine.dispose()
   })
 })

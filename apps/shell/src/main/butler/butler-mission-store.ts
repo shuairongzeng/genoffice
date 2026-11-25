@@ -2,36 +2,35 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import type { ButlerStep, ButlerStepKind } from '../../shared/butler-api'
-import type {
-  ButlerArtifactRef,
-  ButlerConversationEntry,
-  ButlerDecisionItem,
-  ButlerDecisionKind,
-  ButlerDecisionOption,
-  ButlerDecisionResolution,
-  ButlerMission,
-  ButlerMissionPlan,
-  ButlerMissionReport,
-  ButlerMissionStatus,
-  ButlerProposedTaskStep,
-  ButlerSubTask,
-  ButlerSubTaskStatus,
-  ButlerWorkerRole,
+import {
+  BUTLER_WORKER_ROLES,
+  type ButlerArtifactRef,
+  type ButlerConversationEntry,
+  type ButlerDecisionItem,
+  type ButlerDecisionKind,
+  type ButlerDecisionOption,
+  type ButlerDecisionResolution,
+  type ButlerMission,
+  type ButlerMissionPlan,
+  type ButlerMissionReport,
+  type ButlerMissionStatus,
+  type ButlerProposedTaskStep,
+  type ButlerSubTask,
+  type ButlerSubTaskStatus,
+  type ButlerWorkerActivityEntry,
+  type ButlerWorkerHealth,
+  type ButlerWorkerRole,
 } from '../../shared/butler-orchestrator-api'
 import { atomicWriteFile } from '../atomic-write'
 
 const BUTLER_MISSIONS_FILENAME = 'butler-missions.json'
 const MAX_PERSISTED_MISSIONS = 30
 const MAX_PERSISTED_FEED = 200
+const MAX_PERSISTED_ACTIVITY_LOG = 8
 
-const VALID_WORKER_ROLES = new Set<ButlerWorkerRole>([
-  'general',
-  'research',
-  'docs',
-  'sheets',
-  'slides',
-  'browser',
-])
+const VALID_WORKER_ROLES = new Set<ButlerWorkerRole>(BUTLER_WORKER_ROLES)
+
+const VALID_WORKER_HEALTH = new Set<ButlerWorkerHealth>(['normal', 'slow', 'stalled'])
 
 const VALID_MISSION_STATUSES = new Set<ButlerMissionStatus>([
   'clarifying',
@@ -272,6 +271,42 @@ function normalizeMission(raw: unknown, onRecover: () => void): ButlerMission | 
   }
 }
 
+function normalizeActivityEntry(raw: unknown): ButlerWorkerActivityEntry | null {
+  if (!isRecord(raw)) return null
+  const seq = asFiniteNumber(raw.seq)
+  const at = asFiniteNumber(raw.at)
+  const summary = asNonEmptyString(raw.summary)
+  if (seq === null || at === null || !summary) return null
+
+  let kind: ButlerWorkerActivityEntry['kind'] = 'other'
+  if (raw.kind === 'note' || raw.kind === 'error') {
+    kind = raw.kind
+  } else if (typeof raw.kind === 'string' && VALID_STEP_KINDS.has(raw.kind as ButlerStepKind)) {
+    kind = raw.kind as ButlerStepKind
+  }
+
+  const tool = asNonEmptyString(raw.tool)
+  return {
+    seq: Math.max(0, Math.round(seq)),
+    at,
+    kind,
+    ...(tool ? { tool } : {}),
+    summary,
+    ...(raw.isError === true ? { isError: true } : {}),
+  }
+}
+
+function normalizeActivityLog(raw: unknown): readonly ButlerWorkerActivityEntry[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const entries: ButlerWorkerActivityEntry[] = []
+  for (const item of raw) {
+    const entry = normalizeActivityEntry(item)
+    if (entry) entries.push(entry)
+  }
+  if (entries.length === 0) return undefined
+  return entries.slice(-MAX_PERSISTED_ACTIVITY_LOG)
+}
+
 function normalizeSubTask(raw: unknown, onRecover: () => void): ButlerSubTask | null {
   if (!isRecord(raw)) return null
   const id = asNonEmptyString(raw.id)
@@ -289,9 +324,11 @@ function normalizeSubTask(raw: unknown, onRecover: () => void): ButlerSubTask | 
 
   let status: ButlerSubTaskStatus = rawStatus
   let step: ButlerStep | null = normalizeStep(raw.step)
+  let recovered = false
   if (NON_TERMINAL_TASK_STATUSES.has(rawStatus)) {
     status = 'interrupted'
     step = null
+    recovered = true
     onRecover()
   }
 
@@ -302,6 +339,20 @@ function normalizeSubTask(raw: unknown, onRecover: () => void): ButlerSubTask | 
 
   const startedAt = asFiniteNumber(raw.startedAt)
   const finishedAt = asFiniteNumber(raw.finishedAt)
+  const rawStepCount = asFiniteNumber(raw.stepCount)
+  const stepCount = rawStepCount !== null && rawStepCount >= 0 ? Math.round(rawStepCount) : undefined
+  const lastActiveAt = asFiniteNumber(raw.lastActiveAt)
+  const rawConsecutiveErrors = asFiniteNumber(raw.consecutiveErrors)
+  const consecutiveErrors =
+    rawConsecutiveErrors !== null && rawConsecutiveErrors >= 0
+      ? Math.round(rawConsecutiveErrors)
+      : undefined
+  const health: ButlerWorkerHealth | undefined = recovered
+    ? 'normal'
+    : typeof raw.health === 'string' && VALID_WORKER_HEALTH.has(raw.health as ButlerWorkerHealth)
+      ? (raw.health as ButlerWorkerHealth)
+      : undefined
+  const activityLog = normalizeActivityLog(raw.activityLog)
   const scopePaths = Array.isArray(raw.scopePaths)
     ? normalizeStringArray(raw.scopePaths)
     : undefined
@@ -324,6 +375,11 @@ function normalizeSubTask(raw: unknown, onRecover: () => void): ButlerSubTask | 
     createdAt,
     ...(startedAt !== null ? { startedAt } : {}),
     ...(finishedAt !== null ? { finishedAt } : {}),
+    ...(stepCount !== undefined ? { stepCount } : {}),
+    ...(lastActiveAt !== null ? { lastActiveAt } : {}),
+    ...(consecutiveErrors !== undefined ? { consecutiveErrors } : {}),
+    ...(health !== undefined ? { health } : {}),
+    ...(activityLog !== undefined ? { activityLog } : {}),
   }
 }
 
