@@ -49,6 +49,11 @@ import {
   parseHeadlessExportArgv,
   setHeadlessMode,
   type HeadlessArgvParse,
+  EXCLUDED_FOLDERS_KEY,
+  isUnderExcludedFolder,
+  normalizeExcludedFolders,
+  readExcludedFolders,
+  showOpenDialogWithMemory,
   showSaveDialogWithMemory,
   windowMenuTemplate,
   aboutMenuItem,
@@ -256,6 +261,7 @@ import {
   sendPdfFindRequest,
   sendPdfPrintRequest,
   sendSheetsMenuAction,
+  setDelimitedImportLimit,
   setPdfSaveAsInFlight,
   setProjectChatLifecycleHooks,
   setSessionPathResolver,
@@ -327,7 +333,8 @@ import type {
   UiTheme,
   FileSearchSettings,
 } from '../shared/home-api'
-import { HOME_CHANNELS } from '../shared/home-api'
+import { CSV_IMPORT_LIMIT_CHOICES_MB, HOME_CHANNELS } from '../shared/home-api'
+import { csvImportLimitMb } from './csv-import-limit'
 import {
   normalizeAiPanelPrefs,
   sameAiPanelPrefs,
@@ -627,6 +634,15 @@ function currentDocTheme(): DocTheme {
   const saved = readAppSettings(APP_SETTINGS_PATH()).documentTheme
   cachedDocTheme = saved === 'light' || saved === 'dark' ? saved : 'follow'
   return cachedDocTheme
+}
+
+/**
+ * The ceiling a delimited import (a .csv/.tsv opened as a workbook) may reach,
+ * in MB. The editors take it through setDelimitedImportLimit, so the value the
+ * user picks applies to the next file they open.
+ */
+function currentCsvImportLimitMb(): number {
+  return csvImportLimitMb(readAppSettings(APP_SETTINGS_PATH()))
 }
 
 let cachedAutoSaveDefault: AutoSaveDefault | null = null
@@ -4080,6 +4096,11 @@ const deliverDeepLink = deepLinkRouter.deliver
  * created, and the tab's first save moves the fresh file there.
  * key: 'doc' | 'sheet' | 'slide' | 'markdown' | 'html' | 'pdf'
  */
+/** folders the user excluded from recents, search and session restore (#2844) */
+function excludedFolderPaths(): string[] {
+  return readExcludedFolders(readAppSettings(APP_SETTINGS_PATH()))
+}
+
 /** folders the user added to the home tree beside the default save folder */
 function extraFolderRoots(): string[] {
   return readExtraRoots(readAppSettings(APP_SETTINGS_PATH()), defaultSaveDir())
@@ -4295,6 +4316,7 @@ function ensureFileIndexer(): FileIndexer | null {
   fileIndexer = new FileIndexer(fileIndexStore, extractWorkerPath, {
     roots: () => folderRootPaths().filter((root) => existsSync(root)),
     extraPaths: () => [...readRecentFiles(), ...readStarredFiles()],
+    excludedFolders: excludedFolderPaths,
     onUpdated: broadcastIndexUpdated,
   })
   return fileIndexer
@@ -4304,7 +4326,13 @@ function ensureFileIndexer(): FileIndexer | null {
 
 /** one recursive watcher per tree root; follows the save-folder setting and the added folders */
 function ensureFolderWatchers(): void {
-  const wanted = new Set(folderRootPaths().filter((root) => existsSync(root)))
+  const excluded = excludedFolderPaths()
+  const wanted = new Set(
+    folderRootPaths().filter(
+      (root) =>
+        existsSync(root) && (excluded.length === 0 || !isUnderExcludedFolder(root, excluded)),
+    ),
+  )
   for (const [root, watcher] of folderWatchers) {
     if (wanted.has(root) && watcher.active) continue
     watcher.close()
@@ -5226,11 +5254,48 @@ function registerHomeIpc(): void {
     for (const wc of webContents.getAllWebContents()) wc.send('app:auto-save-default-changed', next)
   })
 
+  ipcMain.handle(HOME_CHANNELS.getCsvImportLimit, (): number => currentCsvImportLimitMb())
+  ipcMain.handle('app:get-csv-import-limit', (): number => currentCsvImportLimitMb())
+  ipcMain.handle(HOME_CHANNELS.setCsvImportLimit, (_event, mb: unknown) => {
+    if (typeof mb !== 'number' || !Number.isInteger(mb)) return
+    if (!CSV_IMPORT_LIMIT_CHOICES_MB.includes(mb as (typeof CSV_IMPORT_LIMIT_CHOICES_MB)[number])) {
+      return
+    }
+    if (mb === currentCsvImportLimitMb()) return
+    writeAppSettings(APP_SETTINGS_PATH(), { csvImportLimitMb: mb })
+    setDelimitedImportLimit(mb * 1024 * 1024)
+  })
+
   ipcMain.handle(HOME_CHANNELS.getTabSleepEnabled, () => tabSleepEnabled())
   ipcMain.handle(HOME_CHANNELS.setTabSleepEnabled, (_event, on: unknown) => {
     if (typeof on !== 'boolean') return
     cachedTabSleepEnabled = on
     writeAppSettings(APP_SETTINGS_PATH(), { tabSleepEnabled: on })
+  })
+
+  ipcMain.handle(HOME_CHANNELS.getExcludedFolders, () => excludedFolderPaths())
+  ipcMain.handle(HOME_CHANNELS.setExcludedFolders, (_event, paths: unknown) => {
+    const next = normalizeExcludedFolders(Array.isArray(paths) ? paths : [])
+    // the key carries the list; an empty exclusion clears it entirely
+    writeAppSettings(APP_SETTINGS_PATH(), {
+      ...(next.length > 0
+        ? { [EXCLUDED_FOLDERS_KEY]: next }
+        : { [EXCLUDED_FOLDERS_KEY]: undefined }),
+    })
+    // the surfaces re-read the list on their next pass; the watchers and the
+    // search index re-decide now
+    ensureFolderWatchers()
+    fileIndexer?.refresh()
+    return next
+  })
+  ipcMain.handle(HOME_CHANNELS.pickExcludedFolder, async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? shellWindow
+    if (!win) return null
+    // no custom title: the OS's own localized "Select Folder" wording
+    const result = await showOpenDialogWithMemory(dialog, win, {
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]!
   })
 
   ipcMain.handle(HOME_CHANNELS.getMcpStatus, () => mcpStatus())
@@ -7067,6 +7132,9 @@ export interface ShellBootHandoff {
 
 export async function bootShellCore(handoff?: ShellBootHandoff): Promise<void> {
   if (process.platform === 'win32') app.setAppUserModelId('com.genoffice.app')
+  // the editors take the ceiling before anything can be opened: the headless
+  // export opens documents too
+  setDelimitedImportLimit(currentCsvImportLimitMb() * 1024 * 1024)
   if (handoff) {
     handoff.detachEarlyListeners()
     for (const filePath of handoff.earlyOpenFiles) {

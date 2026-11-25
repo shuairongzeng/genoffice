@@ -330,6 +330,11 @@ export const vi: Dict = {
   documentTheme: 'Chủ đề trang tài liệu',
   docThemeFollowApp: 'Theo chủ đề ứng dụng',
   saveLocation: 'Vị trí lưu',
+  setExcludedFolders: 'Thư mục loại trừ',
+  setExcludedFoldersDesc:
+    'Tệp trong các thư mục này không vào danh sách gần đây, tìm kiếm và khôi phục phiên.',
+  setExcludedFoldersAdd: 'Thêm thư mục…',
+  setExcludedFoldersEmpty: 'Chưa loại trừ thư mục nào',
   setTabSleep: 'Tạm ngủ các thẻ không hoạt động',
   setTabSleepDesc:
     'Khi mở nhiều thẻ, những thẻ lâu không xem sẽ giải phóng bộ nhớ và mở lại tệp khi bạn quay lại. Thẻ có thay đổi chưa lưu hoặc đã ghim sẽ không ngủ.',
@@ -373,6 +378,7 @@ export const vi: Dict = {
   setSearchRerankCustomModel: 'ID mô hình',
   setSearchRerankAccount: 'ID tài khoản',
   setAiPanelSide: 'Vị trí thanh bên AI',
+  csvImportLimit: 'Giới hạn nhập CSV',
   aiPanelSideLeft: 'Trái',
   aiPanelSideRight: 'Phải',
   setAiFontSize: 'Cỡ chữ bảng điều khiển AI',
@@ -464,6 +470,12 @@ export const vi: Dict = {
   intgSkillVersion: 'kỹ năng {v}',
   intgStateMissing: 'Chưa cài đặt kỹ năng',
   intgStateInstalled: 'Đã cài đặt kỹ năng {v} · sẵn sàng cho cuộc trò chuyện tiếp theo của bạn',
+  intgLegacyTitle: 'Bản sao skill cũ',
+  intgLegacyDesc:
+    'Trước đây GenOffice ghi một bản sao vào thư mục riêng của từng công cụ. Còn {n} bản vẫn nằm đó: công cụ vẫn đọc chúng, nên chúng không bao giờ có bản skill hiện hành.',
+  intgLegacyClean: 'Xóa bản sao cũ',
+  intgLegacyCleaned: 'Đã xóa {n} bản sao cũ, giữ lại {k} bản đã sửa tay.',
+  intgLegacyFailed: 'Không xóa được bản sao cũ: {msg}',
   intgOtherToggle: 'Trợ lý của tôi không có trong danh sách',
   intgOtherDesc:
     'Chọn bất kỳ cách nào trong ba cách này. Tất cả đều cài đặt cùng một kỹ năng, vì vậy không cần làm nhiều hơn một cách.',
@@ -684,6 +696,7 @@ export const vi: Dict = {
   intgSkillsRead: 'Chi tiết',
   intgSkillsMine: 'Kỹ năng của tôi',
   intgSkillsRecommended: 'Đề xuất',
+  intgSkillsCatAll: 'Tất cả',
   intgSkillsCatOffice: 'Văn phòng',
   intgSkillsCatBusiness: 'Kinh doanh',
   intgSkillsCatData: 'Dữ liệu',

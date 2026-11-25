@@ -347,6 +347,11 @@ export const fr: Dict = {
   documentTheme: 'Thème de la page de document',
   docThemeFollowApp: 'Suivre le thème de l’application',
   saveLocation: "Emplacement d'enregistrement",
+  setExcludedFolders: 'Dossiers exclus',
+  setExcludedFoldersDesc:
+    'Les fichiers de ces dossiers sont exclus des récents, de la recherche et de la restauration de session.',
+  setExcludedFoldersAdd: 'Ajouter un dossier…',
+  setExcludedFoldersEmpty: 'Aucun dossier exclu',
   setTabSleep: 'Mettre en veille les onglets inactifs',
   setTabSleepDesc:
     'Lorsque de nombreux onglets sont ouverts, ceux que vous n’avez pas consultés depuis un moment libèrent leur mémoire et rouvrent leur fichier à votre retour. Les onglets avec des modifications non enregistrées ou épinglés ne sont jamais mis en veille.',
@@ -392,6 +397,7 @@ export const fr: Dict = {
   setSearchRerankCustomModel: 'ID du modèle',
   setSearchRerankAccount: 'ID du compte',
   setAiPanelSide: 'Position de la barre latérale IA',
+  csvImportLimit: "Limite d'importation CSV",
   aiPanelSideLeft: 'Gauche',
   aiPanelSideRight: 'Droite',
   setAiFontSize: 'Taille du texte du panneau IA',
@@ -483,6 +489,12 @@ export const fr: Dict = {
   intgSkillVersion: 'skill {v}',
   intgStateMissing: 'Skill non installé',
   intgStateInstalled: 'Skill {v} installé · prêt pour votre prochaine discussion',
+  intgLegacyTitle: 'Anciennes copies du skill',
+  intgLegacyDesc:
+    "GenOffice écrivait autrefois une copie dans le dossier de chaque outil. Il en reste {n} : l'outil continue de les lire, donc elles ne reçoivent jamais le skill actuel.",
+  intgLegacyClean: 'Supprimer les anciennes copies',
+  intgLegacyCleaned: '{n} anciennes copies supprimées, {k} modifiées à la main laissées en place.',
+  intgLegacyFailed: 'Impossible de supprimer les anciennes copies : {msg}',
   intgOtherToggle: "Mon assistant n'est pas dans la liste",
   intgOtherDesc:
     "Choisissez une seule de ces trois méthodes. Elles installent toutes le même skill : inutile d'en faire plusieurs.",
@@ -708,6 +720,7 @@ export const fr: Dict = {
   intgSkillsRead: 'Détails',
   intgSkillsMine: 'Mes compétences',
   intgSkillsRecommended: 'Recommandées',
+  intgSkillsCatAll: 'Tous',
   intgSkillsCatOffice: 'Bureau',
   intgSkillsCatBusiness: 'Entreprise',
   intgSkillsCatData: 'Données',

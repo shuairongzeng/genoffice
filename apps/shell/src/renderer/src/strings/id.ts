@@ -342,6 +342,11 @@ export const id: Dict = {
   documentTheme: 'Tema halaman dokumen',
   docThemeFollowApp: 'Ikuti tema aplikasi',
   saveLocation: 'Lokasi penyimpanan',
+  setExcludedFolders: 'Folder yang dikecualikan',
+  setExcludedFoldersDesc:
+    'Berkas di folder ini tidak masuk daftar terbaru, pencarian, dan pemulihan sesi.',
+  setExcludedFoldersAdd: 'Tambah folder…',
+  setExcludedFoldersEmpty: 'Belum ada folder yang dikecualikan',
   setTabSleep: 'Tidurkan tab tidak aktif',
   setTabSleepDesc:
     'Saat banyak tab terbuka, tab yang lama tidak dilihat melepaskan memorinya dan membuka kembali berkasnya saat Anda kembali. Tab dengan perubahan belum disimpan atau yang disematkan tidak pernah tidur.',
@@ -386,6 +391,7 @@ export const id: Dict = {
   setSearchRerankCustomModel: 'ID model',
   setSearchRerankAccount: 'ID akun',
   setAiPanelSide: 'Posisi bilah samping AI',
+  csvImportLimit: 'Batas impor CSV',
   aiPanelSideLeft: 'Kiri',
   aiPanelSideRight: 'Kanan',
   setAiFontSize: 'Ukuran teks panel AI',
@@ -477,6 +483,12 @@ export const id: Dict = {
   intgSkillVersion: 'skill {v}',
   intgStateMissing: 'Skill belum terpasang',
   intgStateInstalled: 'Skill {v} terpasang · siap di obrolan berikutnya',
+  intgLegacyTitle: 'Salinan skill lama',
+  intgLegacyDesc:
+    'Dulu GenOffice menulis satu salinan ke folder tiap alat. Masih ada {n} yang tertinggal: alat itu tetap membacanya, jadi tidak pernah dapat skill yang sekarang.',
+  intgLegacyClean: 'Hapus salinan lama',
+  intgLegacyCleaned: '{n} salinan lama dihapus, {k} yang diedit manual tetap dibiarkan.',
+  intgLegacyFailed: 'Gagal menghapus salinan lama: {msg}',
   intgOtherToggle: 'Asisten saya tidak ada di daftar',
   intgOtherDesc:
     'Pilih salah satu saja dari tiga cara ini. Semuanya memasang skill yang sama, jadi tidak perlu lebih dari satu.',
@@ -698,6 +710,7 @@ export const id: Dict = {
   intgSkillsRead: 'Detail',
   intgSkillsMine: 'Skill saya',
   intgSkillsRecommended: 'Disarankan',
+  intgSkillsCatAll: 'Semua',
   intgSkillsCatOffice: 'Perkantoran',
   intgSkillsCatBusiness: 'Bisnis',
   intgSkillsCatData: 'Data',

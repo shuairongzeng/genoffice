@@ -333,6 +333,11 @@ export const nl: Dict = {
   documentTheme: 'Documentpaginathema',
   docThemeFollowApp: 'App-thema volgen',
   saveLocation: 'Opslaglocatie',
+  setExcludedFolders: 'Uitgesloten mappen',
+  setExcludedFoldersDesc:
+    'Bestanden in deze mappen blijven buiten Recent, zoeken en sessieherstel.',
+  setExcludedFoldersAdd: 'Map toevoegen…',
+  setExcludedFoldersEmpty: 'Geen mappen uitgesloten',
   setTabSleep: 'Inactieve tabbladen laten slapen',
   setTabSleepDesc:
     'Als er veel tabbladen open zijn, geven tabbladen die u een tijd niet hebt bekeken hun geheugen vrij en openen ze het bestand opnieuw als u terugkeert. Tabbladen met niet-opgeslagen wijzigingen of vastgemaakte tabbladen slapen nooit.',
@@ -378,6 +383,7 @@ export const nl: Dict = {
   setSearchRerankCustomModel: 'Model-ID',
   setSearchRerankAccount: 'Account-ID',
   setAiPanelSide: 'Positie AI-zijbalk',
+  csvImportLimit: 'CSV-importlimiet',
   aiPanelSideLeft: 'Links',
   aiPanelSideRight: 'Rechts',
   setAiFontSize: 'Tekstgrootte AI-paneel',
@@ -469,6 +475,12 @@ export const nl: Dict = {
   intgSkillVersion: 'skill {v}',
   intgStateMissing: 'Skill niet geïnstalleerd',
   intgStateInstalled: 'Skill {v} geïnstalleerd · klaar in uw volgende chat',
+  intgLegacyTitle: 'Oude skillkopieën',
+  intgLegacyDesc:
+    'GenOffice schreef vroeger een kopie in de map van elke tool. Er staan er nog {n}: de tool leest ze nog, dus ze krijgen nooit de huidige skill.',
+  intgLegacyClean: 'Oude kopieën verwijderen',
+  intgLegacyCleaned: '{n} oude kopieën verwijderd, {k} met de hand bewerkte laten we staan.',
+  intgLegacyFailed: 'Kon de oude kopieën niet verwijderen: {msg}',
   intgOtherToggle: 'Mijn assistent staat er niet bij',
   intgOtherDesc:
     'Kies één van deze drie manieren. Ze installeren allemaal dezelfde skill, dus meer dan één is niet nodig.',
@@ -690,6 +702,7 @@ export const nl: Dict = {
   intgSkillsRead: 'Details',
   intgSkillsMine: 'Mijn vaardigheden',
   intgSkillsRecommended: 'Aanbevolen',
+  intgSkillsCatAll: 'Alles',
   intgSkillsCatOffice: 'Kantoor',
   intgSkillsCatBusiness: 'Zakelijk',
   intgSkillsCatData: 'Data',

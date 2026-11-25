@@ -17,7 +17,7 @@ import type { RunEvent, RunSummary } from '@genoffice/project-store'
 import type { DesktopArrangeMode } from '@genoffice/cli/control-protocol'
 import type { AiDockPrefs } from './desktop-geometry'
 import type { DockCustomItem, DockOpenState, DockPrefs } from './dock-prefs'
-import type { AiPetBondStage, AiPetId, AiPetPrefs, AiPetPrefsPatch } from './ai-pet-prefs'
+import type { AiPetPrefs, AiPetPrefsPatch } from './ai-pet-prefs'
 import type { ButlerPrefs, ButlerPrefsPatch } from './butler-prefs'
 import type {
   ButlerActionResult,
@@ -371,6 +371,16 @@ export interface AutoSaveDefault {
   on: boolean
   updatedAt: number
 }
+
+/**
+ * The ceilings a delimited import (a .csv/.tsv opened as a workbook) may
+ * reach, in megabytes. The core owns them (the gateway's csv-limits); the
+ * shell offers them as a setting.
+ */
+export {
+  CSV_IMPORT_DEFAULT_LIMIT_MB,
+  CSV_IMPORT_LIMIT_CHOICES_MB,
+} from '@genoffice/xlsx-gateway/gateway/csv-limits'
 
 /** local MCP server state (persisted in userData/app-settings.json) */
 export interface McpStatus {
@@ -1863,9 +1873,18 @@ export interface HomeApi {
   getAutoSaveDefault(): Promise<AutoSaveDefault>
   /** persist the AutoSave default; broadcasts 'app:auto-save-default-changed' to all web contents */
   setAutoSaveDefault(on: boolean): Promise<void>
+  /** the ceiling a delimited import (a .csv/.tsv opened as a workbook) may reach, in MB */
+  getCsvImportLimit(): Promise<number>
+  /** persist that ceiling; the editors take it at once */
+  setCsvImportLimit(mb: number): Promise<void>
   /** whether long-idle background tabs release their renderer once many are open (default on) */
   getTabSleepEnabled(): Promise<boolean>
   setTabSleepEnabled(on: boolean): Promise<void>
+  /** folders excluded from recents, search and session restore (#2844) */
+  getExcludedFolders(): Promise<string[]>
+  setExcludedFolders(paths: string[]): Promise<string[]>
+  /** a directory picker for the exclusion editor; no side effects */
+  pickExcludedFolder(): Promise<string | null>
   /** current local MCP server state (running/enabled/port/url) */
   getMcpStatus(): Promise<McpStatus>
   /** enable/disable the MCP server and/or change its port/background/logging; applies and persists, returns the new state */
@@ -2586,8 +2605,13 @@ export const HOME_CHANNELS = {
   setDocumentTheme: 'home:set-document-theme',
   getAutoSaveDefault: 'home:get-auto-save-default',
   setAutoSaveDefault: 'home:set-auto-save-default',
+  getCsvImportLimit: 'home:get-csv-import-limit',
+  setCsvImportLimit: 'home:set-csv-import-limit',
   getTabSleepEnabled: 'home:get-tab-sleep-enabled',
   setTabSleepEnabled: 'home:set-tab-sleep-enabled',
+  getExcludedFolders: 'home:get-excluded-folders',
+  setExcludedFolders: 'home:set-excluded-folders',
+  pickExcludedFolder: 'home:pick-excluded-folder',
   getMcpStatus: 'home:get-mcp-status',
   setMcpSettings: 'home:set-mcp-settings',
   getMcpLogs: 'home:get-mcp-logs',

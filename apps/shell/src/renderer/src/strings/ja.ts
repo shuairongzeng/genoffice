@@ -341,6 +341,11 @@ export const ja: Dict = {
   documentTheme: 'ドキュメントページのテーマ',
   docThemeFollowApp: 'アプリのテーマに従う',
   saveLocation: '保存先',
+  setExcludedFolders: '除外フォルダー',
+  setExcludedFoldersDesc:
+    'これらのフォルダー内のファイルは、最近使った項目・検索・セッション復元の対象外になります。',
+  setExcludedFoldersAdd: 'フォルダーを追加…',
+  setExcludedFoldersEmpty: '除外されたフォルダーはありません',
   setTabSleep: '非アクティブなタブをスリープ',
   setTabSleepDesc:
     '多くのタブを開いているとき、しばらく見ていないタブはメモリを解放し、戻ったときにファイルを再度開きます。未保存の変更があるタブやピン留めしたタブはスリープしません。',
@@ -386,6 +391,7 @@ export const ja: Dict = {
   setSearchRerankCustomModel: 'モデル ID',
   setSearchRerankAccount: 'アカウント ID',
   setAiPanelSide: 'AI サイドバーの位置',
+  csvImportLimit: 'CSV インポートの上限',
   aiPanelSideLeft: '左側',
   aiPanelSideRight: '右側',
   setAiFontSize: 'AI パネルの文字サイズ',
@@ -476,6 +482,12 @@ export const ja: Dict = {
   intgSkillVersion: 'スキル {v}',
   intgStateMissing: 'スキル未インストール',
   intgStateInstalled: 'スキル {v} をインストール済み · 次のチャットから使えます',
+  intgLegacyTitle: '古い skill のコピー',
+  intgLegacyDesc:
+    'GenOffice はかつて各ツールのフォルダーごとにコピーを書き込んでいました。まだ {n} 個残っています:ツールはそれらを読み続けるため、現在の skill に更新されません。',
+  intgLegacyClean: '古いコピーを削除',
+  intgLegacyCleaned: '古いコピーを {n} 個削除しました。手動で編集した {k} 個はそのまま残しました。',
+  intgLegacyFailed: '古いコピーを削除できませんでした: {msg}',
   intgOtherToggle: '使っているアシスタントが一覧にない',
   intgOtherDesc:
     '次の 3 つの方法からどれか 1 つを選んでください。どれも同じスキルをインストールするので、複数行う必要はありません。',
@@ -698,6 +710,7 @@ export const ja: Dict = {
   intgSkillsRead: '詳細',
   intgSkillsMine: 'マイスキル',
   intgSkillsRecommended: 'おすすめ',
+  intgSkillsCatAll: 'すべて',
   intgSkillsCatOffice: 'オフィス',
   intgSkillsCatBusiness: 'ビジネス',
   intgSkillsCatData: 'データ',

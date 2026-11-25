@@ -29,7 +29,6 @@ import type {
   FolderRoot,
   SystemDirListing,
   SystemDrivesSnapshot,
-  SystemSearchOpts,
   SystemSearchResult,
   SystemPreviewResult,
   MoveResult,
@@ -38,7 +37,6 @@ import type {
   HomeApi,
   HomeTabEntry,
   HomeTabsState,
-  MediaFolderEntry,
   MediaInfo,
   MediaPlayerStateSnapshot,
   MediaSavePrefsPatch,
@@ -136,6 +134,7 @@ import {
 import type {
   IntegrationsApi,
   IntegrationsStatus,
+  LegacySweepResult,
   SkillInstallState,
 } from '../shared/integrations-api'
 import type {
@@ -1479,9 +1478,31 @@ const homeApi: HomeApi = {
     if (typeof on !== 'boolean') throw new Error('Invalid tab sleep setting.')
     await ipcRenderer.invoke(HOME_CHANNELS.setTabSleepEnabled, on)
   },
+  async getExcludedFolders() {
+    const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.getExcludedFolders)
+    return Array.isArray(result) ? (result as string[]) : []
+  },
+  async setExcludedFolders(paths) {
+    if (!Array.isArray(paths)) throw new Error('Invalid excluded folders list.')
+    const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.setExcludedFolders, paths)
+    return Array.isArray(result) ? (result as string[]) : []
+  },
+  async pickExcludedFolder() {
+    const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.pickExcludedFolder)
+    return typeof result === 'string' ? result : null
+  },
   async setAutoSaveDefault(on) {
     if (typeof on !== 'boolean') throw new Error('Invalid AutoSave default.')
     await ipcRenderer.invoke(HOME_CHANNELS.setAutoSaveDefault, on)
+  },
+  async getCsvImportLimit() {
+    const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.getCsvImportLimit)
+    return typeof result === 'number' ? result : 0
+  },
+  async setCsvImportLimit(mb) {
+    if (typeof mb !== 'number' || !Number.isInteger(mb))
+      throw new Error('Invalid CSV import limit.')
+    await ipcRenderer.invoke(HOME_CHANNELS.setCsvImportLimit, mb)
   },
   async getMcpStatus() {
     const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.getMcpStatus)
@@ -2059,6 +2080,11 @@ const integrationsApi: IntegrationsApi = {
       INTEGRATIONS_CHANNELS.uninstallSkill,
       agentId,
     )) as SkillInstallState
+  },
+  async sweepLegacySkillCopies() {
+    return (await ipcRenderer.invoke(
+      INTEGRATIONS_CHANNELS.sweepLegacySkillCopies,
+    )) as LegacySweepResult
   },
   async pickSkillDir(title) {
     const r: unknown = await ipcRenderer.invoke(INTEGRATIONS_CHANNELS.pickSkillDir, title)

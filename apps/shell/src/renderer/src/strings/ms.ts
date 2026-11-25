@@ -334,6 +334,11 @@ export const ms: Dict = {
   documentTheme: 'Tema halaman dokumen',
   docThemeFollowApp: 'Ikut tema aplikasi',
   saveLocation: 'Lokasi simpanan',
+  setExcludedFolders: 'Folder dikecualikan',
+  setExcludedFoldersDesc:
+    'Fail dalam folder ini tidak masuk senarai terkini, carian dan pemulihan sesi.',
+  setExcludedFoldersAdd: 'Tambah folder…',
+  setExcludedFoldersEmpty: 'Tiada folder dikecualikan',
   setTabSleep: 'Tidurkan tab tidak aktif',
   setTabSleepDesc:
     'Apabila banyak tab dibuka, tab yang lama tidak dilihat melepaskan memorinya dan membuka semula failnya apabila anda kembali. Tab dengan perubahan belum disimpan atau yang disemat tidak akan tidur.',
@@ -379,6 +384,7 @@ export const ms: Dict = {
   setSearchRerankCustomModel: 'ID model',
   setSearchRerankAccount: 'ID akaun',
   setAiPanelSide: 'Kedudukan bar sisi AI',
+  csvImportLimit: 'Had import CSV',
   aiPanelSideLeft: 'Kiri',
   aiPanelSideRight: 'Kanan',
   setAiFontSize: 'Saiz teks panel AI',
@@ -470,6 +476,12 @@ export const ms: Dict = {
   intgSkillVersion: 'skill {v}',
   intgStateMissing: 'Skill belum dipasang',
   intgStateInstalled: 'Skill {v} dipasang · sedia dalam sembang seterusnya',
+  intgLegacyTitle: 'Salinan skill lama',
+  intgLegacyDesc:
+    'GenOffice dahulu menulis salinan ke dalam folder setiap alatan. Masih ada {n} di sana: alatan itu masih membacanya, jadi ia tidak pernah menerima skill semasa.',
+  intgLegacyClean: 'Buang salinan lama',
+  intgLegacyCleaned: '{n} salinan lama dibuang, {k} yang disunting secara manual dikekalkan.',
+  intgLegacyFailed: 'Gagal membuang salinan lama: {msg}',
   intgOtherToggle: 'Pembantu saya tiada dalam senarai',
   intgOtherDesc:
     'Pilih satu sahaja daripada tiga cara ini. Semuanya memasang skill yang sama, jadi tidak perlu lebih daripada satu.',
@@ -692,6 +704,7 @@ export const ms: Dict = {
   intgSkillsRead: 'Detail',
   intgSkillsMine: 'Kemahiran saya',
   intgSkillsRecommended: 'Disyorkan',
+  intgSkillsCatAll: 'Semua',
   intgSkillsCatOffice: 'Pejabat',
   intgSkillsCatBusiness: 'Perniagaan',
   intgSkillsCatData: 'Data',

@@ -10,7 +10,12 @@ import {
 } from '@genoffice/ui'
 import type { AiFontSize, AiPanelPrefs, AiPanelSide } from '@genoffice/ui'
 import type { DecisionEndpoint, DefaultAppStatus, FileSearchSettings } from '../../shared/home-api'
-import { AUTHOR_NAME_MAX, isCloudflareEndpoint } from '../../shared/home-api'
+import {
+  AUTHOR_NAME_MAX,
+  CSV_IMPORT_DEFAULT_LIMIT_MB,
+  CSV_IMPORT_LIMIT_CHOICES_MB,
+  isCloudflareEndpoint,
+} from '../../shared/home-api'
 import {
   DOCK_BASE_MAX,
   DOCK_BASE_MIN,
@@ -2095,11 +2100,13 @@ export function SettingsModal({
   }, [dockScaleDraft, commitDockPrefs])
   const [theme, setTheme] = useState<UiTheme>('system')
   const [docTheme, setDocTheme] = useState<DocTheme>('follow')
+  const [csvLimitMb, setCsvLimitMb] = useState(CSV_IMPORT_DEFAULT_LIMIT_MB)
   const [saveDir, setSaveDir] = useState('')
   const [analyticsOn, setAnalyticsOn] = useState(true)
   const [analyticsSaving, setAnalyticsSaving] = useState(false)
   const [autoSaveOn, setAutoSaveOn] = useState(false)
   const [tabSleepOn, setTabSleepOn] = useState(true)
+  const [excludedFolders, setExcludedFoldersList] = useState<string[]>([])
   const [defaultApp, setDefaultApp] = useState<DefaultAppStatus | null>(null)
   const [defaultAppBusy, setDefaultAppBusy] = useState(false)
   const [defaultAppFailed, setDefaultAppFailed] = useState(false)
@@ -2134,6 +2141,12 @@ export function SettingsModal({
     })
     void window.aiOffice.getTabSleepEnabled?.().then((on) => {
       if (alive) setTabSleepOn(on)
+    })
+    void window.aiOffice.getCsvImportLimit?.().then((mb) => {
+      if (alive && mb > 0) setCsvLimitMb(mb)
+    })
+    void window.aiOffice.getExcludedFolders?.().then((list) => {
+      if (alive) setExcludedFoldersList(list ?? [])
     })
     void window.aiOffice.getDefaultAppStatus?.().then((st) => {
       if (alive) setDefaultApp(st)
@@ -2211,6 +2224,20 @@ export function SettingsModal({
   const applyDocumentTheme = (next: DocTheme) => {
     setDocTheme(next)
     void window.aiOffice.setDocumentTheme(next)
+  }
+
+  const addExcludedFolder = async (): Promise<void> => {
+    const picked = await window.aiOffice.pickExcludedFolder?.()
+    if (!picked) return
+    const next = await window.aiOffice.setExcludedFolders?.([...excludedFolders, picked])
+    setExcludedFoldersList(next ?? [])
+  }
+
+  const removeExcludedFolder = async (folder: string): Promise<void> => {
+    const next = await window.aiOffice.setExcludedFolders?.(
+      excludedFolders.filter((p) => p !== folder),
+    )
+    setExcludedFoldersList(next ?? [])
   }
 
   const commitAuthorName = () => {
@@ -2409,6 +2436,26 @@ export function SettingsModal({
                 </div>
                 <div className="set-field">
                   <div className="set-field-text">
+                    <label className="set-field-label">{t('csvImportLimit')}</label>
+                  </div>
+                  <Dropdown
+                    className="set-dd"
+                    value={String(csvLimitMb)}
+                    ariaLabel={t('csvImportLimit')}
+                    options={CSV_IMPORT_LIMIT_CHOICES_MB.map((mb) => ({
+                      value: String(mb),
+                      label: `${mb} MB`,
+                    }))}
+                    onPick={(v) => {
+                      const mb = Number(v)
+                      if (!Number.isInteger(mb)) return
+                      setCsvLimitMb(mb)
+                      void window.aiOffice.setCsvImportLimit?.(mb)
+                    }}
+                  />
+                </div>
+                <div className="set-field">
+                  <div className="set-field-text">
                     <label className="set-field-label">{t('setAiPanelSide')}</label>
                   </div>
                   <Dropdown
@@ -2570,6 +2617,39 @@ export function SettingsModal({
                     }}
                   />
                 </div>
+                <div className="set-field">
+                  <div className="set-field-text">
+                    <div className="set-field-stack">
+                      <div className="set-field-label">{t('setExcludedFolders')}</div>
+                      <div className="set-field-desc">{t('setExcludedFoldersDesc')}</div>
+                    </div>
+                  </div>
+                  <button className="set-btn" onClick={() => void addExcludedFolder()}>
+                    {t('setExcludedFoldersAdd')}
+                  </button>
+                </div>
+                {excludedFolders.length === 0 ? (
+                  <div className="set-field-desc">{t('setExcludedFoldersEmpty')}</div>
+                ) : (
+                  excludedFolders.map((folder) => (
+                    <div key={folder} className="set-field">
+                      <div className="set-field-text">
+                        <div className="set-field-stack">
+                          <div className="set-field-label" title={folder}>
+                            {folder}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        className="set-btn"
+                        aria-label={t('setKbScopeFolderRemove')}
+                        onClick={() => void removeExcludedFolder(folder)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))
+                )}
                 <div className="set-field">
                   <div className="set-field-text">
                     <div className="set-field-stack">

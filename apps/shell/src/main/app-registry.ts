@@ -583,6 +583,7 @@ export {
   stopSheetsSidecar,
   unmarkSheetsUnsavedNew,
 } from '../../../sheets/src/main/sheets-main'
+export { setDelimitedImportLimit } from '../../../sheets/src/main/csv-import-limit'
 
 export {
   configureSlidesRuntime,

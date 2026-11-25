@@ -339,6 +339,11 @@ export const ru: Dict = {
   documentTheme: 'Тема страницы документа',
   docThemeFollowApp: 'Как в теме приложения',
   saveLocation: 'Папка сохранения',
+  setExcludedFolders: 'Исключённые папки',
+  setExcludedFoldersDesc:
+    'Файлы в этих папках не попадают в недавние, поиск и восстановление сеанса.',
+  setExcludedFoldersAdd: 'Добавить папку…',
+  setExcludedFoldersEmpty: 'Нет исключённых папок',
   setTabSleep: 'Усыплять неактивные вкладки',
   setTabSleepDesc:
     'Когда открыто много вкладок, давно не просматриваемые освобождают память и заново открывают файл при возврате. Вкладки с несохранёнными изменениями и закреплённые не усыпляются.',
@@ -383,6 +388,7 @@ export const ru: Dict = {
   setSearchRerankCustomModel: 'ID модели',
   setSearchRerankAccount: 'ID аккаунта',
   setAiPanelSide: 'Положение боковой панели ИИ',
+  csvImportLimit: 'Ограничение импорта CSV',
   aiPanelSideLeft: 'Слева',
   aiPanelSideRight: 'Справа',
   setAiFontSize: 'Размер текста панели ИИ',
@@ -473,6 +479,12 @@ export const ru: Dict = {
   intgSkillVersion: 'скилл {v}',
   intgStateMissing: 'Скилл не установлен',
   intgStateInstalled: 'Скилл {v} установлен · готов к следующему чату',
+  intgLegacyTitle: 'Старые копии skill',
+  intgLegacyDesc:
+    'Раньше GenOffice записывал копию в папку каждого инструмента. Их ещё осталось {n}: инструмент продолжает их читать, поэтому они никогда не получают текущий skill.',
+  intgLegacyClean: 'Удалить старые копии',
+  intgLegacyCleaned: 'Удалено старых копий: {n}; отредактированных вручную оставлено: {k}.',
+  intgLegacyFailed: 'Не удалось удалить старые копии: {msg}',
   intgOtherToggle: 'Моего ассистента нет в списке',
   intgOtherDesc:
     'Выберите только один из трёх способов. Все они устанавливают один и тот же скилл, повторять не нужно.',
@@ -691,6 +703,7 @@ export const ru: Dict = {
   intgSkillsRead: 'Подробнее',
   intgSkillsMine: 'Мои навыки',
   intgSkillsRecommended: 'Рекомендуемые',
+  intgSkillsCatAll: 'Все',
   intgSkillsCatOffice: 'Офис',
   intgSkillsCatBusiness: 'Бизнес',
   intgSkillsCatData: 'Данные',

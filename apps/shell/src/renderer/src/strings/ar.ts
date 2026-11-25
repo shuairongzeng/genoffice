@@ -336,6 +336,11 @@ export const ar: Dict = {
   documentTheme: 'سمة صفحة المستند',
   docThemeFollowApp: 'اتباع سمة التطبيق',
   saveLocation: 'موقع الحفظ',
+  setExcludedFolders: 'مجلدات مستبعدة',
+  setExcludedFoldersDesc:
+    'الملفات في هذه المجلدات لا تظهر في الأخيرة ولا في البحث ولا في استعادة الجلسة.',
+  setExcludedFoldersAdd: 'إضافة مجلد…',
+  setExcludedFoldersEmpty: 'لا توجد مجلدات مستبعدة',
   setTabSleep: 'إسبات علامات التبويب غير النشطة',
   setTabSleepDesc:
     'عند فتح علامات تبويب كثيرة، تحرّر التي لم تطّلع عليها منذ فترة ذاكرتها وتعيد فتح ملفها عند عودتك. علامات التبويب ذات التغييرات غير المحفوظة أو المثبّتة لا تُسبَت أبدًا.',
@@ -379,6 +384,7 @@ export const ar: Dict = {
   setSearchRerankCustomModel: 'معرّف النموذج',
   setSearchRerankAccount: 'معرّف الحساب',
   setAiPanelSide: 'موضع الشريط الجانبي للذكاء الاصطناعي',
+  csvImportLimit: 'حد استيراد CSV',
   aiPanelSideLeft: 'اليسار',
   aiPanelSideRight: 'اليمين',
   setAiFontSize: 'حجم نص لوحة الذكاء الاصطناعي',
@@ -467,6 +473,12 @@ export const ar: Dict = {
   intgSkillVersion: 'المهارة {v}',
   intgStateMissing: 'المهارة غير مثبّتة',
   intgStateInstalled: 'المهارة {v} مثبّتة · جاهزة في محادثتك التالية',
+  intgLegacyTitle: 'نسخ skill القديمة',
+  intgLegacyDesc:
+    'كان GenOffice يكتب نسخة في مجلد كل أداة. ما زالت هناك {n}: الأداة ما زالت تقرأها، فلا تصل إليها نسخة skill الحالية أبدًا.',
+  intgLegacyClean: 'إزالة النسخ القديمة',
+  intgLegacyCleaned: 'أُزيلت {n} نسخة قديمة، وأُبقيت {k} نسخة عدّلها المستخدم يدويًا.',
+  intgLegacyFailed: 'تعذّرت إزالة النسخ القديمة: {msg}',
   intgOtherToggle: 'مساعدي غير موجود في القائمة',
   intgOtherDesc:
     'اختر طريقة واحدة فقط من هذه الطرق الثلاث. جميعها تثبّت المهارة نفسها، فلا حاجة لأكثر من واحدة.',
@@ -683,6 +695,7 @@ export const ar: Dict = {
   intgSkillsRead: 'التفاصيل',
   intgSkillsMine: 'مهاراتي',
   intgSkillsRecommended: 'موصى بها',
+  intgSkillsCatAll: 'الكل',
   intgSkillsCatOffice: 'مكتب',
   intgSkillsCatBusiness: 'أعمال',
   intgSkillsCatData: 'بيانات',
